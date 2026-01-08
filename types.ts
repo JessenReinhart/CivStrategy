@@ -1,3 +1,4 @@
+
 export enum FactionType {
   ROMANS = 'Romans',
   GAULS = 'Gauls',
@@ -21,6 +22,7 @@ export interface GameStats {
   maxPopulation: number;
   happiness: number;
   resources: Resources;
+  taxRate: number; // 0 = None, 1 = Low, ... 5 = Cruel
 }
 
 export interface BuildingCost {
@@ -35,7 +37,9 @@ export enum BuildingType {
   BARRACKS = 'Barracks',
   FARM = 'Farm',
   LUMBER_CAMP = 'Lumber Camp',
-  HUNTERS_LODGE = 'Hunter\'s Lodge'
+  HUNTERS_LODGE = 'Hunter\'s Lodge',
+  BONFIRE = 'Bonfire',
+  SMALL_PARK = 'Small Park'
 }
 
 export interface BuildingDef {
@@ -63,7 +67,7 @@ export enum UnitState {
   IDLE = 'idle',
   MOVING_TO_WORK = 'moving_to_work',
   WORKING = 'working',
-  MOVING_TO_RALLY = 'moving_to_rally',
+  MOVING_TO_RALLY = 'moving_to_rally', // Moving to Bonfire
   WANDERING = 'wandering'
 }
 
