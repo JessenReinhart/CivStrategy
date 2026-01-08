@@ -40,21 +40,8 @@ export class InfiniteMapSystem {
         const startX = cx * CHUNK_SIZE;
         const startY = cy * CHUNK_SIZE;
 
-        const gfx = this.scene.add.graphics();
-        gfx.fillStyle(0x2d6a4f, 1);
-        const p1 = toIso(startX, startY);
-        const p2 = toIso(startX + CHUNK_SIZE, startY);
-        const p3 = toIso(startX + CHUNK_SIZE, startY + CHUNK_SIZE);
-        const p4 = toIso(startX, startY + CHUNK_SIZE);
-        
-        gfx.beginPath();
-        gfx.moveTo(p1.x, p1.y);
-        gfx.lineTo(p2.x, p2.y);
-        gfx.lineTo(p3.x, p3.y);
-        gfx.lineTo(p4.x, p4.y);
-        gfx.closePath();
-        gfx.fillPath();
-        gfx.setDepth(-10000);
+        // Note: Ground background is now handled by the main camera TileSprite in MainScene.
+        // We only need to spawn objects here.
 
         const seed = cx * 1000 + cy;
         const rng = new Phaser.Math.RandomDataGenerator([seed.toString()]);

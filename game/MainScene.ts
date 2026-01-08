@@ -39,6 +39,9 @@ export class MainScene extends Phaser.Scene {
   public trees: Phaser.GameObjects.Group;
   public fertileZones: Phaser.Geom.Circle[] = [];
 
+  // Ground Layer
+  private groundLayer: Phaser.GameObjects.TileSprite;
+
   // Systems
   public pathfinder: Pathfinder;
   public entityFactory: EntityFactory;
@@ -61,6 +64,16 @@ export class MainScene extends Phaser.Scene {
 
   constructor() {
     super('MainScene');
+  }
+
+  preload() {
+    // Ground Texture
+    this.load.image('ground', 'https://i.imgur.com/4P6C0Q3.jpeg');
+
+    this.load.image('lumber', 'https://i.imgur.com/SyKc69J.png');
+    this.load.image('townhall', 'https://i.imgur.com/kMBtb9W.png');
+    this.load.image('field', 'https://i.imgur.com/uPjycje.png');
+    this.load.image('flare', 'https://labs.phaser.io/assets/particles/flare.png');
   }
 
   init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean }) {
@@ -95,6 +108,13 @@ export class MainScene extends Phaser.Scene {
     // Core Systems First
     this.pathfinder = new Pathfinder();
     this.entityFactory = new EntityFactory(this);
+
+    // Initialize Infinite Scrolling Ground
+    // We place it in world space (default scrollFactor) so it scales with zoom naturally.
+    // In update(), we will resize and reposition it to always cover the visible camera area.
+    this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
+    this.groundLayer.setOrigin(0, 0);
+    this.groundLayer.setDepth(-20000);
     
     // Groups
     this.units = this.add.group({ runChildUpdate: true });
@@ -185,8 +205,26 @@ export class MainScene extends Phaser.Scene {
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
 
-    // Input Manager handles Camera, which should remain responsive (Real Time)
+    // Input Manager handles Camera movement
     this.inputManager.update(delta);
+
+    // Sync Ground Layer with Camera
+    // We calculate the exact world bounds visible to the camera
+    const cam = this.cameras.main;
+    const topLeft = cam.getWorldPoint(0, 0);
+    const bottomRight = cam.getWorldPoint(cam.width, cam.height);
+    
+    const width = bottomRight.x - topLeft.x;
+    const height = bottomRight.y - topLeft.y;
+    
+    // Position the tile sprite to cover the visible world area
+    this.groundLayer.setPosition(topLeft.x, topLeft.y);
+    this.groundLayer.setSize(width, height);
+    
+    // Sync the texture offset to match world coordinates
+    // This locks the texture to the world grid, preventing "sliding"
+    this.groundLayer.tilePositionX = topLeft.x;
+    this.groundLayer.tilePositionY = topLeft.y;
     
     // Unit Logic uses Game Time
     this.unitSystem.update(this.gameTime, dt);
@@ -221,39 +259,42 @@ export class MainScene extends Phaser.Scene {
   }
 
   createEnvironment() {
-    const graphics = this.add.graphics();
-    graphics.fillStyle(0x1a4731, 1); // Dark Grass
-    
-    // Draw map background
-    const p1 = toIso(0, 0);
-    const p2 = toIso(this.mapWidth, 0);
-    const p3 = toIso(this.mapWidth, this.mapHeight);
-    const p4 = toIso(0, this.mapHeight);
+    // Draw Map Bounds
+    const p1 = toIso(0, 0); // Top
+    const p2 = toIso(this.mapWidth, 0); // Right
+    const p3 = toIso(this.mapWidth, this.mapHeight); // Bottom
+    const p4 = toIso(0, this.mapHeight); // Left
 
-    graphics.beginPath();
-    graphics.moveTo(p1.x, p1.y);
-    graphics.lineTo(p2.x, p2.y);
-    graphics.lineTo(p3.x, p3.y);
-    graphics.lineTo(p4.x, p4.y);
-    graphics.closePath();
-    graphics.fillPath();
-    graphics.setDepth(-10000);
+    const border = this.add.graphics();
+    border.lineStyle(8, 0x000000, 0.4);
+    border.beginPath();
+    border.moveTo(p1.x, p1.y);
+    border.lineTo(p2.x, p2.y);
+    border.lineTo(p3.x, p3.y);
+    border.lineTo(p4.x, p4.y);
+    border.closePath();
+    border.strokePath();
+    border.setDepth(-19000);
+
+    // Draw Grid Lines (Subtle)
+    const grid = this.add.graphics();
+    grid.lineStyle(2, 0x000000, 0.15); 
+    const gridSpacing = TILE_SIZE * 4; 
     
-    // Draw Grid
-    graphics.lineStyle(1, 0x000000, 0.1);
-    for (let x = 0; x <= this.mapWidth; x += TILE_SIZE) {
+    for (let x = 0; x <= this.mapWidth; x += gridSpacing) {
         const start = toIso(x, 0);
         const end = toIso(x, this.mapHeight);
-        graphics.moveTo(start.x, start.y);
-        graphics.lineTo(end.x, end.y);
+        grid.moveTo(start.x, start.y);
+        grid.lineTo(end.x, end.y);
     }
-    for (let y = 0; y <= this.mapHeight; y += TILE_SIZE) {
+    for (let y = 0; y <= this.mapHeight; y += gridSpacing) {
         const start = toIso(0, y);
         const end = toIso(this.mapWidth, y);
-        graphics.moveTo(start.x, start.y);
-        graphics.lineTo(end.x, end.y);
+        grid.moveTo(start.x, start.y);
+        grid.lineTo(end.x, end.y);
     }
-    graphics.strokePath();
+    grid.strokePath();
+    grid.setDepth(-9999);
   }
 
   handleSoldierSpawnRequest() {
@@ -333,9 +374,6 @@ export class MainScene extends Phaser.Scene {
   }
 
   generateFertileZones() {
-    const graphics = this.add.graphics();
-    graphics.setDepth(-9500); 
-    
     // Scale zone count with map size
     const zoneCount = Math.floor((this.mapWidth * this.mapHeight) / (500 * 500)); 
 
@@ -345,6 +383,10 @@ export class MainScene extends Phaser.Scene {
         const radius = Phaser.Math.Between(100, 180);
         this.fertileZones.push(new Phaser.Geom.Circle(x, y, radius));
         const iso = toIso(x, y);
+
+        // Fallback to Graphics (No Texture)
+        const graphics = this.add.graphics();
+        graphics.setDepth(-9500); 
         graphics.fillStyle(0x3e2723, 0.4); 
         graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
     }
