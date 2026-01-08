@@ -14,17 +14,13 @@ export class EconomySystem {
     }
 
     public tickPopulation() {
-        // Requirement: Population won't grow on low happiness.
-        // Existing logic: checks happiness > 50.
         if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
-            // Spawn from Houses preferentially
             const houses = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.HOUSE) as Phaser.GameObjects.Rectangle[];
             
             let spawnSource = null;
             if (houses.length > 0) {
                 spawnSource = houses[Phaser.Math.Between(0, houses.length - 1)];
             } else {
-                 // Fallback to Town Center
                  const townCenters = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle[];
                  if (townCenters.length > 0) spawnSource = townCenters[0];
             }
@@ -42,7 +38,6 @@ export class EconomySystem {
     }
 
     public assignJobs() {
-        // 1. Assign Jobs
         const vacantBuildings = this.scene.buildings.getChildren().filter((b: any) => {
             const def = b.getData('def') as BuildingDef;
             const assignedWorker = b.getData('assignedWorker');
@@ -57,7 +52,6 @@ export class EconomySystem {
             if (idleVillagers.length === 0) break;
   
             const b = building as any;
-            
             let closestWorker = null;
             let minDist = Number.MAX_VALUE;
             let workerIndex = -1;
@@ -86,20 +80,16 @@ export class EconomySystem {
             }
         }
   
-        // 2. Send remaining Idle to Bonfire (Rally Point)
         const remainingIdle = this.scene.units.getChildren().filter((u: any) => {
           return u.unitType === UnitType.VILLAGER && u.state === UnitState.IDLE && !u.jobBuilding;
         });
   
         if (remainingIdle.length > 0) {
           const bonfires = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
-          
           if (bonfires.length > 0) {
                remainingIdle.forEach((u: any) => {
-                   // Find nearest bonfire for this specific unit
                    let closestBonfire = bonfires[0];
                    let minDistance = Number.MAX_VALUE;
-
                    for (const bonfire of bonfires) {
                        const d = Phaser.Math.Distance.Between(u.x, u.y, bonfire.x, bonfire.y);
                        if (d < minDistance) {
@@ -107,17 +97,13 @@ export class EconomySystem {
                            closestBonfire = bonfire;
                        }
                    }
-
                    const rallyPoint = closestBonfire;
-
-                   if (minDistance > 100) { // Only move if far away
+                   if (minDistance > 100) {
                        u.state = UnitState.MOVING_TO_RALLY;
-                       // Add some randomness to destination around fire
                        const angle = Math.random() * Math.PI * 2;
                        const r = Math.random() * 60 + 40;
                        const destX = rallyPoint.x + Math.cos(angle) * r;
                        const destY = rallyPoint.y + Math.sin(angle) * r;
-
                        const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(u.x, u.y), new Phaser.Math.Vector2(destX, destY));
                        if (path) {
                            u.path = path;
@@ -130,20 +116,13 @@ export class EconomySystem {
     }
 
     public tickEconomy() {
-        // --- EFFICIENCY LOGIC ---
-        // If happiness < 50, 50% efficiency on ALL gatherings.
         const isLowHappiness = this.scene.happiness < 50;
         const efficiency = isLowHappiness ? 0.5 : 1.0;
-
         const taxGoldPerPop = this.scene.taxRate; 
         
         let foodGen = 0;
         let woodGen = 0;
-        
-        // Apply efficiency to Tax Income
         let goldGen = Math.floor((this.scene.population * taxGoldPerPop) * efficiency); 
-
-        // Track harvested trees to prevent double counting
         const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
 
         this.scene.buildings.getChildren().forEach((b: any) => {
@@ -167,7 +146,6 @@ export class EconomySystem {
             }
     
             if (def.type === BuildingType.TOWN_CENTER) {
-                // Apply efficiency to passive gold
                 goldGen += Math.floor(2 * efficiency); 
                 isWorking = true;
             }
@@ -177,28 +155,20 @@ export class EconomySystem {
                     let gain = 5;
                     const isFertile = this.scene.fertileZones.some(zone => zone.contains(b.x, b.y));
                     if (isFertile) gain = Math.floor(gain * 1.5);
-
-                    // Apply Efficiency
                     gain = Math.floor(gain * efficiency);
-
                     foodGen += gain;
                     productionAmount = gain;
                     productionType = 'Food';
                 }
                 
-                // Lumber Camp
                 if (def.type === BuildingType.LUMBER_CAMP && def.effectRadius) {
                     let treesNearby = 0;
                     this.scene.trees.getChildren().forEach((t: any) => {
                         if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < def.effectRadius!) {
                             const isChopped = t.getData('isChopped');
-                            
-                            // Check if tree is available and not already claimed this tick
                             if (!isChopped && !harvestedTrees.has(t)) {
                                 treesNearby++;
                                 harvestedTrees.add(t);
-                                
-                                // Depletion Logic: 10% chance to chop down tree per tick
                                 if (Math.random() < 0.1) {
                                     this.scene.entityFactory.updateTreeVisual(t, true);
                                     this.scene.showFloatingText(t.x, t.y, "Chopped!", "#a0522d");
@@ -206,13 +176,9 @@ export class EconomySystem {
                             }
                         }
                     });
-
                     if (noResIcon) noResIcon.visible = (treesNearby === 0);
-                    
                     let gain = Math.min(treesNearby * 2, 12);
-                    // Apply Efficiency
                     gain = Math.floor(gain * efficiency);
-
                     woodGen += gain;
                     if (gain > 0) {
                         productionAmount = gain;
@@ -220,25 +186,18 @@ export class EconomySystem {
                     }
                 }
 
-                // Hunter's Lodge
                 if (def.type === BuildingType.HUNTERS_LODGE && def.effectRadius) {
                     let animals = this.scene.units.getChildren().filter((u: any) => {
                         return u.unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between(b.x, b.y, u.x, u.y) < def.effectRadius!;
                     });
-                    
                     const animalsNearby = animals.length;
-
                     if (noResIcon) noResIcon.visible = (animalsNearby === 0);
-
                     if (animalsNearby > 0) {
                         let gain = 20; 
-                        // Apply Efficiency
                         gain = Math.floor(gain * efficiency);
-
                         foodGen += gain;
                         productionAmount = gain;
                         productionType = 'Food';
-
                         if (Math.random() < 0.20) {
                             const victim = animals[Phaser.Math.Between(0, animalsNearby - 1)];
                             const victimVisual = (victim as any).visual;
@@ -249,69 +208,36 @@ export class EconomySystem {
                     }
                 }
             }
-
             if (productionAmount > 0) {
                 this.scene.showFloatingResource(b.x, b.y, productionAmount, productionType);
             }
         });
         
-        // Apply Tax Gold Floating Text
         if (goldGen > 0) {
              const tcs = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle[];
              if (tcs.length > 0) {
                  this.scene.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
              }
         }
-    
         const foodConsumed = this.scene.population * 1;
-        
-        this.lastRates = {
-            wood: woodGen,
-            food: foodGen,
-            gold: goldGen,
-            foodConsumption: foodConsumed
-        };
-
+        this.lastRates = { wood: woodGen, food: foodGen, gold: goldGen, foodConsumption: foodConsumed };
         this.scene.resources.food += foodGen;
         this.scene.resources.wood += woodGen;
         this.scene.resources.gold += goldGen;
-    
         this.scene.resources.food -= foodConsumed;
         if (this.scene.resources.food < 0) this.scene.resources.food = 0;
     
-        // --- HAPPINESS LOGIC (Cumulative) ---
         let happinessChange = 0;
-
-        // 1. Food Status
-        // If we ran out of food and had demand, people are unhappy
         const isStarving = this.scene.resources.food === 0 && foodConsumed > 0;
-        if (isStarving) {
-            happinessChange -= 5;
-        } else {
-            happinessChange += 1; // Basic needs met bonus
-        }
-
-        // 2. Overpopulation
-        if (this.scene.population > this.scene.maxPopulation) {
-            happinessChange -= 2;
-        }
-
-        // 3. Taxes
-        // Tax rates impact happiness change per tick
-        // 0=Bonus(+1), 1=Neutral(0), 2=(-1), 3=(-3), 4=(-6), 5=(-10)
+        if (isStarving) { happinessChange -= 5; } else { happinessChange += 1; }
+        if (this.scene.population > this.scene.maxPopulation) { happinessChange -= 2; }
         const taxImpact = [1, 0, -1, -3, -6, -10];
         happinessChange += (taxImpact[this.scene.taxRate] || 0);
-
-        // 4. Civic Buildings (Parks)
-        // Each park provides +1 happiness per tick to counteract negatives
         const parks = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.SMALL_PARK);
         happinessChange += parks.length;
-
-        // Apply Change
         this.scene.happiness += happinessChange;
         this.scene.happiness = Phaser.Math.Clamp(this.scene.happiness, 0, 100);
         this.lastHappinessChange = happinessChange;
-
         this.updateStats();
     }
 
@@ -323,7 +249,8 @@ export class EconomySystem {
             happinessChange: this.lastHappinessChange,
             resources: { ...this.scene.resources },
             rates: this.lastRates,
-            taxRate: this.scene.taxRate
+            taxRate: this.scene.taxRate,
+            mapMode: this.scene.mapMode
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }

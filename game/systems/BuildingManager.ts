@@ -12,6 +12,7 @@ export class BuildingManager {
     public isDemolishMode: boolean = false;
     private treeHighlightGraphics: Phaser.GameObjects.Graphics;
     private territoryGraphics: Phaser.GameObjects.Graphics;
+    private isTerritoryDirty: boolean = true;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -24,10 +25,31 @@ export class BuildingManager {
     }
 
     public update() {
-        this.drawTerritory();
+        if (this.isTerritoryDirty) {
+            this.drawTerritory();
+            this.isTerritoryDirty = false;
+        }
     }
 
-    public enterBuildMode(buildingType: BuildingType) {
+    public markTerritoryDirty() {
+        this.isTerritoryDirty = true;
+    }
+
+    public exitBuildMode() {
+        this.previewBuildingType = null;
+        if (this.previewBuilding) {
+            this.previewBuilding.destroy();
+            this.previewBuilding = null;
+        }
+        this.treeHighlightGraphics.clear();
+    }
+
+    public enterBuildMode(buildingType: BuildingType | null) {
+        if (!buildingType) {
+            this.exitBuildMode();
+            return;
+        }
+
         const def = BUILDINGS[buildingType];
         if (!def) return;
         
@@ -36,24 +58,29 @@ export class BuildingManager {
             this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
         }
 
-        if (this.previewBuilding) this.previewBuilding.destroy();
+        this.exitBuildMode();
         this.previewBuildingType = buildingType;
+        
+        // Create the container but keep it hidden until first position update
         this.previewBuilding = this.scene.add.container(0, 0);
-        const gfx = this.scene.add.graphics();
-        this.scene.entityFactory.drawIsoBuilding(gfx, def, 0xffffff, 0.5);
-        this.previewBuilding.add(gfx);
+        this.previewBuilding.setVisible(false);
         this.previewBuilding.setDepth(Number.MAX_VALUE);
+        
+        const gfx = this.scene.add.graphics();
+        this.previewBuilding.add(gfx);
+
+        // Immediately try to position it at the pointer's current location if available
+        const pointer = this.scene.input.activePointer;
+        if (pointer) {
+            this.updatePreview(pointer.worldX, pointer.worldY);
+        }
     }
 
     public toggleDemolishMode(isActive: boolean) {
         this.isDemolishMode = isActive;
         if (this.isDemolishMode) {
             this.scene.inputManager.clearSelection();
-            this.previewBuildingType = null;
-            if (this.previewBuilding) {
-                this.previewBuilding.destroy();
-                this.previewBuilding = null;
-            }
+            this.exitBuildMode();
             this.scene.input.setDefaultCursor('crosshair');
         } else {
             this.scene.input.setDefaultCursor('default');
@@ -82,7 +109,7 @@ export class BuildingManager {
 
         const iso = toIso(cx, cy);
         this.previewBuilding.setPosition(iso.x, iso.y);
-        this.previewBuilding.setDepth(Number.MAX_VALUE - 100); 
+        this.previewBuilding.setVisible(true); // Now safe to show
         
         const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType);
         const color = isValid ? 0x00ff00 : 0xff0000;
@@ -90,40 +117,34 @@ export class BuildingManager {
         const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
         graphics.clear();
 
+        // Range indicator
         if (def.effectRadius) {
-            graphics.lineStyle(2, 0xffd700, 0.8);
+            graphics.lineStyle(2, 0xffd700, 0.4);
             graphics.strokeEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-            graphics.fillStyle(0xffd700, 0.1);
+            graphics.fillStyle(0xffd700, 0.05);
             graphics.fillEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
+        }
+
+        if (def.territoryRadius) {
+            graphics.lineStyle(2, FACTION_COLORS[this.scene.faction], 0.4);
+            graphics.strokeEllipse(0, 0, def.territoryRadius * 2, def.territoryRadius);
         }
 
         this.treeHighlightGraphics.clear();
         this.updateHighlights(cx, cy, def);
 
-        this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.5);
+        // Draw blueprint ghost
+        this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.3);
     }
 
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
-         // Tree Highlighting
          if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
             const range = def.effectRadius || 200;
-            let treesInRange = 0;
             this.scene.trees.getChildren().forEach((t: any) => {
                 if (Phaser.Math.Distance.Between(cx, cy, t.x, t.y) <= range) {
-                    treesInRange++;
                     const isoT = toIso(t.x, t.y);
-                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.8);
+                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.6);
                     this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
-                }
-            });
-        }
-        
-        // Animal Highlighting
-        if (this.previewBuildingType === BuildingType.HUNTERS_LODGE) {
-            const range = def.effectRadius || 300;
-            this.scene.units.getChildren().forEach((u: any) => {
-                if (u.unitType === Phaser.Physics.Arcade.Body && Phaser.Math.Distance.Between(cx, cy, u.x, u.y) <= range) { // Check type?
-                    // Simplified check for now
                 }
             });
         }
@@ -147,12 +168,15 @@ export class BuildingManager {
             this.scene.resources.gold -= def.cost.gold;
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
-                this.scene.entityFactory.spawnUnit(2 as any, cx + 30, cy + 30); // Enum mapping issue, using 2 for Villager temporarily or importing UnitType
-                // Actually need proper import
+                this.scene.entityFactory.spawnUnit(2 as any, cx + 30, cy + 30);
                 this.scene.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
             
+            this.markTerritoryDirty();
             this.scene.economySystem.updateStats();
+            
+            // Re-check validity for current position after build to update preview color
+            this.updatePreview(worldX, worldY);
         }
     }
 
@@ -192,7 +216,6 @@ export class BuildingManager {
     }
 
     public handleDemolishHover(pointer: Phaser.Input.Pointer) {
-        // Clear old highlights
         this.scene.buildings.getChildren().forEach((b: any) => {
             const visual = b.visual as Phaser.GameObjects.Container;
             if (visual) {
@@ -212,7 +235,7 @@ export class BuildingManager {
              if (b) {
                 const def = b.getData('def') as BuildingDef;
                 const highlight = this.scene.add.graphics();
-                this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
+                this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.4);
                 buildingVisual.add(highlight);
                 buildingVisual.setData('demolishHighlight', highlight);
              }
@@ -255,6 +278,7 @@ export class BuildingManager {
             this.scene.inputManager.deselectBuilding();
         }
   
+        this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
     }
 
@@ -263,7 +287,6 @@ export class BuildingManager {
         if (!b) return;
 
         const def = b.getData('def') as BuildingDef;
-        
         if (def.type !== BuildingType.LUMBER_CAMP) return;
         
         const cost = 50;

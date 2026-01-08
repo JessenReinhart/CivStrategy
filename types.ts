@@ -5,6 +5,11 @@ export enum FactionType {
   CARTHAGE = 'Carthage'
 }
 
+export enum MapMode {
+  FIXED = 'Fixed Map',
+  INFINITE = 'Infinite Realm'
+}
+
 export enum ResourceType {
   WOOD = 'Wood',
   FOOD = 'Food',
@@ -28,10 +33,11 @@ export interface GameStats {
   population: number;
   maxPopulation: number;
   happiness: number;
-  happinessChange: number; // Cumulative change per tick
+  happinessChange: number;
   resources: Resources;
   rates: ResourceRates;
-  taxRate: number; // 0 = None, 1 = Low, ... 5 = Cruel
+  taxRate: number;
+  mapMode: MapMode;
 }
 
 export interface BuildingCost {
@@ -59,11 +65,11 @@ export interface BuildingDef {
   height: number;
   color: number;
   description: string;
-  territoryRadius?: number; // If it expands territory
-  effectRadius?: number; // Range of effect (e.g. gathering range)
+  territoryRadius?: number;
+  effectRadius?: number;
   populationBonus?: number;
   happinessBonus?: number;
-  workerNeeds?: number; // Number of population required to operate
+  workerNeeds?: number;
 }
 
 export enum UnitType {
@@ -76,7 +82,7 @@ export enum UnitState {
   IDLE = 'idle',
   MOVING_TO_WORK = 'moving_to_work',
   WORKING = 'working',
-  MOVING_TO_RALLY = 'moving_to_rally', // Moving to Bonfire
+  MOVING_TO_RALLY = 'moving_to_rally',
   WANDERING = 'wandering'
 }
 
@@ -86,7 +92,7 @@ export interface EntityData {
   y: number;
   hp: number;
   maxHp: number;
-  owner: number; // 0 = Player, 1 = AI/Neutral
+  owner: number;
   type: string;
   selected?: boolean;
 }
