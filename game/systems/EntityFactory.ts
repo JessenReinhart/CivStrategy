@@ -1,5 +1,4 @@
 
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef } from '../../types';
@@ -120,7 +119,7 @@ export class EntityFactory {
 
         if (type === UnitType.VILLAGER) {
             this.scene.population++;
-        } else if (type === UnitType.SOLDIER) {
+        } else if (type === UnitType.SOLDIER || type === UnitType.CAVALRY) {
             this.scene.population++;
         }
         // Animals do not count towards population
@@ -161,6 +160,46 @@ export class EntityFactory {
             visual.setInteractive(new Phaser.Geom.Circle(0, 0, 20), Phaser.Geom.Circle.Contains);
             visual.on('pointerover', () => { hoverRing.visible = true; this.scene.input.setDefaultCursor('pointer'); });
             visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
+        } else if (type === UnitType.CAVALRY) {
+            // Horse body
+            gfx.fillStyle(0x8D6E63, 1); 
+            gfx.fillEllipse(0, 5, 35, 12);
+            gfx.lineStyle(1, 0x5D4037, 1);
+            gfx.strokeEllipse(0, 5, 35, 12);
+        
+            // Horse Head
+            const horseHead = this.scene.add.graphics();
+            horseHead.fillStyle(0x8D6E63, 1);
+            horseHead.fillEllipse(12, -5, 15, 8); 
+            
+            // Rider
+            const riderColor = FACTION_COLORS[this.scene.faction];
+            const rider = this.scene.add.graphics();
+            rider.fillStyle(riderColor, 1);
+            rider.fillEllipse(0, -5, 12, 12); 
+            rider.lineStyle(1, 0xffffff, 0.5);
+            rider.strokeEllipse(0, -5, 12, 12);
+            
+            const riderHead = this.scene.add.circle(0, -14, 4, 0xeeeeee);
+
+            // Selection Rings
+            const ring = this.scene.add.graphics();
+            ring.lineStyle(2, 0xffffff, 1); 
+            ring.strokeEllipse(0, 5, 50, 25);
+            ring.visible = false;
+            visual.setData('ring', ring);
+            
+            const hoverRing = this.scene.add.graphics();
+            hoverRing.lineStyle(2, 0xffffff, 0.5);
+            hoverRing.strokeEllipse(0, 5, 50, 25);
+            hoverRing.visible = false;
+        
+            visual.add([hoverRing, ring, gfx, horseHead, rider, riderHead]);
+            visual.setSize(50, 35);
+
+            visual.setInteractive(new Phaser.Geom.Circle(0, 0, 25), Phaser.Geom.Circle.Contains);
+            visual.on('pointerover', () => { hoverRing.visible = true; this.scene.input.setDefaultCursor('pointer'); });
+            visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
         } else if (type === UnitType.ANIMAL) {
             // Deer Representation
             gfx.fillStyle(0x795548, 1); // Brown body
@@ -189,7 +228,7 @@ export class EntityFactory {
         u.isSelected = false;
 
         u.setSelected = (selected: boolean) => {
-            if (type === UnitType.SOLDIER) u.isSelected = selected;
+            if (type === UnitType.SOLDIER || type === UnitType.CAVALRY) u.isSelected = selected;
         };
     }
 

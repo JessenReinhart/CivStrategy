@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { GameStats, BuildingType, MapMode } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut } from 'lucide-react';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut, FastForward } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -18,6 +18,7 @@ interface GameUIProps {
 export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType }) => {
   const [activeTab, setActiveTab] = useState<'economy' | 'military' | 'civic'>('economy');
   const [demolishActive, setDemolishActive] = useState(false);
+  const [gameSpeed, setGameSpeed] = useState(1);
 
   const handleDemolishToggle = () => {
     const newState = !demolishActive;
@@ -32,6 +33,12 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
 
   const handleCenterCamera = () => {
       const event = new CustomEvent('center-camera-ui');
+      window.dispatchEvent(event);
+  };
+
+  const handleSpeedChange = (speed: number) => {
+      setGameSpeed(speed);
+      const event = new CustomEvent('set-game-speed-ui', { detail: speed });
       window.dispatchEvent(event);
   };
 
@@ -64,6 +71,20 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
                  >
                      <Target size={18} />
                  </button>
+            </div>
+            
+            {/* Speed Controls */}
+            <div className="flex items-center gap-1 bg-stone-800/50 px-2 py-1 rounded-full border border-stone-700 ml-2">
+                {[0.5, 1, 1.5, 2].map(s => (
+                    <button
+                        key={s}
+                        onClick={() => handleSpeedChange(s)}
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors ${gameSpeed === s ? 'bg-amber-600 text-white' : 'text-stone-400 hover:text-stone-200'}`}
+                        title={`Set Speed to ${s}x`}
+                    >
+                        {s}x
+                    </button>
+                ))}
             </div>
         </div>
 

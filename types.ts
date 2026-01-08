@@ -81,6 +81,7 @@ export interface BuildingDef {
 export enum UnitType {
   VILLAGER = 'Villager',
   SOLDIER = 'Soldier',
+  CAVALRY = 'Cavalry',
   ANIMAL = 'Animal'
 }
 

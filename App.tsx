@@ -80,9 +80,14 @@ const App: React.FC = () => {
     const centerCameraHandler = () => {
         gameInstance.events.emit(EVENTS.CENTER_CAMERA);
     };
+    const speedHandler = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        gameInstance.events.emit(EVENTS.SET_GAME_SPEED, customEvent.detail);
+    };
 
     window.addEventListener('set-tax-rate-ui', taxHandler);
     window.addEventListener('center-camera-ui', centerCameraHandler);
+    window.addEventListener('set-game-speed-ui', speedHandler);
 
     return () => {
         if (gameInstance) {
@@ -92,6 +97,7 @@ const App: React.FC = () => {
         }
         window.removeEventListener('set-tax-rate-ui', taxHandler);
         window.removeEventListener('center-camera-ui', centerCameraHandler);
+        window.removeEventListener('set-game-speed-ui', speedHandler);
     };
   }, [gameInstance]);
 

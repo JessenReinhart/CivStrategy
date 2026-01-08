@@ -24,7 +24,15 @@ export const FACTION_COLORS = {
 export const UNIT_VISION = {
   [UnitType.VILLAGER]: 150,
   [UnitType.SOLDIER]: 250,
+  [UnitType.CAVALRY]: 350,
   [UnitType.ANIMAL]: 50
+};
+
+export const UNIT_SPEED = {
+  [UnitType.VILLAGER]: 80,
+  [UnitType.SOLDIER]: 100,
+  [UnitType.CAVALRY]: 160,
+  [UnitType.ANIMAL]: 40
 };
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
@@ -128,5 +136,6 @@ export const EVENTS = {
   TOGGLE_DEMOLISH: 'toggle-demolish',
   SET_TAX_RATE: 'set-tax-rate',
   REGROW_FOREST: 'regrow-forest',
-  CENTER_CAMERA: 'center-camera'
+  CENTER_CAMERA: 'center-camera',
+  SET_GAME_SPEED: 'set-game-speed'
 };
