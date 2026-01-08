@@ -1,3 +1,5 @@
+
+
 import Phaser from 'phaser';
 import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, FACTION_COLORS } from '../constants';
 import { BuildingType, FactionType, Resources, BuildingDef, UnitType, UnitState } from '../types';
@@ -13,6 +15,7 @@ export class MainScene extends Phaser.Scene {
   public maxPopulation = 10;
   public happiness = 100;
   public faction: FactionType = FactionType.ROMANS;
+  public taxRate: number = 0; // 0 (Low) to 5 (High)
 
   // Logic Entities (Physics, Invisible)
   public units: Phaser.GameObjects.Group;
@@ -36,6 +39,7 @@ export class MainScene extends Phaser.Scene {
 
   // Selection
   private selectedUnits: Phaser.GameObjects.GameObject[] = [];
+  private selectedBuilding: Phaser.GameObjects.GameObject | null = null;
   private isDragging = false;
   private dragStart: Phaser.Math.Vector2 = new Phaser.Math.Vector2();
   private dragRect: Phaser.Geom.Rectangle = new Phaser.Geom.Rectangle();
@@ -62,6 +66,7 @@ export class MainScene extends Phaser.Scene {
     this.population = 2;
     this.maxPopulation = 10;
     this.happiness = 100;
+    this.taxRate = 0;
   }
 
   create() {
@@ -97,8 +102,10 @@ export class MainScene extends Phaser.Scene {
     // Generate Forest Clusters and Animals
     this.generateForestsAndAnimals();
 
-    // Initial Spawns (TC, Villagers)
+    // Initial Spawns
     this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
+    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, 480, 400); // Bonfire near TC
+
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
 
@@ -118,6 +125,11 @@ export class MainScene extends Phaser.Scene {
     this.game.events.on('request-build', this.enterBuildMode, this);
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
     this.game.events.on(EVENTS.TOGGLE_DEMOLISH, this.toggleDemolishMode, this);
+    this.game.events.on(EVENTS.REGROW_FOREST, this.handleRegrowForest, this);
+    this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => {
+        this.taxRate = rate;
+        this.economySystem.updateStats(); // Instant update to show impact
+    }, this);
 
     this.economySystem.updateStats();
   }
@@ -503,6 +515,12 @@ export class MainScene extends Phaser.Scene {
           this.resources.wood -= def.cost.wood;
           this.resources.food -= def.cost.food;
           this.resources.gold -= def.cost.gold;
+
+          // Instant Spawn for Houses
+          if (this.previewBuildingType === BuildingType.HOUSE) {
+              this.entityFactory.spawnUnit(UnitType.VILLAGER, x + 30, y + 30);
+              this.showFloatingText(x, y, "Peasant spawned!", "#00ff00");
+          }
           
           this.economySystem.updateStats();
       }
@@ -541,6 +559,7 @@ export class MainScene extends Phaser.Scene {
       if (this.isDemolishMode) {
           this.selectedUnits.forEach((u: any) => u.setSelected(false));
           this.selectedUnits = [];
+          this.deselectBuilding();
           this.game.events.emit(EVENTS.SELECTION_CHANGED, 0);
           this.previewBuildingType = null;
           if (this.previewBuilding) {
@@ -594,16 +613,39 @@ export class MainScene extends Phaser.Scene {
       const visual = (b as any).visual;
       if (visual) visual.destroy();
       b.destroy();
+      
+      if (this.selectedBuilding === b) {
+          this.deselectBuilding();
+      }
 
       this.economySystem.updateStats();
+  }
+
+  private deselectBuilding() {
+      if (this.selectedBuilding) {
+          const v = (this.selectedBuilding as any).visual;
+          if (v) {
+              const ring = v.getData('ring');
+              if (ring) ring.visible = false;
+          }
+          this.selectedBuilding = null;
+          this.game.events.emit(EVENTS.BUILDING_SELECTED, null);
+      }
   }
 
   private handleSingleSelection(pointer: Phaser.Input.Pointer) {
       const targets = this.input.hitTestPointer(pointer);
       const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
-      
+      const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
+
+      // Deselect all units
       this.selectedUnits.forEach((u: any) => u.setSelected(false));
       this.selectedUnits = [];
+      
+      // Deselect building if clicked elsewhere or on a unit
+      if (unitVisual || !buildingVisual) {
+          this.deselectBuilding();
+      }
 
       if (unitVisual) {
           const unit = unitVisual.getData('unit');
@@ -611,13 +653,24 @@ export class MainScene extends Phaser.Scene {
               unit.setSelected(true);
               this.selectedUnits.push(unit);
           }
+      } else if (buildingVisual) {
+          const b = buildingVisual.getData('building');
+          this.selectedBuilding = b;
+          const visual = (b as any).visual;
+          const ring = visual.getData('ring');
+          if (ring) ring.visible = true;
+          
+          const def = b.getData('def') as BuildingDef;
+          this.game.events.emit(EVENTS.BUILDING_SELECTED, def.type);
       }
+      
       this.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
   }
 
   private selectUnitsInIsoRect(rect: Phaser.Geom.Rectangle) {
       this.selectedUnits.forEach((u: any) => u.setSelected(false));
       this.selectedUnits = [];
+      this.deselectBuilding(); // Drag selection clears building selection
 
       this.units.getChildren().forEach((u: any) => {
           if (u.unitType !== UnitType.SOLDIER) return;
@@ -681,6 +734,41 @@ export class MainScene extends Phaser.Scene {
           this.entityFactory.spawnUnit(UnitType.SOLDIER, barracks.x, barracks.y + 70);
       }
   }
+  
+  private handleRegrowForest() {
+      if (!this.selectedBuilding) return;
+      const b = this.selectedBuilding;
+      const def = b.getData('def') as BuildingDef;
+      
+      if (def.type !== BuildingType.LUMBER_CAMP) return;
+      
+      const cost = 50;
+      if (this.resources.wood < cost) {
+          this.showFloatingText(b.x, b.y, "Not enough wood!", "#ff0000");
+          return;
+      }
+      
+      this.resources.wood -= cost;
+      
+      // Regrow trees in radius
+      let regrownCount = 0;
+      this.trees.getChildren().forEach((t: any) => {
+          if (t.getData('isChopped')) {
+              if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < (def.effectRadius || 200)) {
+                  this.entityFactory.updateTreeVisual(t, false);
+                  regrownCount++;
+              }
+          }
+      });
+      
+      if (regrownCount > 0) {
+          this.showFloatingText(b.x, b.y, "Forest Regrown!", "#4ade80");
+          this.economySystem.updateStats();
+      } else {
+          this.showFloatingText(b.x, b.y, "No stumps nearby.", "#ffffff");
+          this.resources.wood += cost; // Refund if nothing happened
+      }
+  }
 
   private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
       const def = BUILDINGS[type];
@@ -719,7 +807,8 @@ export class MainScene extends Phaser.Scene {
 
   private drawTerritory() {
       this.territoryGraphics.clear();
-      this.buildings.getChildren().forEach((b: any) => {
+      this.buildings.getChildren().forEach((bObj: Phaser.GameObjects.GameObject) => {
+          const b = bObj as Phaser.GameObjects.Rectangle;
           const def = b.getData('def') as BuildingDef;
           const iso = toIso(b.x, b.y);
           if (def.territoryRadius) {
@@ -737,7 +826,13 @@ export class MainScene extends Phaser.Scene {
 
   private drawUnitPaths(time: number) {
     this.pathGraphics.clear();
-    this.units.getChildren().forEach((u: any) => {
+    this.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
+        const u = uObj as Phaser.GameObjects.Arc & {
+            unitType: UnitType;
+            path: Phaser.Math.Vector2[] | null;
+            pathCreatedAt?: number;
+            pathStep: number;
+        };
         if (u.unitType === UnitType.SOLDIER && u.path && u.pathCreatedAt) {
             const age = time - u.pathCreatedAt;
             const fadeDuration = 1500;
@@ -767,9 +862,20 @@ export class MainScene extends Phaser.Scene {
   }
 
   private updateUnitLogic(delta: number) {
-      this.units.getChildren().forEach((unit: any) => {
-          const body = unit.body as Phaser.Physics.Arcade.Body;
+      this.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
+          // Cast to intersection type that includes Arc (for x,y) and custom props
+          const unit = item as Phaser.GameObjects.Arc & {
+              body: Phaser.Physics.Arcade.Body;
+              unitType: UnitType;
+              state: UnitState;
+              path: Phaser.Math.Vector2[] | null;
+              pathStep: number;
+              pathCreatedAt?: number;
+          };
+          const body = unit.body;
           
+          if (!body) return;
+
           // --- ANIMAL WANDERING AI ---
           if (unit.unitType === UnitType.ANIMAL) {
                // If moving, check if arrived
@@ -799,6 +905,8 @@ export class MainScene extends Phaser.Scene {
               if (unit.pathStep >= unit.path.length) {
                   body.setVelocity(0, 0);
                   unit.path = null;
+                  
+                  // Logic when arriving at destination
                   if (unit.unitType === UnitType.VILLAGER) {
                       if (unit.state === UnitState.MOVING_TO_WORK) {
                           unit.state = UnitState.WORKING;
@@ -816,7 +924,7 @@ export class MainScene extends Phaser.Scene {
                   this.physics.moveTo(unit, nextPoint.x, nextPoint.y, 100);
               }
           } else {
-              if (body.velocity.length() > 0 && unit.unitType !== UnitType.ANIMAL) {
+              if (body.velocity.length() > 0) {
                   body.setVelocity(0,0);
               }
           }

@@ -1,3 +1,5 @@
+
+
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef } from '../../types';
@@ -26,7 +28,25 @@ export class EntityFactory {
         // Visuals
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
-        this.drawIsoBuilding(gfx, def, def.color);
+        
+        // Custom draw for specific buildings
+        if (type === BuildingType.BONFIRE) {
+            this.drawBonfire(gfx);
+            // Add fire animation tween
+            this.scene.tweens.add({
+                targets: gfx,
+                scaleX: 1.05,
+                scaleY: 1.05,
+                alpha: 0.9,
+                yoyo: true,
+                repeat: -1,
+                duration: 100 + Math.random() * 100
+            });
+        } else if (type === BuildingType.SMALL_PARK) {
+            this.drawPark(gfx);
+        } else {
+            this.drawIsoBuilding(gfx, def, def.color);
+        }
         
         const text = this.scene.add.text(0, -50, def.name[0], { fontSize: '16px', color: '#ffffff' });
         text.setOrigin(0.5);
@@ -48,6 +68,14 @@ export class EntityFactory {
         noResIcon.visible = false;
         visual.add(noResIcon);
         visual.setData('noResIcon', noResIcon);
+        
+        // Selection Ring
+        const ring = this.scene.add.graphics();
+        ring.lineStyle(2, 0xffffff, 1);
+        ring.strokeCircle(0, 0, Math.max(def.width, def.height) * 0.6);
+        ring.visible = false;
+        visual.add(ring);
+        visual.setData('ring', ring);
 
         this.scene.tweens.add({
             targets: [vacantIcon, noResIcon],
@@ -67,7 +95,12 @@ export class EntityFactory {
         visual.setPosition(iso.x, iso.y);
 
         if (def.populationBonus) this.scene.maxPopulation += def.populationBonus;
-        if (def.happinessBonus) this.scene.happiness += def.happinessBonus;
+        // Happiness bonus is handled in EconomySystem via tickEconomy for dynamic updates, 
+        // but static bonuses can remain here if strictly one-time. 
+        // However, for Parks/Tax we recalculate happiness, so we might ignore one-time adds here for those types.
+        if (def.happinessBonus && type !== BuildingType.SMALL_PARK && type !== BuildingType.BONFIRE) {
+             this.scene.happiness += def.happinessBonus;
+        }
 
         return b;
     }
@@ -173,15 +206,43 @@ export class EntityFactory {
         }
 
         const visual = this.scene.add.container(0, 0);
-        const gfx = this.scene.add.graphics();
-        this.drawIsoTree(gfx);
-        visual.add(gfx);
+        
+        // Full Tree Graphics
+        const treeGfx = this.scene.add.graphics();
+        this.drawIsoTree(treeGfx);
+        treeGfx.setName('treeGfx');
+        
+        // Stump Graphics
+        const stumpGfx = this.scene.add.graphics();
+        this.drawIsoStump(stumpGfx);
+        stumpGfx.setName('stumpGfx');
+        stumpGfx.visible = false;
+
+        visual.add([stumpGfx, treeGfx]);
         visual.setScale(Phaser.Math.FloatBetween(0.85, 1.15));
+        
         this.scene.add.existing(visual);
         const iso = toIso(x, y);
         visual.setPosition(iso.x, iso.y);
         visual.setDepth(iso.y);
         (tree as any).visual = visual;
+        
+        tree.setData('isChopped', false);
+    }
+
+    public updateTreeVisual(tree: Phaser.GameObjects.GameObject, isChopped: boolean) {
+        const visual = (tree as any).visual as Phaser.GameObjects.Container;
+        if (!visual) return;
+        
+        const treeGfx = visual.getByName('treeGfx') as Phaser.GameObjects.Graphics;
+        const stumpGfx = visual.getByName('stumpGfx') as Phaser.GameObjects.Graphics;
+        
+        if (treeGfx && stumpGfx) {
+            treeGfx.visible = !isChopped;
+            stumpGfx.visible = isChopped;
+        }
+        
+        tree.setData('isChopped', isChopped);
     }
 
     public drawIsoBuilding(gfx: Phaser.GameObjects.Graphics, def: BuildingDef, color: number, alpha = 1) {
@@ -223,6 +284,59 @@ export class EntityFactory {
         gfx.fillPath();
     }
 
+    private drawBonfire(gfx: Phaser.GameObjects.Graphics) {
+        // Stones base
+        gfx.fillStyle(0x78716c);
+        const iso = toIso(0, 0); // Center
+        // Draw stones in circle
+        gfx.fillEllipse(0, 0, 40, 20);
+        
+        // Logs
+        gfx.lineStyle(4, 0x3e2723);
+        gfx.beginPath(); gfx.moveTo(-10, -5); gfx.lineTo(10, -15); gfx.strokePath();
+        gfx.beginPath(); gfx.moveTo(10, -5); gfx.lineTo(-10, -15); gfx.strokePath();
+        
+        // Fire
+        gfx.fillStyle(0xf97316, 0.8);
+        gfx.beginPath();
+        gfx.moveTo(-10, -10);
+        gfx.lineTo(0, -35);
+        gfx.lineTo(10, -10);
+        gfx.closePath();
+        gfx.fillPath();
+        
+        gfx.fillStyle(0xfacc15, 0.8);
+        gfx.beginPath();
+        gfx.moveTo(-5, -10);
+        gfx.lineTo(0, -25);
+        gfx.lineTo(5, -10);
+        gfx.closePath();
+        gfx.fillPath();
+    }
+
+    private drawPark(gfx: Phaser.GameObjects.Graphics) {
+        // Grass base
+        gfx.fillStyle(0x86efac);
+        gfx.beginPath();
+        const pts = [toIso(-16, -16), toIso(16, -16), toIso(16, 16), toIso(-16, 16)];
+        gfx.moveTo(pts[0].x, pts[0].y);
+        gfx.lineTo(pts[1].x, pts[1].y);
+        gfx.lineTo(pts[2].x, pts[2].y);
+        gfx.lineTo(pts[3].x, pts[3].y);
+        gfx.closePath();
+        gfx.fillPath();
+
+        // Bush
+        gfx.fillStyle(0x15803d);
+        gfx.fillCircle(0, -5, 8);
+        
+        // Flowers
+        gfx.fillStyle(0xf472b6);
+        gfx.fillCircle(-5, -5, 2);
+        gfx.fillCircle(5, -8, 2);
+        gfx.fillCircle(0, -2, 2);
+    }
+
     private drawIsoTree(gfx: Phaser.GameObjects.Graphics) {
         gfx.fillStyle(0x000000, 0.2);
         gfx.fillEllipse(0, 0, 20, 10);
@@ -235,5 +349,22 @@ export class EntityFactory {
         gfx.beginPath(); gfx.moveTo(-12, -40); gfx.lineTo(12, -40); gfx.lineTo(0, -60); gfx.fillPath();
         gfx.fillStyle(0xffffff, 0.1);
         gfx.beginPath(); gfx.moveTo(0, -60); gfx.lineTo(-12, -40); gfx.lineTo(0, -40); gfx.fillPath();
+    }
+
+    private drawIsoStump(gfx: Phaser.GameObjects.Graphics) {
+        gfx.fillStyle(0x000000, 0.2);
+        gfx.fillEllipse(0, 0, 18, 9);
+        
+        // Stump body
+        gfx.fillStyle(0x5D4037);
+        gfx.fillRect(-5, -6, 10, 6);
+        
+        // Stump top
+        gfx.fillStyle(0x8D6E63);
+        gfx.fillEllipse(0, -6, 10, 5);
+        
+        // Rings
+        gfx.lineStyle(1, 0x5D4037, 0.5);
+        gfx.strokeEllipse(0, -6, 6, 3);
     }
 }

@@ -1,24 +1,33 @@
+
+
 import React, { useState } from 'react';
 import { GameStats, BuildingType, ResourceType } from '../types';
-import { BUILDINGS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit } from 'lucide-react';
+import { BUILDINGS, EVENTS } from '../constants';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
   onBuild: (type: BuildingType) => void;
   onSpawnUnit: () => void;
   onToggleDemolish: (isActive: boolean) => void;
+  onRegrowForest: () => void;
   selectedCount: number;
+  selectedBuildingType: BuildingType | null;
 }
 
-export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, selectedCount }) => {
-  const [activeTab, setActiveTab] = useState<'economy' | 'military'>('economy');
+export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, selectedCount, selectedBuildingType }) => {
+  const [activeTab, setActiveTab] = useState<'economy' | 'military' | 'civic'>('economy');
   const [demolishActive, setDemolishActive] = useState(false);
 
   const handleDemolishToggle = () => {
     const newState = !demolishActive;
     setDemolishActive(newState);
     onToggleDemolish(newState);
+  };
+
+  const handleTaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const event = new CustomEvent('set-tax-rate-ui', { detail: parseInt(e.target.value) });
+      window.dispatchEvent(event);
   };
 
   return (
@@ -35,8 +44,30 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
         <ResourceDisplay icon={<Smile size={18} />} value={`${stats.happiness}%`} label="Happiness" color={stats.happiness < 50 ? 'text-red-400' : 'text-green-400'} />
       </div>
 
-      {/* Center Notifications / Alerts area (Empty for now) */}
-      <div className="flex-1"></div>
+      {/* Tax Controls (Top Right) */}
+      <div className="absolute top-20 right-4 pointer-events-auto bg-stone-800 p-4 rounded border border-stone-600 shadow-xl">
+          <div className="flex items-center gap-2 mb-2">
+              <Coins size={16} className="text-amber-400"/>
+              <span className="font-bold text-sm text-stone-200">Tax Rate</span>
+          </div>
+          <input 
+            type="range" 
+            min="0" 
+            max="5" 
+            step="1" 
+            value={stats.taxRate || 0} 
+            onChange={handleTaxChange}
+            className="w-32 accent-amber-500"
+          />
+          <div className="flex justify-between text-[10px] text-stone-400 mt-1">
+              <span>None</span>
+              <span>Cruel</span>
+          </div>
+          <div className="mt-2 text-xs text-center text-stone-300">
+              {stats.taxRate === 0 && "No Taxes (+0)"}
+              {stats.taxRate > 0 && `-${[0,2,4,8,16,32][stats.taxRate]} Happiness`}
+          </div>
+      </div>
 
       {/* Bottom Bar - Controls */}
       <div className="bg-stone-900/95 border-t-2 border-amber-700/50 p-4 pointer-events-auto flex gap-6 items-end">
@@ -62,6 +93,12 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
                 onClick={() => setActiveTab('military')}
                 >
                 Military
+                </button>
+                <button 
+                className={`px-6 py-2 text-sm font-bold transition-colors ${activeTab === 'civic' ? 'bg-amber-700 text-white' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'}`}
+                onClick={() => setActiveTab('civic')}
+                >
+                Civic
                 </button>
              </div>
              
@@ -111,6 +148,23 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
               </>
             )}
 
+            {activeTab === 'civic' && (
+              <>
+                 <BuildButton 
+                    building={BUILDINGS[BuildingType.BONFIRE]} 
+                    stats={stats}
+                    onClick={() => onBuild(BuildingType.BONFIRE)}
+                    icon={<Flame size={20} />}
+                 />
+                 <BuildButton 
+                    building={BUILDINGS[BuildingType.SMALL_PARK]} 
+                    stats={stats}
+                    onClick={() => onBuild(BuildingType.SMALL_PARK)}
+                    icon={<Flower size={20} />}
+                 />
+              </>
+            )}
+
             {activeTab === 'military' && (
               <>
                 <BuildButton 
@@ -146,13 +200,33 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
                    <p className="text-xs text-stone-400 mt-2 font-normal">Click a building to destroy it and refund 75% wood.</p>
                    <p className="text-xs text-stone-500 mt-4 italic">Right click to cancel.</p>
                </div>
+           ) : selectedBuildingType ? (
+               <div className="space-y-3">
+                   <div className="text-stone-200 font-bold border-b border-stone-600 pb-1">{selectedBuildingType}</div>
+                   <div className="text-xs text-stone-400">{BUILDINGS[selectedBuildingType].description}</div>
+                   
+                   {/* Specific Actions for Lumber Camp */}
+                   {selectedBuildingType === BuildingType.LUMBER_CAMP && (
+                       <button 
+                           onClick={onRegrowForest}
+                           disabled={stats.resources.wood < 50}
+                           className="w-full mt-2 flex items-center justify-center gap-2 p-2 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                       >
+                           <Sprout size={16} className="text-emerald-400" />
+                           <div className="flex flex-col items-start">
+                               <span className="text-xs font-bold text-emerald-100">Regrow Forest</span>
+                               <span className="text-[10px] text-emerald-300">Cost: 50 Wood</span>
+                           </div>
+                       </button>
+                   )}
+               </div>
            ) : selectedCount > 0 ? (
              <div className="space-y-2">
                <div className="text-stone-300 text-sm">Selected Soldiers: <span className="text-white font-bold">{selectedCount}</span></div>
                <div className="text-xs text-stone-500 italic mt-4">Right click to move.</div>
              </div>
            ) : (
-             <div className="text-stone-500 text-sm italic">No soldiers selected.</div>
+             <div className="text-stone-500 text-sm italic">Nothing selected.</div>
            )}
         </div>
       </div>
