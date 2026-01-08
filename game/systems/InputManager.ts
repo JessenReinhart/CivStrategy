@@ -51,8 +51,7 @@ export class InputManager {
                 return;
             }
             if (this.scene.buildingManager.previewBuildingType) {
-                this.scene.buildingManager.enterBuildMode(null as any); // Reset logic handled in enterBuildMode or needs clear
-                // Actually BuildingManager handles clear if type is null? No, explicit clear:
+                this.scene.buildingManager.enterBuildMode(null as any); 
                 this.scene.buildingManager.previewBuildingType = null;
                 if(this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
                 return;
@@ -143,7 +142,8 @@ export class InputManager {
   
         if (unitVisual) {
             const unit = unitVisual.getData('unit');
-            if (unit && (unit as any).unitType === UnitType.SOLDIER) { 
+            const type = (unit as any).unitType;
+            if (unit && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
@@ -166,7 +166,7 @@ export class InputManager {
         this.deselectBuilding();
   
         this.scene.units.getChildren().forEach((u: any) => {
-            if (u.unitType !== UnitType.SOLDIER) return;
+            if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY) return;
             const visual = u.visual;
             if (visual) {
                 const inside = rect.contains(visual.x, visual.y);

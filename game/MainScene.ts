@@ -25,6 +25,12 @@ export class MainScene extends Phaser.Scene {
   public taxRate: number = 0; 
   // Track whether Fog of War is enabled
   public isFowEnabled: boolean = true;
+  
+  // Game Speed & Time
+  public gameSpeed: number = 1.0;
+  public gameTime: number = 0;
+  private accumulatedTime: number = 0;
+  private accumulatedPopTime: number = 0;
 
   // Core Groups
   public units: Phaser.GameObjects.Group;
@@ -51,9 +57,6 @@ export class MainScene extends Phaser.Scene {
     D: Phaser.Input.Keyboard.Key;
   };
 
-  private lastTick = 0;
-  private lastPopCheck = 0;
-
   constructor() {
     super('MainScene');
   }
@@ -78,6 +81,12 @@ export class MainScene extends Phaser.Scene {
     this.maxPopulation = 10;
     this.happiness = 100;
     this.taxRate = 0;
+    
+    // Reset Time
+    this.gameSpeed = 1.0;
+    this.gameTime = 0;
+    this.accumulatedTime = 0;
+    this.accumulatedPopTime = 0;
   }
 
   create() {
@@ -115,6 +124,8 @@ export class MainScene extends Phaser.Scene {
     this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY); 
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50);
+    // Initial Cavalry Unit
+    this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90);
 
     // Camera Setup
     const startIso = toIso(centerX, centerY);
@@ -129,11 +140,22 @@ export class MainScene extends Phaser.Scene {
 
     // Global Events
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
+    
     this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => {
         this.taxRate = rate;
         this.economySystem.updateStats();
     }, this);
+    
     this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
+
+    this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
+        this.gameSpeed = speed;
+        // Physics timescale is inverted (higher value = slower)
+        // 0.5 speed -> 2.0 timescale
+        // 2.0 speed -> 0.5 timescale
+        this.physics.world.timeScale = 1.0 / speed;
+        this.tweens.timeScale = speed;
+    }, this);
 
     this.economySystem.updateStats();
 
@@ -154,26 +176,151 @@ export class MainScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number) {
+    // Calculate Game Delta based on Speed
+    const dt = delta * this.gameSpeed;
+    this.gameTime += dt;
+
+    // Input Manager handles Camera, which should remain responsive (Real Time)
     this.inputManager.update(delta);
-    this.unitSystem.update(time, delta);
+    
+    // Unit Logic uses Game Time
+    this.unitSystem.update(this.gameTime, dt);
+    
+    // Building Manager handles visual updates (hover etc) - mostly real time inputs
     this.buildingManager.update();
+    
+    // Infinite Map loading (throttled real time to avoid lag)
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
     
-    // Update Fog last to ensure it overlays everything correctly
+    // Update Fog last to ensure it overlays everything correctly (Visuals follow camera)
     if (this.fogOfWar) this.fogOfWar.update();
 
-    if (time > this.lastTick + 1000) {
+    // Economy Ticks based on Accumulated Game Time
+    this.accumulatedTime += dt;
+    if (this.accumulatedTime >= 1000) {
       this.economySystem.tickEconomy();
-      this.lastTick = time;
+      this.accumulatedTime -= 1000;
     }
 
-    if (time > this.lastPopCheck + 5000) {
+    this.accumulatedPopTime += dt;
+    if (this.accumulatedPopTime >= 5000) {
       this.economySystem.tickPopulation();
-      this.lastPopCheck = time;
+      this.accumulatedPopTime -= 5000;
     }
 
     this.economySystem.assignJobs();
     this.syncVisuals();
+  }
+
+  createEnvironment() {
+    const graphics = this.add.graphics();
+    graphics.fillStyle(0x1a4731, 1); // Dark Grass
+    
+    // Draw map background
+    const p1 = toIso(0, 0);
+    const p2 = toIso(this.mapWidth, 0);
+    const p3 = toIso(this.mapWidth, this.mapHeight);
+    const p4 = toIso(0, this.mapHeight);
+
+    graphics.beginPath();
+    graphics.moveTo(p1.x, p1.y);
+    graphics.lineTo(p2.x, p2.y);
+    graphics.lineTo(p3.x, p3.y);
+    graphics.lineTo(p4.x, p4.y);
+    graphics.closePath();
+    graphics.fillPath();
+    graphics.setDepth(-10000);
+    
+    // Draw Grid
+    graphics.lineStyle(1, 0x000000, 0.1);
+    for (let x = 0; x <= this.mapWidth; x += TILE_SIZE) {
+        const start = toIso(x, 0);
+        const end = toIso(x, this.mapHeight);
+        graphics.moveTo(start.x, start.y);
+        graphics.lineTo(end.x, end.y);
+    }
+    for (let y = 0; y <= this.mapHeight; y += TILE_SIZE) {
+        const start = toIso(0, y);
+        const end = toIso(this.mapWidth, y);
+        graphics.moveTo(start.x, start.y);
+        graphics.lineTo(end.x, end.y);
+    }
+    graphics.strokePath();
+  }
+
+  handleSoldierSpawnRequest() {
+    if (this.resources.food >= 100 && this.resources.gold >= 50) {
+        const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS) as Phaser.GameObjects.Rectangle[];
+        
+        if (barracks.length > 0) {
+            const spawnSource = barracks[Phaser.Math.Between(0, barracks.length - 1)];
+            this.resources.food -= 100;
+            this.resources.gold -= 50;
+            
+            const offsetX = Phaser.Math.Between(-30, 30);
+            const offsetY = Phaser.Math.Between(-30, 30);
+            const spawnX = spawnSource.x + (offsetX >= 0 ? 60 : -60);
+            const spawnY = spawnSource.y + (offsetY >= 0 ? 60 : -60);
+            
+            this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY);
+            this.showFloatingText(spawnSource.x, spawnSource.y, "-100 Food, -50 Gold", "#ffff00");
+            this.economySystem.updateStats();
+        } else {
+            const cam = this.cameras.main;
+            this.showFloatingText(cam.worldView.centerX, cam.worldView.centerY, "Build a Barracks first!", "#ff0000");
+        }
+    } else {
+        const cam = this.cameras.main;
+        this.showFloatingText(cam.worldView.centerX, cam.worldView.centerY, "Not enough resources!", "#ff0000");
+    }
+  }
+
+  syncVisuals() {
+    this.units.getChildren().forEach((u: any) => {
+        if (u.visual) {
+            const iso = toIso(u.x, u.y);
+            u.visual.setPosition(iso.x, iso.y);
+            u.visual.setDepth(iso.y);
+        }
+    });
+    
+    this.buildings.getChildren().forEach((b: any) => {
+        if (b.visual) {
+           const iso = toIso(b.x, b.y);
+           b.visual.setDepth(iso.y); 
+        }
+    });
+  }
+
+  showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
+      const iso = toIso(x, y);
+      const text = this.add.text(iso.x, iso.y - 50, message, {
+          fontFamily: 'Arial',
+          fontSize: '14px',
+          color: color,
+          stroke: '#000000',
+          strokeThickness: 3
+      });
+      text.setOrigin(0.5);
+      text.setDepth(Number.MAX_VALUE);
+
+      this.tweens.add({
+          targets: text,
+          y: iso.y - 100,
+          alpha: 0,
+          duration: 1500,
+          onComplete: () => text.destroy()
+      });
+  }
+
+  showFloatingResource(x: number, y: number, amount: number, type: string) {
+      const colorMap: Record<string, string> = {
+          'Wood': '#4ade80',
+          'Food': '#facc15',
+          'Gold': '#fbbf24'
+      };
+      const color = colorMap[type] || '#ffffff';
+      this.showFloatingText(x, y, `+${amount} ${type}`, color);
   }
 
   generateFertileZones() {
@@ -221,170 +368,20 @@ export class MainScene extends Phaser.Scene {
             }
         }
 
-        // Spawn animals in this forest
-        const animalCount = Phaser.Math.Between(8, 14); 
+        // Spawn animals in forest
+        const animalCount = Phaser.Math.Between(2, 5);
         for(let k=0; k<animalCount; k++) {
-            const angle = Math.random() * Math.PI * 2;
-            const dist = Math.random() * fRadius;
-            const ax = fx + Math.cos(angle) * dist;
-            const ay = fy + Math.sin(angle) * dist;
-            if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
-                this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
-            }
+             const angle = Math.random() * Math.PI * 2;
+             const dist = Math.sqrt(Math.random()) * (fRadius * 0.8);
+             const ax = fx + Math.cos(angle) * dist;
+             const ay = fy + Math.sin(angle) * dist;
+             
+             if (Phaser.Math.Distance.Between(ax, ay, this.mapWidth/2, this.mapHeight/2) > 300) {
+                 if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
+                     this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
+                 }
+             }
         }
     }
-
-    // Scattered trees
-    const scatteredCount = Math.floor((this.mapWidth * this.mapHeight) / (50000));
-    for (let i = 0; i < scatteredCount; i++) {
-        const tx = Phaser.Math.Between(50, this.mapWidth - 50);
-        const ty = Phaser.Math.Between(50, this.mapHeight - 50);
-        if (Phaser.Math.Distance.Between(tx, ty, this.mapWidth/2, this.mapHeight/2) > 250) {
-            this.entityFactory.spawnTree(tx, ty);
-        }
-    }
-  }
-
-  createEnvironment() {
-    const groundGraphics = this.add.graphics();
-    groundGraphics.fillStyle(0x2d6a4f, 1); 
-    const p1 = toIso(0, 0);
-    const p2 = toIso(this.mapWidth, 0);
-    const p3 = toIso(this.mapWidth, this.mapHeight);
-    const p4 = toIso(0, this.mapHeight);
-    groundGraphics.beginPath();
-    groundGraphics.moveTo(p1.x, p1.y);
-    groundGraphics.lineTo(p2.x, p2.y);
-    groundGraphics.lineTo(p3.x, p3.y);
-    groundGraphics.lineTo(p4.x, p4.y);
-    groundGraphics.closePath();
-    groundGraphics.fillPath();
-    groundGraphics.setDepth(-10000); 
-
-    const gridGraphics = this.add.graphics();
-    gridGraphics.lineStyle(1, 0x000000, 0.1);
-    for (let x = 0; x <= this.mapWidth; x += TILE_SIZE) {
-        const start = toIso(x, 0);
-        const end = toIso(x, this.mapHeight);
-        gridGraphics.moveTo(start.x, start.y);
-        gridGraphics.lineTo(end.x, end.y);
-    }
-    for (let y = 0; y <= this.mapHeight; y += TILE_SIZE) {
-        const start = toIso(0, y);
-        const end = toIso(this.mapWidth, y);
-        gridGraphics.moveTo(start.x, start.y);
-        gridGraphics.lineTo(end.x, end.y);
-    }
-    gridGraphics.setDepth(-9000);
-  }
-
-  private handleSoldierSpawnRequest() {
-      const barracks = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.BARRACKS) as Phaser.GameObjects.Rectangle;
-      if (barracks && this.resources.food >= 100 && this.resources.gold >= 50 && this.population < this.maxPopulation) {
-          this.resources.food -= 100;
-          this.resources.gold -= 50;
-          this.entityFactory.spawnUnit(UnitType.SOLDIER, barracks.x, barracks.y + 70);
-      }
-  }
-
-  public showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
-      const iso = toIso(x, y);
-      const text = this.add.text(iso.x, iso.y - 60, message, {
-          fontFamily: 'monospace',
-          fontSize: '14px',
-          color: color,
-          stroke: '#000000',
-          strokeThickness: 2,
-          fontStyle: 'bold'
-      });
-      text.setOrigin(0.5);
-      text.setDepth(100000);
-      this.tweens.add({
-          targets: text,
-          y: iso.y - 120,
-          alpha: 0,
-          duration: 1500,
-          ease: 'Power2',
-          onComplete: () => text.destroy()
-      });
-  }
-
-  public showFloatingResource(x: number, y: number, amount: number, type: string) {
-    const iso = toIso(x, y);
-    const container = this.add.container(iso.x, iso.y - 60);
-    container.setDepth(100000);
-    const icon = this.add.graphics();
-    if (type === 'Wood') {
-        icon.fillStyle(0x5D4037); icon.fillRoundedRect(-14, -6, 10, 10, 2); icon.fillStyle(0x8D6E63); icon.fillCircle(-11, -1, 4);
-    } else if (type === 'Food') {
-        icon.fillStyle(0xea580c); icon.fillCircle(-10, 0, 5); icon.fillStyle(0xa3e635); icon.fillEllipse(-10, -5, 5, 2);
-    } else if (type === 'Gold') {
-        icon.fillStyle(0xffd700); icon.fillCircle(-10, 0, 5); icon.lineStyle(1, 0xeab308); icon.strokeCircle(-10, 0, 5);
-    }
-    const text = this.add.text(0, 0, `+${amount}`, {
-        fontFamily: 'monospace',
-        fontSize: '13px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 2
-    });
-    text.setOrigin(0, 0.5);
-    container.add([icon, text]);
-    this.tweens.add({
-        targets: container,
-        y: iso.y - 100,
-        alpha: 0,
-        duration: 1500,
-        ease: 'Power2',
-        onComplete: () => container.destroy()
-    });
-  }
-
-  private syncVisuals() {
-    const cam = this.cameras.main;
-    const padding = 200; 
-    const viewRect = new Phaser.Geom.Rectangle(
-        cam.worldView.x - padding, 
-        cam.worldView.y - padding, 
-        cam.worldView.width + padding * 2, 
-        cam.worldView.height + padding * 2
-    );
-
-    this.units.getChildren().forEach((u: any) => {
-        const visual = u.visual as Phaser.GameObjects.Container;
-        if (!visual) return;
-
-        const iso = toIso(u.x, u.y);
-        if (viewRect.contains(iso.x, iso.y)) {
-            visual.setVisible(true);
-            visual.setPosition(iso.x, iso.y);
-            visual.setDepth(iso.y); 
-            const ring = visual.getData('ring');
-            if (ring) ring.visible = u.isSelected;
-        } else {
-            visual.setVisible(false);
-        }
-    });
-
-    this.buildings.getChildren().forEach((b: any) => {
-        const visual = b.visual as Phaser.GameObjects.Container;
-        if (!visual) return;
-
-        const iso = toIso(b.x, b.y);
-        if (viewRect.contains(iso.x, iso.y)) {
-            visual.setVisible(true);
-            visual.setPosition(iso.x, iso.y);
-            visual.setDepth(iso.y); 
-        } else {
-            visual.setVisible(false);
-        }
-    });
-
-    this.trees.getChildren().forEach((t: any) => {
-        const visual = t.visual as Phaser.GameObjects.Container;
-        if (visual) {
-            visual.setVisible(viewRect.contains(visual.x, visual.y));
-        }
-    });
   }
 }

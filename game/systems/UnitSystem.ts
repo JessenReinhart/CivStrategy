@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState } from '../../types';
-import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../../constants';
+import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, UNIT_SPEED } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class UnitSystem {
@@ -35,7 +35,8 @@ export class UnitSystem {
             if (path) {
                 unit.path = path;
                 unit.pathStep = 0;
-                unit.pathCreatedAt = this.scene.time.now;
+                // Use Game Time instead of Engine Time to sync with speed changes
+                unit.pathCreatedAt = this.scene.gameTime;
                 unit.state = UnitState.IDLE; // Reset state to following path
                 unit.body.reset(unit.x, unit.y);
             }
@@ -107,10 +108,12 @@ export class UnitSystem {
                 }
                 const nextPoint = unit.path[unit.pathStep];
                 const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
+                const speed = UNIT_SPEED[unit.unitType] || 100;
+
                 if (dist < 4) {
                     unit.pathStep++;
                 } else {
-                    this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, 100);
+                    this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, speed);
                 }
             } else {
                 if (body.velocity.length() > 0) {
@@ -145,7 +148,11 @@ export class UnitSystem {
                 pathCreatedAt?: number;
                 pathStep: number;
             };
-            if (u.unitType === UnitType.SOLDIER && u.path && u.pathCreatedAt) {
+            
+            const isSelectable = u.unitType === UnitType.SOLDIER || u.unitType === UnitType.CAVALRY;
+
+            if (isSelectable && u.path && u.pathCreatedAt) {
+                // time here is passed as Game Time, matching pathCreatedAt which is also Game Time
                 const age = time - u.pathCreatedAt;
                 const fadeDuration = 1500;
                 if (age < fadeDuration) {
