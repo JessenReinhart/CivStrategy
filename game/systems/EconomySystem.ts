@@ -1,18 +1,21 @@
 
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, UnitType, GameStats } from '../../types';
+import { BuildingType, BuildingDef, UnitState, UnitType, GameStats, ResourceRates } from '../../types';
 import { EVENTS } from '../../constants';
 
 export class EconomySystem {
     private scene: MainScene;
+    private lastRates: ResourceRates = { wood: 0, food: 0, gold: 0, foodConsumption: 0 };
+    private lastHappinessChange: number = 0;
 
     constructor(scene: MainScene) {
         this.scene = scene;
     }
 
     public tickPopulation() {
+        // Requirement: Population won't grow on low happiness.
+        // Existing logic: checks happiness > 50.
         if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
             // Spawn from Houses preferentially
             const houses = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.HOUSE) as Phaser.GameObjects.Rectangle[];
@@ -127,27 +130,18 @@ export class EconomySystem {
     }
 
     public tickEconomy() {
-        let baseHappiness = 100;
-        let happinessModifiers = 0;
-        
-        // Overcrowding
-        if (this.scene.population > this.scene.maxPopulation) happinessModifiers -= 10;
-        
-        // Tax Impact
-        // Rate: 0=0, 1=1g/pop (-2hap), 2=2g/pop (-4hap), 3=3g/pop (-8hap), 4=4g/pop (-16hap), 5=5g/pop (-32hap)
-        const taxMap = [0, 2, 4, 8, 16, 32];
-        const taxGoldPerPop = this.scene.taxRate;
-        const taxHappinessPenalty = taxMap[this.scene.taxRate] || 0;
-        
-        happinessModifiers -= taxHappinessPenalty;
+        // --- EFFICIENCY LOGIC ---
+        // If happiness < 50, 50% efficiency on ALL gatherings.
+        const isLowHappiness = this.scene.happiness < 50;
+        const efficiency = isLowHappiness ? 0.5 : 1.0;
+
+        const taxGoldPerPop = this.scene.taxRate; 
         
         let foodGen = 0;
         let woodGen = 0;
-        let goldGen = (this.scene.population * taxGoldPerPop); // Tax Income
-
-        // Park Happiness
-        const parks = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.SMALL_PARK);
-        happinessModifiers += (parks.length * 5);
+        
+        // Apply efficiency to Tax Income
+        let goldGen = Math.floor((this.scene.population * taxGoldPerPop) * efficiency); 
 
         // Track harvested trees to prevent double counting
         const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
@@ -173,7 +167,8 @@ export class EconomySystem {
             }
     
             if (def.type === BuildingType.TOWN_CENTER) {
-                goldGen += 2; 
+                // Apply efficiency to passive gold
+                goldGen += Math.floor(2 * efficiency); 
                 isWorking = true;
             }
     
@@ -182,6 +177,9 @@ export class EconomySystem {
                     let gain = 5;
                     const isFertile = this.scene.fertileZones.some(zone => zone.contains(b.x, b.y));
                     if (isFertile) gain = Math.floor(gain * 1.5);
+
+                    // Apply Efficiency
+                    gain = Math.floor(gain * efficiency);
 
                     foodGen += gain;
                     productionAmount = gain;
@@ -211,7 +209,10 @@ export class EconomySystem {
 
                     if (noResIcon) noResIcon.visible = (treesNearby === 0);
                     
-                    const gain = Math.min(treesNearby * 2, 12);
+                    let gain = Math.min(treesNearby * 2, 12);
+                    // Apply Efficiency
+                    gain = Math.floor(gain * efficiency);
+
                     woodGen += gain;
                     if (gain > 0) {
                         productionAmount = gain;
@@ -230,7 +231,10 @@ export class EconomySystem {
                     if (noResIcon) noResIcon.visible = (animalsNearby === 0);
 
                     if (animalsNearby > 0) {
-                        const gain = 20; 
+                        let gain = 20; 
+                        // Apply Efficiency
+                        gain = Math.floor(gain * efficiency);
+
                         foodGen += gain;
                         productionAmount = gain;
                         productionType = 'Food';
@@ -251,30 +255,63 @@ export class EconomySystem {
             }
         });
         
-        // Apply Tax Gold Floating Text on Town Centers (Abstract representation of collecting taxes)
+        // Apply Tax Gold Floating Text
         if (goldGen > 0) {
              const tcs = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle[];
              if (tcs.length > 0) {
-                 // Show accumulated gold on the first TC
                  this.scene.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
              }
         }
     
+        const foodConsumed = this.scene.population * 1;
+        
+        this.lastRates = {
+            wood: woodGen,
+            food: foodGen,
+            gold: goldGen,
+            foodConsumption: foodConsumed
+        };
+
         this.scene.resources.food += foodGen;
         this.scene.resources.wood += woodGen;
         this.scene.resources.gold += goldGen;
     
-        const foodConsumed = this.scene.population * 1;
         this.scene.resources.food -= foodConsumed;
+        if (this.scene.resources.food < 0) this.scene.resources.food = 0;
     
-        if (this.scene.resources.food < 0) {
-            this.scene.resources.food = 0;
-            happinessModifiers -= 10; // Starvation penalty
+        // --- HAPPINESS LOGIC (Cumulative) ---
+        let happinessChange = 0;
+
+        // 1. Food Status
+        // If we ran out of food and had demand, people are unhappy
+        const isStarving = this.scene.resources.food === 0 && foodConsumed > 0;
+        if (isStarving) {
+            happinessChange -= 5;
         } else {
-            happinessModifiers += 5; // Well fed bonus
+            happinessChange += 1; // Basic needs met bonus
         }
-    
-        this.scene.happiness = Phaser.Math.Clamp(baseHappiness + happinessModifiers, 0, 100);
+
+        // 2. Overpopulation
+        if (this.scene.population > this.scene.maxPopulation) {
+            happinessChange -= 2;
+        }
+
+        // 3. Taxes
+        // Tax rates impact happiness change per tick
+        // 0=Bonus(+1), 1=Neutral(0), 2=(-1), 3=(-3), 4=(-6), 5=(-10)
+        const taxImpact = [1, 0, -1, -3, -6, -10];
+        happinessChange += (taxImpact[this.scene.taxRate] || 0);
+
+        // 4. Civic Buildings (Parks)
+        // Each park provides +1 happiness per tick to counteract negatives
+        const parks = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.SMALL_PARK);
+        happinessChange += parks.length;
+
+        // Apply Change
+        this.scene.happiness += happinessChange;
+        this.scene.happiness = Phaser.Math.Clamp(this.scene.happiness, 0, 100);
+        this.lastHappinessChange = happinessChange;
+
         this.updateStats();
     }
 
@@ -283,7 +320,9 @@ export class EconomySystem {
             population: this.scene.population,
             maxPopulation: this.scene.maxPopulation,
             happiness: this.scene.happiness,
+            happinessChange: this.lastHappinessChange,
             resources: { ...this.scene.resources },
+            rates: this.lastRates,
             taxRate: this.scene.taxRate
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);

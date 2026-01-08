@@ -17,11 +17,20 @@ export interface Resources {
   gold: number;
 }
 
+export interface ResourceRates {
+  wood: number;
+  food: number;
+  gold: number;
+  foodConsumption: number;
+}
+
 export interface GameStats {
   population: number;
   maxPopulation: number;
   happiness: number;
+  happinessChange: number; // Cumulative change per tick
   resources: Resources;
+  rates: ResourceRates;
   taxRate: number; // 0 = None, 1 = Low, ... 5 = Cruel
 }
 

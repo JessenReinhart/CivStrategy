@@ -1,12 +1,14 @@
 
-
 import Phaser from 'phaser';
-import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE, FACTION_COLORS } from '../constants';
-import { BuildingType, FactionType, Resources, BuildingDef, UnitType, UnitState } from '../types';
-import { toIso, toCartesian } from './utils/iso';
+import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE } from '../constants';
+import { BuildingType, FactionType, Resources, UnitType } from '../types';
+import { toIso } from './utils/iso';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
 import { EconomySystem } from './systems/EconomySystem';
+import { UnitSystem } from './systems/UnitSystem';
+import { BuildingManager } from './systems/BuildingManager';
+import { InputManager } from './systems/InputManager';
 
 export class MainScene extends Phaser.Scene {
   // Game State
@@ -15,9 +17,9 @@ export class MainScene extends Phaser.Scene {
   public maxPopulation = 10;
   public happiness = 100;
   public faction: FactionType = FactionType.ROMANS;
-  public taxRate: number = 0; // 0 (Low) to 5 (High)
+  public taxRate: number = 0; 
 
-  // Logic Entities (Physics, Invisible)
+  // Core Groups
   public units: Phaser.GameObjects.Group;
   public buildings: Phaser.GameObjects.Group;
   public trees: Phaser.GameObjects.Group;
@@ -27,24 +29,11 @@ export class MainScene extends Phaser.Scene {
   public pathfinder: Pathfinder;
   public entityFactory: EntityFactory;
   public economySystem: EconomySystem;
+  public unitSystem: UnitSystem;
+  public buildingManager: BuildingManager;
+  public inputManager: InputManager;
 
-  // Interaction
-  private territoryGraphics: Phaser.GameObjects.Graphics;
-  private pathGraphics: Phaser.GameObjects.Graphics;
-  private selectionGraphics: Phaser.GameObjects.Graphics;
-  private treeHighlightGraphics: Phaser.GameObjects.Graphics;
-  private previewBuilding: Phaser.GameObjects.Container | null = null;
-  private previewBuildingType: BuildingType | null = null;
-  private isDemolishMode: boolean = false;
-
-  // Selection
-  private selectedUnits: Phaser.GameObjects.GameObject[] = [];
-  private selectedBuilding: Phaser.GameObjects.GameObject | null = null;
-  private isDragging = false;
-  private dragStart: Phaser.Math.Vector2 = new Phaser.Math.Vector2();
-  private dragRect: Phaser.Geom.Rectangle = new Phaser.Geom.Rectangle();
-
-  // Input
+  // Input Keys (Managed here for ease of access)
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
   public wasd: {
     W: Phaser.Input.Keyboard.Key;
@@ -72,10 +61,31 @@ export class MainScene extends Phaser.Scene {
   create() {
     this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
     
-    // Systems Init
+    // Core Systems
     this.pathfinder = new Pathfinder();
     this.entityFactory = new EntityFactory(this);
+    
+    // Groups
+    this.units = this.add.group({ runChildUpdate: true });
+    this.buildings = this.add.group();
+    this.trees = this.add.group();
+    
+    // Environment
+    this.createEnvironment();
+    this.generateFertileZones(); 
+    this.generateForestsAndAnimals();
+
+    // Logic Systems (Initialized after environment)
+    this.unitSystem = new UnitSystem(this);
+    this.buildingManager = new BuildingManager(this);
+    this.inputManager = new InputManager(this); // Depends on buildingManager/unitSystem
     this.economySystem = new EconomySystem(this);
+
+    // Initial Spawns
+    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
+    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, 480, 400); 
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
 
     // Camera
     const startIso = toIso(400, 400);
@@ -84,88 +94,64 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.setZoom(1);
     this.cameras.main.setBackgroundColor('#0d1117');
 
-    // Groups
-    this.units = this.add.group({ runChildUpdate: true });
-    this.buildings = this.add.group();
-    this.trees = this.add.group();
-    
-    // Environment
-    this.createEnvironment();
-    this.generateFertileZones(); // Generate fertile land before forests
-
-    // Graphics
-    this.territoryGraphics = this.add.graphics().setDepth(-5000); 
-    this.pathGraphics = this.add.graphics().setDepth(-4000);
-    this.selectionGraphics = this.add.graphics().setDepth(Number.MAX_VALUE);
-    this.treeHighlightGraphics = this.add.graphics().setDepth(Number.MAX_VALUE - 500);
-
-    // Generate Forest Clusters and Animals
-    this.generateForestsAndAnimals();
-
-    // Initial Spawns
-    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
-    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, 480, 400); // Bonfire near TC
-
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
-
-    // Input Setup
+    // Input Keys
     this.input.mouse?.disableContextMenu();
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as any;
 
-    this.input.on('pointerdown', this.handlePointerDown, this);
-    this.input.on('pointermove', this.handlePointerMove, this);
-    this.input.on('pointerup', this.handlePointerUp, this);
-    this.input.on('wheel', (pointer: any, gameObjects: any, deltaX: number, deltaY: number, deltaZ: number) => {
-        const newZoom = Phaser.Math.Clamp(this.cameras.main.zoom - deltaY * 0.001, 0.5, 2);
-        this.cameras.main.setZoom(newZoom);
-    });
-
-    this.game.events.on('request-build', this.enterBuildMode, this);
+    // Global Events
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
-    this.game.events.on(EVENTS.TOGGLE_DEMOLISH, this.toggleDemolishMode, this);
-    this.game.events.on(EVENTS.REGROW_FOREST, this.handleRegrowForest, this);
     this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => {
         this.taxRate = rate;
-        this.economySystem.updateStats(); // Instant update to show impact
+        this.economySystem.updateStats();
     }, this);
 
     this.economySystem.updateStats();
   }
 
+  update(time: number, delta: number) {
+    this.inputManager.update(delta);
+    this.unitSystem.update(time, delta);
+    this.buildingManager.update();
+
+    if (time > this.lastTick + 1000) {
+      this.economySystem.tickEconomy();
+      this.lastTick = time;
+    }
+
+    if (time > this.lastPopCheck + 5000) {
+      this.economySystem.tickPopulation();
+      this.lastPopCheck = time;
+    }
+
+    this.economySystem.assignJobs();
+    this.syncVisuals();
+  }
+
+  // --- Environment Generation (Kept here for now as it's initialization) ---
+
   generateFertileZones() {
     const graphics = this.add.graphics();
-    graphics.setDepth(-9500); // Above ground, below grid
-
+    graphics.setDepth(-9500); 
     for (let i = 0; i < 15; i++) {
         const x = Phaser.Math.Between(150, MAP_WIDTH - 150);
         const y = Phaser.Math.Between(150, MAP_HEIGHT - 150);
         const radius = Phaser.Math.Between(100, 180);
-        
-        // Logical zone for checking
-        const circle = new Phaser.Geom.Circle(x, y, radius);
-        this.fertileZones.push(circle);
-
-        // Visual representation (Darker soil)
+        this.fertileZones.push(new Phaser.Geom.Circle(x, y, radius));
         const iso = toIso(x, y);
         graphics.fillStyle(0x3e2723, 0.4); 
-        // Draw ellipse to match iso perspective (2:1 ratio)
         graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
     }
   }
 
   generateForestsAndAnimals() {
-    // 1. Define Forest Centers
     const forests = [
         { x: 1200, y: 1200, radius: 400, density: 0.8 },
         { x: 1500, y: 500, radius: 300, density: 0.7 },
         { x: 500, y: 1500, radius: 350, density: 0.75 },
-        { x: 100, y: 800, radius: 250, density: 0.6 } // Small one
+        { x: 100, y: 800, radius: 250, density: 0.6 }
     ];
 
-    // 2. Spawn Trees
-    // Lush Forests
     forests.forEach(forest => {
         const count = Math.floor(forest.radius * forest.density * 0.5);
         for(let i=0; i<count; i++) {
@@ -173,8 +159,6 @@ export class MainScene extends Phaser.Scene {
             const dist = Math.sqrt(Math.random()) * forest.radius;
             const tx = forest.x + Math.cos(angle) * dist;
             const ty = forest.y + Math.sin(angle) * dist;
-
-            // Avoid TC Area
             if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 200) {
                  if (tx > 50 && tx < MAP_WIDTH-50 && ty > 50 && ty < MAP_HEIGHT-50) {
                      this.entityFactory.spawnTree(tx, ty);
@@ -183,7 +167,6 @@ export class MainScene extends Phaser.Scene {
         }
     });
 
-    // Sparse global trees
     for (let i = 0; i < 80; i++) {
         const tx = Phaser.Math.Between(50, MAP_WIDTH - 50);
         const ty = Phaser.Math.Between(50, MAP_HEIGHT - 50);
@@ -192,92 +175,19 @@ export class MainScene extends Phaser.Scene {
         }
     }
 
-    // 3. Spawn Animals (Deer) near forests - INCREASED COUNT
     forests.forEach(forest => {
-        const animalCount = Phaser.Math.Between(8, 14); // Increased from 3-6
+        const animalCount = Phaser.Math.Between(8, 14); 
         for(let i=0; i<animalCount; i++) {
             const angle = Math.random() * Math.PI * 2;
             const dist = Math.random() * forest.radius;
             const ax = forest.x + Math.cos(angle) * dist;
             const ay = forest.y + Math.sin(angle) * dist;
-            
             if (ax > 50 && ax < MAP_WIDTH-50 && ay > 50 && ay < MAP_HEIGHT-50) {
                 this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
             }
         }
     });
   }
-
-  public showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
-      const iso = toIso(x, y);
-      const text = this.add.text(iso.x, iso.y - 60, message, {
-          fontFamily: 'monospace',
-          fontSize: '14px',
-          color: color,
-          stroke: '#000000',
-          strokeThickness: 2,
-          fontStyle: 'bold'
-      });
-      text.setOrigin(0.5);
-      text.setDepth(Number.MAX_VALUE);
-
-      this.tweens.add({
-          targets: text,
-          y: iso.y - 120,
-          alpha: 0,
-          duration: 1500,
-          ease: 'Power2',
-          onComplete: () => text.destroy()
-      });
-  }
-
-  public showFloatingResource(x: number, y: number, amount: number, type: string) {
-    const iso = toIso(x, y);
-    const container = this.add.container(iso.x, iso.y - 60);
-    container.setDepth(Number.MAX_VALUE);
-
-    const icon = this.add.graphics();
-    // Icons retain color for identification, text is white/clean
-    if (type === 'Wood') {
-        // Log icon
-        icon.fillStyle(0x5D4037); // Dark Brown
-        icon.fillRoundedRect(-14, -6, 10, 10, 2);
-        icon.fillStyle(0x8D6E63); // Light Brown cap
-        icon.fillCircle(-11, -1, 4);
-    } else if (type === 'Food') {
-        // Food/Berry icon
-        icon.fillStyle(0xea580c); // Orange/Red
-        icon.fillCircle(-10, 0, 5);
-        icon.fillStyle(0xa3e635); // Green leaf
-        icon.fillEllipse(-10, -5, 5, 2);
-    } else if (type === 'Gold') {
-        // Coin icon
-        icon.fillStyle(0xffd700);
-        icon.fillCircle(-10, 0, 5);
-        icon.lineStyle(1, 0xeab308);
-        icon.strokeCircle(-10, 0, 5);
-    }
-
-    const text = this.add.text(0, 0, `+${amount}`, {
-        fontFamily: 'monospace',
-        fontSize: '13px',
-        color: '#ffffff', // Clean white
-        stroke: '#000000',
-        strokeThickness: 2
-    });
-    text.setOrigin(0, 0.5);
-
-    container.add([icon, text]);
-
-    this.tweens.add({
-        targets: container,
-        y: iso.y - 100,
-        alpha: 0,
-        duration: 1500,
-        ease: 'Power2',
-        onComplete: () => container.destroy()
-    });
-}
 
   createEnvironment() {
     const groundGraphics = this.add.graphics();
@@ -312,638 +222,68 @@ export class MainScene extends Phaser.Scene {
     gridGraphics.setDepth(-9000);
   }
 
-  update(time: number, delta: number) {
-    this.handleCameraMovement(delta);
-    
-    if (time > this.lastTick + 1000) {
-      this.economySystem.tickEconomy();
-      this.lastTick = time;
-    }
-
-    if (time > this.lastPopCheck + 5000) {
-      this.economySystem.tickPopulation();
-      this.lastPopCheck = time;
-    }
-
-    this.economySystem.assignJobs();
-    
-    this.drawTerritory();
-    this.drawUnitPaths(time);
-    this.updateUnitLogic(delta);
-    this.syncVisuals();
-  }
-
-  // --- Input & Interaction Logic ---
-
-  private handlePointerDown(pointer: Phaser.Input.Pointer) {
-    if (pointer.rightButtonDown()) {
-        if (this.isDemolishMode) {
-            this.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
-            return;
-        }
-        
-        // Right click cancels build mode
-        if (this.previewBuildingType) {
-            this.previewBuildingType = null;
-            if (this.previewBuilding) {
-                this.previewBuilding.destroy();
-                this.previewBuilding = null;
-            }
-            this.treeHighlightGraphics.clear();
-            return;
-        }
-
-        this.handleRightClick(pointer);
-        return;
-    }
-
-    if (this.isDemolishMode) {
-        this.handleDemolishClick(pointer);
-        return;
-    }
-
-    if (this.previewBuildingType) {
-        const cart = toCartesian(pointer.worldX, pointer.worldY);
-        const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
-        const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
-        const def = BUILDINGS[this.previewBuildingType];
-        const cx = gx + def.width/2;
-        const cy = gy + def.height/2;
-
-        this.tryBuild(cx, cy);
-    } else {
-        this.isDragging = true;
-        this.dragStart.set(pointer.worldX, pointer.worldY);
-    }
-  }
-
-  private handlePointerMove(pointer: Phaser.Input.Pointer) {
-    if (this.isDemolishMode) {
-        const targets = this.input.hitTestPointer(pointer);
-        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building')) as Phaser.GameObjects.Container | undefined;
-        
-        this.buildings.getChildren().forEach((b: any) => {
-            const visual = b.visual as Phaser.GameObjects.Container;
-            if (visual) {
-                const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
-                if (highlight) {
-                    highlight.destroy();
-                    visual.setData('demolishHighlight', null);
-                }
-            }
-        });
-
-        if (buildingVisual) {
-             const b = buildingVisual.getData('building');
-             if (b) {
-                const def = b.getData('def') as BuildingDef;
-                const highlight = this.add.graphics();
-                this.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
-                buildingVisual.add(highlight);
-                buildingVisual.setData('demolishHighlight', highlight);
-             }
-        }
-        return;
-    }
-
-    if (this.isDragging) {
-        this.dragRect.setTo(
-            Math.min(this.dragStart.x, pointer.worldX),
-            Math.min(this.dragStart.y, pointer.worldY),
-            Math.abs(pointer.worldX - this.dragStart.x),
-            Math.abs(pointer.worldY - this.dragStart.y)
-        );
-        
-        this.selectionGraphics.clear();
-        this.selectionGraphics.lineStyle(2, 0xffffff);
-        this.selectionGraphics.strokeRectShape(this.dragRect);
-        this.selectionGraphics.fillStyle(0xffffff, 0.1);
-        this.selectionGraphics.fillRectShape(this.dragRect);
-    }
-
-    if (this.previewBuilding) {
-        const cart = toCartesian(pointer.worldX, pointer.worldY);
-        const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
-        const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
-        const def = BUILDINGS[this.previewBuildingType!];
-        const cx = gx + def.width/2;
-        const cy = gy + def.height/2;
-
-        const iso = toIso(cx, cy);
-        this.previewBuilding.setPosition(iso.x, iso.y);
-        this.previewBuilding.setDepth(Number.MAX_VALUE - 100); 
-        
-        const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType!);
-        const color = isValid ? 0x00ff00 : 0xff0000;
-        
-        const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
-        graphics.clear();
-
-        if (def.effectRadius) {
-            graphics.lineStyle(2, 0xffd700, 0.8);
-            graphics.strokeEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-            graphics.fillStyle(0xffd700, 0.1);
-            graphics.fillEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-        }
-
-        // --- TREE HIGHLIGHTING LOGIC ---
-        this.treeHighlightGraphics.clear();
-        if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
-            const range = def.effectRadius || 200;
-            let treesInRange = 0;
-            
-            this.trees.getChildren().forEach((t: any) => {
-                if (Phaser.Math.Distance.Between(cx, cy, t.x, t.y) <= range) {
-                    treesInRange++;
-                    const isoT = toIso(t.x, t.y);
-                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.8); // Bright Green
-                    this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
-                }
-            });
-            if (treesInRange === 0) {
-                 graphics.fillStyle(0xff0000, 0.3);
-                 graphics.fillCircle(0, 0, 40);
-            }
-        }
-        
-        // --- ANIMAL HIGHLIGHTING LOGIC ---
-        if (this.previewBuildingType === BuildingType.HUNTERS_LODGE) {
-            const range = def.effectRadius || 300;
-            let animalsInRange = 0;
-            
-            this.units.getChildren().forEach((u: any) => {
-                if (u.unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between(cx, cy, u.x, u.y) <= range) {
-                    animalsInRange++;
-                    const isoT = toIso(u.x, u.y);
-                    this.treeHighlightGraphics.lineStyle(2, 0xf97316, 0.8); // Orange for animals
-                    this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
-                }
-            });
-            if (animalsInRange === 0) {
-                 graphics.fillStyle(0xff0000, 0.3);
-                 graphics.fillCircle(0, 0, 40);
-            }
-        }
-
-        this.entityFactory.drawIsoBuilding(graphics, def, color, 0.5);
-    }
-  }
-
-  private handlePointerUp(pointer: Phaser.Input.Pointer) {
-    if (this.isDragging) {
-        this.isDragging = false;
-        const dist = Phaser.Math.Distance.Between(
-            this.dragStart.x, this.dragStart.y,
-            pointer.worldX, pointer.worldY
-        );
-        this.selectionGraphics.clear();
-        if (dist < 5) {
-            this.handleSingleSelection(pointer);
-        } else {
-            this.selectUnitsInIsoRect(this.dragRect);
-        }
-    }
-  }
-
-  private tryBuild(x: number, y: number) {
-      if (!this.previewBuildingType) return;
-      
-      if (this.checkBuildValidity(x, y, this.previewBuildingType)) {
-          this.entityFactory.spawnBuilding(this.previewBuildingType, x, y);
-          
-          const def = BUILDINGS[this.previewBuildingType];
-          this.resources.wood -= def.cost.wood;
-          this.resources.food -= def.cost.food;
-          this.resources.gold -= def.cost.gold;
-
-          // Instant Spawn for Houses
-          if (this.previewBuildingType === BuildingType.HOUSE) {
-              this.entityFactory.spawnUnit(UnitType.VILLAGER, x + 30, y + 30);
-              this.showFloatingText(x, y, "Peasant spawned!", "#00ff00");
-          }
-          
-          this.economySystem.updateStats();
-      }
-  }
-
-  private enterBuildMode(buildingType: BuildingType) {
-      const def = BUILDINGS[buildingType];
-      if (!def) return;
-      
-      if (this.isDemolishMode) {
-          this.toggleDemolishMode(false);
-          this.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
-      }
-
-      if (this.previewBuilding) this.previewBuilding.destroy();
-      this.previewBuildingType = buildingType;
-      this.previewBuilding = this.add.container(0, 0);
-      const gfx = this.add.graphics();
-      this.entityFactory.drawIsoBuilding(gfx, def, 0xffffff, 0.5);
-      this.previewBuilding.add(gfx);
-      this.previewBuilding.setDepth(Number.MAX_VALUE);
-  }
-
-  // --- Logic Helpers ---
-
-  private handleCameraMovement(delta: number) {
-    const speed = 1.0 * delta / this.cameras.main.zoom;
-    if (this.cursors.left.isDown || this.wasd.A.isDown) this.cameras.main.scrollX -= speed;
-    if (this.cursors.right.isDown || this.wasd.D.isDown) this.cameras.main.scrollX += speed;
-    if (this.cursors.up.isDown || this.wasd.W.isDown) this.cameras.main.scrollY -= speed;
-    if (this.cursors.down.isDown || this.wasd.S.isDown) this.cameras.main.scrollY += speed;
-  }
-
-  private toggleDemolishMode(isActive: boolean) {
-      this.isDemolishMode = isActive;
-      if (this.isDemolishMode) {
-          this.selectedUnits.forEach((u: any) => u.setSelected(false));
-          this.selectedUnits = [];
-          this.deselectBuilding();
-          this.game.events.emit(EVENTS.SELECTION_CHANGED, 0);
-          this.previewBuildingType = null;
-          if (this.previewBuilding) {
-              this.previewBuilding.destroy();
-              this.previewBuilding = null;
-          }
-          this.input.setDefaultCursor('crosshair');
-      } else {
-          this.input.setDefaultCursor('default');
-          this.buildings.getChildren().forEach((b: any) => {
-              const visual = b.visual as Phaser.GameObjects.Container;
-              if (visual) {
-                 const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
-                 if (highlight) {
-                     highlight.destroy();
-                     visual.setData('demolishHighlight', null);
-                 }
-              }
-          });
-      }
-  }
-
-  private handleDemolishClick(pointer: Phaser.Input.Pointer) {
-      const targets = this.input.hitTestPointer(pointer);
-      const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
-      if (buildingVisual) {
-          const b = buildingVisual.getData('building');
-          this.demolishBuilding(b);
-      }
-  }
-
-  private demolishBuilding(b: Phaser.GameObjects.GameObject) {
-      const def = b.getData('def') as BuildingDef;
-      
-      if (def.cost.wood > 0) this.resources.wood += Math.floor(def.cost.wood * 0.75);
-      
-      if (def.populationBonus) this.maxPopulation -= def.populationBonus;
-      if (def.happinessBonus) this.happiness -= def.happinessBonus;
-
-      const worker = b.getData('assignedWorker');
-      if (worker) {
-          worker.state = UnitState.IDLE;
-          worker.jobBuilding = null;
-          worker.path = null;
-          worker.body.setVelocity(0,0);
-      }
-
-      const logic = b as Phaser.GameObjects.Rectangle;
-      this.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
-
-      const visual = (b as any).visual;
-      if (visual) visual.destroy();
-      b.destroy();
-      
-      if (this.selectedBuilding === b) {
-          this.deselectBuilding();
-      }
-
-      this.economySystem.updateStats();
-  }
-
-  private deselectBuilding() {
-      if (this.selectedBuilding) {
-          const v = (this.selectedBuilding as any).visual;
-          if (v) {
-              const ring = v.getData('ring');
-              if (ring) ring.visible = false;
-          }
-          this.selectedBuilding = null;
-          this.game.events.emit(EVENTS.BUILDING_SELECTED, null);
-      }
-  }
-
-  private handleSingleSelection(pointer: Phaser.Input.Pointer) {
-      const targets = this.input.hitTestPointer(pointer);
-      const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
-      const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
-
-      // Deselect all units
-      this.selectedUnits.forEach((u: any) => u.setSelected(false));
-      this.selectedUnits = [];
-      
-      // Deselect building if clicked elsewhere or on a unit
-      if (unitVisual || !buildingVisual) {
-          this.deselectBuilding();
-      }
-
-      if (unitVisual) {
-          const unit = unitVisual.getData('unit');
-          if (unit && unit.unitType === UnitType.SOLDIER) {
-              unit.setSelected(true);
-              this.selectedUnits.push(unit);
-          }
-      } else if (buildingVisual) {
-          const b = buildingVisual.getData('building');
-          this.selectedBuilding = b;
-          const visual = (b as any).visual;
-          const ring = visual.getData('ring');
-          if (ring) ring.visible = true;
-          
-          const def = b.getData('def') as BuildingDef;
-          this.game.events.emit(EVENTS.BUILDING_SELECTED, def.type);
-      }
-      
-      this.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
-  }
-
-  private selectUnitsInIsoRect(rect: Phaser.Geom.Rectangle) {
-      this.selectedUnits.forEach((u: any) => u.setSelected(false));
-      this.selectedUnits = [];
-      this.deselectBuilding(); // Drag selection clears building selection
-
-      this.units.getChildren().forEach((u: any) => {
-          if (u.unitType !== UnitType.SOLDIER) return;
-          const visual = u.visual;
-          if (visual) {
-              const inside = rect.contains(visual.x, visual.y);
-              if (inside) {
-                  u.setSelected(true);
-                  this.selectedUnits.push(u);
-              }
-          }
-      });
-      this.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
-  }
-
-  private handleRightClick(pointer: Phaser.Input.Pointer) {
-    const cart = toCartesian(pointer.worldX, pointer.worldY);
-
-    if (this.selectedUnits.length > 0) {
-        const target = new Phaser.Math.Vector2(cart.x, cart.y);
-        const spacing = 15;
-        const formationCols = Math.ceil(Math.sqrt(this.selectedUnits.length));
-
-        this.selectedUnits.forEach((unit: any, index) => {
-            const col = index % formationCols;
-            const row = Math.floor(index / formationCols);
-            const offsetX = (col - formationCols/2) * spacing;
-            const offsetY = (row - Math.ceil(this.selectedUnits.length/formationCols)/2) * spacing;
-            const unitTarget = new Phaser.Math.Vector2(target.x + offsetX, target.y + offsetY);
-            
-            const path = this.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), unitTarget);
-            if (path) {
-                unit.path = path;
-                unit.pathStep = 0;
-                unit.pathCreatedAt = this.time.now;
-                unit.body.reset(unit.x, unit.y);
-            }
-        });
-        
-        const iso = toIso(cart.x, cart.y);
-        const circle = this.add.circle(iso.x, iso.y, 5, 0xffffff);
-        circle.setScale(1, 0.5);
-        circle.setDepth(iso.y); 
-        this.tweens.add({
-            targets: circle,
-            scaleX: 0,
-            scaleY: 0,
-            alpha: 0,
-            duration: 500,
-            onComplete: () => circle.destroy()
-        });
-    }
-  }
+  // --- Helpers ---
 
   private handleSoldierSpawnRequest() {
       const barracks = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.BARRACKS) as Phaser.GameObjects.Rectangle;
-
       if (barracks && this.resources.food >= 100 && this.resources.gold >= 50 && this.population < this.maxPopulation) {
           this.resources.food -= 100;
           this.resources.gold -= 50;
           this.entityFactory.spawnUnit(UnitType.SOLDIER, barracks.x, barracks.y + 70);
       }
   }
-  
-  private handleRegrowForest() {
-      if (!this.selectedBuilding) return;
-      const b = this.selectedBuilding;
-      const def = b.getData('def') as BuildingDef;
-      
-      if (def.type !== BuildingType.LUMBER_CAMP) return;
-      
-      const cost = 50;
-      if (this.resources.wood < cost) {
-          this.showFloatingText(b.x, b.y, "Not enough wood!", "#ff0000");
-          return;
-      }
-      
-      this.resources.wood -= cost;
-      
-      // Regrow trees in radius
-      let regrownCount = 0;
-      this.trees.getChildren().forEach((t: any) => {
-          if (t.getData('isChopped')) {
-              if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < (def.effectRadius || 200)) {
-                  this.entityFactory.updateTreeVisual(t, false);
-                  regrownCount++;
-              }
-          }
+
+  public showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
+      const iso = toIso(x, y);
+      const text = this.add.text(iso.x, iso.y - 60, message, {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: color,
+          stroke: '#000000',
+          strokeThickness: 2,
+          fontStyle: 'bold'
       });
-      
-      if (regrownCount > 0) {
-          this.showFloatingText(b.x, b.y, "Forest Regrown!", "#4ade80");
-          this.economySystem.updateStats();
-      } else {
-          this.showFloatingText(b.x, b.y, "No stumps nearby.", "#ffffff");
-          this.resources.wood += cost; // Refund if nothing happened
-      }
-  }
-
-  private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
-      const def = BUILDINGS[type];
-      
-      if (this.resources.wood < def.cost.wood || this.resources.food < def.cost.food || this.resources.gold < def.cost.gold) {
-          return false;
-      }
-
-      let inTerritory = false;
-      this.buildings.getChildren().forEach((b: any) => {
-          const bDef = b.getData('def') as BuildingDef;
-          if (bDef.territoryRadius) {
-              const dist = Phaser.Math.Distance.Between(x, y, b.x, b.y);
-              if (dist <= bDef.territoryRadius) inTerritory = true;
-          }
-      });
-      if (!inTerritory && this.buildings.getLength() > 0) return false;
-
-      const bounds = new Phaser.Geom.Rectangle(x - def.width/2, y - def.height/2, def.width, def.height);
-      let overlaps = false;
-      this.buildings.getChildren().forEach((b: any) => {
-          if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, b.getBounds())) {
-              overlaps = true;
-          }
-      });
-      if (overlaps) return false;
-
-      let treeOverlap = false;
-      this.trees.getChildren().forEach((t: any) => {
-          if (bounds.contains(t.x, t.y)) treeOverlap = true;
-      });
-      if (treeOverlap) return false;
-
-      return true;
-  }
-
-  private drawTerritory() {
-      this.territoryGraphics.clear();
-      this.buildings.getChildren().forEach((bObj: Phaser.GameObjects.GameObject) => {
-          const b = bObj as Phaser.GameObjects.Rectangle;
-          const def = b.getData('def') as BuildingDef;
-          const iso = toIso(b.x, b.y);
-          if (def.territoryRadius) {
-             this.territoryGraphics.fillStyle(FACTION_COLORS[this.faction], 0.1);
-             this.territoryGraphics.lineStyle(1, FACTION_COLORS[this.faction], 0.3);
-             this.territoryGraphics.fillEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
-             this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
-          }
-          if (def.effectRadius) {
-             this.territoryGraphics.lineStyle(2, 0xffd700, 0.3); 
-             this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.effectRadius * 2, def.effectRadius);
-          }
+      text.setOrigin(0.5);
+      text.setDepth(Number.MAX_VALUE);
+      this.tweens.add({
+          targets: text,
+          y: iso.y - 120,
+          alpha: 0,
+          duration: 1500,
+          ease: 'Power2',
+          onComplete: () => text.destroy()
       });
   }
 
-  private drawUnitPaths(time: number) {
-    this.pathGraphics.clear();
-    this.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
-        const u = uObj as Phaser.GameObjects.Arc & {
-            unitType: UnitType;
-            path: Phaser.Math.Vector2[] | null;
-            pathCreatedAt?: number;
-            pathStep: number;
-        };
-        if (u.unitType === UnitType.SOLDIER && u.path && u.pathCreatedAt) {
-            const age = time - u.pathCreatedAt;
-            const fadeDuration = 1500;
-            if (age < fadeDuration) {
-                const alpha = Phaser.Math.Clamp(1 - (age / fadeDuration), 0, 1);
-                if (u.path.length > u.pathStep) {
-                    this.pathGraphics.beginPath();
-                    const startIso = toIso(u.x, u.y);
-                    this.pathGraphics.moveTo(startIso.x, startIso.y);
-                    for (let i = u.pathStep; i < u.path.length; i++) {
-                        const pt = u.path[i];
-                        const iso = toIso(pt.x, pt.y);
-                        this.pathGraphics.lineTo(iso.x, iso.y);
-                    }
-                    this.pathGraphics.lineStyle(2, 0xffffff, alpha);
-                    this.pathGraphics.strokePath();
-                    this.pathGraphics.lineStyle(6, 0xffffff, alpha * 0.3);
-                    this.pathGraphics.strokePath();
-                    const lastPt = u.path[u.path.length - 1];
-                    const lastIso = toIso(lastPt.x, lastPt.y);
-                    this.pathGraphics.fillStyle(0xffffff, alpha);
-                    this.pathGraphics.fillCircle(lastIso.x, lastIso.y, 4);
-                }
-            }
-        }
+  public showFloatingResource(x: number, y: number, amount: number, type: string) {
+    const iso = toIso(x, y);
+    const container = this.add.container(iso.x, iso.y - 60);
+    container.setDepth(Number.MAX_VALUE);
+    const icon = this.add.graphics();
+    if (type === 'Wood') {
+        icon.fillStyle(0x5D4037); icon.fillRoundedRect(-14, -6, 10, 10, 2); icon.fillStyle(0x8D6E63); icon.fillCircle(-11, -1, 4);
+    } else if (type === 'Food') {
+        icon.fillStyle(0xea580c); icon.fillCircle(-10, 0, 5); icon.fillStyle(0xa3e635); icon.fillEllipse(-10, -5, 5, 2);
+    } else if (type === 'Gold') {
+        icon.fillStyle(0xffd700); icon.fillCircle(-10, 0, 5); icon.lineStyle(1, 0xeab308); icon.strokeCircle(-10, 0, 5);
+    }
+    const text = this.add.text(0, 0, `+${amount}`, {
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2
     });
-  }
-
-  private updateUnitLogic(delta: number) {
-      this.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
-          // Cast to intersection type that includes Arc (for x,y) and custom props
-          const unit = item as Phaser.GameObjects.Arc & {
-              body: Phaser.Physics.Arcade.Body;
-              unitType: UnitType;
-              state: UnitState;
-              path: Phaser.Math.Vector2[] | null;
-              pathStep: number;
-              pathCreatedAt?: number;
-          };
-          const body = unit.body;
-          
-          if (!body) return;
-
-          // --- ANIMAL WANDERING AI ---
-          if (unit.unitType === UnitType.ANIMAL) {
-               // If moving, check if arrived
-               if (body.velocity.length() > 0) {
-                   const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
-                   if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
-                       body.setVelocity(0, 0);
-                       unit.state = UnitState.IDLE;
-                   }
-               } 
-               // If idle, random chance to move
-               else if (Math.random() < 0.005) { 
-                   const wanderRadius = 100;
-                   const angle = Math.random() * Math.PI * 2;
-                   const dist = Math.random() * wanderRadius;
-                   const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
-                   const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
-                   
-                   unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
-                   this.physics.moveTo(unit, tx, ty, 20); // Slow move speed
-                   unit.state = UnitState.WANDERING;
-               }
-          }
-          // --- END ANIMAL AI ---
-
-          else if (unit.path && unit.path.length > 0) {
-              if (unit.pathStep >= unit.path.length) {
-                  body.setVelocity(0, 0);
-                  unit.path = null;
-                  
-                  // Logic when arriving at destination
-                  if (unit.unitType === UnitType.VILLAGER) {
-                      if (unit.state === UnitState.MOVING_TO_WORK) {
-                          unit.state = UnitState.WORKING;
-                      } else if (unit.state === UnitState.MOVING_TO_RALLY) {
-                          unit.state = UnitState.IDLE;
-                      }
-                  }
-                  return;
-              }
-              const nextPoint = unit.path[unit.pathStep];
-              const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
-              if (dist < 4) {
-                  unit.pathStep++;
-              } else {
-                  this.physics.moveTo(unit, nextPoint.x, nextPoint.y, 100);
-              }
-          } else {
-              if (body.velocity.length() > 0) {
-                  body.setVelocity(0,0);
-              }
-          }
-      });
-      
-      this.physics.overlap(this.units, this.units, (obj1, obj2) => {
-          const u1 = obj1 as any;
-          const u2 = obj2 as any;
-          if (u1 === u2) return;
-          const dist = Phaser.Math.Distance.Between(u1.x, u1.y, u2.x, u2.y);
-          if (dist < 18) { 
-               const angle = Phaser.Math.Angle.Between(u2.x, u2.y, u1.x, u1.y);
-               const force = (18 - dist) * 1.5; 
-               u1.body.velocity.x += Math.cos(angle) * force;
-               u1.body.velocity.y += Math.sin(angle) * force;
-               u2.body.velocity.x -= Math.cos(angle) * force;
-               u2.body.velocity.y -= Math.sin(angle) * force;
-          }
-      });
+    text.setOrigin(0, 0.5);
+    container.add([icon, text]);
+    this.tweens.add({
+        targets: container,
+        y: iso.y - 100,
+        alpha: 0,
+        duration: 1500,
+        ease: 'Power2',
+        onComplete: () => container.destroy()
+    });
   }
 
   private syncVisuals() {

@@ -1,9 +1,8 @@
 
-
 import React, { useState } from 'react';
 import { GameStats, BuildingType, ResourceType } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout } from 'lucide-react';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -30,18 +29,55 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
       window.dispatchEvent(event);
   };
 
+  const happinessTrend = stats.happinessChange > 0 ? `+${stats.happinessChange}` : `${stats.happinessChange}`;
+  const happinessColor = stats.happiness < 40 ? 'text-red-500' : stats.happiness < 70 ? 'text-yellow-400' : 'text-green-400';
+  const isLowEfficiency = stats.happiness < 50;
+
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
       {/* Top Bar - Resources */}
       <div className="bg-stone-900/90 text-stone-200 p-2 flex items-center justify-center gap-8 border-b-2 border-amber-700/50 backdrop-blur pointer-events-auto shadow-lg">
-        <ResourceDisplay icon={<Pickaxe size={18} />} value={stats.resources.wood} label="Wood" color="text-emerald-400" />
-        <ResourceDisplay icon={<Wheat size={18} />} value={stats.resources.food} label="Food" color="text-yellow-400" />
-        <ResourceDisplay icon={<Coins size={18} />} value={stats.resources.gold} label="Gold" color="text-amber-400" />
+        <ResourceDisplay 
+            icon={<Pickaxe size={18} />} 
+            value={stats.resources.wood} 
+            label="Wood" 
+            color="text-emerald-400" 
+            rate={`+${stats.rates.wood}`}
+        />
+        <ResourceDisplay 
+            icon={<Wheat size={18} />} 
+            value={stats.resources.food} 
+            label="Food" 
+            color="text-yellow-400" 
+            rate={`+${stats.rates.food} / -${stats.rates.foodConsumption}`}
+        />
+        <ResourceDisplay 
+            icon={<Coins size={18} />} 
+            value={stats.resources.gold} 
+            label="Gold" 
+            color="text-amber-400" 
+            rate={`+${stats.rates.gold}`}
+        />
         
         <div className="w-px h-8 bg-stone-700 mx-2" />
         
         <ResourceDisplay icon={<User size={18} />} value={`${stats.population}/${stats.maxPopulation}`} label="Pop" color="text-blue-300" />
-        <ResourceDisplay icon={<Smile size={18} />} value={`${stats.happiness}%`} label="Happiness" color={stats.happiness < 50 ? 'text-red-400' : 'text-green-400'} />
+        <div className="flex flex-col items-center">
+             <ResourceDisplay 
+                icon={<Smile size={18} />} 
+                value={`${stats.happiness}%`} 
+                label="Happiness" 
+                color={happinessColor} 
+                rate={happinessTrend}
+            />
+            {isLowEfficiency && (
+                <div className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-900/50 px-1 rounded animate-pulse">
+                    <AlertTriangle size={10} />
+                    <span>Low Efficiency</span>
+                </div>
+            )}
+        </div>
+
       </div>
 
       {/* Tax Controls (Top Right) */}
@@ -64,8 +100,8 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
               <span>Cruel</span>
           </div>
           <div className="mt-2 text-xs text-center text-stone-300">
-              {stats.taxRate === 0 && "No Taxes (+0)"}
-              {stats.taxRate > 0 && `-${[0,2,4,8,16,32][stats.taxRate]} Happiness`}
+              {stats.taxRate === 0 && "No Taxes (+1/s)"}
+              {stats.taxRate > 0 && `${[1, 0, -1, -3, -6, -10][stats.taxRate]} Happiness/s`}
           </div>
       </div>
 
@@ -234,12 +270,15 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
   );
 };
 
-const ResourceDisplay = ({ icon, value, label, color }: any) => (
+const ResourceDisplay = ({ icon, value, label, color, rate }: any) => (
   <div className={`flex items-center gap-2 ${color} min-w-[80px]`}>
     {icon}
     <div className="flex flex-col leading-none">
       <span className="font-bold text-lg">{value}</span>
-      <span className="text-[10px] uppercase opacity-70 tracking-wider text-stone-400">{label}</span>
+      <div className="flex gap-2 items-center">
+        <span className="text-[10px] uppercase opacity-70 tracking-wider text-stone-400">{label}</span>
+        {rate && <span className="text-[9px] font-mono opacity-80">{rate}</span>}
+      </div>
     </div>
   </div>
 );
