@@ -1,5 +1,5 @@
 
-import { BuildingDef, BuildingType, FactionType, UnitType, MapSize } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats } from "./types";
 
 export const TILE_SIZE = 32;
 // Default Fallback
@@ -28,11 +28,19 @@ export const UNIT_VISION = {
   [UnitType.ANIMAL]: 50
 };
 
+// Centralized Unit Stats
+export const UNIT_STATS: Record<UnitType, UnitStats> = {
+  [UnitType.VILLAGER]: { maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80 },
+  [UnitType.SOLDIER]: { maxHp: 120, attack: 15, range: 40, attackSpeed: 1200, speed: 100 },
+  [UnitType.CAVALRY]: { maxHp: 200, attack: 20, range: 40, attackSpeed: 1000, speed: 160 },
+  [UnitType.ANIMAL]: { maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40 }
+};
+
 export const UNIT_SPEED = {
-  [UnitType.VILLAGER]: 80,
-  [UnitType.SOLDIER]: 100,
-  [UnitType.CAVALRY]: 160,
-  [UnitType.ANIMAL]: 40
+  [UnitType.VILLAGER]: UNIT_STATS[UnitType.VILLAGER].speed,
+  [UnitType.SOLDIER]: UNIT_STATS[UnitType.SOLDIER].speed,
+  [UnitType.CAVALRY]: UNIT_STATS[UnitType.CAVALRY].speed,
+  [UnitType.ANIMAL]: UNIT_STATS[UnitType.ANIMAL].speed
 };
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
@@ -40,10 +48,11 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.TOWN_CENTER,
     name: 'Town Center',
     cost: { wood: 300, food: 0, gold: 100 },
-    width: 96,
-    height: 96,
+    width: 80,
+    height: 80,
     color: 0x2563eb,
     description: 'Main hub. Large territory range.',
+    maxHp: 2000,
     territoryRadius: 600, 
     populationBonus: 5
   },
@@ -51,10 +60,11 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.BONFIRE,
     name: 'Village Fire',
     cost: { wood: 10, food: 0, gold: 0 },
-    width: 64,
-    height: 64,
+    width: 32,
+    height: 32,
     color: 0xea580c,
     description: 'Gathering point. Provides light.',
+    maxHp: 100,
     territoryRadius: 200,
     happinessBonus: 2
   },
@@ -62,30 +72,33 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.HOUSE,
     name: 'House',
     cost: { wood: 50, food: 0, gold: 0 },
-    width: 64,
-    height: 64,
+    width: 48,
+    height: 48,
     color: 0x92400e,
     description: 'Increases max population.',
+    maxHp: 300,
     populationBonus: 8
   },
   [BuildingType.FARM]: {
     type: BuildingType.FARM,
     name: 'Farm',
     cost: { wood: 50, food: 0, gold: 0 },
-    width: 64,
-    height: 64,
+    width: 48,
+    height: 48,
     color: 0xfacc15,
     description: 'Requires a peasant to generate food.',
+    maxHp: 200,
     workerNeeds: 1
   },
   [BuildingType.LUMBER_CAMP]: {
     type: BuildingType.LUMBER_CAMP,
     name: 'Lumber Camp',
     cost: { wood: 100, food: 0, gold: 0 },
-    width: 64,
-    height: 64,
+    width: 48,
+    height: 48,
     color: 0x166534,
     description: 'Requires a peasant to generate wood.',
+    maxHp: 250,
     effectRadius: 200,
     workerNeeds: 1
   },
@@ -97,6 +110,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     height: 32,
     color: 0x8b4513,
     description: 'Cheap food source.',
+    maxHp: 150,
     effectRadius: 300,
     workerNeeds: 1
   },
@@ -108,16 +122,18 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     height: 32,
     color: 0x4ade80,
     description: 'Increases global happiness.',
+    maxHp: 50,
     happinessBonus: 5
   },
   [BuildingType.BARRACKS]: {
     type: BuildingType.BARRACKS,
     name: 'Barracks',
     cost: { wood: 150, food: 0, gold: 50 },
-    width: 96,
-    height: 96,
+    width: 72,
+    height: 72,
     color: 0xb91c1c,
     description: 'Allows training of soldiers.',
+    maxHp: 800,
     happinessBonus: -2
   }
 };
