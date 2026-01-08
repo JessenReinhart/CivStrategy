@@ -18,6 +18,7 @@ export class MainScene extends Phaser.Scene {
   public units: Phaser.GameObjects.Group;
   public buildings: Phaser.GameObjects.Group;
   public trees: Phaser.GameObjects.Group;
+  public fertileZones: Phaser.Geom.Circle[] = [];
 
   // Systems
   public pathfinder: Pathfinder;
@@ -85,6 +86,7 @@ export class MainScene extends Phaser.Scene {
     
     // Environment
     this.createEnvironment();
+    this.generateFertileZones(); // Generate fertile land before forests
 
     // Graphics
     this.territoryGraphics = this.add.graphics().setDepth(-5000); 
@@ -92,14 +94,10 @@ export class MainScene extends Phaser.Scene {
     this.selectionGraphics = this.add.graphics().setDepth(Number.MAX_VALUE);
     this.treeHighlightGraphics = this.add.graphics().setDepth(Number.MAX_VALUE - 500);
 
-    // Initial Spawns (Trees, TC, Villagers)
-    for (let i = 0; i < 120; i++) {
-        const tx = Phaser.Math.Between(50, MAP_WIDTH - 50);
-        const ty = Phaser.Math.Between(50, MAP_HEIGHT - 50);
-        if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 250) {
-            this.entityFactory.spawnTree(tx, ty);
-        }
-    }
+    // Generate Forest Clusters and Animals
+    this.generateForestsAndAnimals();
+
+    // Initial Spawns (TC, Villagers)
     this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
@@ -123,6 +121,151 @@ export class MainScene extends Phaser.Scene {
 
     this.economySystem.updateStats();
   }
+
+  generateFertileZones() {
+    const graphics = this.add.graphics();
+    graphics.setDepth(-9500); // Above ground, below grid
+
+    for (let i = 0; i < 15; i++) {
+        const x = Phaser.Math.Between(150, MAP_WIDTH - 150);
+        const y = Phaser.Math.Between(150, MAP_HEIGHT - 150);
+        const radius = Phaser.Math.Between(100, 180);
+        
+        // Logical zone for checking
+        const circle = new Phaser.Geom.Circle(x, y, radius);
+        this.fertileZones.push(circle);
+
+        // Visual representation (Darker soil)
+        const iso = toIso(x, y);
+        graphics.fillStyle(0x3e2723, 0.4); 
+        // Draw ellipse to match iso perspective (2:1 ratio)
+        graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
+    }
+  }
+
+  generateForestsAndAnimals() {
+    // 1. Define Forest Centers
+    const forests = [
+        { x: 1200, y: 1200, radius: 400, density: 0.8 },
+        { x: 1500, y: 500, radius: 300, density: 0.7 },
+        { x: 500, y: 1500, radius: 350, density: 0.75 },
+        { x: 100, y: 800, radius: 250, density: 0.6 } // Small one
+    ];
+
+    // 2. Spawn Trees
+    // Lush Forests
+    forests.forEach(forest => {
+        const count = Math.floor(forest.radius * forest.density * 0.5);
+        for(let i=0; i<count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.sqrt(Math.random()) * forest.radius;
+            const tx = forest.x + Math.cos(angle) * dist;
+            const ty = forest.y + Math.sin(angle) * dist;
+
+            // Avoid TC Area
+            if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 200) {
+                 if (tx > 50 && tx < MAP_WIDTH-50 && ty > 50 && ty < MAP_HEIGHT-50) {
+                     this.entityFactory.spawnTree(tx, ty);
+                 }
+            }
+        }
+    });
+
+    // Sparse global trees
+    for (let i = 0; i < 80; i++) {
+        const tx = Phaser.Math.Between(50, MAP_WIDTH - 50);
+        const ty = Phaser.Math.Between(50, MAP_HEIGHT - 50);
+        if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 250) {
+            this.entityFactory.spawnTree(tx, ty);
+        }
+    }
+
+    // 3. Spawn Animals (Deer) near forests - INCREASED COUNT
+    forests.forEach(forest => {
+        const animalCount = Phaser.Math.Between(8, 14); // Increased from 3-6
+        for(let i=0; i<animalCount; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * forest.radius;
+            const ax = forest.x + Math.cos(angle) * dist;
+            const ay = forest.y + Math.sin(angle) * dist;
+            
+            if (ax > 50 && ax < MAP_WIDTH-50 && ay > 50 && ay < MAP_HEIGHT-50) {
+                this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
+            }
+        }
+    });
+  }
+
+  public showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
+      const iso = toIso(x, y);
+      const text = this.add.text(iso.x, iso.y - 60, message, {
+          fontFamily: 'monospace',
+          fontSize: '14px',
+          color: color,
+          stroke: '#000000',
+          strokeThickness: 2,
+          fontStyle: 'bold'
+      });
+      text.setOrigin(0.5);
+      text.setDepth(Number.MAX_VALUE);
+
+      this.tweens.add({
+          targets: text,
+          y: iso.y - 120,
+          alpha: 0,
+          duration: 1500,
+          ease: 'Power2',
+          onComplete: () => text.destroy()
+      });
+  }
+
+  public showFloatingResource(x: number, y: number, amount: number, type: string) {
+    const iso = toIso(x, y);
+    const container = this.add.container(iso.x, iso.y - 60);
+    container.setDepth(Number.MAX_VALUE);
+
+    const icon = this.add.graphics();
+    // Icons retain color for identification, text is white/clean
+    if (type === 'Wood') {
+        // Log icon
+        icon.fillStyle(0x5D4037); // Dark Brown
+        icon.fillRoundedRect(-14, -6, 10, 10, 2);
+        icon.fillStyle(0x8D6E63); // Light Brown cap
+        icon.fillCircle(-11, -1, 4);
+    } else if (type === 'Food') {
+        // Food/Berry icon
+        icon.fillStyle(0xea580c); // Orange/Red
+        icon.fillCircle(-10, 0, 5);
+        icon.fillStyle(0xa3e635); // Green leaf
+        icon.fillEllipse(-10, -5, 5, 2);
+    } else if (type === 'Gold') {
+        // Coin icon
+        icon.fillStyle(0xffd700);
+        icon.fillCircle(-10, 0, 5);
+        icon.lineStyle(1, 0xeab308);
+        icon.strokeCircle(-10, 0, 5);
+    }
+
+    const text = this.add.text(0, 0, `+${amount}`, {
+        fontFamily: 'monospace',
+        fontSize: '13px',
+        color: '#ffffff', // Clean white
+        stroke: '#000000',
+        strokeThickness: 2
+    });
+    text.setOrigin(0, 0.5);
+
+    container.add([icon, text]);
+
+    this.tweens.add({
+        targets: container,
+        y: iso.y - 100,
+        alpha: 0,
+        duration: 1500,
+        ease: 'Power2',
+        onComplete: () => container.destroy()
+    });
+}
 
   createEnvironment() {
     const groundGraphics = this.add.graphics();
@@ -305,9 +448,26 @@ export class MainScene extends Phaser.Scene {
                     this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
                 }
             });
-
-            // If no trees, show warning on cursor
             if (treesInRange === 0) {
+                 graphics.fillStyle(0xff0000, 0.3);
+                 graphics.fillCircle(0, 0, 40);
+            }
+        }
+        
+        // --- ANIMAL HIGHLIGHTING LOGIC ---
+        if (this.previewBuildingType === BuildingType.HUNTERS_LODGE) {
+            const range = def.effectRadius || 300;
+            let animalsInRange = 0;
+            
+            this.units.getChildren().forEach((u: any) => {
+                if (u.unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between(cx, cy, u.x, u.y) <= range) {
+                    animalsInRange++;
+                    const isoT = toIso(u.x, u.y);
+                    this.treeHighlightGraphics.lineStyle(2, 0xf97316, 0.8); // Orange for animals
+                    this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
+                }
+            });
+            if (animalsInRange === 0) {
                  graphics.fillStyle(0xff0000, 0.3);
                  graphics.fillCircle(0, 0, 40);
             }
@@ -345,8 +505,6 @@ export class MainScene extends Phaser.Scene {
           this.resources.gold -= def.cost.gold;
           
           this.economySystem.updateStats();
-
-          // Continuous building: DO NOT clear previewBuildingType
       }
   }
 
@@ -611,7 +769,33 @@ export class MainScene extends Phaser.Scene {
   private updateUnitLogic(delta: number) {
       this.units.getChildren().forEach((unit: any) => {
           const body = unit.body as Phaser.Physics.Arcade.Body;
-          if (unit.path && unit.path.length > 0) {
+          
+          // --- ANIMAL WANDERING AI ---
+          if (unit.unitType === UnitType.ANIMAL) {
+               // If moving, check if arrived
+               if (body.velocity.length() > 0) {
+                   const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
+                   if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
+                       body.setVelocity(0, 0);
+                       unit.state = UnitState.IDLE;
+                   }
+               } 
+               // If idle, random chance to move
+               else if (Math.random() < 0.005) { 
+                   const wanderRadius = 100;
+                   const angle = Math.random() * Math.PI * 2;
+                   const dist = Math.random() * wanderRadius;
+                   const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
+                   const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
+                   
+                   unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
+                   this.physics.moveTo(unit, tx, ty, 20); // Slow move speed
+                   unit.state = UnitState.WANDERING;
+               }
+          }
+          // --- END ANIMAL AI ---
+
+          else if (unit.path && unit.path.length > 0) {
               if (unit.pathStep >= unit.path.length) {
                   body.setVelocity(0, 0);
                   unit.path = null;
@@ -632,7 +816,7 @@ export class MainScene extends Phaser.Scene {
                   this.physics.moveTo(unit, nextPoint.x, nextPoint.y, 100);
               }
           } else {
-              if (body.velocity.length() > 0) {
+              if (body.velocity.length() > 0 && unit.unitType !== UnitType.ANIMAL) {
                   body.setVelocity(0,0);
               }
           }

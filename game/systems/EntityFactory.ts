@@ -39,9 +39,11 @@ export class EntityFactory {
         visual.add(vacantIcon);
         visual.setData('vacantIcon', vacantIcon);
 
-        // NO RESOURCES SYMBOL (Tree with X)
-        // Added as per request for Lumber Camp efficiency
-        const noResIcon = this.scene.add.text(0, -90, '🌲🚫', { fontSize: '20px', color: '#ff0000', stroke: '#000000', strokeThickness: 3 });
+        // NO RESOURCES SYMBOL (Tree/Deer with X)
+        let noResChar = '🌲🚫';
+        if (type === BuildingType.HUNTERS_LODGE) noResChar = '🦌🚫';
+
+        const noResIcon = this.scene.add.text(0, -90, noResChar, { fontSize: '20px', color: '#ff0000', stroke: '#000000', strokeThickness: 3 });
         noResIcon.setOrigin(0.5);
         noResIcon.visible = false;
         visual.add(noResIcon);
@@ -84,9 +86,10 @@ export class EntityFactory {
 
         if (type === UnitType.VILLAGER) {
             this.scene.population++;
-        } else {
+        } else if (type === UnitType.SOLDIER) {
             this.scene.population++;
         }
+        // Animals do not count towards population
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
@@ -98,7 +101,7 @@ export class EntityFactory {
             const torso = this.scene.add.rectangle(0, -8, 6, 12, 0x7CB342);
             const head = this.scene.add.circle(0, -15, 3.5, 0xffcccc);
             visual.add([gfx, torso, head]);
-        } else {
+        } else if (type === UnitType.SOLDIER) {
             gfx.fillStyle(FACTION_COLORS[this.scene.faction], 1);
             gfx.fillEllipse(0, 0, 20, 10);
             gfx.lineStyle(1, 0xffffff, 0.5);
@@ -124,6 +127,22 @@ export class EntityFactory {
             visual.setInteractive(new Phaser.Geom.Circle(0, 0, 20), Phaser.Geom.Circle.Contains);
             visual.on('pointerover', () => { hoverRing.visible = true; this.scene.input.setDefaultCursor('pointer'); });
             visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
+        } else if (type === UnitType.ANIMAL) {
+            // Deer Representation
+            gfx.fillStyle(0x795548, 1); // Brown body
+            gfx.fillEllipse(0, 0, 18, 10); 
+            
+            // Head
+            gfx.fillStyle(0x8D6E63, 1);
+            gfx.fillCircle(-8, -8, 5); 
+
+            // Antlers
+            gfx.lineStyle(1, 0xD7CCC8, 0.8);
+            gfx.beginPath(); gfx.moveTo(-8, -10); gfx.lineTo(-12, -16); gfx.strokePath();
+            gfx.beginPath(); gfx.moveTo(-8, -10); gfx.lineTo(-4, -16); gfx.strokePath();
+
+            visual.add(gfx);
+            visual.setScale(0.8);
         }
 
         this.scene.add.existing(visual);
