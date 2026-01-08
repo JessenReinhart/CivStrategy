@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
-import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode } from '../types';
+import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_SIZES, TILE_SIZE } from '../constants';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize } from '../types';
 import { toIso } from './utils/iso';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -10,6 +10,7 @@ import { UnitSystem } from './systems/UnitSystem';
 import { BuildingManager } from './systems/BuildingManager';
 import { InputManager } from './systems/InputManager';
 import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
+import { FogOfWarSystem } from './systems/FogOfWarSystem';
 
 export class MainScene extends Phaser.Scene {
   // Game State
@@ -19,6 +20,8 @@ export class MainScene extends Phaser.Scene {
   public happiness = 100;
   public faction: FactionType = FactionType.ROMANS;
   public mapMode: MapMode = MapMode.FIXED;
+  public mapWidth: number = 2048;
+  public mapHeight: number = 2048;
   public taxRate: number = 0; 
   // Track whether Fog of War is enabled
   public isFowEnabled: boolean = true;
@@ -37,6 +40,7 @@ export class MainScene extends Phaser.Scene {
   public buildingManager: BuildingManager;
   public inputManager: InputManager;
   public infiniteMapSystem: InfiniteMapSystem;
+  public fogOfWar: FogOfWarSystem | null;
 
   // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -54,9 +58,21 @@ export class MainScene extends Phaser.Scene {
     super('MainScene');
   }
 
-  init(data: { faction: FactionType, mapMode: MapMode }) {
+  init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
+    this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
+    
+    // Determine Map Size
+    if (this.mapMode === MapMode.FIXED) {
+        const sizePx = MAP_SIZES[data.mapSize || MapSize.MEDIUM];
+        this.mapWidth = sizePx;
+        this.mapHeight = sizePx;
+    } else {
+        this.mapWidth = 2048; // Default for logic, though infinite overrides physics
+        this.mapHeight = 2048;
+    }
+
     this.resources = { ...INITIAL_RESOURCES };
     this.population = 2;
     this.maxPopulation = 10;
@@ -82,7 +98,7 @@ export class MainScene extends Phaser.Scene {
 
     // Map Specific Setup
     if (this.mapMode === MapMode.FIXED) {
-      this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
+      this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
       this.createEnvironment();
       this.generateFertileZones(); 
       this.generateForestsAndAnimals();
@@ -91,14 +107,17 @@ export class MainScene extends Phaser.Scene {
       this.infiniteMapSystem = new InfiniteMapSystem(this);
     }
 
-    // Initial Spawns
-    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
-    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, 480, 400); 
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
+    // Initial Spawns (Center of map)
+    const centerX = this.mapMode === MapMode.FIXED ? this.mapWidth / 2 : 400;
+    const centerY = this.mapMode === MapMode.FIXED ? this.mapHeight / 2 : 400;
+
+    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX, centerY);
+    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY); 
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50);
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50);
 
     // Camera Setup
-    const startIso = toIso(400, 400);
+    const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
     this.cameras.main.setZoom(1);
     this.cameras.main.setBackgroundColor('#0d1117');
@@ -117,6 +136,13 @@ export class MainScene extends Phaser.Scene {
     this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
 
     this.economySystem.updateStats();
+
+    // Initialize Fog of War if Enabled
+    if (this.isFowEnabled) {
+        this.fogOfWar = new FogOfWarSystem(this);
+    } else {
+        this.fogOfWar = null;
+    }
   }
 
   public centerCameraOnTownCenter() {
@@ -132,6 +158,9 @@ export class MainScene extends Phaser.Scene {
     this.unitSystem.update(time, delta);
     this.buildingManager.update();
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
+    
+    // Update Fog last to ensure it overlays everything correctly
+    if (this.fogOfWar) this.fogOfWar.update();
 
     if (time > this.lastTick + 1000) {
       this.economySystem.tickEconomy();
@@ -150,9 +179,13 @@ export class MainScene extends Phaser.Scene {
   generateFertileZones() {
     const graphics = this.add.graphics();
     graphics.setDepth(-9500); 
-    for (let i = 0; i < 15; i++) {
-        const x = Phaser.Math.Between(150, MAP_WIDTH - 150);
-        const y = Phaser.Math.Between(150, MAP_HEIGHT - 150);
+    
+    // Scale zone count with map size
+    const zoneCount = Math.floor((this.mapWidth * this.mapHeight) / (500 * 500)); 
+
+    for (let i = 0; i < zoneCount; i++) {
+        const x = Phaser.Math.Between(150, this.mapWidth - 150);
+        const y = Phaser.Math.Between(150, this.mapHeight - 150);
         const radius = Phaser.Math.Between(100, 180);
         this.fertileZones.push(new Phaser.Geom.Circle(x, y, radius));
         const iso = toIso(x, y);
@@ -162,57 +195,63 @@ export class MainScene extends Phaser.Scene {
   }
 
   generateForestsAndAnimals() {
-    const forests = [
-        { x: 1200, y: 1200, radius: 400, density: 0.8 },
-        { x: 1500, y: 500, radius: 300, density: 0.7 },
-        { x: 500, y: 1500, radius: 350, density: 0.75 },
-        { x: 100, y: 800, radius: 250, density: 0.6 }
-    ];
+    // Generate forests procedurally based on map bounds
+    const forestCount = Math.floor((this.mapWidth * this.mapHeight) / (800 * 800));
+    
+    for (let i = 0; i < forestCount; i++) {
+        const fx = Phaser.Math.Between(100, this.mapWidth - 100);
+        const fy = Phaser.Math.Between(100, this.mapHeight - 100);
+        const fRadius = Phaser.Math.Between(200, 450);
+        const fDensity = Phaser.Math.FloatBetween(0.6, 0.85);
 
-    forests.forEach(forest => {
-        const count = Math.floor(forest.radius * forest.density * 0.5);
-        for(let i=0; i<count; i++) {
+        const treeCount = Math.floor(fRadius * fDensity * 0.5);
+        
+        // Spawn trees in this forest
+        for(let j=0; j<treeCount; j++) {
             const angle = Math.random() * Math.PI * 2;
-            const dist = Math.sqrt(Math.random()) * forest.radius;
-            const tx = forest.x + Math.cos(angle) * dist;
-            const ty = forest.y + Math.sin(angle) * dist;
-            if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 200) {
-                 if (tx > 50 && tx < MAP_WIDTH-50 && ty > 50 && ty < MAP_HEIGHT-50) {
+            const dist = Math.sqrt(Math.random()) * fRadius;
+            const tx = fx + Math.cos(angle) * dist;
+            const ty = fy + Math.sin(angle) * dist;
+            
+            // Avoid spawn area center
+            if (Phaser.Math.Distance.Between(tx, ty, this.mapWidth/2, this.mapHeight/2) > 250) {
+                 if (tx > 50 && tx < this.mapWidth-50 && ty > 50 && ty < this.mapHeight-50) {
                      this.entityFactory.spawnTree(tx, ty);
                  }
             }
         }
-    });
 
-    for (let i = 0; i < 80; i++) {
-        const tx = Phaser.Math.Between(50, MAP_WIDTH - 50);
-        const ty = Phaser.Math.Between(50, MAP_HEIGHT - 50);
-        if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 250) {
-            this.entityFactory.spawnTree(tx, ty);
-        }
-    }
-
-    forests.forEach(forest => {
+        // Spawn animals in this forest
         const animalCount = Phaser.Math.Between(8, 14); 
-        for(let i=0; i<animalCount; i++) {
+        for(let k=0; k<animalCount; k++) {
             const angle = Math.random() * Math.PI * 2;
-            const dist = Math.random() * forest.radius;
-            const ax = forest.x + Math.cos(angle) * dist;
-            const ay = forest.y + Math.sin(angle) * dist;
-            if (ax > 50 && ax < MAP_WIDTH-50 && ay > 50 && ay < MAP_HEIGHT-50) {
+            const dist = Math.random() * fRadius;
+            const ax = fx + Math.cos(angle) * dist;
+            const ay = fy + Math.sin(angle) * dist;
+            if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
                 this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
             }
         }
-    });
+    }
+
+    // Scattered trees
+    const scatteredCount = Math.floor((this.mapWidth * this.mapHeight) / (50000));
+    for (let i = 0; i < scatteredCount; i++) {
+        const tx = Phaser.Math.Between(50, this.mapWidth - 50);
+        const ty = Phaser.Math.Between(50, this.mapHeight - 50);
+        if (Phaser.Math.Distance.Between(tx, ty, this.mapWidth/2, this.mapHeight/2) > 250) {
+            this.entityFactory.spawnTree(tx, ty);
+        }
+    }
   }
 
   createEnvironment() {
     const groundGraphics = this.add.graphics();
     groundGraphics.fillStyle(0x2d6a4f, 1); 
     const p1 = toIso(0, 0);
-    const p2 = toIso(MAP_WIDTH, 0);
-    const p3 = toIso(MAP_WIDTH, MAP_HEIGHT);
-    const p4 = toIso(0, MAP_HEIGHT);
+    const p2 = toIso(this.mapWidth, 0);
+    const p3 = toIso(this.mapWidth, this.mapHeight);
+    const p4 = toIso(0, this.mapHeight);
     groundGraphics.beginPath();
     groundGraphics.moveTo(p1.x, p1.y);
     groundGraphics.lineTo(p2.x, p2.y);
@@ -224,15 +263,15 @@ export class MainScene extends Phaser.Scene {
 
     const gridGraphics = this.add.graphics();
     gridGraphics.lineStyle(1, 0x000000, 0.1);
-    for (let x = 0; x <= MAP_WIDTH; x += TILE_SIZE) {
+    for (let x = 0; x <= this.mapWidth; x += TILE_SIZE) {
         const start = toIso(x, 0);
-        const end = toIso(x, MAP_HEIGHT);
+        const end = toIso(x, this.mapHeight);
         gridGraphics.moveTo(start.x, start.y);
         gridGraphics.lineTo(end.x, end.y);
     }
-    for (let y = 0; y <= MAP_HEIGHT; y += TILE_SIZE) {
+    for (let y = 0; y <= this.mapHeight; y += TILE_SIZE) {
         const start = toIso(0, y);
-        const end = toIso(MAP_WIDTH, y);
+        const end = toIso(this.mapWidth, y);
         gridGraphics.moveTo(start.x, start.y);
         gridGraphics.lineTo(end.x, end.y);
     }

@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { GameStats, BuildingType, MapMode } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target } from 'lucide-react';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -10,11 +10,12 @@ interface GameUIProps {
   onSpawnUnit: () => void;
   onToggleDemolish: (isActive: boolean) => void;
   onRegrowForest: () => void;
+  onQuit: () => void;
   selectedCount: number;
   selectedBuildingType: BuildingType | null;
 }
 
-export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, selectedCount, selectedBuildingType }) => {
+export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType }) => {
   const [activeTab, setActiveTab] = useState<'economy' | 'military' | 'civic'>('economy');
   const [demolishActive, setDemolishActive] = useState(false);
 
@@ -41,61 +42,77 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
       {/* Top Bar - Resources */}
-      <div className="bg-stone-900/90 text-stone-200 p-2 flex items-center justify-center gap-8 border-b-2 border-amber-700/50 backdrop-blur pointer-events-auto shadow-lg">
-        <div className="flex items-center gap-4 mr-4 bg-stone-800/50 px-3 py-1 rounded-full border border-stone-700">
-             <div className="text-amber-500" title={stats.mapMode}>
-                 {stats.mapMode === MapMode.FIXED ? <MapIcon size={18}/> : <InfinityIcon size={18}/>}
-             </div>
-             <button 
-                onClick={handleCenterCamera}
-                className="text-stone-400 hover:text-amber-500 transition-colors"
-                title="Center Camera on Town Center"
-             >
-                 <Target size={18} />
-             </button>
+      <div className="bg-stone-900/90 text-stone-200 p-2 flex items-center justify-between px-6 border-b-2 border-amber-700/50 backdrop-blur pointer-events-auto shadow-lg">
+        {/* Left Side Controls */}
+        <div className="flex items-center gap-2">
+            <button
+                onClick={onQuit}
+                className="bg-red-900/40 hover:bg-red-900 text-red-200 border border-red-800 p-1.5 rounded flex items-center gap-2 text-xs transition-colors"
+                title="Quit to Menu"
+            >
+                <LogOut size={14} />
+                <span className="font-bold">QUIT</span>
+            </button>
+            <div className="flex items-center gap-4 bg-stone-800/50 px-3 py-1 rounded-full border border-stone-700 ml-2">
+                 <div className="text-amber-500" title={stats.mapMode}>
+                     {stats.mapMode === MapMode.FIXED ? <MapIcon size={18}/> : <InfinityIcon size={18}/>}
+                 </div>
+                 <button 
+                    onClick={handleCenterCamera}
+                    className="text-stone-400 hover:text-amber-500 transition-colors"
+                    title="Center Camera on Town Center"
+                 >
+                     <Target size={18} />
+                 </button>
+            </div>
         </div>
 
-        <ResourceDisplay 
-            icon={<Pickaxe size={18} />} 
-            value={stats.resources.wood} 
-            label="Wood" 
-            color="text-emerald-400" 
-            rate={`+${stats.rates.wood}`}
-        />
-        <ResourceDisplay 
-            icon={<Wheat size={18} />} 
-            value={stats.resources.food} 
-            label="Food" 
-            color="text-yellow-400" 
-            rate={`+${stats.rates.food} / -${stats.rates.foodConsumption}`}
-        />
-        <ResourceDisplay 
-            icon={<Coins size={18} />} 
-            value={stats.resources.gold} 
-            label="Gold" 
-            color="text-amber-400" 
-            rate={`+${stats.rates.gold}`}
-        />
-        
-        <div className="w-px h-8 bg-stone-700 mx-2" />
-        
-        <ResourceDisplay icon={<User size={18} />} value={`${stats.population}/${stats.maxPopulation}`} label="Pop" color="text-blue-300" />
-        <div className="flex flex-col items-center">
-             <ResourceDisplay 
-                icon={<Smile size={18} />} 
-                value={`${stats.happiness}%`} 
-                label="Happiness" 
-                color={happinessColor} 
-                rate={happinessTrend}
+        {/* Center Resources */}
+        <div className="flex items-center gap-6">
+            <ResourceDisplay 
+                icon={<Pickaxe size={18} />} 
+                value={stats.resources.wood} 
+                label="Wood" 
+                color="text-emerald-400" 
+                rate={`+${stats.rates.wood}`}
             />
-            {isLowEfficiency && (
-                <div className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-900/50 px-1 rounded animate-pulse">
-                    <AlertTriangle size={10} />
-                    <span>Low Efficiency</span>
-                </div>
-            )}
+            <ResourceDisplay 
+                icon={<Wheat size={18} />} 
+                value={stats.resources.food} 
+                label="Food" 
+                color="text-yellow-400" 
+                rate={`+${stats.rates.food} / -${stats.rates.foodConsumption}`}
+            />
+            <ResourceDisplay 
+                icon={<Coins size={18} />} 
+                value={stats.resources.gold} 
+                label="Gold" 
+                color="text-amber-400" 
+                rate={`+${stats.rates.gold}`}
+            />
+            
+            <div className="w-px h-8 bg-stone-700 mx-2" />
+            
+            <ResourceDisplay icon={<User size={18} />} value={`${stats.population}/${stats.maxPopulation}`} label="Pop" color="text-blue-300" />
+            <div className="flex flex-col items-center">
+                 <ResourceDisplay 
+                    icon={<Smile size={18} />} 
+                    value={`${stats.happiness}%`} 
+                    label="Happiness" 
+                    color={happinessColor} 
+                    rate={happinessTrend}
+                />
+                {isLowEfficiency && (
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-900/50 px-1 rounded animate-pulse">
+                        <AlertTriangle size={10} />
+                        <span>Low Efficiency</span>
+                    </div>
+                )}
+            </div>
         </div>
-
+        
+        {/* Spacer for right alignment balance */}
+        <div className="w-24"></div>
       </div>
 
       {/* Tax Controls (Top Right) */}
@@ -114,11 +131,12 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
             className="w-32 accent-amber-500"
           />
           <div className="flex justify-between text-[10px] text-stone-400 mt-1">
-              <span>None</span>
+              <span>Low</span>
               <span>Cruel</span>
           </div>
           <div className="mt-2 text-xs text-center text-stone-300">
-              {stats.taxRate === 0 && "No Taxes (+1/s)"}
+              <div className="mb-1 text-amber-400 font-bold">Income: {0.5 + stats.taxRate}g / pop</div>
+              {stats.taxRate === 0 && "Happy (+1 ☺/s)"}
               {stats.taxRate > 0 && `${[1, 0, -1, -3, -6, -10][stats.taxRate]} Happiness/s`}
           </div>
       </div>

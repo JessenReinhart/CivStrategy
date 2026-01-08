@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { FactionType, MapMode } from '../types';
+import { FactionType, MapMode, MapSize } from '../types';
 import { FACTION_COLORS } from '../constants';
-import { Shield, Users, Sword, Globe, Infinity as InfinityIcon } from 'lucide-react';
+import { Shield, Users, Sword, Globe, Infinity as InfinityIcon, Eye, EyeOff, Map as MapIcon, Maximize } from 'lucide-react';
 
 interface MainMenuProps {
-  onStart: (faction: FactionType, mode: MapMode) => void;
+  onStart: (faction: FactionType, mode: MapMode, size: MapSize, fow: boolean) => void;
 }
 
 const FACTION_INFO = {
@@ -29,6 +29,8 @@ const FACTION_INFO = {
 export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   const [selectedFaction, setSelectedFaction] = useState<FactionType>(FactionType.ROMANS);
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
+  const [mapSize, setMapSize] = useState<MapSize>(MapSize.MEDIUM);
+  const [fowEnabled, setFowEnabled] = useState<boolean>(true);
 
   return (
     <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center text-stone-100 z-50 bg-[url('https://picsum.photos/1920/1080?grayscale&blur=2')] bg-cover">
@@ -69,41 +71,75 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
         </div>
 
         {/* Game Settings */}
-        <div className="bg-stone-800/90 backdrop-blur p-6 rounded-xl border border-stone-600 w-full max-w-lg flex flex-col gap-6 mb-8">
-            <div className="space-y-4">
-                <h4 className="text-amber-500 font-bold flex items-center gap-2">
-                    <Globe size={18} /> Map Mode
-                </h4>
-                <div className="flex flex-row gap-2">
+        <div className="bg-stone-800/90 backdrop-blur p-6 rounded-xl border border-stone-600 w-full flex flex-col gap-6 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                {/* Map Mode */}
+                <div className="space-y-4">
+                    <h4 className="text-amber-500 font-bold flex items-center gap-2">
+                        <Globe size={18} /> Map Mode
+                    </h4>
+                    <div className="flex flex-col gap-2">
+                        <button 
+                            onClick={() => setMapMode(MapMode.FIXED)}
+                            className={`flex items-center gap-3 p-3 rounded border transition-colors ${mapMode === MapMode.FIXED ? 'bg-amber-700 border-amber-500 text-white' : 'bg-stone-700 border-stone-600 text-stone-400 hover:bg-stone-650'}`}
+                        >
+                            <Globe size={20} />
+                            <div className="text-left">
+                                <div className="font-bold">Fixed Map</div>
+                            </div>
+                        </button>
+                        <button 
+                            onClick={() => setMapMode(MapMode.INFINITE)}
+                            className={`flex items-center gap-3 p-3 rounded border transition-colors ${mapMode === MapMode.INFINITE ? 'bg-amber-700 border-amber-500 text-white' : 'bg-stone-700 border-stone-600 text-stone-400 hover:bg-stone-650'}`}
+                        >
+                            <InfinityIcon size={20} />
+                            <div className="text-left">
+                                <div className="font-bold">Infinite Realm</div>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+
+                {/* Map Size (Only for Fixed) */}
+                <div className={`space-y-4 transition-opacity ${mapMode === MapMode.INFINITE ? 'opacity-30 pointer-events-none' : ''}`}>
+                     <h4 className="text-amber-500 font-bold flex items-center gap-2">
+                        <Maximize size={18} /> Map Size
+                    </h4>
+                    <div className="flex flex-col gap-2">
+                        {Object.values(MapSize).map((size) => (
+                             <button 
+                                key={size}
+                                onClick={() => setMapSize(size)}
+                                className={`flex items-center gap-3 p-2 rounded border transition-colors ${mapSize === size ? 'bg-amber-700 border-amber-500 text-white' : 'bg-stone-700 border-stone-600 text-stone-400 hover:bg-stone-650'}`}
+                            >
+                                <MapIcon size={16} />
+                                <span className="font-bold text-sm">{size}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Gameplay Options */}
+                <div className="space-y-4">
+                     <h4 className="text-amber-500 font-bold flex items-center gap-2">
+                        <Eye size={18} /> Options
+                    </h4>
                     <button 
-                        onClick={() => setMapMode(MapMode.FIXED)}
-                        className={`flex-1 flex items-center gap-3 p-3 rounded border transition-colors ${mapMode === MapMode.FIXED ? 'bg-amber-700 border-amber-500 text-white' : 'bg-stone-700 border-stone-600 text-stone-400 hover:bg-stone-650'}`}
+                        onClick={() => setFowEnabled(!fowEnabled)}
+                        className={`w-full flex items-center justify-between gap-3 p-3 rounded border transition-colors ${fowEnabled ? 'bg-stone-700 border-stone-500 text-stone-200' : 'bg-stone-800 border-stone-700 text-stone-500'}`}
                     >
-                        <Globe size={20} />
-                        <div className="text-left">
-                            <div className="font-bold">Fixed Map</div>
-                            <div className="text-[10px] opacity-70">Standard size.</div>
-                        </div>
-                    </button>
-                    <button 
-                        onClick={() => setMapMode(MapMode.INFINITE)}
-                        className={`flex-1 flex items-center gap-3 p-3 rounded border transition-colors ${mapMode === MapMode.INFINITE ? 'bg-amber-700 border-amber-500 text-white' : 'bg-stone-700 border-stone-600 text-stone-400 hover:bg-stone-650'}`}
-                    >
-                        <InfinityIcon size={20} />
-                        <div className="text-left">
-                            <div className="font-bold">Infinite Realm</div>
-                            <div className="text-[10px] opacity-70">Endless expansion.</div>
-                        </div>
+                        <span className="font-bold text-sm">Fog of War</span>
+                        {fowEnabled ? <Eye size={20} className="text-emerald-400"/> : <EyeOff size={20} className="text-red-400"/>}
                     </button>
                 </div>
             </div>
         </div>
 
         <button
-          onClick={() => onStart(selectedFaction, mapMode)}
+          onClick={() => onStart(selectedFaction, mapMode, mapSize, fowEnabled)}
           className="bg-amber-600 hover:bg-amber-500 text-white font-serif text-3xl px-12 py-4 rounded-full border-b-4 border-amber-800 active:translate-y-1 active:border-b-0 transition-all shadow-2xl hover:shadow-amber-500/20"
         >
-          CONQUER
+          START GAME
         </button>
       </div>
     </div>

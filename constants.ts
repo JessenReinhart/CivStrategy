@@ -1,10 +1,18 @@
 
-import { BuildingDef, BuildingType, FactionType, UnitType } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType, MapSize } from "./types";
 
 export const TILE_SIZE = 32;
+// Default Fallback
 export const MAP_WIDTH = 2048;
 export const MAP_HEIGHT = 2048;
+
 export const CHUNK_SIZE = 512; // For infinite mode
+
+export const MAP_SIZES: Record<MapSize, number> = {
+  [MapSize.SMALL]: 1024,
+  [MapSize.MEDIUM]: 2048,
+  [MapSize.LARGE]: 4096
+};
 
 export const FACTION_COLORS = {
   [FactionType.ROMANS]: 0x3b82f6,

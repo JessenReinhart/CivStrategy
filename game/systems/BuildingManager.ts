@@ -35,21 +35,7 @@ export class BuildingManager {
         this.isTerritoryDirty = true;
     }
 
-    public exitBuildMode() {
-        this.previewBuildingType = null;
-        if (this.previewBuilding) {
-            this.previewBuilding.destroy();
-            this.previewBuilding = null;
-        }
-        this.treeHighlightGraphics.clear();
-    }
-
-    public enterBuildMode(buildingType: BuildingType | null) {
-        if (!buildingType) {
-            this.exitBuildMode();
-            return;
-        }
-
+    public enterBuildMode(buildingType: BuildingType) {
         const def = BUILDINGS[buildingType];
         if (!def) return;
         
@@ -58,29 +44,25 @@ export class BuildingManager {
             this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
         }
 
-        this.exitBuildMode();
+        if (this.previewBuilding) this.previewBuilding.destroy();
         this.previewBuildingType = buildingType;
-        
-        // Create the container but keep it hidden until first position update
         this.previewBuilding = this.scene.add.container(0, 0);
-        this.previewBuilding.setVisible(false);
-        this.previewBuilding.setDepth(Number.MAX_VALUE);
-        
         const gfx = this.scene.add.graphics();
+        this.scene.entityFactory.drawIsoBuilding(gfx, def, 0xffffff, 0.5);
         this.previewBuilding.add(gfx);
-
-        // Immediately try to position it at the pointer's current location if available
-        const pointer = this.scene.input.activePointer;
-        if (pointer) {
-            this.updatePreview(pointer.worldX, pointer.worldY);
-        }
+        this.previewBuilding.setDepth(Number.MAX_VALUE);
+        this.previewBuilding.setVisible(false);
     }
 
     public toggleDemolishMode(isActive: boolean) {
         this.isDemolishMode = isActive;
         if (this.isDemolishMode) {
             this.scene.inputManager.clearSelection();
-            this.exitBuildMode();
+            this.previewBuildingType = null;
+            if (this.previewBuilding) {
+                this.previewBuilding.destroy();
+                this.previewBuilding = null;
+            }
             this.scene.input.setDefaultCursor('crosshair');
         } else {
             this.scene.input.setDefaultCursor('default');
@@ -100,6 +82,8 @@ export class BuildingManager {
     public updatePreview(worldX: number, worldY: number) {
         if (!this.previewBuildingType || !this.previewBuilding) return;
 
+        this.previewBuilding.setVisible(true);
+
         const cart = toCartesian(worldX, worldY);
         const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
         const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
@@ -109,7 +93,7 @@ export class BuildingManager {
 
         const iso = toIso(cx, cy);
         this.previewBuilding.setPosition(iso.x, iso.y);
-        this.previewBuilding.setVisible(true); // Now safe to show
+        this.previewBuilding.setDepth(Number.MAX_VALUE - 100); 
         
         const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType);
         const color = isValid ? 0x00ff00 : 0xff0000;
@@ -117,24 +101,17 @@ export class BuildingManager {
         const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
         graphics.clear();
 
-        // Range indicator
         if (def.effectRadius) {
-            graphics.lineStyle(2, 0xffd700, 0.4);
+            graphics.lineStyle(2, 0xffd700, 0.8);
             graphics.strokeEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-            graphics.fillStyle(0xffd700, 0.05);
+            graphics.fillStyle(0xffd700, 0.1);
             graphics.fillEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-        }
-
-        if (def.territoryRadius) {
-            graphics.lineStyle(2, FACTION_COLORS[this.scene.faction], 0.4);
-            graphics.strokeEllipse(0, 0, def.territoryRadius * 2, def.territoryRadius);
         }
 
         this.treeHighlightGraphics.clear();
         this.updateHighlights(cx, cy, def);
 
-        // Draw blueprint ghost
-        this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.3);
+        this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.5);
     }
 
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
@@ -143,7 +120,7 @@ export class BuildingManager {
             this.scene.trees.getChildren().forEach((t: any) => {
                 if (Phaser.Math.Distance.Between(cx, cy, t.x, t.y) <= range) {
                     const isoT = toIso(t.x, t.y);
-                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.6);
+                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.8);
                     this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
                 }
             });
@@ -174,9 +151,6 @@ export class BuildingManager {
             
             this.markTerritoryDirty();
             this.scene.economySystem.updateStats();
-            
-            // Re-check validity for current position after build to update preview color
-            this.updatePreview(worldX, worldY);
         }
     }
 
@@ -235,7 +209,7 @@ export class BuildingManager {
              if (b) {
                 const def = b.getData('def') as BuildingDef;
                 const highlight = this.scene.add.graphics();
-                this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.4);
+                this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
                 buildingVisual.add(highlight);
                 buildingVisual.setData('demolishHighlight', highlight);
              }
