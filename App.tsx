@@ -3,16 +3,16 @@ import React, { useState, useEffect } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
-import { FactionType, GameStats, BuildingType } from './types';
+import { FactionType, GameStats, BuildingType, MapMode } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing'>('menu');
   const [faction, setFaction] = useState<FactionType>(FactionType.ROMANS);
+  const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
   const [gameInstance, setGameInstance] = useState<Phaser.Game | null>(null);
   
-  // React State reflecting Phaser State
   const [stats, setStats] = useState<GameStats>({
     population: 0,
     maxPopulation: 10,
@@ -20,13 +20,15 @@ const App: React.FC = () => {
     happinessChange: 0,
     resources: INITIAL_RESOURCES,
     rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
-    taxRate: 0
+    taxRate: 0,
+    mapMode: MapMode.FIXED
   });
   const [selectedCount, setSelectedCount] = useState(0);
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
 
-  const handleStart = (selectedFaction: FactionType) => {
+  const handleStart = (selectedFaction: FactionType, mode: MapMode) => {
     setFaction(selectedFaction);
+    setMapMode(mode);
     setGameState('playing');
   };
 
@@ -49,18 +51,23 @@ const App: React.FC = () => {
     gameInstance.events.on(EVENTS.SELECTION_CHANGED, selectionHandler);
     gameInstance.events.on(EVENTS.BUILDING_SELECTED, buildingSelectionHandler);
     
-    // Setup UI event listener
     const taxHandler = (e: Event) => {
         const customEvent = e as CustomEvent;
         gameInstance.events.emit(EVENTS.SET_TAX_RATE, customEvent.detail);
     };
+    const centerCameraHandler = () => {
+        gameInstance.events.emit(EVENTS.CENTER_CAMERA);
+    };
+
     window.addEventListener('set-tax-rate-ui', taxHandler);
+    window.addEventListener('center-camera-ui', centerCameraHandler);
 
     return () => {
         gameInstance.events.off(EVENTS.UPDATE_STATS, updateHandler);
         gameInstance.events.off(EVENTS.SELECTION_CHANGED, selectionHandler);
         gameInstance.events.off(EVENTS.BUILDING_SELECTED, buildingSelectionHandler);
         window.removeEventListener('set-tax-rate-ui', taxHandler);
+        window.removeEventListener('center-camera-ui', centerCameraHandler);
     };
   }, [gameInstance]);
 
@@ -86,7 +93,11 @@ const App: React.FC = () => {
       
       {gameState === 'playing' && (
         <>
-          <PhaserGame faction={faction} onGameReady={setGameInstance} />
+          <PhaserGame 
+            faction={faction} 
+            mapMode={mapMode} 
+            onGameReady={setGameInstance} 
+          />
           <GameUI 
             stats={stats} 
             onBuild={handleBuild} 

@@ -1,14 +1,16 @@
+
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { MainScene } from '../game/MainScene';
-import { FactionType } from '../types';
+import { FactionType, MapMode } from '../types';
 
 interface PhaserGameProps {
   faction: FactionType;
+  mapMode: MapMode;
   onGameReady: (game: Phaser.Game) => void;
 }
 
-export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, onGameReady }) => {
+export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, onGameReady }) => {
   const gameRef = useRef<Phaser.Game | null>(null);
 
   useEffect(() => {
@@ -23,7 +25,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, onGameReady }) 
       physics: {
         default: 'arcade',
         arcade: {
-          debug: false, // Set to true to see hitboxes
+          debug: false,
         }
       },
       scale: {
@@ -36,9 +38,8 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, onGameReady }) 
     const game = new Phaser.Game(config);
     gameRef.current = game;
     
-    // Pass initial data to scene once ready
     game.events.once('ready', () => {
-        game.scene.start('MainScene', { faction });
+        game.scene.start('MainScene', { faction, mapMode });
         onGameReady(game);
     });
 
@@ -46,7 +47,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, onGameReady }) 
       game.destroy(true);
       gameRef.current = null;
     };
-  }, [faction, onGameReady]);
+  }, [faction, mapMode, onGameReady]);
 
   return (
     <div id="game-container" className="absolute inset-0 z-0" />

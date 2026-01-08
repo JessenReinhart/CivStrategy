@@ -1,5 +1,6 @@
+
 import Phaser from 'phaser';
-import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../../constants';
+import { TILE_SIZE } from '../../constants';
 
 interface PathNode {
     x: number;
@@ -10,20 +11,9 @@ interface PathNode {
 }
 
 export class Pathfinder {
-    public navGrid: boolean[][] = [];
-    public gridCols: number = 0;
-    public gridRows: number = 0;
+    public navGrid: Map<string, boolean> = new Map();
 
-    constructor() {
-        this.gridCols = Math.ceil(MAP_WIDTH / TILE_SIZE);
-        this.gridRows = Math.ceil(MAP_HEIGHT / TILE_SIZE);
-        for(let y=0; y<this.gridRows; y++) {
-            this.navGrid[y] = [];
-            for(let x=0; x<this.gridCols; x++) {
-                this.navGrid[y][x] = false;
-            }
-        }
-    }
+    constructor() {}
 
     public markGrid(x: number, y: number, width: number, height: number, blocked: boolean) {
         const gx = Math.floor((x - width/2) / TILE_SIZE);
@@ -33,11 +23,13 @@ export class Pathfinder {
 
         for(let cy = gy; cy < gy + gh; cy++) {
             for(let cx = gx; cx < gx + gw; cx++) {
-                if(cy >= 0 && cy < this.gridRows && cx >= 0 && cx < this.gridCols) {
-                    this.navGrid[cy][cx] = blocked; 
-                }
+                this.navGrid.set(`${cx},${cy}`, blocked);
             }
         }
+    }
+
+    private isBlocked(gx: number, gy: number): boolean {
+        return this.navGrid.get(`${gx},${gy}`) === true;
     }
 
     public findPath(start: Phaser.Math.Vector2, target: Phaser.Math.Vector2): Phaser.Math.Vector2[] | null {
@@ -46,16 +38,13 @@ export class Pathfinder {
         let endX = Math.floor(target.x / TILE_SIZE);
         let endY = Math.floor(target.y / TILE_SIZE);
     
-        endX = Phaser.Math.Clamp(endX, 0, this.gridCols - 1);
-        endY = Phaser.Math.Clamp(endY, 0, this.gridRows - 1);
-    
         // If target blocked, find nearest free neighbor
-        if (this.navGrid[endY] && this.navGrid[endY][endX]) {
+        if (this.isBlocked(endX, endY)) {
             let found = false;
             for (let r = 1; r < 5; r++) {
                 for (let y = endY - r; y <= endY + r; y++) {
                     for (let x = endX - r; x <= endX + r; x++) {
-                        if (y >= 0 && y < this.gridRows && x >= 0 && x < this.gridCols && !this.navGrid[y][x]) {
+                        if (!this.isBlocked(x, y)) {
                             endX = x;
                             endY = y;
                             found = true;
@@ -74,7 +63,11 @@ export class Pathfinder {
         
         openSet.push({ x: startX, y: startY, g: 0, f: 0, parent: null });
     
-        while (openSet.length > 0) {
+        const maxIterations = 500;
+        let iter = 0;
+
+        while (openSet.length > 0 && iter < maxIterations) {
+            iter++;
             openSet.sort((a, b) => a.f - b.f);
             const current = openSet.shift()!;
             const key = `${current.x},${current.y}`;
@@ -103,14 +96,13 @@ export class Pathfinder {
                 const nx = current.x + n.x;
                 const ny = current.y + n.y;
     
-                if (nx < 0 || ny < 0 || nx >= this.gridCols || ny >= this.gridRows) continue;
                 if (closedSet.has(`${nx},${ny}`)) continue;
     
                 const dist = (n.x !== 0 && n.y !== 0) ? 1.414 : 1;
                 
                 let penalty = 0;
-                if (this.navGrid[ny][nx]) {
-                    penalty = 50; 
+                if (this.isBlocked(nx, ny)) {
+                    penalty = 100; 
                 }
     
                 const g = current.g + dist + penalty;

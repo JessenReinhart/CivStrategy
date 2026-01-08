@@ -1,15 +1,22 @@
 
-
-import { BuildingDef, BuildingType, FactionType } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType } from "./types";
 
 export const TILE_SIZE = 32;
-export const MAP_WIDTH = 2000;
-export const MAP_HEIGHT = 2000;
+export const MAP_WIDTH = 2048;
+export const MAP_HEIGHT = 2048;
+export const CHUNK_SIZE = 512; // For infinite mode
 
 export const FACTION_COLORS = {
-  [FactionType.ROMANS]: 0x3b82f6, // Blue
-  [FactionType.GAULS]: 0x22c55e, // Green
-  [FactionType.CARTHAGE]: 0xef4444 // Red
+  [FactionType.ROMANS]: 0x3b82f6,
+  [FactionType.GAULS]: 0x22c55e,
+  [FactionType.CARTHAGE]: 0xef4444
+};
+
+// Vision range for units used by the Fog of War system
+export const UNIT_VISION = {
+  [UnitType.VILLAGER]: 150,
+  [UnitType.SOLDIER]: 250,
+  [UnitType.ANIMAL]: 50
 };
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
@@ -20,7 +27,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 96,
     height: 96,
     color: 0x2563eb,
-    description: 'Main hub. Expands territory.',
+    description: 'Main hub. Large territory range.',
     territoryRadius: 600, 
     populationBonus: 5
   },
@@ -31,7 +38,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 64,
     height: 64,
     color: 0xea580c,
-    description: 'Gathering point for idle peasants.',
+    description: 'Gathering point. Provides light.',
     territoryRadius: 200,
     happinessBonus: 2
   },
@@ -42,7 +49,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 64,
     height: 64,
     color: 0x92400e,
-    description: 'Increases max population. Spawns a peasant.',
+    description: 'Increases max population.',
     populationBonus: 8
   },
   [BuildingType.FARM]: {
@@ -73,7 +80,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 32,
     height: 32,
     color: 0x8b4513,
-    description: 'Cheap, fast food. Depletes local animals.',
+    description: 'Cheap food source.',
     effectRadius: 300,
     workerNeeds: 1
   },
@@ -112,5 +119,6 @@ export const EVENTS = {
   BUILD_MODE_TOGGLED: 'build-mode-toggled',
   TOGGLE_DEMOLISH: 'toggle-demolish',
   SET_TAX_RATE: 'set-tax-rate',
-  REGROW_FOREST: 'regrow-forest'
+  REGROW_FOREST: 'regrow-forest',
+  CENTER_CAMERA: 'center-camera'
 };

@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_HEIGHT, MAP_WIDTH, TILE_SIZE } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType } from '../types';
+import { BuildingType, FactionType, Resources, UnitType, MapMode } from '../types';
 import { toIso } from './utils/iso';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -9,6 +9,7 @@ import { EconomySystem } from './systems/EconomySystem';
 import { UnitSystem } from './systems/UnitSystem';
 import { BuildingManager } from './systems/BuildingManager';
 import { InputManager } from './systems/InputManager';
+import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
 
 export class MainScene extends Phaser.Scene {
   // Game State
@@ -17,7 +18,10 @@ export class MainScene extends Phaser.Scene {
   public maxPopulation = 10;
   public happiness = 100;
   public faction: FactionType = FactionType.ROMANS;
+  public mapMode: MapMode = MapMode.FIXED;
   public taxRate: number = 0; 
+  // Track whether Fog of War is enabled
+  public isFowEnabled: boolean = true;
 
   // Core Groups
   public units: Phaser.GameObjects.Group;
@@ -32,8 +36,9 @@ export class MainScene extends Phaser.Scene {
   public unitSystem: UnitSystem;
   public buildingManager: BuildingManager;
   public inputManager: InputManager;
+  public infiniteMapSystem: InfiniteMapSystem;
 
-  // Input Keys (Managed here for ease of access)
+  // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
   public wasd: {
     W: Phaser.Input.Keyboard.Key;
@@ -49,8 +54,9 @@ export class MainScene extends Phaser.Scene {
     super('MainScene');
   }
 
-  init(data: { faction: FactionType }) {
+  init(data: { faction: FactionType, mapMode: MapMode }) {
     this.faction = data.faction || FactionType.ROMANS;
+    this.mapMode = data.mapMode || MapMode.FIXED;
     this.resources = { ...INITIAL_RESOURCES };
     this.population = 2;
     this.maxPopulation = 10;
@@ -59,9 +65,7 @@ export class MainScene extends Phaser.Scene {
   }
 
   create() {
-    this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
-    
-    // Core Systems
+    // Core Systems First
     this.pathfinder = new Pathfinder();
     this.entityFactory = new EntityFactory(this);
     
@@ -70,16 +74,22 @@ export class MainScene extends Phaser.Scene {
     this.buildings = this.add.group();
     this.trees = this.add.group();
     
-    // Environment
-    this.createEnvironment();
-    this.generateFertileZones(); 
-    this.generateForestsAndAnimals();
-
-    // Logic Systems (Initialized after environment)
+    // Logic Systems
     this.unitSystem = new UnitSystem(this);
     this.buildingManager = new BuildingManager(this);
-    this.inputManager = new InputManager(this); // Depends on buildingManager/unitSystem
     this.economySystem = new EconomySystem(this);
+    this.inputManager = new InputManager(this);
+
+    // Map Specific Setup
+    if (this.mapMode === MapMode.FIXED) {
+      this.physics.world.setBounds(0, 0, MAP_WIDTH, MAP_HEIGHT);
+      this.createEnvironment();
+      this.generateFertileZones(); 
+      this.generateForestsAndAnimals();
+    } else {
+      this.physics.world.setBounds(-100000, -100000, 200000, 200000);
+      this.infiniteMapSystem = new InfiniteMapSystem(this);
+    }
 
     // Initial Spawns
     this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, 400, 400);
@@ -87,10 +97,9 @@ export class MainScene extends Phaser.Scene {
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 450, 450);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, 350, 450);
 
-    // Camera
+    // Camera Setup
     const startIso = toIso(400, 400);
-    this.cameras.main.scrollX = startIso.x - this.cameras.main.width / 2;
-    this.cameras.main.scrollY = startIso.y - this.cameras.main.height / 2;
+    this.cameras.main.centerOn(startIso.x, startIso.y);
     this.cameras.main.setZoom(1);
     this.cameras.main.setBackgroundColor('#0d1117');
 
@@ -105,14 +114,24 @@ export class MainScene extends Phaser.Scene {
         this.taxRate = rate;
         this.economySystem.updateStats();
     }, this);
+    this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
 
     this.economySystem.updateStats();
+  }
+
+  public centerCameraOnTownCenter() {
+      const tc = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle;
+      if (tc) {
+          const iso = toIso(tc.x, tc.y);
+          this.cameras.main.pan(iso.x, iso.y, 1000, 'Power2');
+      }
   }
 
   update(time: number, delta: number) {
     this.inputManager.update(delta);
     this.unitSystem.update(time, delta);
     this.buildingManager.update();
+    if (this.infiniteMapSystem) this.infiniteMapSystem.update();
 
     if (time > this.lastTick + 1000) {
       this.economySystem.tickEconomy();
@@ -127,8 +146,6 @@ export class MainScene extends Phaser.Scene {
     this.economySystem.assignJobs();
     this.syncVisuals();
   }
-
-  // --- Environment Generation (Kept here for now as it's initialization) ---
 
   generateFertileZones() {
     const graphics = this.add.graphics();
@@ -222,8 +239,6 @@ export class MainScene extends Phaser.Scene {
     gridGraphics.setDepth(-9000);
   }
 
-  // --- Helpers ---
-
   private handleSoldierSpawnRequest() {
       const barracks = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.BARRACKS) as Phaser.GameObjects.Rectangle;
       if (barracks && this.resources.food >= 100 && this.resources.gold >= 50 && this.population < this.maxPopulation) {
@@ -244,7 +259,7 @@ export class MainScene extends Phaser.Scene {
           fontStyle: 'bold'
       });
       text.setOrigin(0.5);
-      text.setDepth(Number.MAX_VALUE);
+      text.setDepth(100000);
       this.tweens.add({
           targets: text,
           y: iso.y - 120,
@@ -258,7 +273,7 @@ export class MainScene extends Phaser.Scene {
   public showFloatingResource(x: number, y: number, amount: number, type: string) {
     const iso = toIso(x, y);
     const container = this.add.container(iso.x, iso.y - 60);
-    container.setDepth(Number.MAX_VALUE);
+    container.setDepth(100000);
     const icon = this.add.graphics();
     if (type === 'Wood') {
         icon.fillStyle(0x5D4037); icon.fillRoundedRect(-14, -6, 10, 10, 2); icon.fillStyle(0x8D6E63); icon.fillCircle(-11, -1, 4);
@@ -287,21 +302,49 @@ export class MainScene extends Phaser.Scene {
   }
 
   private syncVisuals() {
+    const cam = this.cameras.main;
+    const padding = 200; 
+    const viewRect = new Phaser.Geom.Rectangle(
+        cam.worldView.x - padding, 
+        cam.worldView.y - padding, 
+        cam.worldView.width + padding * 2, 
+        cam.worldView.height + padding * 2
+    );
+
     this.units.getChildren().forEach((u: any) => {
         const visual = u.visual as Phaser.GameObjects.Container;
-        if (visual) {
-            const iso = toIso(u.x, u.y);
+        if (!visual) return;
+
+        const iso = toIso(u.x, u.y);
+        if (viewRect.contains(iso.x, iso.y)) {
+            visual.setVisible(true);
             visual.setPosition(iso.x, iso.y);
             visual.setDepth(iso.y); 
             const ring = visual.getData('ring');
             if (ring) ring.visible = u.isSelected;
+        } else {
+            visual.setVisible(false);
         }
     });
+
     this.buildings.getChildren().forEach((b: any) => {
         const visual = b.visual as Phaser.GameObjects.Container;
+        if (!visual) return;
+
+        const iso = toIso(b.x, b.y);
+        if (viewRect.contains(iso.x, iso.y)) {
+            visual.setVisible(true);
+            visual.setPosition(iso.x, iso.y);
+            visual.setDepth(iso.y); 
+        } else {
+            visual.setVisible(false);
+        }
+    });
+
+    this.trees.getChildren().forEach((t: any) => {
+        const visual = t.visual as Phaser.GameObjects.Container;
         if (visual) {
-           const iso = toIso(b.x, b.y);
-           visual.setDepth(iso.y); 
+            visual.setVisible(viewRect.contains(visual.x, visual.y));
         }
     });
   }
