@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
@@ -18,7 +17,9 @@ const App: React.FC = () => {
     population: 0,
     maxPopulation: 10,
     happiness: 100,
+    happinessChange: 0,
     resources: INITIAL_RESOURCES,
+    rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
     taxRate: 0
   });
   const [selectedCount, setSelectedCount] = useState(0);
