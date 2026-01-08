@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GameStats, BuildingType, ResourceType } from '../types';
 import { BUILDINGS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2 } from 'lucide-react';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -75,7 +75,7 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
           </div>
 
           {/* Grid */}
-          <div className="p-4 grid grid-cols-4 gap-3 h-32 overflow-y-auto">
+          <div className="p-4 grid grid-cols-5 gap-3 h-32 overflow-y-auto">
             {activeTab === 'economy' && (
               <>
                  <BuildButton 
@@ -95,6 +95,12 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
                     stats={stats}
                     onClick={() => onBuild(BuildingType.LUMBER_CAMP)}
                     icon={<Pickaxe size={20} />}
+                 />
+                 <BuildButton 
+                    building={BUILDINGS[BuildingType.HUNTERS_LODGE]} 
+                    stats={stats}
+                    onClick={() => onBuild(BuildingType.HUNTERS_LODGE)}
+                    icon={<Rabbit size={20} />}
                  />
                   <BuildButton 
                     building={BUILDINGS[BuildingType.TOWN_CENTER]} 

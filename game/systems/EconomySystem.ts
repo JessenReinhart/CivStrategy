@@ -143,6 +143,8 @@ export class EconomySystem {
             const noResIcon = visual.getData('noResIcon') as Phaser.GameObjects.Text;
     
             let isWorking = true;
+            let productionAmount = 0;
+            let productionType = '';
             
             if (def.workerNeeds) {
                 const worker = b.getData('assignedWorker');
@@ -160,8 +162,21 @@ export class EconomySystem {
             }
     
             if (isWorking) {
-                if (def.type === BuildingType.FARM) foodGen += 5;
+                if (def.type === BuildingType.FARM) {
+                    let gain = 5;
+
+                    // Fertile Land Bonus
+                    const isFertile = this.scene.fertileZones.some(zone => zone.contains(b.x, b.y));
+                    if (isFertile) {
+                        gain = Math.floor(gain * 1.5);
+                    }
+
+                    foodGen += gain;
+                    productionAmount = gain;
+                    productionType = 'Food';
+                }
                 
+                // Lumber Camp
                 if (def.type === BuildingType.LUMBER_CAMP && def.effectRadius) {
                     let treesNearby = 0;
                     this.scene.trees.getChildren().forEach((t: any) => {
@@ -175,8 +190,50 @@ export class EconomySystem {
                         noResIcon.visible = (treesNearby === 0);
                     }
                     
-                    woodGen += Math.min(treesNearby * 2, 12);
+                    const gain = Math.min(treesNearby * 2, 12);
+                    woodGen += gain;
+                    if (gain > 0) {
+                        productionAmount = gain;
+                        productionType = 'Wood';
+                    }
                 }
+
+                // Hunter's Lodge
+                if (def.type === BuildingType.HUNTERS_LODGE && def.effectRadius) {
+                    let animals = this.scene.units.getChildren().filter((u: any) => {
+                        return u.unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between(b.x, b.y, u.x, u.y) < def.effectRadius!;
+                    });
+                    
+                    const animalsNearby = animals.length;
+
+                    if (noResIcon) {
+                        noResIcon.visible = (animalsNearby === 0);
+                    }
+
+                    if (animalsNearby > 0) {
+                        // High gain but finite
+                        const gain = 20; 
+                        foodGen += gain;
+                        productionAmount = gain;
+                        productionType = 'Food';
+
+                        // 20% Chance to kill an animal (Over-hunting)
+                        if (Math.random() < 0.20) {
+                            const victim = animals[Phaser.Math.Between(0, animalsNearby - 1)];
+                            const victimVisual = (victim as any).visual;
+                            if (victimVisual) victimVisual.destroy();
+                            victim.destroy();
+                            
+                            // Visual feedback for depletion
+                            this.scene.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
+                        }
+                    }
+                }
+            }
+
+            // Floating Text Trigger
+            if (productionAmount > 0) {
+                this.scene.showFloatingResource(b.x, b.y, productionAmount, productionType);
             }
         });
     

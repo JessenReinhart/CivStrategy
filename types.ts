@@ -34,7 +34,8 @@ export enum BuildingType {
   HOUSE = 'House',
   BARRACKS = 'Barracks',
   FARM = 'Farm',
-  LUMBER_CAMP = 'Lumber Camp'
+  LUMBER_CAMP = 'Lumber Camp',
+  HUNTERS_LODGE = 'Hunter\'s Lodge'
 }
 
 export interface BuildingDef {
@@ -54,14 +55,16 @@ export interface BuildingDef {
 
 export enum UnitType {
   VILLAGER = 'Villager',
-  SOLDIER = 'Soldier'
+  SOLDIER = 'Soldier',
+  ANIMAL = 'Animal'
 }
 
 export enum UnitState {
   IDLE = 'idle',
   MOVING_TO_WORK = 'moving_to_work',
   WORKING = 'working',
-  MOVING_TO_RALLY = 'moving_to_rally'
+  MOVING_TO_RALLY = 'moving_to_rally',
+  WANDERING = 'wandering'
 }
 
 export interface EntityData {

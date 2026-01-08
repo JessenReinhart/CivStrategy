@@ -53,6 +53,17 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     effectRadius: 200,
     workerNeeds: 1
   },
+  [BuildingType.HUNTERS_LODGE]: {
+    type: BuildingType.HUNTERS_LODGE,
+    name: 'Hunter\'s Lodge',
+    cost: { wood: 25, food: 0, gold: 0 },
+    width: 64,
+    height: 64,
+    color: 0x8b4513,
+    description: 'Cheap, fast food. Depletes local animals.',
+    effectRadius: 300,
+    workerNeeds: 1
+  },
   [BuildingType.BARRACKS]: {
     type: BuildingType.BARRACKS,
     name: 'Barracks',
