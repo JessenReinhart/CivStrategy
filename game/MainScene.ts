@@ -11,6 +11,7 @@ import { BuildingManager } from './systems/BuildingManager';
 import { InputManager } from './systems/InputManager';
 import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
+import { EnemyAISystem } from './systems/EnemyAISystem';
 
 export class MainScene extends Phaser.Scene {
   // Game State
@@ -47,6 +48,7 @@ export class MainScene extends Phaser.Scene {
   public inputManager: InputManager;
   public infiniteMapSystem: InfiniteMapSystem;
   public fogOfWar: FogOfWarSystem | null;
+  public enemyAI: EnemyAISystem;
 
   // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -104,6 +106,7 @@ export class MainScene extends Phaser.Scene {
     this.buildingManager = new BuildingManager(this);
     this.economySystem = new EconomySystem(this);
     this.inputManager = new InputManager(this);
+    this.enemyAI = new EnemyAISystem(this);
 
     // Map Specific Setup
     if (this.mapMode === MapMode.FIXED) {
@@ -120,12 +123,13 @@ export class MainScene extends Phaser.Scene {
     const centerX = this.mapMode === MapMode.FIXED ? this.mapWidth / 2 : 400;
     const centerY = this.mapMode === MapMode.FIXED ? this.mapHeight / 2 : 400;
 
-    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX, centerY);
-    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY); 
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50);
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50);
+    // Player Spawn
+    this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX, centerY, 0);
+    this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY, 0); 
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50, 0);
+    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50, 0);
     // Initial Cavalry Unit
-    this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90);
+    this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90, 0);
 
     // Camera Setup
     const startIso = toIso(centerX, centerY);
@@ -168,7 +172,8 @@ export class MainScene extends Phaser.Scene {
   }
 
   public centerCameraOnTownCenter() {
-      const tc = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle;
+      // Find Player TC (Owner 0)
+      const tc = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle;
       if (tc) {
           const iso = toIso(tc.x, tc.y);
           this.cameras.main.pan(iso.x, iso.y, 1000, 'Power2');
@@ -188,6 +193,9 @@ export class MainScene extends Phaser.Scene {
     
     // Building Manager handles visual updates (hover etc) - mostly real time inputs
     this.buildingManager.update();
+
+    // Enemy AI Tick
+    this.enemyAI.update(this.gameTime, dt);
     
     // Infinite Map loading (throttled real time to avoid lag)
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
@@ -250,7 +258,8 @@ export class MainScene extends Phaser.Scene {
 
   handleSoldierSpawnRequest() {
     if (this.resources.food >= 100 && this.resources.gold >= 50) {
-        const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS) as Phaser.GameObjects.Rectangle[];
+        // Find Player Barracks (Owner 0)
+        const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
         
         if (barracks.length > 0) {
             const spawnSource = barracks[Phaser.Math.Between(0, barracks.length - 1)];
@@ -262,7 +271,7 @@ export class MainScene extends Phaser.Scene {
             const spawnX = spawnSource.x + (offsetX >= 0 ? 60 : -60);
             const spawnY = spawnSource.y + (offsetY >= 0 ? 60 : -60);
             
-            this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY);
+            this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY, 0);
             this.showFloatingText(spawnSource.x, spawnSource.y, "-100 Food, -50 Gold", "#ffff00");
             this.economySystem.updateStats();
         } else {
@@ -378,7 +387,7 @@ export class MainScene extends Phaser.Scene {
              
              if (Phaser.Math.Distance.Between(ax, ay, this.mapWidth/2, this.mapHeight/2) > 300) {
                  if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
-                     this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
+                     this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, 0);
                  }
              }
         }

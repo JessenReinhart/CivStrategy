@@ -137,6 +137,9 @@ export class FogOfWarSystem {
             
             // Fix: Animals do not reveal fog
             if (u.unitType === UnitType.ANIMAL) continue;
+
+            // Fix: Enemy units do not reveal fog
+            if (u.getData('owner') !== 0) continue;
             
             // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
             // The camera looks at Iso coords, so fog must be drawn at Iso coords.
@@ -154,6 +157,9 @@ export class FogOfWarSystem {
         for(let i = 0; i < buildings.length; i++) {
              const b = buildings[i] as any;
              
+             // Fix: Enemy buildings do not reveal fog
+             if (b.getData('owner') !== 0) continue;
+
              // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
              const iso = toIso(b.x, b.y);
 

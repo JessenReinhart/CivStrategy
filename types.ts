@@ -71,6 +71,7 @@ export interface BuildingDef {
   height: number;
   color: number;
   description: string;
+  maxHp: number; // NEW
   territoryRadius?: number;
   effectRadius?: number;
   populationBonus?: number;
@@ -90,7 +91,17 @@ export enum UnitState {
   MOVING_TO_WORK = 'moving_to_work',
   WORKING = 'working',
   MOVING_TO_RALLY = 'moving_to_rally',
-  WANDERING = 'wandering'
+  WANDERING = 'wandering',
+  CHASING = 'chasing', // NEW
+  ATTACKING = 'attacking' // NEW
+}
+
+export interface UnitStats { // NEW
+    maxHp: number;
+    attack: number;
+    range: number;
+    attackSpeed: number; // ms
+    speed: number;
 }
 
 export interface EntityData {

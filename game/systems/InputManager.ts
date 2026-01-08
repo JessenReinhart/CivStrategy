@@ -45,7 +45,6 @@ export class InputManager {
 
     private handlePointerDown(pointer: Phaser.Input.Pointer) {
         if (pointer.rightButtonDown()) {
-            // Cancel Build/Demolish
             if (this.scene.buildingManager.isDemolishMode) {
                 this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
                 return;
@@ -57,22 +56,18 @@ export class InputManager {
                 return;
             }
 
-            // Command Move
             this.handleRightClick(pointer);
             return;
         }
 
-        // Demolish Click
         if (this.scene.buildingManager.isDemolishMode) {
             this.scene.buildingManager.handleDemolishClick(pointer);
             return;
         }
 
-        // Build Click
         if (this.scene.buildingManager.previewBuildingType) {
             this.scene.buildingManager.tryBuild(pointer.worldX, pointer.worldY);
         } else {
-            // Selection Start
             this.isDragging = true;
             this.dragStart.set(pointer.worldX, pointer.worldY);
         }
@@ -121,8 +116,29 @@ export class InputManager {
     }
 
     private handleRightClick(pointer: Phaser.Input.Pointer) {
-        const cart = toCartesian(pointer.worldX, pointer.worldY);
-        if (this.selectedUnits.length > 0) {
+        if (this.selectedUnits.length === 0) return;
+
+        // Check for click on Enemy Unit/Building
+        const targets = this.scene.input.hitTestPointer(pointer);
+        const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
+        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
+        
+        let targetEntity: Phaser.GameObjects.GameObject | null = null;
+        let isEnemy = false;
+
+        if (unitVisual) {
+            targetEntity = unitVisual.getData('unit');
+            if (targetEntity && (targetEntity as any).getData('owner') !== 0) isEnemy = true;
+        } else if (buildingVisual) {
+            targetEntity = buildingVisual.getData('building');
+            if (targetEntity && (targetEntity as any).getData('owner') !== 0) isEnemy = true;
+        }
+
+        if (isEnemy && targetEntity) {
+            this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
+        } else {
+            // Standard Move
+            const cart = toCartesian(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y));
         }
     }
@@ -132,10 +148,8 @@ export class InputManager {
         const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
   
-        // Deselect all units
         this.clearSelection();
         
-        // Deselect building if clicked elsewhere or on a unit
         if (unitVisual || !buildingVisual) {
             this.deselectBuilding();
         }
@@ -143,7 +157,8 @@ export class InputManager {
         if (unitVisual) {
             const unit = unitVisual.getData('unit');
             const type = (unit as any).unitType;
-            if (unit && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
+            // Only select Player units
+            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
@@ -166,7 +181,10 @@ export class InputManager {
         this.deselectBuilding();
   
         this.scene.units.getChildren().forEach((u: any) => {
+            // Only select Player units in combat roles
+            if (u.getData('owner') !== 0) return;
             if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY) return;
+            
             const visual = u.visual;
             if (visual) {
                 const inside = rect.contains(visual.x, visual.y);

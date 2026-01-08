@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState } from '../../types';
+import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, FACTION_COLORS } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
 
@@ -145,7 +145,7 @@ export class BuildingManager {
             this.scene.resources.gold -= def.cost.gold;
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
-                this.scene.entityFactory.spawnUnit(2 as any, cx + 30, cy + 30);
+                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
                 this.scene.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
             

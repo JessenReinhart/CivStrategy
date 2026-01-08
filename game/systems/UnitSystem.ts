@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState } from '../../types';
-import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, UNIT_SPEED } from '../../constants';
+import { UnitType, UnitState, UnitStats } from '../../types';
+import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, UNIT_SPEED, UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class UnitSystem {
@@ -15,7 +15,7 @@ export class UnitSystem {
     }
 
     public update(time: number, delta: number) {
-        this.updateUnitLogic(delta);
+        this.updateUnitLogic(time, delta);
         this.drawUnitPaths(time);
     }
 
@@ -35,9 +35,9 @@ export class UnitSystem {
             if (path) {
                 unit.path = path;
                 unit.pathStep = 0;
-                // Use Game Time instead of Engine Time to sync with speed changes
                 unit.pathCreatedAt = this.scene.gameTime;
-                unit.state = UnitState.IDLE; // Reset state to following path
+                unit.state = UnitState.IDLE; 
+                unit.target = null; // Clear combat target
                 unit.body.reset(unit.x, unit.y);
             }
         });
@@ -57,22 +57,43 @@ export class UnitSystem {
         });
     }
 
-    private updateUnitLogic(delta: number) {
+    public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
+        units.forEach((unitObj) => {
+            const unit = unitObj as any;
+            // Only combat units attack
+            if (unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.CAVALRY) {
+                unit.target = target;
+                unit.state = UnitState.CHASING;
+                unit.path = null; // Clear old move path
+                unit.body.reset(unit.x, unit.y);
+            }
+        });
+
+        // Visual Feedback (Red Flash on target)
+        if ((target as any).visual) {
+            this.scene.tweens.add({
+                targets: (target as any).visual,
+                alpha: 0.5,
+                yoyo: true,
+                duration: 100,
+                repeat: 2
+            });
+        }
+    }
+
+    private updateUnitLogic(time: number, delta: number) {
         this.scene.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
-            const unit = item as Phaser.GameObjects.Arc & {
-                body: Phaser.Physics.Arcade.Body;
-                unitType: UnitType;
-                state: UnitState;
-                path: Phaser.Math.Vector2[] | null;
-                pathStep: number;
-                pathCreatedAt?: number;
-            };
-            const body = unit.body;
+            const unit = item as any;
+            const body = unit.body as Phaser.Physics.Arcade.Body;
             
             if (!body) return;
 
+            // Combat State Logic
+            if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
+                this.handleCombatState(unit, time);
+            }
             // --- ANIMAL WANDERING AI ---
-            if (unit.unitType === UnitType.ANIMAL) {
+            else if (unit.unitType === UnitType.ANIMAL) {
                  if (body.velocity.length() > 0) {
                      const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
                      if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
@@ -96,19 +117,15 @@ export class UnitSystem {
                 if (unit.pathStep >= unit.path.length) {
                     body.setVelocity(0, 0);
                     unit.path = null;
-                    
                     if (unit.unitType === UnitType.VILLAGER) {
-                        if (unit.state === UnitState.MOVING_TO_WORK) {
-                            unit.state = UnitState.WORKING;
-                        } else if (unit.state === UnitState.MOVING_TO_RALLY) {
-                            unit.state = UnitState.IDLE;
-                        }
+                        if (unit.state === UnitState.MOVING_TO_WORK) unit.state = UnitState.WORKING;
+                        else if (unit.state === UnitState.MOVING_TO_RALLY) unit.state = UnitState.IDLE;
                     }
                     return;
                 }
                 const nextPoint = unit.path[unit.pathStep];
                 const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
-                const speed = UNIT_SPEED[unit.unitType] || 100;
+                const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
 
                 if (dist < 4) {
                     unit.pathStep++;
@@ -116,13 +133,11 @@ export class UnitSystem {
                     this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, speed);
                 }
             } else {
-                if (body.velocity.length() > 0) {
-                    body.setVelocity(0,0);
-                }
+                if (body.velocity.length() > 0) body.setVelocity(0,0);
             }
         });
         
-        // Simple separation behavior
+        // Separation
         this.scene.physics.overlap(this.scene.units, this.scene.units, (obj1, obj2) => {
             const u1 = obj1 as any;
             const u2 = obj2 as any;
@@ -139,20 +154,77 @@ export class UnitSystem {
         });
     }
 
+    private handleCombatState(unit: any, time: number) {
+        const target = unit.target;
+        
+        // Target dead or destroyed
+        if (!target || !target.scene) {
+            unit.state = UnitState.IDLE;
+            unit.target = null;
+            unit.body.setVelocity(0, 0);
+            return;
+        }
+
+        const dist = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
+        const range = unit.getData('range') || 40;
+        const attackSpeed = unit.getData('attackSpeed') || 1000;
+        
+        // Attack Logic
+        if (dist <= range) {
+            unit.body.setVelocity(0, 0);
+            unit.state = UnitState.ATTACKING;
+            
+            if (time - unit.lastAttackTime > attackSpeed) {
+                unit.lastAttackTime = time;
+                this.performAttack(unit, target);
+            }
+        } else {
+            // Chase Logic
+            unit.state = UnitState.CHASING;
+            const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+            this.scene.physics.moveTo(unit, target.x, target.y, speed);
+        }
+    }
+
+    private performAttack(unit: any, target: any) {
+        const dmg = unit.getData('attack') || 10;
+        
+        // Lunge visual
+        const visual = unit.visual;
+        if (visual) {
+            const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
+            const ox = visual.x;
+            const oy = visual.y;
+            const lungeX = ox + Math.cos(angle) * 10;
+            const lungeY = oy + Math.sin(angle) * 5; // Iso squash
+            
+            this.scene.tweens.add({
+                targets: visual,
+                x: lungeX,
+                y: lungeY,
+                duration: 100,
+                yoyo: true,
+                onComplete: () => {
+                    // Reset position exactly to avoid drift
+                    const iso = toIso(unit.x, unit.y);
+                    visual.setPosition(iso.x, iso.y);
+                }
+            });
+        }
+
+        // Apply Damage
+        if (target.takeDamage) {
+            target.takeDamage(dmg);
+        }
+    }
+
     private drawUnitPaths(time: number) {
         this.pathGraphics.clear();
         this.scene.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
-            const u = uObj as Phaser.GameObjects.Arc & {
-                unitType: UnitType;
-                path: Phaser.Math.Vector2[] | null;
-                pathCreatedAt?: number;
-                pathStep: number;
-            };
-            
+            const u = uObj as any;
             const isSelectable = u.unitType === UnitType.SOLDIER || u.unitType === UnitType.CAVALRY;
 
             if (isSelectable && u.path && u.pathCreatedAt) {
-                // time here is passed as Game Time, matching pathCreatedAt which is also Game Time
                 const age = time - u.pathCreatedAt;
                 const fadeDuration = 1500;
                 if (age < fadeDuration) {
@@ -170,11 +242,6 @@ export class UnitSystem {
                         this.pathGraphics.strokePath();
                         this.pathGraphics.lineStyle(6, 0xffffff, alpha * 0.3);
                         this.pathGraphics.strokePath();
-                        
-                        const lastPt = u.path[u.path.length - 1];
-                        const lastIso = toIso(lastPt.x, lastPt.y);
-                        this.pathGraphics.fillStyle(0xffffff, alpha);
-                        this.pathGraphics.fillCircle(lastIso.x, lastIso.y, 4);
                     }
                 }
             }
