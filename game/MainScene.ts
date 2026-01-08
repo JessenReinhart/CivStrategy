@@ -41,6 +41,7 @@ export class MainScene extends Phaser.Scene {
 
   // Ground Layer
   private groundLayer: Phaser.GameObjects.TileSprite;
+  private readonly groundScale = 0.3; // Scale down texture to make grass look smaller/higher res
 
   // Systems
   public pathfinder: Pathfinder;
@@ -74,6 +75,11 @@ export class MainScene extends Phaser.Scene {
     this.load.image('townhall', 'https://i.imgur.com/kMBtb9W.png');
     this.load.image('field', 'https://i.imgur.com/uPjycje.png');
     this.load.image('flare', 'https://labs.phaser.io/assets/particles/flare.png');
+    
+    // New Assets
+    this.load.image('tree', 'https://i.imgur.com/tYIgx0v.png');
+    this.load.image('stump', 'https://i.imgur.com/bEjOzbv.png');
+    this.load.image('house', 'https://i.imgur.com/Ix1nDUv.png');
   }
 
   init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean }) {
@@ -115,6 +121,7 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
     this.groundLayer.setOrigin(0, 0);
     this.groundLayer.setDepth(-20000);
+    this.groundLayer.setTileScale(this.groundScale);
     
     // Groups
     this.units = this.add.group({ runChildUpdate: true });
@@ -223,8 +230,9 @@ export class MainScene extends Phaser.Scene {
     
     // Sync the texture offset to match world coordinates
     // This locks the texture to the world grid, preventing "sliding"
-    this.groundLayer.tilePositionX = topLeft.x;
-    this.groundLayer.tilePositionY = topLeft.y;
+    // Apply inverse scale to match world movement
+    this.groundLayer.tilePositionX = topLeft.x / this.groundScale;
+    this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
     
     // Unit Logic uses Game Time
     this.unitSystem.update(this.gameTime, dt);

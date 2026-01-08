@@ -54,7 +54,13 @@ export class EntityFactory {
         // Use Sprites for Farms (All Factions)
         if (type === BuildingType.FARM) {
              // Farms are flat, so we use a different scale/origin logic
-             if (setupSprite('field', 1.8, 0.5)) {
+             // Increased scale from 1.0 to 2.0
+             if (setupSprite('field', 2.0, 0.5)) {
+                 spriteUsed = true;
+             }
+        } else if (type === BuildingType.HOUSE) {
+             // Increased scale from 1.25 to 2.5
+             if (setupSprite('house', 2.5, 0.85)) { 
                  spriteUsed = true;
              }
         }
@@ -62,9 +68,10 @@ export class EntityFactory {
         // Use Sprites for Romans if available (Faction Specific)
         if (!spriteUsed && owner === 0 && this.scene.faction === FactionType.ROMANS) {
             if (type === BuildingType.TOWN_CENTER) {
-                if (setupSprite('townhall', 2.5, 0.75)) spriteUsed = true;
+                if (setupSprite('townhall', 1.5, 0.75)) spriteUsed = true;
             } else if (type === BuildingType.LUMBER_CAMP) {
-                if (setupSprite('lumber', 2.2, 0.70)) spriteUsed = true;
+                // Increased scale from 1.3 to 2.6
+                if (setupSprite('lumber', 2.6, 0.75)) spriteUsed = true;
             }
         }
 
@@ -104,7 +111,8 @@ export class EntityFactory {
 
         // Symbols - Dynamic positioning based on building height
         // For sprites, we adjust based on the logical height to keep icons above the roof
-        const iconOffset = -def.height * 0.8 - 20;
+        // Increased offset to accommodate larger sprites
+        const iconOffset = spriteUsed ? -def.width * 1.5 : -def.height * 0.8 - 20;
         
         const vacantIcon = this.scene.add.text(0, iconOffset, '⚠', { fontSize: '20px', color: '#ff0000', stroke: '#000000', strokeThickness: 3 });
         vacantIcon.setOrigin(0.5);
@@ -407,16 +415,26 @@ export class EntityFactory {
         }
 
         const visual = this.scene.add.container(0, 0);
-        const treeGfx = this.scene.add.graphics();
-        this.drawIsoTree(treeGfx);
-        treeGfx.setName('treeGfx');
-        const stumpGfx = this.scene.add.graphics();
-        this.drawIsoStump(stumpGfx);
-        stumpGfx.setName('stumpGfx');
-        stumpGfx.visible = false;
+        
+        // Use Sprites
+        const stump = this.scene.add.image(0, 0, 'stump');
+        stump.setOrigin(0.5, 0.5); 
+        // Reduced scale from 0.15 to 0.075
+        stump.setScale(0.075); 
+        stump.setName('stumpSprite');
+        stump.visible = false;
 
-        visual.add([stumpGfx, treeGfx]);
-        visual.setScale(Phaser.Math.FloatBetween(0.7, 0.9)); // Reduced scale
+        const treeSprite = this.scene.add.image(0, 0, 'tree');
+        treeSprite.setOrigin(0.5, 0.95); // Anchor at bottom trunk
+        // Reduced scale from 0.15 to 0.075
+        treeSprite.setScale(0.075); 
+        treeSprite.setName('treeSprite');
+
+        visual.add([stump, treeSprite]);
+        
+        // Random slight scale variation for natural look
+        const randomScale = Phaser.Math.FloatBetween(0.8, 1.1);
+        visual.setScale(randomScale);
         
         this.scene.add.existing(visual);
         const iso = toIso(x, y);
@@ -429,6 +447,18 @@ export class EntityFactory {
     public updateTreeVisual(tree: Phaser.GameObjects.GameObject, isChopped: boolean) {
         const visual = (tree as any).visual as Phaser.GameObjects.Container;
         if (!visual) return;
+        
+        // Handle Sprite version
+        const treeSprite = visual.getByName('treeSprite') as Phaser.GameObjects.Image;
+        const stumpSprite = visual.getByName('stumpSprite') as Phaser.GameObjects.Image;
+        
+        if (treeSprite && stumpSprite) {
+            treeSprite.visible = !isChopped;
+            stumpSprite.visible = isChopped;
+            return;
+        }
+
+        // Fallback for legacy graphics
         const treeGfx = visual.getByName('treeGfx') as Phaser.GameObjects.Graphics;
         const stumpGfx = visual.getByName('stumpGfx') as Phaser.GameObjects.Graphics;
         if (treeGfx && stumpGfx) {
@@ -507,24 +537,5 @@ export class EntityFactory {
         gfx.closePath(); gfx.fillPath();
         gfx.fillStyle(0x15803d); gfx.fillCircle(0, -4, 6);
         gfx.fillStyle(0xf472b6); gfx.fillCircle(-4, -4, 1.5); gfx.fillCircle(4, -6, 1.5); gfx.fillCircle(0, -2, 1.5);
-    }
-
-    private drawIsoTree(gfx: Phaser.GameObjects.Graphics) {
-        // Reduced tree visual size
-        gfx.fillStyle(0x000000, 0.2); gfx.fillEllipse(0, 0, 16, 8);
-        gfx.fillStyle(0x3e2723); gfx.fillRect(-3, -8, 6, 8);
-        const leafColor = 0x1b5e20;
-        gfx.fillStyle(leafColor);
-        gfx.beginPath(); gfx.moveTo(-16, -8); gfx.lineTo(16, -8); gfx.lineTo(0, -30); gfx.fillPath();
-        gfx.beginPath(); gfx.moveTo(-13, -20); gfx.lineTo(13, -20); gfx.lineTo(0, -40); gfx.fillPath();
-        gfx.beginPath(); gfx.moveTo(-10, -32); gfx.lineTo(10, -32); gfx.lineTo(0, -48); gfx.fillPath();
-        gfx.fillStyle(0xffffff, 0.1); gfx.beginPath(); gfx.moveTo(0, -48); gfx.lineTo(-10, -32); gfx.lineTo(0, -32); gfx.fillPath();
-    }
-
-    private drawIsoStump(gfx: Phaser.GameObjects.Graphics) {
-        gfx.fillStyle(0x000000, 0.2); gfx.fillEllipse(0, 0, 14, 7);
-        gfx.fillStyle(0x5D4037); gfx.fillRect(-4, -5, 8, 5);
-        gfx.fillStyle(0x8D6E63); gfx.fillEllipse(0, -5, 8, 4);
-        gfx.lineStyle(1, 0x5D4037, 0.5); gfx.strokeEllipse(0, -5, 5, 2.5);
     }
 }
