@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, UnitState, BuildingDef } from '../../types';
+import { BuildingType, UnitType, UnitState, BuildingDef, FactionType } from '../../types';
 import { BUILDINGS, FACTION_COLORS, TILE_SIZE, UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 
@@ -32,21 +32,59 @@ export class EntityFactory {
         
         const baseColor = owner === 1 ? 0x3f3f46 : def.color;
 
-        if (type === BuildingType.BONFIRE) {
-            this.drawBonfire(gfx);
-            this.scene.tweens.add({
-                targets: gfx,
-                scaleX: 1.05,
-                scaleY: 1.05,
-                alpha: 0.9,
-                yoyo: true,
-                repeat: -1,
-                duration: 100 + Math.random() * 100
-            });
-        } else if (type === BuildingType.SMALL_PARK) {
-            this.drawPark(gfx);
-        } else {
-            this.drawIsoBuilding(gfx, def, baseColor);
+        let spriteUsed = false;
+        
+        // Helper to apply consistent sprite scaling and positioning
+        const setupSprite = (key: string, scaleMultiplier: number = 2.2, originY: number = 0.75) => {
+            if (!this.scene.textures.exists(key)) return false;
+            
+            const sprite = this.scene.add.image(0, 0, key);
+            sprite.setOrigin(0.5, originY);
+            
+            // Dynamic scaling: Fit the sprite to the logical width with a multiplier for visual overhang
+            // logical width * multiplier = target visual width
+            const targetWidth = def.width * scaleMultiplier;
+            const scale = targetWidth / sprite.width;
+            
+            sprite.setScale(scale);
+            visual.add(sprite);
+            return true;
+        };
+        
+        // Use Sprites for Farms (All Factions)
+        if (type === BuildingType.FARM) {
+             // Farms are flat, so we use a different scale/origin logic
+             if (setupSprite('field', 1.8, 0.5)) {
+                 spriteUsed = true;
+             }
+        }
+
+        // Use Sprites for Romans if available (Faction Specific)
+        if (!spriteUsed && owner === 0 && this.scene.faction === FactionType.ROMANS) {
+            if (type === BuildingType.TOWN_CENTER) {
+                if (setupSprite('townhall', 2.5, 0.75)) spriteUsed = true;
+            } else if (type === BuildingType.LUMBER_CAMP) {
+                if (setupSprite('lumber', 2.2, 0.70)) spriteUsed = true;
+            }
+        }
+
+        if (!spriteUsed) {
+            if (type === BuildingType.BONFIRE) {
+                this.drawBonfire(gfx);
+                this.scene.tweens.add({
+                    targets: gfx,
+                    scaleX: 1.05,
+                    scaleY: 1.05,
+                    alpha: 0.9,
+                    yoyo: true,
+                    repeat: -1,
+                    duration: 100 + Math.random() * 100
+                });
+            } else if (type === BuildingType.SMALL_PARK) {
+                this.drawPark(gfx);
+            } else {
+                this.drawIsoBuilding(gfx, def, baseColor);
+            }
         }
         
         if (owner === 1) {
@@ -54,13 +92,19 @@ export class EntityFactory {
              visual.add(banner);
         }
 
-        const textOffset = -def.height * 0.5 - 10;
-        const text = this.scene.add.text(0, textOffset, def.name[0], { fontSize: '14px', color: '#ffffff' });
-        text.setOrigin(0.5);
-        visual.add([gfx, text]);
+        if (!spriteUsed || type === BuildingType.BONFIRE || type === BuildingType.SMALL_PARK) {
+            // Keep text for non-sprites or small buildings
+            const textOffset = -def.height * 0.5 - 10;
+            const text = this.scene.add.text(0, textOffset, def.name[0], { fontSize: '14px', color: '#ffffff' });
+            text.setOrigin(0.5);
+            visual.add([gfx, text]);
+        } else {
+             visual.add(gfx); // Empty gfx but keeps container structure for consistency
+        }
 
         // Symbols - Dynamic positioning based on building height
-        const iconOffset = -def.height * 0.5 - 30;
+        // For sprites, we adjust based on the logical height to keep icons above the roof
+        const iconOffset = -def.height * 0.8 - 20;
         
         const vacantIcon = this.scene.add.text(0, iconOffset, '⚠', { fontSize: '20px', color: '#ff0000', stroke: '#000000', strokeThickness: 3 });
         vacantIcon.setOrigin(0.5);
@@ -86,7 +130,7 @@ export class EntityFactory {
         visual.setData('ring', ring);
 
         // --- HEALTH BAR ---
-        const hpBarOffset = -def.height * 0.5 - 45;
+        const hpBarOffset = iconOffset - 15;
         const hpBar = this.createHealthBar(visual, def.width, hpBarOffset);
         visual.setData('hpBar', hpBar);
 
@@ -124,12 +168,11 @@ export class EntityFactory {
         
         if (!stats) {
             console.error(`Missing stats for unit type: ${type}`);
-            // Return a dummy object to prevent further crashes, or just handle gracefully
             const dummy = this.scene.add.circle(x, y, 10, 0xff0000);
             return dummy;
         }
 
-        const radius = 6; // Reduced from 10
+        const radius = 6; 
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
@@ -169,13 +212,13 @@ export class EntityFactory {
 
         if (type === UnitType.VILLAGER) {
             gfx.fillStyle(primaryColor, 1);
-            gfx.fillEllipse(0, 0, 10, 6); // Reduced
+            gfx.fillEllipse(0, 0, 10, 6); 
             const torso = this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342);
             const head = this.scene.add.circle(0, -11, 2.5, 0xffcccc);
             visual.add([gfx, torso, head]);
         } else if (type === UnitType.SOLDIER) {
             gfx.fillStyle(primaryColor, 1);
-            gfx.fillEllipse(0, 0, 14, 8); // Reduced
+            gfx.fillEllipse(0, 0, 14, 8); 
             gfx.lineStyle(1, secondaryColor, 0.5);
             gfx.strokeEllipse(0, 0, 14, 8);
             
@@ -199,7 +242,7 @@ export class EntityFactory {
             visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
         } else if (type === UnitType.CAVALRY) {
             gfx.fillStyle(0x8D6E63, 1); 
-            gfx.fillEllipse(0, 4, 24, 8); // Reduced
+            gfx.fillEllipse(0, 4, 24, 8); 
             gfx.lineStyle(1, 0x5D4037, 1);
             gfx.strokeEllipse(0, 4, 24, 8);
             const horseHead = this.scene.add.graphics();
@@ -324,25 +367,26 @@ export class EntityFactory {
             // Building Destruction
             const def = entity.getData('def') as BuildingDef;
             this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
-            // Handle population loss if house destroyed? Keeping it simple for now.
         }
 
         // Particle/Visual Death
         const visual = (entity as any).visual;
         if (visual) {
              const iso = toIso((entity as any).x, (entity as any).y);
-             const particles = this.scene.add.particles(iso.x, iso.y, 'flare', {
-                speed: 100,
-                scale: { start: 0.5, end: 0 },
-                blendMode: 'ADD',
-                lifespan: 500
-             });
-             // Quick fallback if texture not present
-             if(!this.scene.textures.exists('flare')) {
+             // Use texture flare if loaded, else fallback
+             const texture = this.scene.textures.exists('flare') ? 'flare' : null;
+             
+             if (texture) {
+                 const particles = this.scene.add.particles(iso.x, iso.y, texture, {
+                    speed: 100,
+                    scale: { start: 0.5, end: 0 },
+                    blendMode: 'ADD',
+                    lifespan: 500
+                 });
+                 this.scene.time.delayedCall(500, () => particles.destroy());
+             } else {
                  const pRect = this.scene.add.rectangle(iso.x, iso.y, 10, 10, 0xff0000);
                  this.scene.tweens.add({targets: pRect, alpha: 0, scale: 2, duration: 500, onComplete: () => pRect.destroy()});
-             } else {
-                 this.scene.time.delayedCall(500, () => particles.destroy());
              }
              visual.destroy();
         }
