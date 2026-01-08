@@ -1,130 +1,173 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UNIT_VISION, MAP_WIDTH, MAP_HEIGHT } from '../../constants';
+import { UNIT_VISION } from '../../constants';
+import { UnitType } from '../../types';
 import { toIso } from '../utils/iso';
-import { MapMode } from '../../types';
 
 export class FogOfWarSystem {
     private scene: MainScene;
-    private shroud: Phaser.GameObjects.RenderTexture;
-    private visionRT: Phaser.GameObjects.RenderTexture;
-    private brush: Phaser.GameObjects.Graphics;
-    private lastUpdate = 0;
+    private screenRT: Phaser.GameObjects.RenderTexture;
+    private visionBrush: Phaser.GameObjects.Image;
+    private isVisible: boolean = true;
     
-    // In isometric, a 2048x2048 map has a width of 4096 (x-y) and height of 2048 (x+y)/2
-    private readonly FIXED_WIDTH = 4096;
-    private readonly FIXED_HEIGHT = 2048;
+    // Low res for performance
+    private readonly RES_SCALE = 0.25; 
 
     constructor(scene: MainScene) {
         this.scene = scene;
         
-        const isInfinite = this.scene.mapMode === MapMode.INFINITE;
-        const width = isInfinite ? 4096 : this.FIXED_WIDTH + 1000; // Extra buffer
-        const height = isInfinite ? 2048 : this.FIXED_HEIGHT + 1000;
-
-        // Persistent exploration (Shroud)
-        this.shroud = scene.add.renderTexture(0, 0, width, height);
-        this.shroud.fill(0x000000, 1);
-        this.shroud.setDepth(Number.MAX_SAFE_INTEGER - 10); 
-        this.shroud.setScrollFactor(1);
+        // 1. Create Brush (Soft gradient)
+        const radius = 64; 
+        const key = 'vision-brush-soft';
         
-        // Current vision (Fog)
-        this.visionRT = scene.add.renderTexture(0, 0, width, height);
-        this.visionRT.fill(0x000000, 0.95); // High opacity for "Fade to Black"
-        this.visionRT.setDepth(Number.MAX_SAFE_INTEGER - 11);
-        this.visionRT.setScrollFactor(1);
-
-        // Brush used to erase from the textures
-        this.brush = scene.make.graphics({ x: 0, y: 0 }, false);
-
-        if (!isInfinite) {
-            // Center the FOW diamond. Cartesian (0,0) is Iso (0,0). 
-            // The map diamond ranges from IsoX -2048 to +2048.
-            // So we start the texture at IsoX -2548 (with buffer).
-            this.shroud.setPosition(-width / 2, -200); 
-            this.visionRT.setPosition(-width / 2, -200);
+        if (!this.scene.textures.exists(key)) {
+            const canvas = this.scene.textures.createCanvas(key, radius * 2, radius * 2);
+            const ctx = canvas.context;
+            
+            const grd = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+            grd.addColorStop(0, 'rgba(0, 0, 0, 1)');      
+            grd.addColorStop(0.4, 'rgba(0, 0, 0, 1)');    
+            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');      
+            
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, radius * 2, radius * 2);
+            canvas.refresh();
         }
 
-        // Force an initial update to prevent starting in total darkness
-        this.update(true);
+        this.visionBrush = this.scene.make.image({ key: key, add: false });
+        this.visionBrush.setOrigin(0.5);
+
+        // 2. Initialize Render Texture
+        this.createRenderTexture();
+        this.scene.scale.on('resize', this.handleResize, this);
     }
 
-    public update(force: boolean = false) {
-        if (!this.scene.isFowEnabled) {
-            this.shroud.setVisible(false);
-            this.visionRT.setVisible(false);
-            return;
-        }
-        
-        this.shroud.setVisible(true);
-        this.visionRT.setVisible(true);
+    private createRenderTexture() {
+        if (this.screenRT) this.screenRT.destroy();
 
-        const now = this.scene.time.now;
-        if (!force && now - this.lastUpdate < 30) return; 
-        this.lastUpdate = now;
+        const width = Math.ceil(this.scene.scale.width * this.RES_SCALE);
+        const height = Math.ceil(this.scene.scale.height * this.RES_SCALE);
+
+        this.screenRT = this.scene.add.renderTexture(0, 0, width, height);
+        this.screenRT.setOrigin(0, 0);       
+        this.screenRT.setScrollFactor(0);    
+        // Initial scale, will be updated in update() loop
+        this.screenRT.setScale(1 / this.RES_SCALE); 
+        this.screenRT.setDepth(10000);       
+    }
+
+    private handleResize() {
+        this.createRenderTexture();
+    }
+
+    public update() {
+        if (!this.screenRT || !this.isVisible) return;
+
+        this.screenRT.clear();
+        this.screenRT.fill(0x000000, 1.0);
 
         const cam = this.scene.cameras.main;
-        const isInfinite = this.scene.mapMode === MapMode.INFINITE;
+        const zoom = cam.zoom;
+        const width = cam.width;
+        const height = cam.height;
+        
+        // --- FIX FOR ZOOM SCALING ---
+        // We want the Fog RT to always cover the screen exactly, regardless of zoom.
+        // Since the camera applies zoom to all objects (even scrollFactor 0),
+        // we must counter-scale and counter-position the RT.
+        
+        // 1. Counter-Scale: If zoom is 0.5 (smaller), we scale RT up by 2.
+        const baseScale = 1 / this.RES_SCALE;
+        const targetScale = baseScale / zoom;
+        this.screenRT.setScale(targetScale);
 
-        if (isInfinite) {
-            // Track camera for infinite mode
-            const targetX = cam.worldView.centerX - this.shroud.width / 2;
-            const targetY = cam.worldView.centerY - this.shroud.height / 2;
+        // 2. Counter-Position: Keep top-left at (0,0) on screen.
+        // Camera Zoom pivots around center. 
+        // Formula to keep Top-Left (0,0) fixed: Center * (1 - 1/Zoom)
+        const offsetX = (width * 0.5) * (1 - 1 / zoom);
+        const offsetY = (height * 0.5) * (1 - 1 / zoom);
+        this.screenRT.setPosition(offsetX, offsetY);
+        
+        // --- DRAWING HOLES ---
+
+        // Get the exact world position of the top-left of the screen
+        const topLeft = cam.getWorldPoint(0, 0);
+
+        // Calculate scaling factor from World Distance -> RT Pixels
+        // World -> Screen = * Zoom
+        // Screen -> RT = * RES_SCALE
+        const globalScale = zoom * this.RES_SCALE;
+
+        // Helper function
+        const drawVision = (worldX: number, worldY: number, worldRadius: number) => {
+             // 1. Calculate World Delta from Camera Top-Left
+             const relWorldX = worldX - topLeft.x;
+             const relWorldY = worldY - topLeft.y;
+
+             // 2. Convert to RT Coordinates
+             const drawX = relWorldX * globalScale;
+             const drawY = relWorldY * globalScale;
+
+             // 3. Calculate Brush Scale
+             // Visual Radius on Screen = WorldRadius * Zoom
+             // Radius in RT Pixels = ScreenRadius * RES_SCALE
+             const rtRadius = worldRadius * globalScale;
+             
+             // Brush texture is 128x128 (Radius 64)
+             const brushScale = rtRadius / 64; 
+
+             // Apply Isometric distortion (2:1 ratio) + extra size for fade
+             this.visionBrush.setScale(brushScale * 2.5, brushScale * 1.25); 
+             this.visionBrush.setPosition(drawX, drawY);
+             
+             this.screenRT.erase(this.visionBrush);
+        };
+
+        // Padding for culling (in world units)
+        // Increased padding to ensure large light sources (like TC with 600 radius)
+        // are still drawn even if their center is off-screen.
+        const padding = 1000 / zoom;
+        const viewRect = cam.worldView; 
+
+        // 2. Process Units
+        const units = this.scene.units.getChildren();
+        for(let i = 0; i < units.length; i++) {
+            const u = units[i] as any;
             
-            this.shroud.setPosition(targetX, targetY);
-            this.visionRT.setPosition(targetX, targetY);
+            // Fix: Animals do not reveal fog
+            if (u.unitType === UnitType.ANIMAL) continue;
             
-            // Re-fill shroud as we move (Infinite mode doesn't have exploration memory to save RAM)
-            this.shroud.clear();
-            this.shroud.fill(0x000000, 1);
+            // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
+            // The camera looks at Iso coords, so fog must be drawn at Iso coords.
+            const iso = toIso(u.x, u.y);
+
+            if (iso.x < viewRect.x - padding || iso.x > viewRect.right + padding ||
+                iso.y < viewRect.y - padding || iso.y > viewRect.bottom + padding) continue;
+            
+            const range = UNIT_VISION[u.unitType as UnitType] || 150;
+            drawVision(iso.x, iso.y, range);
         }
 
-        // Reset the current vision layer
-        this.visionRT.clear();
-        this.visionRT.fill(0x000000, 0.95);
+        // 3. Process Buildings
+        const buildings = this.scene.buildings.getChildren();
+        for(let i = 0; i < buildings.length; i++) {
+             const b = buildings[i] as any;
+             
+             // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
+             const iso = toIso(b.x, b.y);
 
-        // We only calculate vision for entities inside or near the camera viewport to save performance
-        const viewPadding = 1200; 
-        const activeRect = new Phaser.Geom.Rectangle(
-            cam.worldView.x - viewPadding,
-            cam.worldView.y - viewPadding,
-            cam.worldView.width + viewPadding * 2,
-            cam.worldView.height + viewPadding * 2
-        );
+             if (iso.x < viewRect.x - padding || iso.x > viewRect.right + padding ||
+                iso.y < viewRect.y - padding || iso.y > viewRect.bottom + padding) continue;
 
-        // Reveal units
-        this.scene.units.getChildren().forEach((u: any) => {
-            if (u.unitType === 'Animal') return;
-            const iso = toIso(u.x, u.y);
-            if (activeRect.contains(iso.x, iso.y)) {
-                const radius = UNIT_VISION[u.unitType as keyof typeof UNIT_VISION] || 100;
-                this.drawVision(iso.x, iso.y, radius);
-            }
-        });
-
-        // Reveal buildings
-        this.scene.buildings.getChildren().forEach((b: any) => {
-            const def = b.getData('def');
-            const iso = toIso(b.x, b.y);
-            if (activeRect.contains(iso.x, iso.y)) {
-                const radius = def.visionRadius || 150;
-                this.drawVision(iso.x, iso.y, radius);
-            }
-        });
+             const def = b.getData('def');
+             const range = def.territoryRadius || def.visionRadius || 200;
+             drawVision(iso.x, iso.y, range);
+        }
     }
 
-    private drawVision(isoX: number, isoY: number, radius: number) {
-        // Translate world iso coordinates to texture local coordinates
-        const tx = isoX - this.shroud.x;
-        const ty = isoY - this.shroud.y;
-
-        this.brush.clear();
-        this.brush.fillStyle(0xffffff, 1);
-        // Ellipse creates the isometric circular vision look (2:1 ratio)
-        this.brush.fillEllipse(tx, ty, radius * 2.2, radius * 1.1);
-
-        this.shroud.erase(this.brush);
-        this.visionRT.erase(this.brush);
+    public destroy() {
+        if (this.screenRT) this.screenRT.destroy();
+        this.scene.scale.off('resize', this.handleResize, this);
     }
 }

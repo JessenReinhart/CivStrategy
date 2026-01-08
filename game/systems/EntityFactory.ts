@@ -72,7 +72,8 @@ export class EntityFactory {
         // Selection Ring
         const ring = this.scene.add.graphics();
         ring.lineStyle(2, 0xffffff, 1);
-        ring.strokeCircle(0, 0, Math.max(def.width, def.height) * 0.6);
+        const ringWidth = Math.max(def.width, def.height) * 1.3;
+        ring.strokeEllipse(0, 0, ringWidth, ringWidth * 0.5);
         ring.visible = false;
         visual.add(ring);
         visual.setData('ring', ring);

@@ -51,7 +51,10 @@ export class InputManager {
                 return;
             }
             if (this.scene.buildingManager.previewBuildingType) {
-                this.scene.buildingManager.exitBuildMode();
+                this.scene.buildingManager.enterBuildMode(null as any); // Reset logic handled in enterBuildMode or needs clear
+                // Actually BuildingManager handles clear if type is null? No, explicit clear:
+                this.scene.buildingManager.previewBuildingType = null;
+                if(this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
                 return;
             }
 

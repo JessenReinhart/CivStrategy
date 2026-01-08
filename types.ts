@@ -10,6 +10,12 @@ export enum MapMode {
   INFINITE = 'Infinite Realm'
 }
 
+export enum MapSize {
+  SMALL = 'Small',
+  MEDIUM = 'Medium',
+  LARGE = 'Large'
+}
+
 export enum ResourceType {
   WOOD = 'Wood',
   FOOD = 'Food',

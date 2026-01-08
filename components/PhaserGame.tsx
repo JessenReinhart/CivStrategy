@@ -2,15 +2,17 @@
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { MainScene } from '../game/MainScene';
-import { FactionType, MapMode } from '../types';
+import { FactionType, MapMode, MapSize } from '../types';
 
 interface PhaserGameProps {
   faction: FactionType;
   mapMode: MapMode;
+  mapSize: MapSize;
+  fowEnabled: boolean;
   onGameReady: (game: Phaser.Game) => void;
 }
 
-export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, onGameReady }) => {
+export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, onGameReady }) => {
   const gameRef = useRef<Phaser.Game | null>(null);
 
   useEffect(() => {
@@ -39,7 +41,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, onGame
     gameRef.current = game;
     
     game.events.once('ready', () => {
-        game.scene.start('MainScene', { faction, mapMode });
+        game.scene.start('MainScene', { faction, mapMode, mapSize, fowEnabled });
         onGameReady(game);
     });
 
@@ -47,7 +49,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, onGame
       game.destroy(true);
       gameRef.current = null;
     };
-  }, [faction, mapMode, onGameReady]);
+  }, [faction, mapMode, mapSize, fowEnabled, onGameReady]);
 
   return (
     <div id="game-container" className="absolute inset-0 z-0" />

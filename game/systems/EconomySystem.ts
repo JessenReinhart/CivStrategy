@@ -122,7 +122,12 @@ export class EconomySystem {
         
         let foodGen = 0;
         let woodGen = 0;
-        let goldGen = Math.floor((this.scene.population * taxGoldPerPop) * efficiency); 
+        
+        // Base Commerce: 0.5 gold per villager (rounded) representing passive trade
+        // Tax Income: taxRate * villager
+        // This ensures expanding population always increases income, even with 0 taxes.
+        let goldGen = Math.floor((this.scene.population * (0.5 + taxGoldPerPop)) * efficiency); 
+
         const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
 
         this.scene.buildings.getChildren().forEach((b: any) => {
