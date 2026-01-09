@@ -32,14 +32,13 @@ export class SquadSystem {
         unit.setData('squadMaxCount', stats.squadSize);
         unit.setData('formationAngle', 0); 
         
-        // Initialize Soldier States
         this.initializeSoldiers(unit, stats.squadSize, type);
 
-        // Hide commander visual
+        // Ensure EntityFactory visual is hidden, although EntityFactory should now create it hidden.
         const commanderVisual = (unit as any).visual as Phaser.GameObjects.Container;
         if (commanderVisual) {
             commanderVisual.setVisible(false);
-            commanderVisual.setAlpha(0.01); 
+            commanderVisual.removeAll(true); // Clear potential artifacts just in case
         }
 
         this.scene.add.existing(container);
@@ -49,15 +48,12 @@ export class SquadSystem {
         const stats = UNIT_STATS[type];
         const soldiers: SoldierState[] = [];
         const spacing = stats.squadSpacing || 10;
-        
-        // Calculate grid dimensions
         const cols = Math.ceil(Math.sqrt(count));
         
         for (let i = 0; i < count; i++) {
             const col = i % cols;
             const row = Math.floor(i / cols);
             
-            // Add slight randomness to formation for organic look
             const jitterX = (Math.random() - 0.5) * (spacing * 0.4);
             const jitterY = (Math.random() - 0.5) * (spacing * 0.4);
 
@@ -92,8 +88,8 @@ export class SquadSystem {
 
             if (isMoving) {
                 const targetAngle = body.velocity.angle();
-                // Smooth rotation
-                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.05); // Slower turn for weight
+                // Smoother, tighter turn
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1); 
                 unit.setData('formationAngle', angle);
             }
 
@@ -102,18 +98,16 @@ export class SquadSystem {
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
-            // 3. Update Soldier Count (Healing/Damage)
+            // 3. Update Soldier Count
             const hp = unit.getData('hp');
             const maxHp = unit.getData('maxHp');
             const targetCount = Math.ceil((hp / maxHp) * stats.squadSize);
             const soldiers = unit.getData('soldierStates') as SoldierState[];
             
             if (soldiers.length !== targetCount) {
-                // Adjust array size
                 if (soldiers.length > targetCount) {
-                    soldiers.splice(targetCount); // Kill from end
+                    soldiers.splice(targetCount); 
                 } else {
-                    // Respawn/Heal logic (add new soldiers at commander pos)
                     while(soldiers.length < targetCount) {
                         soldiers.push({
                             x: unit.x,
@@ -138,19 +132,13 @@ export class SquadSystem {
 
             // Selection Highlight
             if (unit.isSelected) {
-                gfx.lineStyle(1, 0xffffff, 0.5);
-                // Draw approximate circle around squad
+                gfx.lineStyle(2, 0xffffff, 0.8);
                 const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
-                gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5); // Iso projection ring
+                gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5); 
             }
-
-            // Draw shadow for whole squad (optimization)
-            // gfx.fillStyle(0x000000, 0.2);
-            // gfx.fillEllipse(0, 0, 40, 20); // Generic shadow
 
             soldiers.forEach((soldier, index) => {
                 // A. Calculate Target Position (World Space)
-                // Offset rotated by formation angle
                 const dx = soldier.offset.x * cos - soldier.offset.y * sin;
                 const dy = soldier.offset.x * sin + soldier.offset.y * cos;
                 
@@ -158,38 +146,40 @@ export class SquadSystem {
                 const targetY = unit.y + dy;
 
                 // B. Lerp Position (Fluid movement)
-                // Use a slightly different speed for each soldier to break uniformity
-                const lerpSpeed = isMoving ? 0.05 + ((index % 3) * 0.01) : 0.1;
+                // Much tighter lerp when moving to keep formation cohesive
+                const lerpSpeed = isMoving ? 0.15 + ((index % 3) * 0.02) : 0.1;
                 soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
                 soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
 
                 // C. Walking Bob (Visual Z)
                 if (isMoving) {
-                    // Wave based on time + index offset to desync
                     soldier.z = Math.abs(Math.sin((this.scene.time.now / 150) + index)) * 3;
                 } else {
-                    soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.1);
+                    soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.2);
                 }
 
                 // D. Convert to Relative Isometric for Drawing
-                // soldier.x/y are Logic Coordinates.
-                // container is at toIso(unit.x, unit.y).
                 const isoSoldier = toIso(soldier.x, soldier.y);
-                
-                // Relative draw position
                 const drawX = isoSoldier.x - commanderIso.x;
                 const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
                 // E. Draw
                 if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.SOLDIER) {
+                    // Shadow
+                    gfx.fillStyle(0x000000, 0.3);
+                    gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
+                    
                     // Body
                     gfx.fillStyle(color, 1);
-                    // Simple Box/Dot
                     gfx.fillRect(drawX - 2, drawY - 4, 4, 6);
                     // Head
                     gfx.fillStyle(0xffffff, 0.8);
                     gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
                 } else if (unit.unitType === UnitType.CAVALRY) {
+                     // Shadow
+                    gfx.fillStyle(0x000000, 0.3);
+                    gfx.fillEllipse(drawX, drawY + soldier.z, 10, 5);
+
                     gfx.fillStyle(color, 1);
                     // Horse Body
                     gfx.fillEllipse(drawX, drawY, 14, 8);
@@ -197,10 +187,6 @@ export class SquadSystem {
                     gfx.fillStyle(0xffffff, 1);
                     gfx.fillCircle(drawX, drawY - 5, 2.5);
                 }
-                
-                // Shadow
-                gfx.fillStyle(0x000000, 0.3);
-                gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
             });
         });
     }
