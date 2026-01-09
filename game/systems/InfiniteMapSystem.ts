@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { CHUNK_SIZE, TILE_SIZE } from '../../constants';
-import { toIso } from '../utils/iso';
+import { toIso, toCartesian } from '../utils/iso';
 import { UnitType } from '../../types';
 
 export class InfiniteMapSystem {
@@ -21,10 +21,14 @@ export class InfiniteMapSystem {
         this.lastUpdate = now;
 
         const cam = this.scene.cameras.main;
-        const chunkX = Math.floor(cam.worldView.centerX / CHUNK_SIZE);
-        const chunkY = Math.floor(cam.worldView.centerY / (CHUNK_SIZE / 2));
+        
+        // Convert Camera Center (Iso) to Logic (Cartesian) to find the correct chunk
+        const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
+        
+        const chunkX = Math.floor(center.x / CHUNK_SIZE);
+        const chunkY = Math.floor(center.y / CHUNK_SIZE);
 
-        // Reduced range for immediate generation to 2 chunks around cam
+        // Range for immediate generation
         for (let y = chunkY - 2; y <= chunkY + 2; y++) {
             for (let x = chunkX - 2; x <= chunkX + 2; x++) {
                 this.generateChunk(x, y);
@@ -40,16 +44,14 @@ export class InfiniteMapSystem {
         const startX = cx * CHUNK_SIZE;
         const startY = cy * CHUNK_SIZE;
 
-        // Note: Ground background is now handled by the main camera TileSprite in MainScene.
-        // We only need to spawn objects here.
-
         const seed = cx * 1000 + cy;
         const rng = new Phaser.Math.RandomDataGenerator([seed.toString()]);
 
-        const treeCount = rng.between(4, 12); // Reduced density slightly for infinite mode performance
+        const treeCount = rng.between(4, 12); 
         for(let i=0; i<treeCount; i++) {
             const tx = startX + rng.between(20, CHUNK_SIZE - 20);
             const ty = startY + rng.between(20, CHUNK_SIZE - 20);
+            // Don't spawn on top of initial spawn area
             if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 300) {
                 this.scene.entityFactory.spawnTree(tx, ty);
             }
@@ -69,6 +71,7 @@ export class InfiniteMapSystem {
             const radius = rng.between(80, 150);
             this.scene.fertileZones.push(new Phaser.Geom.Circle(fx, fy, radius));
             
+            // Draw fertile zone
             const fGfx = this.scene.add.graphics();
             fGfx.setDepth(-9500);
             const iso = toIso(fx, fy);

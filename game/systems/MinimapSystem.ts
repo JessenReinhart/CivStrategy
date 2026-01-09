@@ -27,13 +27,12 @@ export class MinimapSystem {
         this.scene = scene;
         
         // 1. Create the Render Texture
-        // Default origin for RenderTextures is 0.5, 0.5. We MUST set it to 0,0 to align with our layout logic.
         this.renderTexture = this.scene.add.renderTexture(0, 0, this.mapSize, this.mapSize);
         this.renderTexture.setOrigin(0, 0); 
         this.renderTexture.setScrollFactor(0);
         this.renderTexture.setDepth(20000); 
 
-        // 2. Create Reusable 'Brushes' (Hidden, only used for texture drawing)
+        // 2. Create Reusable 'Brushes'
         this.unitDot = this.scene.make.graphics({});
         this.unitDot.setVisible(false);
 
@@ -53,7 +52,7 @@ export class MinimapSystem {
         const mask = this.maskGraphics.createGeometryMask();
         this.renderTexture.setMask(mask);
 
-        // 5. Border (Visual polish)
+        // 5. Border
         this.borderGraphics = this.scene.add.graphics();
         this.borderGraphics.setScrollFactor(0);
         this.borderGraphics.setDepth(20001); // Above RT
@@ -74,9 +73,6 @@ export class MinimapSystem {
         const targetY = h - this.mapSize - this.padding;
 
         // Counter-act camera zoom to keep position fixed on screen
-        // Camera Zoom pivots around the screen center (w/2, h/2).
-        // To keep an element visually at 'targetX, targetY', we must inverse-transform that point back to world space.
-        // WorldPos = (ScreenPos - Center) / Zoom + Center
         const x = (targetX - w * 0.5) * invZoom + w * 0.5;
         const y = (targetY - h * 0.5) * invZoom + h * 0.5;
 
@@ -84,7 +80,7 @@ export class MinimapSystem {
         this.renderTexture.setPosition(x, y);
         this.renderTexture.setScale(invZoom);
 
-        // Update Mask Source Transform (Must match Texture exactly)
+        // Update Mask Source Transform
         this.maskGraphics.setPosition(x, y);
         this.maskGraphics.setScale(invZoom);
 
@@ -93,16 +89,11 @@ export class MinimapSystem {
         this.borderGraphics.setScale(invZoom);
         this.borderGraphics.clear();
         
-        // Scale stroke thickness so it visually remains constant (e.g. 3px)
-        // Since we are scaling the graphics object down by invZoom, we multiply width by zoom.
         this.borderGraphics.lineStyle(3 * zoom, 0x44403c, 1.0);
-        
-        // Draw border circle. Since Graphics x,y is Top-Left of the box, center is mapSize/2
         this.borderGraphics.strokeCircle(this.mapSize / 2, this.mapSize / 2, this.mapSize / 2);
     }
 
     public update() {
-        // Layout must update every frame to handle smooth zooming
         this.updateLayout();
 
         this.frameCount++;
@@ -113,79 +104,85 @@ export class MinimapSystem {
         this.renderTexture.clear();
         this.renderTexture.fill(0x064e3b); // Dark Emerald Green
 
+        const scalar = this.getMapScalar();
+
         // 1. Draw Resources
-        // Trees
         this.unitDot.clear();
-        this.unitDot.fillStyle(0x022c22, 0.8); // Very dark green
+        this.unitDot.fillStyle(0x022c22, 0.8); 
         this.unitDot.fillCircle(0, 0, 1.5);
         
         const trees = this.scene.trees.getChildren();
-        const scalar = this.getMapScalar();
-        
-        // Batch draw trees
-        if (trees.length < 2000) {
+        if (trees.length < 3000) { // Bumped up limit slightly
             for (const t of trees) {
                 const tree = t as any;
-                // Simple culling for performance (optional)
                 const pos = this.worldToMini(tree.x, tree.y, scalar);
+                // Draw if within bounds
                 if (pos.x >= 0 && pos.x <= this.mapSize && pos.y >= 0 && pos.y <= this.mapSize) {
                     this.renderTexture.draw(this.unitDot, pos.x, pos.y);
                 }
             }
         }
 
-        // Fertile Zones (Brown patches)
+        // Fertile Zones
         this.buildingRect.clear();
-        this.buildingRect.fillStyle(0x451a03, 0.5); // Dark brown
+        this.buildingRect.fillStyle(0x451a03, 0.5); 
         for (const zone of this.scene.fertileZones) {
              const pos = this.worldToMini(zone.x, zone.y, scalar);
-             const r = zone.radius * scalar;
-             this.buildingRect.fillCircle(0, 0, r);
-             this.renderTexture.draw(this.buildingRect, pos.x, pos.y);
+             // Cull distant zones in infinite mode
+             if (pos.x >= -50 && pos.x <= this.mapSize + 50 && pos.y >= -50 && pos.y <= this.mapSize + 50) {
+                 const r = zone.radius * scalar;
+                 this.buildingRect.fillCircle(0, 0, r);
+                 this.renderTexture.draw(this.buildingRect, pos.x, pos.y);
+             }
         }
 
         // 2. Draw Buildings
         const buildings = this.scene.buildings.getChildren();
         for (const b of buildings) {
             const build = b as any;
-            const def = build.getData('def');
-            const owner = build.getData('owner');
-            
-            const color = owner === 0 ? 0x3b82f6 : (owner === 1 ? 0xef4444 : 0xaaaaaa);
-            const size = Math.max(3, def.width * scalar);
-
-            this.buildingRect.clear();
-            this.buildingRect.fillStyle(color, 1);
-            this.buildingRect.fillRect(-size/2, -size/2, size, size);
-            
             const pos = this.worldToMini(build.x, build.y, scalar);
-            this.renderTexture.draw(this.buildingRect, pos.x, pos.y);
+            
+            if (pos.x >= 0 && pos.x <= this.mapSize && pos.y >= 0 && pos.y <= this.mapSize) {
+                const def = build.getData('def');
+                const owner = build.getData('owner');
+                
+                const color = owner === 0 ? 0x3b82f6 : (owner === 1 ? 0xef4444 : 0xaaaaaa);
+                const size = Math.max(3, def.width * scalar);
+
+                this.buildingRect.clear();
+                this.buildingRect.fillStyle(color, 1);
+                this.buildingRect.fillRect(-size/2, -size/2, size, size);
+                
+                this.renderTexture.draw(this.buildingRect, pos.x, pos.y);
+            }
         }
 
         // 3. Draw Units
         const units = this.scene.units.getChildren();
         for (const u of units) {
             const unit = u as any;
-            const type = unit.unitType;
-            const owner = unit.getData('owner');
-
-            let color = 0xffffff;
-            let radius = 2;
-
-            if (type === UnitType.ANIMAL) {
-                color = 0x9ca3af; // Grey
-                radius = 1;
-            } else {
-                color = owner === 0 ? 0x60a5fa : (owner === 1 ? 0xf87171 : 0xffffff);
-                radius = 2.5; // Larger dots for visibility
-            }
-
-            this.unitDot.clear();
-            this.unitDot.fillStyle(color, 1);
-            this.unitDot.fillCircle(0, 0, radius);
-
             const pos = this.worldToMini(unit.x, unit.y, scalar);
-            this.renderTexture.draw(this.unitDot, pos.x, pos.y);
+
+            if (pos.x >= 0 && pos.x <= this.mapSize && pos.y >= 0 && pos.y <= this.mapSize) {
+                const type = unit.unitType;
+                const owner = unit.getData('owner');
+
+                let color = 0xffffff;
+                let radius = 2;
+
+                if (type === UnitType.ANIMAL) {
+                    color = 0x9ca3af;
+                    radius = 1;
+                } else {
+                    color = owner === 0 ? 0x60a5fa : (owner === 1 ? 0xf87171 : 0xffffff);
+                    radius = 2.5; 
+                }
+
+                this.unitDot.clear();
+                this.unitDot.fillStyle(color, 1);
+                this.unitDot.fillCircle(0, 0, radius);
+                this.renderTexture.draw(this.unitDot, pos.x, pos.y);
+            }
         }
 
         // 4. Draw Viewport (Camera Frustum)
@@ -228,23 +225,33 @@ export class MinimapSystem {
     }
 
     private getMapScalar(): number {
+        // In Infinite mode, we treat the minimap as a 4096x4096 radar around the player
         const worldSize = this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096;
         return this.mapSize / worldSize;
     }
 
     private worldToMini(x: number, y: number, scalar: number) {
-        let wx = x;
-        let wy = y;
-
         if (this.scene.mapMode === MapMode.INFINITE) {
-            wx += 2048; 
-            wy += 2048;
+             // Relative to Camera Center (Radar Mode)
+             const cam = this.scene.cameras.main;
+             const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
+             
+             // Offset from center
+             const dx = x - center.x;
+             const dy = y - center.y;
+             
+             // Center on map
+             return {
+                 x: dx * scalar + this.mapSize / 2,
+                 y: dy * scalar + this.mapSize / 2
+             };
+        } else {
+            // Absolute Positioning for Fixed Map
+            return {
+                x: x * scalar,
+                y: y * scalar
+            };
         }
-
-        return {
-            x: wx * scalar,
-            y: wy * scalar
-        };
     }
 
     public destroy() {
