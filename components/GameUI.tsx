@@ -222,23 +222,17 @@ export const GameUI: React.FC<GameUIProps> = ({
 
       {/* --- BOTTOM LEFT: MAP / RADAR --- */}
       <div className="absolute bottom-6 left-6 pointer-events-auto flex flex-col gap-4">
-          <div className="w-48 h-48 rounded-full bg-black/60 backdrop-blur-xl border-4 border-stone-800/80 shadow-2xl relative overflow-hidden group">
-              {/* Fake Map Elements for Aesthetics */}
-              <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-900 via-stone-900 to-black"></div>
-              <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                  <div className="w-32 h-32 border border-emerald-500/30 rounded-full"></div>
-                  <div className="w-16 h-16 border border-emerald-500/30 rounded-full absolute"></div>
-                  <div className="w-[1px] h-full bg-emerald-500/20 absolute"></div>
-                  <div className="h-[1px] w-full bg-emerald-500/20 absolute"></div>
-              </div>
+          {/* Transparent container to hold interaction and text overlay, but no visuals (handled by Phaser) */}
+          <div className="w-48 h-48 rounded-full relative overflow-hidden group">
               
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-stone-500 gap-1 group-hover:text-stone-300 transition-colors cursor-pointer" onClick={handleCenterCamera}>
-                  <Target size={24} className="opacity-50" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Signal</span>
-              </div>
+              <div 
+                  className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer z-10" 
+                  onClick={handleCenterCamera}
+                  title="Click to Center Camera"
+              />
               
               {/* Map Controls Overlay */}
-              <div className="absolute bottom-4 right-0 left-0 flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="absolute bottom-4 right-0 left-0 flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
                   <div className="bg-black/80 px-2 py-0.5 rounded-full text-[9px] text-stone-400 font-bold border border-white/10">
                       {stats.mapMode === MapMode.FIXED ? 'FIXED' : 'INFINITE'}
                   </div>
