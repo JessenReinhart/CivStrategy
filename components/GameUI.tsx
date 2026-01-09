@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { GameStats, BuildingType, MapMode } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
@@ -27,7 +28,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 }) => {
   const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
   const [demolishActive, setDemolishActive] = useState(false);
-  const [gameSpeed, setGameSpeed] = useState(1);
+  const [gameSpeed, setGameSpeed] = useState(0.5); // Match default MainScene speed
   const [showTax, setShowTax] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
 
@@ -133,13 +134,13 @@ export const GameUI: React.FC<GameUIProps> = ({
         <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl">
              {/* Speed */}
              <div className="flex bg-white/5 rounded-xl p-1 gap-1">
-                {[1, 2].map(s => (
+                {[0.5, 1, 2].map(s => (
                     <button
                         key={s}
                         onClick={() => handleSpeedChange(s)}
-                        className={`p-1.5 rounded-lg transition-all ${gameSpeed === s ? 'bg-amber-600 text-white shadow-lg' : 'text-stone-400 hover:text-white hover:bg-white/10'}`}
+                        className={`p-1.5 rounded-lg transition-all min-w-[32px] text-xs font-bold ${gameSpeed === s ? 'bg-amber-600 text-white shadow-lg' : 'text-stone-400 hover:text-white hover:bg-white/10'}`}
                     >
-                       {s === 1 ? <Play size={14} fill="currentColor" /> : <FastForward size={14} fill="currentColor" />}
+                       {s}x
                     </button>
                 ))}
              </div>
@@ -353,12 +354,14 @@ export const GameUI: React.FC<GameUIProps> = ({
 // --- SUBCOMPONENTS ---
 
 const ResourceItem = ({ icon, value, sub }: any) => (
-    <div className="flex flex-col items-center min-w-[50px]">
-        <div className="flex items-center gap-2 font-bold text-lg">
+    <div className="flex items-center gap-2">
+        <div className="flex items-center justify-center">
             {icon}
-            <span>{value}</span>
         </div>
-        {sub && <span className="text-[10px] text-stone-400 font-mono absolute -bottom-2">{sub}</span>}
+        <div className="flex items-baseline gap-1">
+            <span className="font-bold text-lg leading-none">{value}</span>
+            {sub && <span className="text-[10px] text-stone-400 font-mono font-bold opacity-80">{sub}</span>}
+        </div>
     </div>
 );
 

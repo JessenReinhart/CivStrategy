@@ -50,7 +50,7 @@ export class MainScene extends Phaser.Scene {
   private debugText: Phaser.GameObjects.Text;
 
   // Game Speed & Time
-  public gameSpeed: number = 1.0;
+  public gameSpeed: number = 0.5; // Default slower speed
   public gameTime: number = 0;
   private accumulatedTime: number = 0;
   private accumulatedPopTime: number = 0;
@@ -285,8 +285,8 @@ export class MainScene extends Phaser.Scene {
     this.happiness = 100;
     this.taxRate = 0;
     
-    // Reset Time
-    this.gameSpeed = 1.0;
+    // Reset Time and Speed
+    this.gameSpeed = 0.5; // Default slower speed
     this.gameTime = 0;
     this.accumulatedTime = 0;
     this.accumulatedPopTime = 0;
@@ -376,12 +376,14 @@ export class MainScene extends Phaser.Scene {
 
     this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
         this.gameSpeed = speed;
-        // Physics timescale is inverted (higher value = slower)
-        // 0.5 speed -> 2.0 timescale
-        // 2.0 speed -> 0.5 timescale
-        this.physics.world.timeScale = 1.0 / speed;
+        // Update physics timescale to match game speed
+        // 0.5 speed -> 0.5 timescale (physics moves slower)
+        this.physics.world.timeScale = speed;
         this.tweens.timeScale = speed;
     }, this);
+
+    // Apply initial speed
+    this.physics.world.timeScale = this.gameSpeed;
 
     this.economySystem.updateStats();
 
@@ -415,6 +417,7 @@ export class MainScene extends Phaser.Scene {
             `Mode: ${this.peacefulMode ? "PEACEFUL (ATTACKS BLOCKED)" : "WAR"}`,
             `Treaty: ${treatySecs > 0 ? treatySecs + "s remaining" : "EXPIRED"}`,
             `GameTime: ${(this.gameTime/1000).toFixed(1)}s`,
+            `Speed: ${this.gameSpeed}x`,
             `------------------`,
             `Units: ${this.units.getLength()}`,
             `Buildings: ${this.buildings.getLength()}`,
