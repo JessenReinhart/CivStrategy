@@ -43,8 +43,6 @@ export class EntityFactory {
             const sprite = this.scene.add.image(0, 0, key);
             sprite.setOrigin(0.5, originY);
             
-            // Dynamic scaling: Fit the sprite to the logical width with a multiplier for visual overhang
-            // logical width * multiplier = target visual width
             const targetWidth = def.width * scaleMultiplier;
             const scale = targetWidth / sprite.width;
             
@@ -53,31 +51,24 @@ export class EntityFactory {
             return true;
         };
         
-        // Use Sprites for Farms (All Factions)
         if (type === BuildingType.FARM) {
-             // Farms are flat, so we use a different scale/origin logic
-             // Increased scale from 1.0 to 2.0
              if (setupSprite('field', 2.0, 0.5)) {
                  spriteUsed = true;
              }
         } else if (type === BuildingType.HOUSE) {
-             // Increased scale from 1.25 to 2.5
              if (setupSprite('house', 2.5, 0.85)) { 
                  spriteUsed = true;
              }
         } else if (type === BuildingType.HUNTERS_LODGE) {
-             // New Hunter's Lodge Asset
              if (setupSprite('lodge', 2.5, 0.75)) {
                  spriteUsed = true;
              }
         }
 
-        // Use Sprites for Romans if available (Faction Specific)
         if (!spriteUsed && owner === 0 && this.scene.faction === FactionType.ROMANS) {
             if (type === BuildingType.TOWN_CENTER) {
                 if (setupSprite('townhall', 1.5, 0.75)) spriteUsed = true;
             } else if (type === BuildingType.LUMBER_CAMP) {
-                // Increased scale from 1.3 to 2.6
                 if (setupSprite('lumber', 2.6, 0.75)) spriteUsed = true;
             }
         }
@@ -107,18 +98,14 @@ export class EntityFactory {
         }
 
         if (!spriteUsed || type === BuildingType.BONFIRE || type === BuildingType.SMALL_PARK) {
-            // Keep text for non-sprites or small buildings
             const textOffset = -def.height * 0.5 - 10;
             const text = this.scene.add.text(0, textOffset, def.name[0], { fontSize: '14px', color: '#ffffff' });
             text.setOrigin(0.5);
             visual.add([gfx, text]);
         } else {
-             visual.add(gfx); // Empty gfx but keeps container structure for consistency
+             visual.add(gfx); 
         }
 
-        // Symbols - Dynamic positioning based on building height
-        // For sprites, we adjust based on the logical height to keep icons above the roof
-        // Increased offset to accommodate larger sprites
         const iconOffset = spriteUsed ? -def.width * 1.5 : -def.height * 0.8 - 20;
         
         const vacantIcon = this.scene.add.text(0, iconOffset, '⚠', { fontSize: '20px', color: '#ff0000', stroke: '#000000', strokeThickness: 3 });
@@ -144,7 +131,6 @@ export class EntityFactory {
         visual.add(ring);
         visual.setData('ring', ring);
 
-        // --- HEALTH BAR ---
         const hpBarOffset = iconOffset - 15;
         const hpBar = this.createHealthBar(visual, def.width, hpBarOffset);
         visual.setData('hpBar', hpBar);
@@ -172,7 +158,6 @@ export class EntityFactory {
             }
         }
 
-        // Damage Handler
         (b as any).takeDamage = (amount: number) => this.handleDamage(b, amount, false);
 
         return b;
@@ -187,7 +172,6 @@ export class EntityFactory {
             return dummy;
         }
 
-        // Logic Unit (Invisible Commander)
         const radius = 8; 
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
         this.scene.physics.add.existing(unit);
@@ -213,9 +197,6 @@ export class EntityFactory {
         (unit as any).target = null;
 
         if (owner === 0) {
-             // For population count, we treat a squad as 1 "Population Unit" 
-             // even though it has many soldiers, to avoid breaking the economy limit logic.
-             // Or we could weight it. For simplicity, 1 squad = 1 pop slot.
              this.scene.population++;
         }
 
@@ -223,7 +204,6 @@ export class EntityFactory {
         const gfx = this.scene.add.graphics();
         
         const primaryColor = owner === 1 ? 0xef4444 : (type === UnitType.SOLDIER ? FACTION_COLORS[this.scene.faction] : stats.squadColor || 0x5D4037);
-        const secondaryColor = owner === 1 ? 0x000000 : 0xffffff;
 
         // Visual Construction
         if (type === UnitType.VILLAGER) {
@@ -241,17 +221,10 @@ export class EntityFactory {
             visual.setScale(0.8);
         } else {
              // SQUAD UNITS (Soldier, Cavalry, Legion)
-             // Create Selection Ring (Always added to visual container, even if container is hidden later)
-             const ring = this.scene.add.graphics();
-             ring.lineStyle(1.5, 0xffffff, 1); 
-             ring.strokeEllipse(0, 0, 30, 18);
-             ring.visible = false;
-             visual.setData('ring', ring);
-             
-             // Placeholder for Commander Visual (Will be hidden by SquadSystem)
-             gfx.fillStyle(primaryColor, 1);
-             gfx.fillCircle(0, 0, 5);
-             visual.add([ring, gfx]);
+             // DO NOT ADD Visuals here. SquadSystem handles everything.
+             // We leave the visual container empty/hidden to act as a logic anchor if needed,
+             // or SquadSystem will hide it.
+             visual.setVisible(false);
         }
 
         // --- HEALTH BAR (Only for single entities like Villagers/Animals) ---
@@ -271,44 +244,13 @@ export class EntityFactory {
         u.isSelected = false;
 
         u.setSelected = (selected: boolean) => {
-            // Squad Unit Selection
-            if (stats.squadSize > 1 && owner === 0) {
-                u.isSelected = selected;
-                // If squad, we might show a ring on the ground around the squad?
-                // The SquadSystem hides the 'visual' container, but we attached the ring to it.
-                // We need to ensure the ring is visible if selected.
-                const ring = visual.getData('ring');
-                // Force visual container visible ONLY for ring if squad? 
-                // No, SquadSystem hides the visual container entirely.
-                // Let's attach the ring to the Squad Container instead in SquadSystem?
-                // Actually, simpler: SquadSystem only hides the COMMANDER GRAPHICS, not the container?
-                // Currently SquadSystem sets visual.setVisible(false). 
-                // We will handle selection in SquadSystem logic or allow the visual container to stay visible but empty except ring.
-                
-                // For now, let's assume SquadSystem handles the visuals completely.
-                // We will add a 'selection' indicator to the squad container in SquadSystem or here.
-                const squadContainer = unit.getData('squadContainer') as Phaser.GameObjects.Container;
-                if (squadContainer) {
-                    // Add/Remove selection ring from squad container
-                    let squadRing = squadContainer.getData('selectionRing') as Phaser.GameObjects.Graphics;
-                    if (!squadRing) {
-                         squadRing = this.scene.add.graphics();
-                         squadRing.lineStyle(2, 0xffffff, 0.8);
-                         // Approximate size based on squad size
-                         const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.8;
-                         squadRing.strokeEllipse(0, 0, radius * 2, radius);
-                         squadContainer.addAt(squadRing, 0); // Bottom
-                         squadContainer.setData('selectionRing', squadRing);
-                    }
-                    squadRing.visible = selected;
-                }
-            } 
+            u.isSelected = selected;
             // Single Unit Selection
-            else if (owner === 0 && (type === UnitType.VILLAGER)) {
-                 u.isSelected = selected;
+            if (stats.squadSize === 1 && owner === 0) {
                  const hpBar = visual.getData('hpBar');
                  if(hpBar) hpBar.setVisible(selected || u.getData('hp') < u.getData('maxHp'));
             }
+            // Squad Unit Selection is handled purely in SquadSystem.update loop reading u.isSelected
         };
 
         // Initialize Squad System if needed
@@ -365,8 +307,7 @@ export class EntityFactory {
             });
         }
 
-        // Squad Units don't need explicit flash here because SquadSystem handles soldier count,
-        // but we can flash the squad container.
+        // Squad Units Flash
         if (isUnit) {
             const squadContainer = entity.getData('squadContainer') as Phaser.GameObjects.Container;
             if (squadContainer) {
@@ -391,19 +332,15 @@ export class EntityFactory {
             if (owner === 0) {
                 this.scene.population--;
             }
-            // Cleanup Squad
             this.scene.squadSystem.destroySquad(entity);
         } else {
-            // Building Destruction
             const def = entity.getData('def') as BuildingDef;
             this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
         }
 
-        // Particle/Visual Death
         const visual = (entity as any).visual;
         if (visual) {
              const iso = toIso((entity as any).x, (entity as any).y);
-             // Use texture flare if loaded, else fallback
              const texture = this.scene.textures.exists('flare') ? 'flare' : null;
              
              if (texture) {
@@ -425,7 +362,7 @@ export class EntityFactory {
     }
 
     public spawnTree(x: number, y: number) {
-        const tree = this.scene.add.circle(x, y, 6, 0x000000, 0); // Reduced radius
+        const tree = this.scene.add.circle(x, y, 6, 0x000000, 0); 
         this.scene.physics.add.existing(tree, true);
         (tree.body as Phaser.Physics.Arcade.Body).setCircle(6);
         this.scene.trees.add(tree);
@@ -438,23 +375,19 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         
-        // Use Sprites
         const stump = this.scene.add.image(0, 0, 'stump');
         stump.setOrigin(0.5, 0.5); 
-        // Reduced scale from 0.15 to 0.075
         stump.setScale(0.075); 
         stump.setName('stumpSprite');
         stump.visible = false;
 
         const treeSprite = this.scene.add.image(0, 0, 'tree');
-        treeSprite.setOrigin(0.5, 0.95); // Anchor at bottom trunk
-        // Reduced scale from 0.15 to 0.075
+        treeSprite.setOrigin(0.5, 0.95); 
         treeSprite.setScale(0.075); 
         treeSprite.setName('treeSprite');
 
         visual.add([stump, treeSprite]);
         
-        // Random slight scale variation for natural look
         const randomScale = Phaser.Math.FloatBetween(0.8, 1.1);
         visual.setScale(randomScale);
         
@@ -470,22 +403,12 @@ export class EntityFactory {
         const visual = (tree as any).visual as Phaser.GameObjects.Container;
         if (!visual) return;
         
-        // Handle Sprite version
         const treeSprite = visual.getByName('treeSprite') as Phaser.GameObjects.Image;
         const stumpSprite = visual.getByName('stumpSprite') as Phaser.GameObjects.Image;
         
         if (treeSprite && stumpSprite) {
             treeSprite.visible = !isChopped;
             stumpSprite.visible = isChopped;
-            return;
-        }
-
-        // Fallback for legacy graphics
-        const treeGfx = visual.getByName('treeGfx') as Phaser.GameObjects.Graphics;
-        const stumpGfx = visual.getByName('stumpGfx') as Phaser.GameObjects.Graphics;
-        if (treeGfx && stumpGfx) {
-            treeGfx.visible = !isChopped;
-            stumpGfx.visible = isChopped;
         }
         tree.setData('isChopped', isChopped);
     }
@@ -493,7 +416,6 @@ export class EntityFactory {
     public drawIsoBuilding(gfx: Phaser.GameObjects.Graphics, def: BuildingDef, color: number, alpha = 1) {
         const w = def.width;
         const h = def.height;
-        // Proportional height instead of fixed
         const height = Math.min(w, h) * 0.45; 
         
         const corners = [
@@ -536,7 +458,6 @@ export class EntityFactory {
     }
 
     private drawBonfire(gfx: Phaser.GameObjects.Graphics) {
-        // Scaled for 32x32 size
         gfx.fillStyle(0x78716c);
         gfx.fillEllipse(0, 0, 24, 12);
         
@@ -551,7 +472,6 @@ export class EntityFactory {
     }
 
     private drawPark(gfx: Phaser.GameObjects.Graphics) {
-        // Fits 32x32
         gfx.fillStyle(0x86efac);
         gfx.beginPath();
         const pts = [toIso(-14, -14), toIso(14, -14), toIso(14, 14), toIso(-14, 14)];
