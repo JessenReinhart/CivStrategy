@@ -377,13 +377,14 @@ export class MainScene extends Phaser.Scene {
     this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
         this.gameSpeed = speed;
         // Update physics timescale to match game speed
-        // 0.5 speed -> 0.5 timescale (physics moves slower)
-        this.physics.world.timeScale = speed;
+        // Phaser Arcade Physics timeScale is inverted: 0.5 = 2x speed, 2.0 = 0.5x speed.
+        // So we invert the game speed value to get the correct physics timeScale.
+        this.physics.world.timeScale = 1 / speed;
         this.tweens.timeScale = speed;
     }, this);
 
-    // Apply initial speed
-    this.physics.world.timeScale = this.gameSpeed;
+    // Apply initial speed (Inverted for Physics)
+    this.physics.world.timeScale = 1 / this.gameSpeed;
 
     this.economySystem.updateStats();
 
@@ -418,6 +419,7 @@ export class MainScene extends Phaser.Scene {
             `Treaty: ${treatySecs > 0 ? treatySecs + "s remaining" : "EXPIRED"}`,
             `GameTime: ${(this.gameTime/1000).toFixed(1)}s`,
             `Speed: ${this.gameSpeed}x`,
+            `Physics TimeScale: ${this.physics.world.timeScale.toFixed(2)}`,
             `------------------`,
             `Units: ${this.units.getLength()}`,
             `Buildings: ${this.buildings.getLength()}`,
