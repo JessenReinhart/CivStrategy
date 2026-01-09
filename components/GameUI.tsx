@@ -1,8 +1,15 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GameStats, BuildingType, MapMode } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut, FastForward, Handshake, Clock } from 'lucide-react';
+import { 
+  Pickaxe, Wheat, Coins, User, Smile, 
+  Home, Hammer, Tent, Sword, Trash2, 
+  Rabbit, Sprout, AlertTriangle, 
+  Map as MapIcon, Infinity as InfinityIcon, 
+  Target, LogOut, Handshake, Clock,
+  Menu, Play, FastForward, Flame, Flower,
+  X, ChevronUp, Shield, Crown
+} from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -15,33 +22,53 @@ interface GameUIProps {
   selectedBuildingType: BuildingType | null;
 }
 
-export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType }) => {
-  const [activeTab, setActiveTab] = useState<'economy' | 'military' | 'civic'>('economy');
+export const GameUI: React.FC<GameUIProps> = ({ 
+  stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType 
+}) => {
+  const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
   const [demolishActive, setDemolishActive] = useState(false);
   const [gameSpeed, setGameSpeed] = useState(1);
+  const [showTax, setShowTax] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
+  // Toggle Demolish
   const handleDemolishToggle = () => {
     const newState = !demolishActive;
     setDemolishActive(newState);
     onToggleDemolish(newState);
+    if (newState) setActiveCategory(null);
   };
 
+  // Tax Handler
   const handleTaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const event = new CustomEvent('set-tax-rate-ui', { detail: parseInt(e.target.value) });
+      const val = parseInt(e.target.value);
+      const event = new CustomEvent('set-tax-rate-ui', { detail: val });
       window.dispatchEvent(event);
   };
 
+  // Camera Center
   const handleCenterCamera = () => {
       const event = new CustomEvent('center-camera-ui');
       window.dispatchEvent(event);
   };
 
+  // Speed Handler
   const handleSpeedChange = (speed: number) => {
       setGameSpeed(speed);
       const event = new CustomEvent('set-game-speed-ui', { detail: speed });
       window.dispatchEvent(event);
   };
 
+  // Close build menu when selecting something
+  useEffect(() => {
+    if (selectedCount > 0 || selectedBuildingType) {
+        setActiveCategory(null);
+    }
+  }, [selectedCount, selectedBuildingType]);
+
+  const hasSelection = selectedCount > 0 || selectedBuildingType !== null;
+
+  // Format Time
   const formatTime = (ms: number) => {
       const totalSeconds = Math.floor(ms / 1000);
       const m = Math.floor(totalSeconds / 60);
@@ -49,332 +76,387 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
       return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const happinessTrend = stats.happinessChange > 0 ? `+${stats.happinessChange}` : `${stats.happinessChange}`;
-  const happinessColor = stats.happiness < 40 ? 'text-red-500' : stats.happiness < 70 ? 'text-yellow-400' : 'text-green-400';
-  const isLowEfficiency = stats.happiness < 50;
+  const netFood = stats.rates.food - stats.rates.foodConsumption;
+  const netFoodSign = netFood >= 0 ? '+' : '';
+  const netFoodColor = netFood >= 0 ? 'text-emerald-400' : 'text-red-400';
 
   return (
-    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between">
-      {/* Top Bar - Resources */}
-      <div className="bg-stone-900/90 text-stone-200 p-2 flex items-center justify-between px-6 border-b-2 border-amber-700/50 backdrop-blur pointer-events-auto shadow-lg">
-        {/* Left Side Controls */}
-        <div className="flex items-center gap-2">
-            <button
-                onClick={onQuit}
-                className="bg-red-900/40 hover:bg-red-900 text-red-200 border border-red-800 p-1.5 rounded flex items-center gap-2 text-xs transition-colors"
-                title="Quit to Menu"
-            >
-                <LogOut size={14} />
-                <span className="font-bold">QUIT</span>
-            </button>
-            <div className="flex items-center gap-4 bg-stone-800/50 px-3 py-1 rounded-full border border-stone-700 ml-2">
-                 <div className="text-amber-500" title={stats.mapMode}>
-                     {stats.mapMode === MapMode.FIXED ? <MapIcon size={18}/> : <InfinityIcon size={18}/>}
-                 </div>
-                 <button 
-                    onClick={handleCenterCamera}
-                    className="text-stone-400 hover:text-amber-500 transition-colors"
-                    title="Center Camera on Town Center"
-                 >
-                     <Target size={18} />
-                 </button>
-            </div>
-            
-            {/* Speed Controls */}
-            <div className="flex items-center gap-1 bg-stone-800/50 px-2 py-1 rounded-full border border-stone-700 ml-2">
-                {[0.5, 1, 1.5, 2].map(s => (
-                    <button
-                        key={s}
-                        onClick={() => handleSpeedChange(s)}
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded transition-colors ${gameSpeed === s ? 'bg-amber-600 text-white' : 'text-stone-400 hover:text-stone-200'}`}
-                        title={`Set Speed to ${s}x`}
-                    >
-                        {s}x
-                    </button>
-                ))}
-            </div>
-
-            {/* Diplomacy Indicator */}
-            {(stats.peacefulMode || stats.treatyTimeRemaining > 0) && (
-                 <div className="flex items-center gap-2 bg-stone-800/50 px-3 py-1 rounded-full border border-stone-700 ml-2 animate-pulse">
-                     {stats.peacefulMode ? (
-                         <>
-                            <Handshake size={16} className="text-emerald-400" />
-                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Peaceful</span>
-                         </>
-                     ) : (
-                         <>
-                             <Clock size={16} className="text-blue-400" />
-                             <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Treaty: {formatTime(stats.treatyTimeRemaining)}</span>
-                         </>
-                     )}
-                 </div>
-            )}
-        </div>
-
-        {/* Center Resources */}
-        <div className="flex items-center gap-6">
-            <ResourceDisplay 
-                icon={<Pickaxe size={18} />} 
+    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
+      
+      {/* --- TOP BAR: RESOURCES --- */}
+      <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto">
+        <div className="flex items-center gap-6 px-8 py-3 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-2xl text-stone-100 transition-all hover:bg-black/70">
+            <ResourceItem 
+                icon={<Pickaxe size={16} className="text-emerald-400" />} 
                 value={stats.resources.wood} 
-                label="Wood" 
-                color="text-emerald-400" 
-                rate={`+${stats.rates.wood}`}
+                sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
             />
-            <ResourceDisplay 
-                icon={<Wheat size={18} />} 
-                value={stats.resources.food} 
-                label="Food" 
-                color="text-yellow-400" 
-                rate={`+${stats.rates.food} / -${stats.rates.foodConsumption}`}
+            <div className="w-px h-8 bg-white/10" />
+            <ResourceItem 
+                icon={<Wheat size={16} className="text-yellow-400" />} 
+                value={
+                    <span className="flex items-baseline gap-1">
+                        {stats.resources.food}
+                        <span className={`text-[10px] ${netFoodColor} font-bold opacity-80`}>
+                            {`(${netFoodSign}${netFood})`}
+                        </span>
+                    </span>
+                }
             />
-            <ResourceDisplay 
-                icon={<Coins size={18} />} 
+            <div className="w-px h-8 bg-white/10" />
+            <ResourceItem 
+                icon={<Coins size={16} className="text-amber-400" />} 
                 value={stats.resources.gold} 
-                label="Gold" 
-                color="text-amber-400" 
-                rate={`+${stats.rates.gold}`}
+                sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
             />
-            
-            <div className="w-px h-8 bg-stone-700 mx-2" />
-            
-            <ResourceDisplay icon={<User size={18} />} value={`${stats.population}/${stats.maxPopulation}`} label="Pop" color="text-blue-300" />
-            <div className="flex flex-col items-center">
-                 <ResourceDisplay 
-                    icon={<Smile size={18} />} 
-                    value={`${stats.happiness}%`} 
-                    label="Happiness" 
-                    color={happinessColor} 
-                    rate={happinessTrend}
-                />
-                {isLowEfficiency && (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-red-500 bg-red-900/50 px-1 rounded animate-pulse">
-                        <AlertTriangle size={10} />
-                        <span>Low Efficiency</span>
-                    </div>
+            <div className="w-px h-8 bg-white/10" />
+            <ResourceItem 
+                icon={<User size={16} className="text-blue-300" />} 
+                value={`${stats.population}/${stats.maxPopulation}`} 
+            />
+            <div className="w-px h-8 bg-white/10" />
+            <div className="flex flex-col items-center min-w-[60px]">
+                <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
+                    <Smile size={16} />
+                    <span>{stats.happiness}%</span>
+                </div>
+                {stats.happiness < 50 && (
+                    <span className="text-[10px] text-red-400 animate-pulse font-bold tracking-wider">REVOLT RISK</span>
                 )}
             </div>
         </div>
-        
-        {/* Spacer for right alignment balance */}
-        <div className="w-24"></div>
       </div>
 
-      {/* Tax Controls (Top Right) */}
-      <div className="absolute top-20 right-4 pointer-events-auto bg-stone-800 p-4 rounded border border-stone-600 shadow-xl">
-          <div className="flex items-center gap-2 mb-2">
-              <Coins size={16} className="text-amber-400"/>
-              <span className="font-bold text-sm text-stone-200">Tax Rate</span>
-          </div>
-          <input 
-            type="range" 
-            min="0" 
-            max="5" 
-            step="1" 
-            value={stats.taxRate || 0} 
-            onChange={handleTaxChange}
-            className="w-32 accent-amber-500"
-          />
-          <div className="flex justify-between text-[10px] text-stone-400 mt-1">
-              <span>Low</span>
-              <span>Cruel</span>
-          </div>
-          <div className="mt-2 text-xs text-center text-stone-300">
-              <div className="mb-1 text-amber-400 font-bold">Income: {0.5 + stats.taxRate}g / pop</div>
-              {stats.taxRate === 0 && "Happy (+1 ☺/s)"}
-              {stats.taxRate > 0 && `${[1, 0, -1, -3, -6, -10][stats.taxRate]} Happiness/s`}
-          </div>
-      </div>
+      {/* --- TOP RIGHT: SYSTEM CONTROLS --- */}
+      <div className="absolute top-6 right-6 flex flex-col items-end gap-3 pointer-events-auto">
+        {/* Main Controls Group */}
+        <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl">
+             {/* Speed */}
+             <div className="flex bg-white/5 rounded-xl p-1 gap-1">
+                {[1, 2].map(s => (
+                    <button
+                        key={s}
+                        onClick={() => handleSpeedChange(s)}
+                        className={`p-1.5 rounded-lg transition-all ${gameSpeed === s ? 'bg-amber-600 text-white shadow-lg' : 'text-stone-400 hover:text-white hover:bg-white/10'}`}
+                    >
+                       {s === 1 ? <Play size={14} fill="currentColor" /> : <FastForward size={14} fill="currentColor" />}
+                    </button>
+                ))}
+             </div>
 
-      {/* Bottom Bar - Controls */}
-      <div className="bg-stone-900/95 border-t-2 border-amber-700/50 p-4 pointer-events-auto flex gap-6 items-end">
-        <div className="w-48 h-48 bg-stone-800 border-2 border-stone-600 rounded flex flex-col items-center justify-center text-stone-600 text-xs gap-2">
-          <MapIcon size={24} className="opacity-20" />
-          <span className="opacity-50">Strategic Map</span>
-          <span className="text-[10px] text-amber-900">{stats.mapMode}</span>
-        </div>
+             <div className="w-px h-6 bg-white/10 mx-1" />
 
-        <div className="flex-1 max-w-2xl bg-stone-800 rounded-lg border border-stone-700 overflow-hidden flex flex-col">
-          <div className="flex border-b border-stone-700 items-center justify-between pr-2">
-             <div className="flex">
-                <button 
-                className={`px-6 py-2 text-sm font-bold transition-colors ${activeTab === 'economy' ? 'bg-amber-700 text-white' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'}`}
-                onClick={() => setActiveTab('economy')}
-                >
-                Economy
-                </button>
-                <button 
-                className={`px-6 py-2 text-sm font-bold transition-colors ${activeTab === 'military' ? 'bg-amber-700 text-white' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'}`}
-                onClick={() => setActiveTab('military')}
-                >
-                Military
-                </button>
-                <button 
-                className={`px-6 py-2 text-sm font-bold transition-colors ${activeTab === 'civic' ? 'bg-amber-700 text-white' : 'bg-stone-800 text-stone-400 hover:bg-stone-700'}`}
-                onClick={() => setActiveTab('civic')}
-                >
-                Civic
-                </button>
+             {/* Tax Toggle */}
+             <div className="relative">
+                 <button 
+                    onClick={() => setShowTax(!showTax)}
+                    className={`p-2 rounded-xl transition-colors ${showTax ? 'bg-amber-500/20 text-amber-400' : 'text-stone-400 hover:text-amber-400 hover:bg-white/5'}`}
+                 >
+                     <Crown size={20} />
+                 </button>
+                 
+                 {/* Floating Tax Slider Popover */}
+                 {showTax && (
+                     <div className="absolute top-12 right-0 w-64 p-4 bg-stone-900/95 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl flex flex-col gap-2 animate-in slide-in-from-top-2 fade-in duration-200">
+                         <div className="flex justify-between items-center text-xs font-bold text-stone-400 uppercase tracking-wider">
+                             <span>Tax Rate</span>
+                             <span className="text-amber-400">{stats.taxRate * 20}%</span>
+                         </div>
+                         <input 
+                            type="range" 
+                            min="0" 
+                            max="5" 
+                            step="1" 
+                            value={stats.taxRate} 
+                            onChange={handleTaxChange}
+                            className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                         />
+                         <div className="text-[10px] text-stone-500 flex justify-between px-1">
+                            <span>Benevolent</span>
+                            <span>Tyrant</span>
+                         </div>
+                         <div className="mt-2 text-xs bg-white/5 p-2 rounded text-stone-300 text-center">
+                             Income: <span className="text-amber-400 font-bold">+{0.5 + stats.taxRate}g</span> / pop
+                         </div>
+                     </div>
+                 )}
              </div>
              
+             {/* Menu Toggle */}
              <button 
-               onClick={handleDemolishToggle}
-               className={`p-1.5 rounded-full border transition-all ${demolishActive ? 'bg-red-900 border-red-500 text-red-200 animate-pulse' : 'bg-stone-700 border-stone-600 text-stone-400 hover:text-red-300'}`}
-               title="Toggle Demolish Mode"
+                onClick={() => setShowMenu(!showMenu)}
+                className={`p-2 rounded-xl transition-colors ${showMenu ? 'bg-red-500/20 text-red-400' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
              >
-                <Trash2 size={16} />
+                 <Menu size={20} />
              </button>
-          </div>
+        </div>
 
-          <div className="p-4 grid grid-cols-5 gap-3 h-32 overflow-y-auto">
-            {activeTab === 'economy' && (
-              <>
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.HOUSE]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.HOUSE)}
-                    icon={<Home size={20} />}
-                 />
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.FARM]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.FARM)}
-                    icon={<Wheat size={20} />}
-                 />
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.LUMBER_CAMP]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.LUMBER_CAMP)}
-                    icon={<Pickaxe size={20} />}
-                 />
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.HUNTERS_LODGE]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.HUNTERS_LODGE)}
-                    icon={<Rabbit size={20} />}
-                 />
-                  <BuildButton 
-                    building={BUILDINGS[BuildingType.TOWN_CENTER]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.TOWN_CENTER)}
-                    icon={<Tent size={20} />}
-                 />
-              </>
-            )}
-
-            {activeTab === 'civic' && (
-              <>
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.BONFIRE]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.BONFIRE)}
-                    icon={<Flame size={20} />}
-                 />
-                 <BuildButton 
-                    building={BUILDINGS[BuildingType.SMALL_PARK]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.SMALL_PARK)}
-                    icon={<Flower size={20} />}
-                 />
-              </>
-            )}
-
-            {activeTab === 'military' && (
-              <>
-                <BuildButton 
-                    building={BUILDINGS[BuildingType.BARRACKS]} 
-                    stats={stats}
-                    onClick={() => onBuild(BuildingType.BARRACKS)}
-                    icon={<Hammer size={20} />}
-                 />
-                 <button 
-                   onClick={onSpawnUnit}
-                   className="flex flex-col items-center justify-center p-2 bg-stone-700 rounded hover:bg-stone-600 active:scale-95 transition-all border border-stone-600 hover:border-red-500 group"
-                   disabled={stats.resources.food < 100 || stats.resources.gold < 50}
-                 >
-                    <Sword size={24} className="mb-1 text-red-400 group-hover:text-red-200" />
-                    <span className="text-xs font-bold text-stone-200">Train Soldier</span>
-                    <div className="flex flex-col text-[9px] text-yellow-500 mt-1 leading-tight">
-                        <span>100 Food</span>
-                        <span>50 Gold</span>
-                    </div>
+        {/* Menu Dropdown */}
+        {showMenu && (
+             <div className="flex flex-col gap-2 w-40 animate-in slide-in-from-top-2 fade-in duration-200">
+                 <button onClick={onQuit} className="flex items-center gap-3 px-4 py-3 bg-red-900/80 backdrop-blur hover:bg-red-800 text-red-100 rounded-xl border border-red-700/50 shadow-xl transition-all font-bold text-sm">
+                     <LogOut size={16} />
+                     Quit Game
                  </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="w-64 bg-stone-800 border border-stone-700 rounded-lg p-4 h-48">
-           <h3 className="text-amber-500 font-serif font-bold mb-2">Selection</h3>
-           {demolishActive ? (
-               <div className="text-red-400 text-sm font-bold animate-pulse">
-                   DEMOLISH MODE ACTIVE
-                   <p className="text-xs text-stone-400 mt-2 font-normal">Refund 75% Wood.</p>
-               </div>
-           ) : selectedBuildingType ? (
-               <div className="space-y-3">
-                   <div className="text-stone-200 font-bold border-b border-stone-600 pb-1">{selectedBuildingType}</div>
-                   <div className="text-xs text-stone-400">{BUILDINGS[selectedBuildingType].description}</div>
-                   {selectedBuildingType === BuildingType.LUMBER_CAMP && (
-                       <button 
-                           onClick={onRegrowForest}
-                           disabled={stats.resources.wood < 50}
-                           className="w-full mt-2 flex items-center justify-center gap-2 p-2 bg-emerald-900/50 hover:bg-emerald-800 border border-emerald-700 rounded transition-colors disabled:opacity-50"
-                       >
-                           <Sprout size={16} className="text-emerald-400" />
-                           <span className="text-xs font-bold text-emerald-100">Regrow (50W)</span>
-                       </button>
-                   )}
-               </div>
-           ) : selectedCount > 0 ? (
-             <div className="space-y-2">
-               <div className="text-stone-300 text-sm">Units: <span className="text-white font-bold">{selectedCount}</span></div>
-               <div className="text-xs text-stone-500 italic mt-4">Right click to move.</div>
              </div>
-           ) : (
-             <div className="text-stone-500 text-sm italic">Nothing selected.</div>
-           )}
-        </div>
+        )}
+
+        {/* Diplomacy Status Widget */}
+        {(stats.peacefulMode || stats.treatyTimeRemaining > 0) && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-lg animate-in slide-in-from-right fade-in">
+                {stats.peacefulMode ? (
+                     <>
+                        <Handshake size={16} className="text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Peaceful Mode</span>
+                     </>
+                 ) : (
+                     <>
+                         <Clock size={16} className="text-blue-400" />
+                         <span className="text-xs font-bold text-blue-400 uppercase tracking-wide font-mono">{formatTime(stats.treatyTimeRemaining)}</span>
+                     </>
+                 )}
+            </div>
+        )}
       </div>
+
+      {/* --- BOTTOM LEFT: MAP / RADAR --- */}
+      <div className="absolute bottom-6 left-6 pointer-events-auto flex flex-col gap-4">
+          <div className="w-48 h-48 rounded-full bg-black/60 backdrop-blur-xl border-4 border-stone-800/80 shadow-2xl relative overflow-hidden group">
+              {/* Fake Map Elements for Aesthetics */}
+              <div className="absolute inset-0 opacity-30 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-emerald-900 via-stone-900 to-black"></div>
+              <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                  <div className="w-32 h-32 border border-emerald-500/30 rounded-full"></div>
+                  <div className="w-16 h-16 border border-emerald-500/30 rounded-full absolute"></div>
+                  <div className="w-[1px] h-full bg-emerald-500/20 absolute"></div>
+                  <div className="h-[1px] w-full bg-emerald-500/20 absolute"></div>
+              </div>
+              
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-stone-500 gap-1 group-hover:text-stone-300 transition-colors cursor-pointer" onClick={handleCenterCamera}>
+                  <Target size={24} className="opacity-50" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-50">Signal</span>
+              </div>
+              
+              {/* Map Controls Overlay */}
+              <div className="absolute bottom-4 right-0 left-0 flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="bg-black/80 px-2 py-0.5 rounded-full text-[9px] text-stone-400 font-bold border border-white/10">
+                      {stats.mapMode === MapMode.FIXED ? 'FIXED' : 'INFINITE'}
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      {/* --- BOTTOM CENTER: COMMAND DOCK --- */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-4 pointer-events-auto">
+          
+          {/* A. SELECTION MODE */}
+          {hasSelection && (
+              <div className="bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-1 min-w-[400px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-300">
+                  <div className="flex items-stretch">
+                       {/* Icon Section */}
+                       <div className="w-24 bg-white/5 rounded-xl flex items-center justify-center shrink-0">
+                           {selectedBuildingType ? (
+                               <Home size={32} className="text-amber-500 opacity-80" />
+                           ) : (
+                               <User size={32} className="text-blue-400 opacity-80" />
+                           )}
+                       </div>
+                       
+                       {/* Stats Section */}
+                       <div className="flex-1 px-4 py-2 flex flex-col justify-center">
+                           <h3 className="text-lg font-serif font-bold text-stone-100 flex items-center justify-between">
+                               {selectedBuildingType ? BUILDINGS[selectedBuildingType].name : `Unit Group (${selectedCount})`}
+                               <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, {detail: 0}))} className="text-stone-500 hover:text-white">
+                                   <X size={16} />
+                               </button>
+                           </h3>
+                           <p className="text-xs text-stone-400 italic leading-tight mt-1">
+                               {selectedBuildingType ? BUILDINGS[selectedBuildingType].description : 'Ready for orders, commander.'}
+                           </p>
+                       </div>
+
+                       {/* Actions Section */}
+                       <div className="flex items-center gap-2 px-2 border-l border-white/10">
+                           {/* Building Actions */}
+                           {selectedBuildingType === BuildingType.LUMBER_CAMP && (
+                               <ActionButton onClick={onRegrowForest} icon={<Sprout size={18} />} label="Regrow" color="text-emerald-400" />
+                           )}
+                           
+                           {/* Demolish Action (Only for buildings) */}
+                           {selectedBuildingType && (
+                               <ActionButton onClick={() => onToggleDemolish(true)} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
+                           )}
+
+                           {/* No Actions Placeholder */}
+                           {!selectedBuildingType && selectedCount > 0 && (
+                               <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
+                                   Right Click to Move
+                               </div>
+                           )}
+                       </div>
+                  </div>
+              </div>
+          )}
+
+          {/* B. BUILD MODE (Visible only when nothing selected) */}
+          {!hasSelection && (
+              <div className="flex flex-col items-center gap-3">
+                  
+                  {/* Expanded Build Panel (Pop-up) */}
+                  {activeCategory && (
+                       <div className="bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2">
+                           <div className="flex gap-2">
+                               {getBuildingsByCategory(activeCategory, stats, onBuild, onSpawnUnit)}
+                           </div>
+                       </div>
+                  )}
+
+                  {/* Main Dock */}
+                  <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
+                      <DockButton 
+                        isActive={activeCategory === 'economy'} 
+                        onClick={() => setActiveCategory(activeCategory === 'economy' ? null : 'economy')}
+                        icon={<Pickaxe size={20} />}
+                        label="Economy"
+                      />
+                      <DockButton 
+                        isActive={activeCategory === 'military'} 
+                        onClick={() => setActiveCategory(activeCategory === 'military' ? null : 'military')}
+                        icon={<Sword size={20} />}
+                        label="Military"
+                      />
+                      <DockButton 
+                        isActive={activeCategory === 'civic'} 
+                        onClick={() => setActiveCategory(activeCategory === 'civic' ? null : 'civic')}
+                        icon={<Tent size={20} />}
+                        label="Civic"
+                      />
+                      
+                      <div className="w-px h-8 bg-white/10 mx-1" />
+                      
+                      {/* Demolish Tool */}
+                      <button
+                        onClick={handleDemolishToggle}
+                        className={`p-3 rounded-xl transition-all duration-300 ${demolishActive ? 'bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.5)] scale-110' : 'text-stone-400 hover:text-red-400 hover:bg-white/5'}`}
+                        title="Demolish Mode"
+                      >
+                          <Trash2 size={20} />
+                      </button>
+                  </div>
+              </div>
+          )}
+      </div>
+
     </div>
   );
 };
 
-const ResourceDisplay = ({ icon, value, label, color, rate }: any) => (
-  <div className={`flex items-center gap-2 ${color} min-w-[80px]`}>
-    {icon}
-    <div className="flex flex-col leading-none">
-      <span className="font-bold text-lg">{value}</span>
-      <div className="flex gap-2 items-center">
-        <span className="text-[10px] uppercase opacity-70 tracking-wider text-stone-400">{label}</span>
-        {rate && <span className="text-[9px] font-mono opacity-80">{rate}</span>}
-      </div>
+// --- SUBCOMPONENTS ---
+
+const ResourceItem = ({ icon, value, sub }: any) => (
+    <div className="flex flex-col items-center min-w-[50px]">
+        <div className="flex items-center gap-2 font-bold text-lg">
+            {icon}
+            <span>{value}</span>
+        </div>
+        {sub && <span className="text-[10px] text-stone-400 font-mono absolute -bottom-2">{sub}</span>}
     </div>
-  </div>
 );
 
-const BuildButton = ({ building, stats, onClick, icon }: any) => {
-  const canAfford = 
-    stats.resources.wood >= building.cost.wood &&
-    stats.resources.food >= building.cost.food &&
-    stats.resources.gold >= building.cost.gold;
-
-  return (
-    <button 
-      onClick={onClick}
-      disabled={!canAfford}
-      className={`relative flex flex-col items-center justify-center p-2 rounded border transition-all group
-        ${canAfford 
-          ? 'bg-stone-700 hover:bg-stone-600 border-stone-600 hover:border-amber-500 active:scale-95' 
-          : 'bg-stone-800 border-stone-700 opacity-50 cursor-not-allowed grayscale'}`}
+const DockButton = ({ isActive, onClick, icon, label }: any) => (
+    <button
+        onClick={onClick}
+        className={`relative group p-3 rounded-xl transition-all duration-300 flex items-center gap-2
+            ${isActive ? 'bg-amber-600 text-white shadow-lg -translate-y-1' : 'text-stone-400 hover:text-white hover:bg-white/10'}
+        `}
     >
-      <div className={`mb-1 ${canAfford ? 'text-amber-200' : 'text-stone-500'}`}>{icon}</div>
-      <span className="text-xs font-bold text-stone-200 text-center leading-tight mb-1">{building.name}</span>
-      <div className="flex flex-wrap justify-center gap-1 w-full">
-        {building.cost.wood > 0 && <span className="text-[10px] text-emerald-400">{building.cost.wood}W</span>}
-        {building.cost.food > 0 && <span className="text-[10px] text-yellow-400">{building.cost.food}F</span>}
-        {building.cost.gold > 0 && <span className="text-[10px] text-amber-400">{building.cost.gold}G</span>}
-      </div>
+        {icon}
+        <span className={`text-xs font-bold uppercase tracking-wider transition-all duration-300 ${isActive ? 'max-w-[100px] opacity-100 ml-1' : 'max-w-0 opacity-0 overflow-hidden'}`}>
+            {label}
+        </span>
+        {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full"></div>}
     </button>
-  );
+);
+
+const ActionButton = ({ onClick, icon, label, color }: any) => (
+    <button 
+        onClick={onClick}
+        className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white/10 transition-colors ${color} gap-1 min-w-[60px]`}
+    >
+        {icon}
+        <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
+    </button>
+);
+
+// Helper to generate build icons based on category
+const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: any, onSpawnUnit: any) => {
+    const list: any[] = [];
+
+    const renderBuildBtn = (type: BuildingType, icon: any) => (
+        <BuildCard key={type} type={type} stats={stats} onClick={() => onBuild(type)} icon={icon} />
+    );
+
+    if (cat === 'economy') {
+        list.push(renderBuildBtn(BuildingType.HOUSE, <Home size={18} />));
+        list.push(renderBuildBtn(BuildingType.FARM, <Wheat size={18} />));
+        list.push(renderBuildBtn(BuildingType.LUMBER_CAMP, <Pickaxe size={18} />));
+        list.push(renderBuildBtn(BuildingType.HUNTERS_LODGE, <Rabbit size={18} />));
+        list.push(renderBuildBtn(BuildingType.TOWN_CENTER, <Tent size={18} />));
+    } else if (cat === 'civic') {
+        list.push(renderBuildBtn(BuildingType.BONFIRE, <Flame size={18} />));
+        list.push(renderBuildBtn(BuildingType.SMALL_PARK, <Flower size={18} />));
+    } else if (cat === 'military') {
+        list.push(renderBuildBtn(BuildingType.BARRACKS, <Hammer size={18} />));
+        // Special Unit Card
+        const canAffordUnit = stats.resources.food >= 100 && stats.resources.gold >= 50;
+        list.push(
+            <button 
+                key="unit"
+                onClick={onSpawnUnit}
+                disabled={!canAffordUnit}
+                className={`flex flex-col items-center p-2 rounded-xl border transition-all min-w-[70px]
+                    ${canAffordUnit 
+                        ? 'bg-stone-800 border-stone-600 hover:border-red-500 hover:bg-stone-700 cursor-pointer' 
+                        : 'bg-stone-900/50 border-stone-800 opacity-50 cursor-not-allowed'}
+                `}
+            >
+                <Sword size={20} className="mb-1 text-red-400" />
+                <span className="text-[10px] font-bold text-stone-300">Soldier</span>
+                <div className="flex gap-1 mt-1">
+                    <span className="text-[9px] text-yellow-500">100F</span>
+                    <span className="text-[9px] text-amber-500">50G</span>
+                </div>
+            </button>
+        );
+    }
+    return list;
+};
+
+const BuildCard = ({ type, stats, onClick, icon }: any) => {
+    const b = BUILDINGS[type];
+    const canAfford = 
+        stats.resources.wood >= b.cost.wood &&
+        stats.resources.food >= b.cost.food &&
+        stats.resources.gold >= b.cost.gold;
+    
+    return (
+        <button 
+            onClick={onClick}
+            disabled={!canAfford}
+            className={`flex flex-col items-center p-2 rounded-xl border transition-all min-w-[70px] group relative
+                ${canAfford 
+                    ? 'bg-stone-800 border-stone-600 hover:border-amber-500 hover:bg-stone-700 hover:-translate-y-1 shadow-lg' 
+                    : 'bg-stone-900/50 border-stone-800 opacity-50 cursor-not-allowed grayscale'}
+            `}
+        >
+            <div className={`mb-1 transition-colors ${canAfford ? 'text-stone-300 group-hover:text-amber-400' : 'text-stone-600'}`}>{icon}</div>
+            <span className="text-[10px] font-bold text-stone-300 text-center leading-tight">{b.name}</span>
+            
+            {/* Cost Tooltip */}
+            <div className="flex flex-col items-center mt-1 w-full gap-0.5">
+                {b.cost.wood > 0 && <span className="text-[9px] text-emerald-400 font-mono">{b.cost.wood}W</span>}
+                {b.cost.food > 0 && <span className="text-[9px] text-yellow-400 font-mono">{b.cost.food}F</span>}
+                {b.cost.gold > 0 && <span className="text-[9px] text-amber-400 font-mono">{b.cost.gold}G</span>}
+            </div>
+        </button>
+    );
 };
