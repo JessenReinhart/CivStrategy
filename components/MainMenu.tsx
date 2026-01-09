@@ -2,10 +2,10 @@
 import React, { useState } from 'react';
 import { FactionType, MapMode, MapSize } from '../types';
 import { FACTION_COLORS } from '../constants';
-import { Shield, Users, Sword, Globe, Infinity as InfinityIcon, Eye, EyeOff, Map as MapIcon, Maximize } from 'lucide-react';
+import { Shield, Users, Sword, Globe, Infinity as InfinityIcon, Eye, EyeOff, Map as MapIcon, Maximize, Handshake, Clock } from 'lucide-react';
 
 interface MainMenuProps {
-  onStart: (faction: FactionType, mode: MapMode, size: MapSize, fow: boolean) => void;
+  onStart: (faction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number) => void;
 }
 
 const FACTION_INFO = {
@@ -31,13 +31,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
   const [mapSize, setMapSize] = useState<MapSize>(MapSize.MEDIUM);
   const [fowEnabled, setFowEnabled] = useState<boolean>(true);
+  const [peacefulMode, setPeacefulMode] = useState<boolean>(false);
+  const [treatyLength, setTreatyLength] = useState<number>(10);
 
   return (
     <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center text-stone-100 z-50 bg-[url('https://picsum.photos/1920/1080?grayscale&blur=2')] bg-cover">
       <div className="absolute inset-0 bg-black/60" />
       
-      <div className="relative z-10 max-w-5xl w-full p-8 flex flex-col items-center">
-        <h1 className="text-7xl font-serif text-center mb-2 text-amber-500 drop-shadow-lg tracking-wider">CIV STRATEGY</h1>
+      <div className="relative z-10 max-w-6xl w-full p-8 flex flex-col items-center h-screen overflow-y-auto">
+        <h1 className="text-7xl font-serif text-center mb-2 text-amber-500 drop-shadow-lg tracking-wider mt-4">CIV STRATEGY</h1>
         <p className="text-center text-stone-300 mb-8 text-xl italic">Ancient Realms</p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 w-full">
@@ -72,7 +74,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
 
         {/* Game Settings */}
         <div className="bg-stone-800/90 backdrop-blur p-6 rounded-xl border border-stone-600 w-full flex flex-col gap-6 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                 {/* Map Mode */}
                 <div className="space-y-4">
                     <h4 className="text-amber-500 font-bold flex items-center gap-2">
@@ -119,10 +121,45 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     </div>
                 </div>
 
-                {/* Gameplay Options */}
+                {/* Diplomacy */}
                 <div className="space-y-4">
                      <h4 className="text-amber-500 font-bold flex items-center gap-2">
-                        <Eye size={18} /> Options
+                        <Handshake size={18} /> Diplomacy
+                    </h4>
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={() => setPeacefulMode(!peacefulMode)}
+                            className={`w-full flex items-center justify-between gap-3 p-3 rounded border transition-colors ${peacefulMode ? 'bg-emerald-900/50 border-emerald-500 text-emerald-200' : 'bg-stone-800 border-stone-700 text-stone-500'}`}
+                        >
+                            <span className="font-bold text-sm">Peaceful Mode</span>
+                            <Handshake size={20} />
+                        </button>
+                        
+                        <div className={`transition-opacity ${peacefulMode ? 'opacity-30 pointer-events-none' : ''}`}>
+                             <div className="flex justify-between items-center mb-1">
+                                 <span className="text-xs text-stone-400 font-bold flex items-center gap-1"><Clock size={12}/> Treaty Length</span>
+                                 <span className="text-xs text-amber-500 font-mono">{treatyLength}m</span>
+                             </div>
+                             <input 
+                                type="range" 
+                                min="0" 
+                                max="60" 
+                                step="5"
+                                value={treatyLength} 
+                                onChange={(e) => setTreatyLength(parseInt(e.target.value))}
+                                className="w-full accent-amber-500"
+                             />
+                             <div className="text-[10px] text-stone-500 mt-1 text-center">
+                                 {treatyLength === 0 ? "No Treaty - War Immediately" : `No attacks for ${treatyLength} minutes`}
+                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Visual Options */}
+                <div className="space-y-4">
+                     <h4 className="text-amber-500 font-bold flex items-center gap-2">
+                        <Eye size={18} /> Visuals
                     </h4>
                     <button 
                         onClick={() => setFowEnabled(!fowEnabled)}
@@ -136,8 +173,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
         </div>
 
         <button
-          onClick={() => onStart(selectedFaction, mapMode, mapSize, fowEnabled)}
-          className="bg-amber-600 hover:bg-amber-500 text-white font-serif text-3xl px-12 py-4 rounded-full border-b-4 border-amber-800 active:translate-y-1 active:border-b-0 transition-all shadow-2xl hover:shadow-amber-500/20"
+          onClick={() => onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength)}
+          className="bg-amber-600 hover:bg-amber-500 text-white font-serif text-3xl px-12 py-4 rounded-full border-b-4 border-amber-800 active:translate-y-1 active:border-b-0 transition-all shadow-2xl hover:shadow-amber-500/20 mb-8"
         >
           START GAME
         </button>

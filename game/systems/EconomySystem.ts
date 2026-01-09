@@ -14,14 +14,19 @@ export class EconomySystem {
     }
 
     public tickPopulation() {
+        // Only manage Player population (Owner 0)
         if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
-            const houses = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.HOUSE) as Phaser.GameObjects.Rectangle[];
+            const houses = this.scene.buildings.getChildren().filter((b: any) => 
+                b.getData('def').type === BuildingType.HOUSE && b.getData('owner') === 0
+            ) as Phaser.GameObjects.Rectangle[];
             
             let spawnSource = null;
             if (houses.length > 0) {
                 spawnSource = houses[Phaser.Math.Between(0, houses.length - 1)];
             } else {
-                 const townCenters = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle[];
+                 const townCenters = this.scene.buildings.getChildren().filter((b: any) => 
+                    b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+                 ) as Phaser.GameObjects.Rectangle[];
                  if (townCenters.length > 0) spawnSource = townCenters[0];
             }
   
@@ -31,7 +36,7 @@ export class EconomySystem {
                 const spawnX = spawnSource.x + (offsetX >= 0 ? 50 : -50) + offsetX;
                 const spawnY = spawnSource.y + (offsetY >= 0 ? 50 : -50) + offsetY;
                 
-                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, spawnX, spawnY);
+                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, spawnX, spawnY, 0);
                 this.scene.events.emit('message', "A new peasant has arrived.");
             }
         }
@@ -52,12 +57,18 @@ export class EconomySystem {
             if (idleVillagers.length === 0) break;
   
             const b = building as any;
+            const buildingOwner = b.getData('owner');
+
             let closestWorker = null;
             let minDist = Number.MAX_VALUE;
             let workerIndex = -1;
   
             for (let i = 0; i < idleVillagers.length; i++) {
                 const u = idleVillagers[i] as any;
+
+                // STRICT OWNERSHIP CHECK: Only assign villagers to buildings of the same owner
+                if (u.getData('owner') !== buildingOwner) continue;
+
                 const dist = Phaser.Math.Distance.Between(b.x, b.y, u.x, u.y);
                 if (dist < minDist) {
                     minDist = dist;
@@ -80,34 +91,43 @@ export class EconomySystem {
             }
         }
   
+        // Re-filter idle villagers to those who are still truly idle and job-less
         const remainingIdle = this.scene.units.getChildren().filter((u: any) => {
           return u.unitType === UnitType.VILLAGER && u.state === UnitState.IDLE && !u.jobBuilding;
         });
   
         if (remainingIdle.length > 0) {
-          const bonfires = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
-          if (bonfires.length > 0) {
+          const allBonfires = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
+          
+          if (allBonfires.length > 0) {
                remainingIdle.forEach((u: any) => {
-                   let closestBonfire = bonfires[0];
-                   let minDistance = Number.MAX_VALUE;
-                   for (const bonfire of bonfires) {
-                       const d = Phaser.Math.Distance.Between(u.x, u.y, bonfire.x, bonfire.y);
-                       if (d < minDistance) {
-                           minDistance = d;
-                           closestBonfire = bonfire;
+                   const owner = u.getData('owner');
+                   // Filter bonfires by OWNER
+                   const myBonfires = allBonfires.filter((b:any) => b.getData('owner') === owner);
+
+                   if (myBonfires.length > 0) {
+                       let closestBonfire = myBonfires[0];
+                       let minDistance = Number.MAX_VALUE;
+                       for (const bonfire of myBonfires) {
+                           const d = Phaser.Math.Distance.Between(u.x, u.y, bonfire.x, bonfire.y);
+                           if (d < minDistance) {
+                               minDistance = d;
+                               closestBonfire = bonfire;
+                           }
                        }
-                   }
-                   const rallyPoint = closestBonfire;
-                   if (minDistance > 100) {
-                       u.state = UnitState.MOVING_TO_RALLY;
-                       const angle = Math.random() * Math.PI * 2;
-                       const r = Math.random() * 60 + 40;
-                       const destX = rallyPoint.x + Math.cos(angle) * r;
-                       const destY = rallyPoint.y + Math.sin(angle) * r;
-                       const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(u.x, u.y), new Phaser.Math.Vector2(destX, destY));
-                       if (path) {
-                           u.path = path;
-                           u.pathStep = 0;
+                       const rallyPoint = closestBonfire;
+                       // Only move if far away
+                       if (minDistance > 100) {
+                           u.state = UnitState.MOVING_TO_RALLY;
+                           const angle = Math.random() * Math.PI * 2;
+                           const r = Math.random() * 60 + 40;
+                           const destX = rallyPoint.x + Math.cos(angle) * r;
+                           const destY = rallyPoint.y + Math.sin(angle) * r;
+                           const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(u.x, u.y), new Phaser.Math.Vector2(destX, destY));
+                           if (path) {
+                               u.path = path;
+                               u.pathStep = 0;
+                           }
                        }
                    }
                });
@@ -123,14 +143,15 @@ export class EconomySystem {
         let foodGen = 0;
         let woodGen = 0;
         
-        // Base Commerce: 0.5 gold per villager (rounded) representing passive trade
-        // Tax Income: taxRate * villager
-        // This ensures expanding population always increases income, even with 0 taxes.
+        // Base Commerce for Player
         let goldGen = Math.floor((this.scene.population * (0.5 + taxGoldPerPop)) * efficiency); 
 
         const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
 
         this.scene.buildings.getChildren().forEach((b: any) => {
+            // STRICT OWNERSHIP CHECK: Only process PLAYER buildings for player economy
+            if (b.getData('owner') !== 0) return;
+
             const def = b.getData('def') as BuildingDef;
             const visual = b.visual as Phaser.GameObjects.Container;
             const vacantIcon = visual.getData('vacantIcon') as Phaser.GameObjects.Text;
@@ -219,11 +240,14 @@ export class EconomySystem {
         });
         
         if (goldGen > 0) {
-             const tcs = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER) as Phaser.GameObjects.Rectangle[];
+             const tcs = this.scene.buildings.getChildren().filter((b: any) => 
+                b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+             ) as Phaser.GameObjects.Rectangle[];
              if (tcs.length > 0) {
                  this.scene.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
              }
         }
+        
         const foodConsumed = this.scene.population * 1;
         this.lastRates = { wood: woodGen, food: foodGen, gold: goldGen, foodConsumption: foodConsumed };
         this.scene.resources.food += foodGen;
@@ -238,8 +262,13 @@ export class EconomySystem {
         if (this.scene.population > this.scene.maxPopulation) { happinessChange -= 2; }
         const taxImpact = [1, 0, -1, -3, -6, -10];
         happinessChange += (taxImpact[this.scene.taxRate] || 0);
-        const parks = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.SMALL_PARK);
+        
+        // Count ONLY player parks
+        const parks = this.scene.buildings.getChildren().filter((b: any) => 
+            b.getData('def').type === BuildingType.SMALL_PARK && b.getData('owner') === 0
+        );
         happinessChange += parks.length;
+        
         this.scene.happiness += happinessChange;
         this.scene.happiness = Phaser.Math.Clamp(this.scene.happiness, 0, 100);
         this.lastHappinessChange = happinessChange;
@@ -247,6 +276,8 @@ export class EconomySystem {
     }
 
     public updateStats() {
+        const remainingTreaty = Math.max(0, this.scene.treatyLength - this.scene.gameTime);
+
         const stats: GameStats = {
             population: this.scene.population,
             maxPopulation: this.scene.maxPopulation,
@@ -255,7 +286,9 @@ export class EconomySystem {
             resources: { ...this.scene.resources },
             rates: this.lastRates,
             taxRate: this.scene.taxRate,
-            mapMode: this.scene.mapMode
+            mapMode: this.scene.mapMode,
+            peacefulMode: this.scene.peacefulMode,
+            treatyTimeRemaining: remainingTreaty
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }

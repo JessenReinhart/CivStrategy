@@ -44,6 +44,8 @@ export interface GameStats {
   rates: ResourceRates;
   taxRate: number;
   mapMode: MapMode;
+  peacefulMode: boolean; // NEW
+  treatyTimeRemaining: number; // NEW (ms)
 }
 
 export interface BuildingCost {

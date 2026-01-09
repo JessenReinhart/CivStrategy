@@ -13,6 +13,9 @@ const App: React.FC = () => {
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
   const [mapSize, setMapSize] = useState<MapSize>(MapSize.MEDIUM);
   const [fowEnabled, setFowEnabled] = useState<boolean>(true);
+  const [peacefulMode, setPeacefulMode] = useState<boolean>(false);
+  const [treatyLength, setTreatyLength] = useState<number>(10);
+
   const [gameInstance, setGameInstance] = useState<Phaser.Game | null>(null);
   
   const [stats, setStats] = useState<GameStats>({
@@ -23,16 +26,20 @@ const App: React.FC = () => {
     resources: INITIAL_RESOURCES,
     rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
     taxRate: 0,
-    mapMode: MapMode.FIXED
+    mapMode: MapMode.FIXED,
+    peacefulMode: false,
+    treatyTimeRemaining: 0
   });
   const [selectedCount, setSelectedCount] = useState(0);
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
 
-  const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean) => {
+  const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number) => {
     setFaction(selectedFaction);
     setMapMode(mode);
     setMapSize(size);
     setFowEnabled(fow);
+    setPeacefulMode(peaceful);
+    setTreatyLength(treaty);
     setGameState('playing');
   };
 
@@ -50,7 +57,9 @@ const App: React.FC = () => {
         resources: INITIAL_RESOURCES,
         rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
         taxRate: 0,
-        mapMode: MapMode.FIXED
+        mapMode: MapMode.FIXED,
+        peacefulMode: false,
+        treatyTimeRemaining: 0
     });
   };
 
@@ -128,6 +137,8 @@ const App: React.FC = () => {
             mapMode={mapMode} 
             mapSize={mapSize}
             fowEnabled={fowEnabled}
+            peacefulMode={peacefulMode}
+            treatyLength={treatyLength}
             onGameReady={setGameInstance} 
           />
           <GameUI 

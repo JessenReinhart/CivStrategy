@@ -14,6 +14,21 @@ import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EnemyAISystem } from './systems/EnemyAISystem';
 
 export class MainScene extends Phaser.Scene {
+  // Explicitly declare inherited properties to resolve type errors
+  load!: Phaser.Loader.LoaderPlugin;
+  add!: Phaser.GameObjects.GameObjectFactory;
+  make!: Phaser.GameObjects.GameObjectCreator;
+  scene!: Phaser.Scenes.ScenePlugin;
+  cameras!: Phaser.Cameras.Scene2D.CameraManager;
+  input!: Phaser.Input.InputPlugin;
+  events!: Phaser.Events.EventEmitter;
+  scale!: Phaser.Scale.ScaleManager;
+  game!: Phaser.Game;
+  physics!: Phaser.Physics.Arcade.ArcadePhysics;
+  tweens!: Phaser.Tweens.TweenManager;
+  time!: Phaser.Time.Clock;
+  textures!: Phaser.Textures.TextureManager;
+
   // Game State
   public resources: Resources = { ...INITIAL_RESOURCES };
   public population = 0;
@@ -24,9 +39,16 @@ export class MainScene extends Phaser.Scene {
   public mapWidth: number = 2048;
   public mapHeight: number = 2048;
   public taxRate: number = 0; 
-  // Track whether Fog of War is enabled
   public isFowEnabled: boolean = true;
   
+  // Diplomacy
+  public peacefulMode: boolean = false;
+  public treatyLength: number = 0; // ms
+
+  // Debug
+  public debugMode: boolean = false;
+  private debugText: Phaser.GameObjects.Text;
+
   // Game Speed & Time
   public gameSpeed: number = 1.0;
   public gameTime: number = 0;
@@ -80,13 +102,20 @@ export class MainScene extends Phaser.Scene {
     this.load.image('tree', 'https://i.imgur.com/tYIgx0v.png');
     this.load.image('stump', 'https://i.imgur.com/bEjOzbv.png');
     this.load.image('house', 'https://i.imgur.com/Ix1nDUv.png');
+    this.load.image('lodge', 'https://i.ibb.co.com/4nGGymPZ/hunterslodge.png');
   }
 
-  init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean }) {
+  init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean, peacefulMode: boolean, treatyLength: number }) {
+    console.log("MainScene Init Data:", data);
+    
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     
+    // Ensure boolean type safety
+    this.peacefulMode = data.peacefulMode === true;
+    this.treatyLength = (data.treatyLength || 0) * 60 * 1000; // Convert minutes to ms
+
     // Determine Map Size
     if (this.mapMode === MapMode.FIXED) {
         const sizePx = MAP_SIZES[data.mapSize || MapSize.MEDIUM];
@@ -169,6 +198,19 @@ export class MainScene extends Phaser.Scene {
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as any;
 
+    // DEBUG OVERLAY
+    this.debugText = this.add.text(10, 80, '', {
+        font: '14px monospace',
+        color: '#00ff00',
+        backgroundColor: '#000000bb',
+        padding: { x: 10, y: 10 }
+    }).setScrollFactor(0).setDepth(99999).setVisible(false);
+
+    this.input.keyboard!.on('keydown-F3', () => {
+        this.debugMode = !this.debugMode;
+        this.debugText.setVisible(this.debugMode);
+    });
+
     // Global Events
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
     
@@ -211,6 +253,21 @@ export class MainScene extends Phaser.Scene {
     // Calculate Game Delta based on Speed
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
+
+    if (this.debugMode) {
+        const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
+        this.debugText.setText([
+            `FPS: ${this.game.loop.actualFps.toFixed(1)}`,
+            `------------------`,
+            `Mode: ${this.peacefulMode ? "PEACEFUL (ATTACKS BLOCKED)" : "WAR"}`,
+            `Treaty: ${treatySecs > 0 ? treatySecs + "s remaining" : "EXPIRED"}`,
+            `GameTime: ${(this.gameTime/1000).toFixed(1)}s`,
+            `------------------`,
+            `Units: ${this.units.getLength()}`,
+            `Buildings: ${this.buildings.getLength()}`,
+            `AI Info: ${this.enemyAI.getDebugInfo()}`
+        ]);
+    }
 
     // Input Manager handles Camera movement
     this.inputManager.update(delta);
