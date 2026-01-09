@@ -284,8 +284,8 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.resources = { ...INITIAL_RESOURCES };
-    this.population = 2;
-    this.maxPopulation = 10;
+    this.population = 0; // Initialize to 0, let EntityFactory spawnUnit increment it
+    this.maxPopulation = 5; // Base Population. Town Center will add +5 to this.
     this.happiness = 100;
     this.taxRate = 0;
     
@@ -699,7 +699,8 @@ export class MainScene extends Phaser.Scene {
              
              if (Phaser.Math.Distance.Between(ax, ay, this.mapWidth/2, this.mapHeight/2) > 300) {
                  if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
-                     this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, 0);
+                     // FIX: Spawn animals as Owner -1 (Neutral) so they don't count towards player population
+                     this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
                  }
              }
         }

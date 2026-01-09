@@ -61,7 +61,8 @@ export class InfiniteMapSystem {
             const ax = startX + rng.between(50, CHUNK_SIZE - 50);
             const ay = startY + rng.between(50, CHUNK_SIZE - 50);
             if (Phaser.Math.Distance.Between(ax, ay, 400, 400) > 400) {
-                this.scene.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay);
+                // FIX: Spawn animals as Owner -1 (Neutral) to avoid counting as population
+                this.scene.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
             }
         }
         
