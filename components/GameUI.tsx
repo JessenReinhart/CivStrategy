@@ -53,6 +53,23 @@ export const GameUI: React.FC<GameUIProps> = ({
       window.dispatchEvent(event);
   };
 
+  // Minimap Click Handler
+  const handleMinimapClick = (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      // Calculate distance from center to ensure we are clicking inside the circle
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+      const dist = Math.sqrt(Math.pow(x - cx, 2) + Math.pow(y - cy, 2));
+      
+      if (dist <= cx) {
+          const event = new CustomEvent('minimap-click-ui', { detail: { x, y, width: rect.width, height: rect.height } });
+          window.dispatchEvent(event);
+      }
+  };
+
   // Speed Handler
   const handleSpeedChange = (speed: number) => {
       setGameSpeed(speed);
@@ -222,13 +239,13 @@ export const GameUI: React.FC<GameUIProps> = ({
 
       {/* --- BOTTOM LEFT: MAP / RADAR --- */}
       <div className="absolute bottom-6 left-6 pointer-events-auto flex flex-col gap-4">
-          {/* Transparent container to hold interaction and text overlay, but no visuals (handled by Phaser) */}
           <div className="w-48 h-48 rounded-full relative overflow-hidden group">
               
+              {/* Interaction Layer */}
               <div 
-                  className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer z-10" 
-                  onClick={handleCenterCamera}
-                  title="Click to Center Camera"
+                  className="absolute inset-0 cursor-crosshair z-10" 
+                  onClick={handleMinimapClick}
+                  title="Click to Navigate"
               />
               
               {/* Map Controls Overlay */}
@@ -327,6 +344,15 @@ export const GameUI: React.FC<GameUIProps> = ({
                       />
                       
                       <div className="w-px h-8 bg-white/10 mx-1" />
+
+                      {/* Center Camera Button */}
+                      <button 
+                          onClick={handleCenterCamera}
+                          className="p-3 rounded-xl transition-all duration-300 text-stone-400 hover:text-white hover:bg-white/5"
+                          title="Cycle Town Centers"
+                      >
+                          <Target size={20} />
+                      </button>
                       
                       {/* Demolish Tool */}
                       <button

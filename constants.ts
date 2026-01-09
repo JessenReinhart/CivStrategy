@@ -153,5 +153,6 @@ export const EVENTS = {
   SET_TAX_RATE: 'set-tax-rate',
   REGROW_FOREST: 'regrow-forest',
   CENTER_CAMERA: 'center-camera',
-  SET_GAME_SPEED: 'set-game-speed'
+  SET_GAME_SPEED: 'set-game-speed',
+  MINIMAP_CLICK: 'minimap-click'
 };
