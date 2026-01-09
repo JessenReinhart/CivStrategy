@@ -126,6 +126,13 @@ export class EnemyAISystem {
     }
 
     private tickAttack() {
+        // DIPLOMACY CHECKS
+        // Strictly check boolean true
+        if (this.scene.peacefulMode === true) return;
+        
+        // Check treaty timer
+        if (this.scene.gameTime < this.scene.treatyLength) return;
+
         // Get all AI units
         const army = this.scene.units.getChildren().filter((u: any) => u.getData('owner') === 1) as Phaser.GameObjects.GameObject[];
         
@@ -162,5 +169,11 @@ export class EnemyAISystem {
         return this.resources.wood >= cost.wood && 
                this.resources.food >= cost.food && 
                this.resources.gold >= cost.gold;
+    }
+
+    public getDebugInfo(): string {
+        const armySize = this.scene.units.getChildren().filter((u:any)=>u.getData('owner')===1).length;
+        const target = this.attackTarget ? (this.attackTarget as any).getData('def')?.name || "Unit" : "None";
+        return `Army: ${armySize}/${this.aggressionThreshold} | Res: ${this.resources.food}F | Target: ${target}`;
     }
 }

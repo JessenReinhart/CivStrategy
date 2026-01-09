@@ -63,6 +63,11 @@ export class EntityFactory {
              if (setupSprite('house', 2.5, 0.85)) { 
                  spriteUsed = true;
              }
+        } else if (type === BuildingType.HUNTERS_LODGE) {
+             // New Hunter's Lodge Asset
+             if (setupSprite('lodge', 2.5, 0.75)) {
+                 spriteUsed = true;
+             }
         }
 
         // Use Sprites for Romans if available (Faction Specific)
@@ -304,7 +309,7 @@ export class EntityFactory {
         u.isSelected = false;
 
         u.setSelected = (selected: boolean) => {
-            if (owner === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) {
+            if (owner === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
                  u.isSelected = selected;
                  hpBar.setVisible(selected || u.getData('hp') < u.getData('maxHp'));
                  const ring = visual.getData('ring');

@@ -8,15 +8,23 @@ import { toIso } from '../utils/iso';
 export class UnitSystem {
     private scene: MainScene;
     private pathGraphics: Phaser.GameObjects.Graphics;
+    private debugGraphics: Phaser.GameObjects.Graphics;
 
     constructor(scene: MainScene) {
         this.scene = scene;
         this.pathGraphics = this.scene.add.graphics().setDepth(-4000);
+        this.debugGraphics = this.scene.add.graphics().setDepth(100000);
     }
 
     public update(time: number, delta: number) {
         this.updateUnitLogic(time, delta);
         this.drawUnitPaths(time);
+        
+        if (this.scene.debugMode) {
+            this.drawDebugLines();
+        } else {
+            this.debugGraphics.clear();
+        }
     }
 
     public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2) {
@@ -60,6 +68,21 @@ export class UnitSystem {
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
         units.forEach((unitObj) => {
             const unit = unitObj as any;
+            
+            // --- SECURITY BLOCK ---
+            // If peaceful mode is active and this is an ENEMY unit, reject the attack command entirely.
+            if (this.scene.peacefulMode && unit.getData('owner') !== 0) {
+                // Flash a debug indicator if in debug mode
+                if (this.scene.debugMode) {
+                     const iso = toIso(unit.x, unit.y);
+                     const x = this.scene.add.text(iso.x, iso.y, "X", { color: '#ff0000', fontSize: '20px' });
+                     x.setOrigin(0.5);
+                     this.scene.tweens.add({ targets: x, y: iso.y - 20, alpha: 0, duration: 500, onComplete: () => x.destroy() });
+                }
+                return;
+            }
+            // ----------------------
+
             // Only combat units attack
             if (unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.CAVALRY) {
                 unit.target = target;
@@ -87,6 +110,15 @@ export class UnitSystem {
             const body = unit.body as Phaser.Physics.Arcade.Body;
             
             if (!body) return;
+
+            // Failsafe: If peaceful mode is on, force enemy combat units to stop attacking
+            if (this.scene.peacefulMode === true && unit.getData('owner') !== 0) {
+                if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
+                    unit.state = UnitState.IDLE;
+                    unit.target = null;
+                    body.setVelocity(0, 0);
+                }
+            }
 
             // Combat State Logic
             if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
@@ -216,6 +248,34 @@ export class UnitSystem {
         if (target.takeDamage) {
             target.takeDamage(dmg);
         }
+    }
+
+    private drawDebugLines() {
+        this.debugGraphics.clear();
+        this.scene.units.getChildren().forEach((u: any) => {
+            const startIso = toIso(u.x, u.y);
+            
+            // Draw Target Lines (Combat)
+            if (u.target && u.target.scene) {
+                const endIso = toIso(u.target.x, u.target.y);
+                this.debugGraphics.lineStyle(2, 0xff0000, 0.7);
+                this.debugGraphics.beginPath();
+                this.debugGraphics.moveTo(startIso.x, startIso.y);
+                this.debugGraphics.lineTo(endIso.x, endIso.y);
+                this.debugGraphics.strokePath();
+            }
+
+            // Draw Path Lines (Movement)
+            if (u.path && u.path.length > 0) {
+                 const dest = u.path[u.path.length - 1];
+                 const endIso = toIso(dest.x, dest.y);
+                 this.debugGraphics.lineStyle(1, 0xffffff, 0.5);
+                 this.debugGraphics.beginPath();
+                 this.debugGraphics.moveTo(startIso.x, startIso.y);
+                 this.debugGraphics.lineTo(endIso.x, endIso.y);
+                 this.debugGraphics.strokePath();
+            }
+        });
     }
 
     private drawUnitPaths(time: number) {

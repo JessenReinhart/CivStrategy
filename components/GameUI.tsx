@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { GameStats, BuildingType, MapMode } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
-import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut, FastForward } from 'lucide-react';
+import { Pickaxe, Wheat, Coins, User, Smile, Home, Hammer, Tent, Sword, Trash2, Rabbit, Flower, Flame, Sprout, AlertTriangle, Map as MapIcon, Infinity as InfinityIcon, Target, LogOut, FastForward, Handshake, Clock } from 'lucide-react';
 
 interface GameUIProps {
   stats: GameStats;
@@ -40,6 +40,13 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
       setGameSpeed(speed);
       const event = new CustomEvent('set-game-speed-ui', { detail: speed });
       window.dispatchEvent(event);
+  };
+
+  const formatTime = (ms: number) => {
+      const totalSeconds = Math.floor(ms / 1000);
+      const m = Math.floor(totalSeconds / 60);
+      const s = totalSeconds % 60;
+      return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   const happinessTrend = stats.happinessChange > 0 ? `+${stats.happinessChange}` : `${stats.happinessChange}`;
@@ -86,6 +93,23 @@ export const GameUI: React.FC<GameUIProps> = ({ stats, onBuild, onSpawnUnit, onT
                     </button>
                 ))}
             </div>
+
+            {/* Diplomacy Indicator */}
+            {(stats.peacefulMode || stats.treatyTimeRemaining > 0) && (
+                 <div className="flex items-center gap-2 bg-stone-800/50 px-3 py-1 rounded-full border border-stone-700 ml-2 animate-pulse">
+                     {stats.peacefulMode ? (
+                         <>
+                            <Handshake size={16} className="text-emerald-400" />
+                            <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide">Peaceful</span>
+                         </>
+                     ) : (
+                         <>
+                             <Clock size={16} className="text-blue-400" />
+                             <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wide">Treaty: {formatTime(stats.treatyTimeRemaining)}</span>
+                         </>
+                     )}
+                 </div>
+            )}
         </div>
 
         {/* Center Resources */}
