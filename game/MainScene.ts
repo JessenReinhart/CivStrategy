@@ -90,6 +90,159 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
+    // --- MEDIEVAL LOADING SCREEN ---
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // 1. Parchment Background
+    const bg = this.add.graphics();
+    bg.fillStyle(0xe6d5ac, 1); // Parchment beige
+    bg.fillRect(0, 0, width, height);
+    // Vignette (Dark corners)
+    const vignette = this.add.graphics();
+    vignette.fillGradientStyle(0x1a0f0a, 0x1a0f0a, 0x1a0f0a, 0x1a0f0a, 0.8, 0.8, 0.2, 0.2);
+    vignette.fillRect(0, 0, width, height);
+
+    // 2. Central Crest / Emblem
+    const crestY = centerY - 60;
+    const crest = this.add.graphics();
+    
+    // Outer Gold Ring
+    crest.lineStyle(6, 0xc5a059, 1); // Gold
+    crest.strokeCircle(centerX, crestY, 80);
+    // Inner Blue Shield Background
+    crest.fillStyle(0x1e3a8a, 1); // Royal Blue
+    crest.fillCircle(centerX, crestY, 78);
+    
+    // Decorative Inner Pattern
+    crest.lineStyle(2, 0xc5a059, 0.3);
+    crest.strokeCircle(centerX, crestY, 60);
+    crest.strokeCircle(centerX, crestY, 40);
+    
+    // Simple Crown Icon (Procedural)
+    crest.fillStyle(0xffd700, 1);
+    crest.beginPath();
+    const crownY = crestY + 10;
+    crest.moveTo(centerX - 30, crownY);
+    crest.lineTo(centerX - 30, crownY - 30);
+    crest.lineTo(centerX - 15, crownY - 15);
+    crest.lineTo(centerX, crownY - 40); // Peak
+    crest.lineTo(centerX + 15, crownY - 15);
+    crest.lineTo(centerX + 30, crownY - 30);
+    crest.lineTo(centerX + 30, crownY);
+    crest.closePath();
+    crest.fillPath();
+    
+    // 3. Loading Bar Container (Ornate)
+    const barWidth = Math.min(500, width * 0.8);
+    const barHeight = 24;
+    const barX = centerX - barWidth / 2;
+    const barY = centerY + 80;
+
+    const barBg = this.add.graphics();
+    barBg.fillStyle(0x2c1810, 1); // Dark brown wood
+    barBg.fillRoundedRect(barX, barY, barWidth, barHeight, 8);
+    barBg.lineStyle(3, 0x8b6f4e, 1); // Light wood border
+    barBg.strokeRoundedRect(barX, barY, barWidth, barHeight, 8);
+
+    const progressBar = this.add.graphics();
+
+    // 4. Text Elements
+    const statusText = this.add.text(centerX, barY - 25, 'Forging World...', {
+        fontFamily: 'serif',
+        fontSize: '18px',
+        color: '#4a3728',
+        fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    const percentText = this.add.text(centerX + barWidth / 2 + 35, barY + 12, '0%', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#2c1810',
+        fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    // Gameplay Tips
+    const tips = [
+        "Construct Watchtowers to reveal the Fog of War.",
+        "Farmers perform best on fertile land (Dark Brown Soil).",
+        "Build Housing to increase your Population cap.",
+        "Soldiers require Gold upkeep. Tax your people wisely.",
+        "Forests can be regrown at the Lumber Camp.",
+        "Keep Happiness high to boost resource production."
+    ];
+    const tipIndex = Phaser.Math.Between(0, tips.length - 1);
+    
+    const tipTitle = this.add.text(centerX, height - 80, '— HINT —', {
+        fontFamily: 'serif',
+        fontSize: '14px',
+        color: '#8b6f4e',
+        fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    const tipText = this.add.text(centerX, height - 55, tips[tipIndex], {
+        fontFamily: 'serif',
+        fontSize: '16px',
+        color: '#4a3728',
+        fontStyle: 'italic',
+        align: 'center',
+        wordWrap: { width: width * 0.8 }
+    }).setOrigin(0.5);
+
+    // 5. Load Logic
+    this.load.on('progress', (value: number) => {
+        percentText.setText(Math.floor(value * 100) + '%');
+        
+        progressBar.clear();
+        // Gold Fill
+        progressBar.fillStyle(0xd4af37, 1); 
+        const w = (barWidth - 6) * value;
+        if (w > 0) {
+            progressBar.fillRoundedRect(barX + 3, barY + 3, w, barHeight - 6, 4);
+            
+            // Shine Effect (Top half lighter)
+            progressBar.fillStyle(0xfff5d1, 0.3);
+            progressBar.fillRect(barX + 3, barY + 3, w, (barHeight - 6) / 2);
+        }
+    });
+
+    this.load.on('fileprogress', (file: any) => {
+        const key = file.key;
+        // Beautify the asset names for display
+        let display = key;
+        if (key.includes('ground')) display = "Mapping Terrain";
+        else if (key.includes('tree')) display = "Planting Forests";
+        else if (key.includes('house')) display = "Designing Architecture";
+        else if (key.includes('sound')) display = "Composing Audio";
+        else display = `Loading Asset: ${key}`;
+
+        statusText.setText(display + "...");
+    });
+
+    this.load.on('complete', () => {
+        // Fade out animation
+        this.tweens.add({
+            targets: [bg, vignette, crest, barBg, progressBar, statusText, percentText, tipTitle, tipText],
+            alpha: 0,
+            duration: 800,
+            onComplete: () => {
+                bg.destroy();
+                vignette.destroy();
+                crest.destroy();
+                barBg.destroy();
+                progressBar.destroy();
+                statusText.destroy();
+                percentText.destroy();
+                tipTitle.destroy();
+                tipText.destroy();
+            }
+        });
+    });
+
+    // ------------------
+
     // Ground Texture
     this.load.image('ground', 'https://i.imgur.com/4P6C0Q3.jpeg');
 
