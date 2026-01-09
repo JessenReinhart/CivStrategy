@@ -1,14 +1,17 @@
-
 import React, { useState, useEffect } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
+import { LoadingScreen } from './components/LoadingScreen';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing'>('menu');
+  const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
+  
   const [faction, setFaction] = useState<FactionType>(FactionType.ROMANS);
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
   const [mapSize, setMapSize] = useState<MapSize>(MapSize.MEDIUM);
@@ -40,6 +43,8 @@ const App: React.FC = () => {
     setFowEnabled(fow);
     setPeacefulMode(peaceful);
     setTreatyLength(treaty);
+    setIsGameLoading(true);
+    setLoadProgress(0);
     setGameState('playing');
   };
 
@@ -49,6 +54,7 @@ const App: React.FC = () => {
         setGameInstance(null);
     }
     setGameState('menu');
+    setIsGameLoading(true);
     setStats({
         population: 0,
         maxPopulation: 10,
@@ -62,6 +68,25 @@ const App: React.FC = () => {
         treatyTimeRemaining: 0
     });
   };
+
+  useEffect(() => {
+    const progressHandler = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        setLoadProgress(customEvent.detail);
+    };
+    const completeHandler = () => {
+        // Add a slight artificial delay for smooth transition
+        setTimeout(() => setIsGameLoading(false), 500);
+    };
+
+    window.addEventListener('game-load-progress', progressHandler);
+    window.addEventListener('game-load-complete', completeHandler);
+
+    return () => {
+        window.removeEventListener('game-load-progress', progressHandler);
+        window.removeEventListener('game-load-complete', completeHandler);
+    };
+  }, []);
 
   useEffect(() => {
     if (!gameInstance) return;
@@ -132,6 +157,7 @@ const App: React.FC = () => {
       
       {gameState === 'playing' && (
         <>
+          {isGameLoading && <LoadingScreen progress={loadProgress} />}
           <PhaserGame 
             faction={faction} 
             mapMode={mapMode} 
@@ -141,16 +167,18 @@ const App: React.FC = () => {
             treatyLength={treatyLength}
             onGameReady={setGameInstance} 
           />
-          <GameUI 
-            stats={stats} 
-            onBuild={handleBuild} 
-            onSpawnUnit={handleSpawnSoldier}
-            onToggleDemolish={handleToggleDemolish}
-            onRegrowForest={handleRegrowForest}
-            onQuit={handleQuit}
-            selectedCount={selectedCount}
-            selectedBuildingType={selectedBuildingType}
-          />
+          {!isGameLoading && (
+            <GameUI 
+                stats={stats} 
+                onBuild={handleBuild} 
+                onSpawnUnit={handleSpawnSoldier}
+                onToggleDemolish={handleToggleDemolish}
+                onRegrowForest={handleRegrowForest}
+                onQuit={handleQuit}
+                selectedCount={selectedCount}
+                selectedBuildingType={selectedBuildingType}
+            />
+          )}
         </>
       )}
     </div>

@@ -13,10 +13,10 @@ import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EnemyAISystem } from './systems/EnemyAISystem';
 import { MinimapSystem } from './systems/MinimapSystem';
-import { SquadSystem } from './systems/SquadSystem'; // NEW
+import { SquadSystem } from './systems/SquadSystem';
 
 export class MainScene extends Phaser.Scene {
-  // Explicitly declare inherited properties to resolve type errors
+  // Explicitly declare inherited properties
   load!: Phaser.Loader.LoaderPlugin;
   add!: Phaser.GameObjects.GameObjectFactory;
   make!: Phaser.GameObjects.GameObjectCreator;
@@ -52,7 +52,7 @@ export class MainScene extends Phaser.Scene {
   private debugText: Phaser.GameObjects.Text;
 
   // Game Speed & Time
-  public gameSpeed: number = 0.5; // Default slower speed
+  public gameSpeed: number = 0.5;
   public gameTime: number = 0;
   private accumulatedTime: number = 0;
   private accumulatedPopTime: number = 0;
@@ -65,7 +65,7 @@ export class MainScene extends Phaser.Scene {
 
   // Ground Layer
   private groundLayer: Phaser.GameObjects.TileSprite;
-  private readonly groundScale = 0.08; // Significantly reduced from 0.3 for finer detail
+  private readonly groundScale = 0.08;
 
   // Systems
   public pathfinder: Pathfinder;
@@ -78,7 +78,10 @@ export class MainScene extends Phaser.Scene {
   public fogOfWar: FogOfWarSystem | null;
   public enemyAI: EnemyAISystem;
   public minimapSystem: MinimapSystem;
-  public squadSystem: SquadSystem; // NEW
+  public squadSystem: SquadSystem;
+
+  // Performance throttling
+  private cullTimer = 0;
 
   // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -94,235 +97,69 @@ export class MainScene extends Phaser.Scene {
   }
 
   preload() {
-    // --- MEDIEVAL LOADING SCREEN ---
-    const width = this.scale.width;
-    const height = this.scale.height;
-    const centerX = width / 2;
-    const centerY = height / 2;
-
-    // 1. Parchment Background
-    const bg = this.add.graphics();
-    bg.fillStyle(0xe6d5ac, 1); // Parchment beige
-    bg.fillRect(0, 0, width, height);
-    // Vignette (Dark corners)
-    const vignette = this.add.graphics();
-    vignette.fillGradientStyle(0x1a0f0a, 0x1a0f0a, 0x1a0f0a, 0x1a0f0a, 0.8, 0.8, 0.2, 0.2);
-    vignette.fillRect(0, 0, width, height);
-
-    // 2. Central Crest / Emblem
-    const crestY = centerY - 60;
-    const crest = this.add.graphics();
-    
-    // Outer Gold Ring
-    crest.lineStyle(6, 0xc5a059, 1); // Gold
-    crest.strokeCircle(centerX, crestY, 80);
-    // Inner Blue Shield Background
-    crest.fillStyle(0x1e3a8a, 1); // Royal Blue
-    crest.fillCircle(centerX, crestY, 78);
-    
-    // Decorative Inner Pattern
-    crest.lineStyle(2, 0xc5a059, 0.3);
-    crest.strokeCircle(centerX, crestY, 60);
-    crest.strokeCircle(centerX, crestY, 40);
-    
-    // Simple Crown Icon (Procedural)
-    crest.fillStyle(0xffd700, 1);
-    crest.beginPath();
-    const crownY = crestY + 10;
-    crest.moveTo(centerX - 30, crownY);
-    crest.lineTo(centerX - 30, crownY - 30);
-    crest.lineTo(centerX - 15, crownY - 15);
-    crest.lineTo(centerX, crownY - 40); // Peak
-    crest.lineTo(centerX + 15, crownY - 15);
-    crest.lineTo(centerX + 30, crownY - 30);
-    crest.lineTo(centerX + 30, crownY);
-    crest.closePath();
-    crest.fillPath();
-    
-    // 3. Loading Bar Container (Ornate)
-    const barWidth = Math.min(500, width * 0.8);
-    const barHeight = 24;
-    const barX = centerX - barWidth / 2;
-    const barY = centerY + 80;
-
-    const barBg = this.add.graphics();
-    barBg.fillStyle(0x2c1810, 1); // Dark brown wood
-    barBg.fillRoundedRect(barX, barY, barWidth, barHeight, 8);
-    barBg.lineStyle(3, 0x8b6f4e, 1); // Light wood border
-    barBg.strokeRoundedRect(barX, barY, barWidth, barHeight, 8);
-
-    const progressBar = this.add.graphics();
-
-    // 4. Text Elements
-    const statusText = this.add.text(centerX, barY - 25, 'Forging World...', {
-        fontFamily: 'serif',
-        fontSize: '18px',
-        color: '#4a3728',
-        fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    const percentText = this.add.text(centerX + barWidth / 2 + 35, barY + 12, '0%', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#2c1810',
-        fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    // Gameplay Tips
-    const tips = [
-        "Construct Watchtowers to reveal the Fog of War.",
-        "Farmers perform best on fertile land (Dark Brown Soil).",
-        "Build Housing to increase your Population cap.",
-        "Soldiers require Gold upkeep. Tax your people wisely.",
-        "Forests can be regrown at the Lumber Camp.",
-        "Keep Happiness high to boost resource production."
-    ];
-    const tipIndex = Phaser.Math.Between(0, tips.length - 1);
-    
-    const tipTitle = this.add.text(centerX, height - 80, '— HINT —', {
-        fontFamily: 'serif',
-        fontSize: '14px',
-        color: '#8b6f4e',
-        fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    const tipText = this.add.text(centerX, height - 55, tips[tipIndex], {
-        fontFamily: 'serif',
-        fontSize: '16px',
-        color: '#4a3728',
-        fontStyle: 'italic',
-        align: 'center',
-        wordWrap: { width: width * 0.8 }
-    }).setOrigin(0.5);
-
-    // 5. Load Logic
+    // Dispatch progress to React
     this.load.on('progress', (value: number) => {
-        percentText.setText(Math.floor(value * 100) + '%');
-        
-        progressBar.clear();
-        // Gold Fill
-        progressBar.fillStyle(0xd4af37, 1); 
-        const w = (barWidth - 6) * value;
-        if (w > 0) {
-            progressBar.fillRoundedRect(barX + 3, barY + 3, w, barHeight - 6, 4);
-            
-            // Shine Effect (Top half lighter)
-            progressBar.fillStyle(0xfff5d1, 0.3);
-            progressBar.fillRect(barX + 3, barY + 3, w, (barHeight - 6) / 2);
-        }
-    });
-
-    this.load.on('fileprogress', (file: any) => {
-        const key = file.key;
-        // Beautify the asset names for display
-        let display = key;
-        if (key.includes('ground')) display = "Mapping Terrain";
-        else if (key.includes('tree')) display = "Planting Forests";
-        else if (key.includes('house')) display = "Designing Architecture";
-        else if (key.includes('sound')) display = "Composing Audio";
-        else display = `Loading Asset: ${key}`;
-
-        statusText.setText(display + "...");
+        window.dispatchEvent(new CustomEvent('game-load-progress', { detail: value }));
     });
 
     this.load.on('complete', () => {
-        // Fade out animation
-        this.tweens.add({
-            targets: [bg, vignette, crest, barBg, progressBar, statusText, percentText, tipTitle, tipText],
-            alpha: 0,
-            duration: 800,
-            onComplete: () => {
-                bg.destroy();
-                vignette.destroy();
-                crest.destroy();
-                barBg.destroy();
-                progressBar.destroy();
-                statusText.destroy();
-                percentText.destroy();
-                tipTitle.destroy();
-                tipText.destroy();
-            }
-        });
+        window.dispatchEvent(new CustomEvent('game-load-complete'));
     });
 
-    // ------------------
-
-    // Ground Texture
     this.load.image('ground', 'https://i.imgur.com/4P6C0Q3.jpeg');
-
     this.load.image('lumber', 'https://i.imgur.com/SyKc69J.png');
     this.load.image('townhall', 'https://i.imgur.com/kMBtb9W.png');
     this.load.image('field', 'https://i.imgur.com/uPjycje.png');
     this.load.image('flare', 'https://labs.phaser.io/assets/particles/flare.png');
-    
-    // New Assets
     this.load.image('tree', 'https://i.imgur.com/tYIgx0v.png');
     this.load.image('stump', 'https://i.imgur.com/bEjOzbv.png');
     this.load.image('house', 'https://i.imgur.com/Ix1nDUv.png');
     this.load.image('lodge', 'https://i.ibb.co.com/4nGGymPZ/hunterslodge.png');
   }
 
-  init(data: { faction: FactionType, mapMode: MapMode, mapSize: MapSize, fowEnabled: boolean, peacefulMode: boolean, treatyLength: number }) {
-    console.log("MainScene Init Data:", data);
-    
+  init(data: any) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
-    
-    // Ensure boolean type safety
     this.peacefulMode = data.peacefulMode === true;
-    this.treatyLength = (data.treatyLength || 0) * 60 * 1000; // Convert minutes to ms
+    this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
 
-    // Determine Map Size
     if (this.mapMode === MapMode.FIXED) {
         const sizePx = MAP_SIZES[data.mapSize || MapSize.MEDIUM];
         this.mapWidth = sizePx;
         this.mapHeight = sizePx;
     } else {
-        this.mapWidth = 2048; // Default for logic, though infinite overrides physics
+        this.mapWidth = 2048;
         this.mapHeight = 2048;
     }
-
     this.resources = { ...INITIAL_RESOURCES };
-    this.population = 0; // Initialize to 0, let EntityFactory spawnUnit increment it
-    this.maxPopulation = 5; // Base Population. Town Center will add +5 to this.
+    this.population = 0;
+    this.maxPopulation = 5;
     this.happiness = 100;
     this.taxRate = 0;
-    
-    // Reset Time and Speed
-    this.gameSpeed = 0.5; // Default slower speed
-    this.gameTime = 0;
-    this.accumulatedTime = 0;
-    this.accumulatedPopTime = 0;
+    this.gameSpeed = 0.5;
   }
 
   create() {
-    // Core Systems First
     this.pathfinder = new Pathfinder();
     this.entityFactory = new EntityFactory(this);
-    this.squadSystem = new SquadSystem(this); // Init Squad System
+    this.squadSystem = new SquadSystem(this);
 
-    // Initialize Infinite Scrolling Ground
-    // We place it in world space (default scrollFactor) so it scales with zoom naturally.
-    // In update(), we will resize and reposition it to always cover the visible camera area.
     this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
     this.groundLayer.setOrigin(0, 0);
     this.groundLayer.setDepth(-20000);
     this.groundLayer.setTileScale(this.groundScale);
     
-    // Groups
     this.units = this.add.group({ runChildUpdate: true });
     this.buildings = this.add.group();
     this.trees = this.add.group();
     
-    // Logic Systems
     this.unitSystem = new UnitSystem(this);
     this.buildingManager = new BuildingManager(this);
     this.economySystem = new EconomySystem(this);
     this.inputManager = new InputManager(this);
     this.enemyAI = new EnemyAISystem(this);
 
-    // Map Specific Setup
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
       this.createEnvironment();
@@ -333,35 +170,24 @@ export class MainScene extends Phaser.Scene {
       this.infiniteMapSystem = new InfiniteMapSystem(this);
     }
 
-    // Initial Spawns (Center of map)
     const centerX = this.mapMode === MapMode.FIXED ? this.mapWidth / 2 : 400;
     const centerY = this.mapMode === MapMode.FIXED ? this.mapHeight / 2 : 400;
 
-    // Player Spawn
     this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX, centerY, 0);
     this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY, 0); 
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50, 0);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50, 0);
-    // Initial Cavalry Unit
     this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90, 0);
 
-    // Camera Setup
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
-    this.cameras.main.setZoom(1);
     this.cameras.main.setBackgroundColor('#0d1117');
 
-    // Input Keys
-    this.input.mouse?.disableContextMenu();
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as any;
 
-    // DEBUG OVERLAY
     this.debugText = this.add.text(10, 80, '', {
-        font: '14px monospace',
-        color: '#00ff00',
-        backgroundColor: '#000000bb',
-        padding: { x: 10, y: 10 }
+        font: '14px monospace', color: '#00ff00', backgroundColor: '#000000bb', padding: { x: 10, y: 10 }
     }).setScrollFactor(0).setDepth(99999).setVisible(false);
 
     this.input.keyboard!.on('keydown-F3', () => {
@@ -369,66 +195,37 @@ export class MainScene extends Phaser.Scene {
         this.debugText.setVisible(this.debugMode);
     });
 
-    // Global Events
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
-    
-    this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => {
-        this.taxRate = rate;
-        this.economySystem.updateStats();
-    }, this);
-    
+    this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
     this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
-
     this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
         this.gameSpeed = speed;
-        // Update physics timescale to match game speed
-        // Phaser Arcade Physics timeScale is inverted: 0.5 = 2x speed, 2.0 = 0.5x speed.
-        // So we invert the game speed value to get the correct physics timeScale.
         this.physics.world.timeScale = 1 / speed;
         this.tweens.timeScale = speed;
     }, this);
 
-    // Apply initial speed (Inverted for Physics)
     this.physics.world.timeScale = 1 / this.gameSpeed;
-
     this.economySystem.updateStats();
 
-    // Initialize Fog of War if Enabled
-    if (this.isFowEnabled) {
-        this.fogOfWar = new FogOfWarSystem(this);
-    } else {
-        this.fogOfWar = null;
-    }
-    
-    // Initialize Minimap System
+    if (this.isFowEnabled) { this.fogOfWar = new FogOfWarSystem(this); } else { this.fogOfWar = null; }
     this.minimapSystem = new MinimapSystem(this);
 
-    // Handle UI Events
     const minimapClickHandler = (e: Event) => {
         const detail = (e as CustomEvent).detail;
         this.handleMinimapClick(detail.x, detail.y);
     };
     window.addEventListener('minimap-click-ui', minimapClickHandler);
-
-    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
-        window.removeEventListener('minimap-click-ui', minimapClickHandler);
-    });
   }
 
   private lastTcIndex = -1;
 
   public centerCameraOnTownCenter() {
-      // Find Player TCs (Owner 0)
       const tcs = this.buildings.getChildren().filter((b: any) => 
         b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
       ) as Phaser.GameObjects.Rectangle[];
-      
       if (tcs.length === 0) return;
-
-      // Cycle to the next TC
       this.lastTcIndex = (this.lastTcIndex + 1) % tcs.length;
       const target = tcs[this.lastTcIndex];
-
       if (target) {
           const iso = toIso(target.x, target.y);
           this.cameras.main.pan(iso.x, iso.y, 1000, 'Power2');
@@ -437,16 +234,12 @@ export class MainScene extends Phaser.Scene {
 
   public handleMinimapClick(mx: number, my: number) {
       if (!this.minimapSystem) return;
-      
-      // Convert UI click (relative to 192x192 box) to World Coordinates
       const worldPos = this.minimapSystem.getWorldFromMinimap(mx, my);
       const iso = toIso(worldPos.x, worldPos.y);
-      
       this.cameras.main.pan(iso.x, iso.y, 500, 'Power2');
   }
 
   update(time: number, delta: number) {
-    // Calculate Game Delta based on Speed
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
 
@@ -454,63 +247,43 @@ export class MainScene extends Phaser.Scene {
         const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
         this.debugText.setText([
             `FPS: ${this.game.loop.actualFps.toFixed(1)}`,
-            `------------------`,
-            `Mode: ${this.peacefulMode ? "PEACEFUL (ATTACKS BLOCKED)" : "WAR"}`,
-            `Treaty: ${treatySecs > 0 ? treatySecs + "s remaining" : "EXPIRED"}`,
-            `GameTime: ${(this.gameTime/1000).toFixed(1)}s`,
             `Speed: ${this.gameSpeed}x`,
-            `Physics TimeScale: ${this.physics.world.timeScale.toFixed(2)}`,
-            `------------------`,
-            `Units: ${this.units.getLength()}`,
-            `Buildings: ${this.buildings.getLength()}`,
-            `AI Info: ${this.enemyAI.getDebugInfo()}`
+            // Fix: Cast GameObject to any to access 'visible' property for debug HUD reporting
+            `Units: ${this.units.getLength()} | Visible: ${this.units.getChildren().filter(u => (u as any).visible).length}`,
+            `Trees: ${this.trees.getLength()} | Visible: ${this.trees.getChildren().filter(t => (t as any).visible).length}`,
+            `AI: ${this.enemyAI.getDebugInfo()}`
         ]);
     }
 
-    // Input Manager handles Camera movement
     this.inputManager.update(delta);
 
-    // Sync Ground Layer with Camera
-    // We calculate the exact world bounds visible to the camera
     const cam = this.cameras.main;
     const topLeft = cam.getWorldPoint(0, 0);
     const bottomRight = cam.getWorldPoint(cam.width, cam.height);
-    
     const width = bottomRight.x - topLeft.x;
     const height = bottomRight.y - topLeft.y;
     
-    // Position the tile sprite to cover the visible world area
     this.groundLayer.setPosition(topLeft.x, topLeft.y);
     this.groundLayer.setSize(width, height);
-    
-    // Sync the texture offset to match world coordinates
-    // This locks the texture to the world grid, preventing "sliding"
-    // Apply inverse scale to match world movement
     this.groundLayer.tilePositionX = topLeft.x / this.groundScale;
     this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
     
-    // Unit Logic uses Game Time
+    // Performance: Throttle culling to every few frames
+    this.cullTimer += delta;
+    if (this.cullTimer > 100) {
+        this.cullObjects();
+        this.cullTimer = 0;
+    }
+
     this.unitSystem.update(this.gameTime, dt);
-    
-    // Squad System Visual Update
     this.squadSystem.update(dt);
-
-    // Building Manager handles visual updates (hover etc) - mostly real time inputs
     this.buildingManager.update();
-
-    // Enemy AI Tick
     this.enemyAI.update(this.gameTime, dt);
     
-    // Infinite Map loading (throttled real time to avoid lag)
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
-    
-    // Minimap Update
     if (this.minimapSystem) this.minimapSystem.update();
-
-    // Update Fog last to ensure it overlays everything correctly (Visuals follow camera)
     if (this.fogOfWar) this.fogOfWar.update();
 
-    // Economy Ticks based on Accumulated Game Time
     this.accumulatedTime += dt;
     if (this.accumulatedTime >= 1000) {
       this.economySystem.tickEconomy();
@@ -527,12 +300,45 @@ export class MainScene extends Phaser.Scene {
     this.syncVisuals();
   }
 
+  private cullObjects() {
+    const cam = this.cameras.main;
+    const view = cam.worldView;
+    const padding = 200; // Extra buffer outside viewport
+    
+    const cullBounds = new Phaser.Geom.Rectangle(
+        view.x - padding,
+        view.y - padding,
+        view.width + padding * 2,
+        view.height + padding * 2
+    );
+
+    // Cull Trees
+    this.trees.getChildren().forEach((tObj: any) => {
+        const visual = tObj.visual;
+        if (visual) {
+            visual.visible = cullBounds.contains(visual.x, visual.y);
+        }
+    });
+
+    // Cull Units (Their squad containers)
+    this.units.getChildren().forEach((uObj: any) => {
+        const visual = uObj.visual;
+        const squad = uObj.getData('squadContainer');
+        // Fix: Cast visual and squad to any to access/set 'visible' property as GameObjects might not expose it directly in all TS configs
+        if (visual && (visual as any).visible !== undefined) {
+             (visual as any).visible = cullBounds.contains(visual.x, visual.y);
+        }
+        if (squad) {
+            (squad as any).visible = cullBounds.contains(squad.x, squad.y);
+        }
+    });
+  }
+
   createEnvironment() {
-    // Draw Map Bounds
-    const p1 = toIso(0, 0); // Top
-    const p2 = toIso(this.mapWidth, 0); // Right
-    const p3 = toIso(this.mapWidth, this.mapHeight); // Bottom
-    const p4 = toIso(0, this.mapHeight); // Left
+    const p1 = toIso(0, 0); 
+    const p2 = toIso(this.mapWidth, 0); 
+    const p3 = toIso(this.mapWidth, this.mapHeight); 
+    const p4 = toIso(0, this.mapHeight); 
 
     const border = this.add.graphics();
     border.lineStyle(8, 0x000000, 0.4);
@@ -545,11 +351,9 @@ export class MainScene extends Phaser.Scene {
     border.strokePath();
     border.setDepth(-19000);
 
-    // Draw Grid Lines (Subtle)
     const grid = this.add.graphics();
     grid.lineStyle(2, 0x000000, 0.15); 
     const gridSpacing = TILE_SIZE * 4; 
-    
     for (let x = 0; x <= this.mapWidth; x += gridSpacing) {
         const start = toIso(x, 0);
         const end = toIso(x, this.mapHeight);
@@ -568,42 +372,30 @@ export class MainScene extends Phaser.Scene {
 
   handleSoldierSpawnRequest() {
     if (this.resources.food >= 100 && this.resources.gold >= 50) {
-        // Find Player Barracks (Owner 0)
         const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
-        
         if (barracks.length > 0) {
             const spawnSource = barracks[Phaser.Math.Between(0, barracks.length - 1)];
             this.resources.food -= 100;
             this.resources.gold -= 50;
-            
-            const offsetX = Phaser.Math.Between(-30, 30);
-            const offsetY = Phaser.Math.Between(-30, 30);
-            const spawnX = spawnSource.x + (offsetX >= 0 ? 60 : -60);
-            const spawnY = spawnSource.y + (offsetY >= 0 ? 60 : -60);
-            
+            const spawnX = spawnSource.x + 60;
+            const spawnY = spawnSource.y + 60;
             this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY, 0);
-            this.showFloatingText(spawnSource.x, spawnSource.y, "-100 Food, -50 Gold", "#ffff00");
             this.economySystem.updateStats();
         } else {
-            const cam = this.cameras.main;
-            this.showFloatingText(cam.worldView.centerX, cam.worldView.centerY, "Build a Barracks first!", "#ff0000");
+            this.showFloatingText(this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY, "Build a Barracks first!", "#ff0000");
         }
-    } else {
-        const cam = this.cameras.main;
-        this.showFloatingText(cam.worldView.centerX, cam.worldView.centerY, "Not enough resources!", "#ff0000");
     }
   }
 
   syncVisuals() {
     this.units.getChildren().forEach((u: any) => {
-        if (u.visual) {
+        // Fix: Use any-cast to safely check 'visible' property on generic units
+        if (u.visual && (u as any).visible) {
             const iso = toIso(u.x, u.y);
-            // If it's a squad commander (invisible), we still update pos for hitboxes
             u.visual.setPosition(iso.x, iso.y);
             u.visual.setDepth(iso.y);
         }
     });
-    
     this.buildings.getChildren().forEach((b: any) => {
         if (b.visual) {
            const iso = toIso(b.x, b.y);
@@ -615,46 +407,25 @@ export class MainScene extends Phaser.Scene {
   showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
       const iso = toIso(x, y);
       const text = this.add.text(iso.x, iso.y - 50, message, {
-          fontFamily: 'Arial',
-          fontSize: '14px',
-          color: color,
-          stroke: '#000000',
-          strokeThickness: 3
+          fontFamily: 'Arial', fontSize: '14px', color: color, stroke: '#000000', strokeThickness: 3
       });
-      text.setOrigin(0.5);
-      text.setDepth(Number.MAX_VALUE);
-
-      this.tweens.add({
-          targets: text,
-          y: iso.y - 100,
-          alpha: 0,
-          duration: 1500,
-          onComplete: () => text.destroy()
-      });
+      text.setOrigin(0.5).setDepth(Number.MAX_VALUE);
+      this.tweens.add({ targets: text, y: iso.y - 100, alpha: 0, duration: 1500, onComplete: () => text.destroy() });
   }
 
   showFloatingResource(x: number, y: number, amount: number, type: string) {
-      const colorMap: Record<string, string> = {
-          'Wood': '#4ade80',
-          'Food': '#facc15',
-          'Gold': '#fbbf24'
-      };
-      const color = colorMap[type] || '#ffffff';
-      this.showFloatingText(x, y, `+${amount} ${type}`, color);
+      const colorMap: Record<string, string> = { 'Wood': '#4ade80', 'Food': '#facc15', 'Gold': '#fbbf24' };
+      this.showFloatingText(x, y, `+${amount} ${type}`, colorMap[type] || '#ffffff');
   }
 
   generateFertileZones() {
-    // Scale zone count with map size
     const zoneCount = Math.floor((this.mapWidth * this.mapHeight) / (500 * 500)); 
-
     for (let i = 0; i < zoneCount; i++) {
         const x = Phaser.Math.Between(150, this.mapWidth - 150);
         const y = Phaser.Math.Between(150, this.mapHeight - 150);
         const radius = Phaser.Math.Between(100, 180);
         this.fertileZones.push(new Phaser.Geom.Circle(x, y, radius));
         const iso = toIso(x, y);
-
-        // Fallback to Graphics (No Texture)
         const graphics = this.add.graphics();
         graphics.setDepth(-9500); 
         graphics.fillStyle(0x3e2723, 0.4); 
@@ -663,43 +434,31 @@ export class MainScene extends Phaser.Scene {
   }
 
   generateForestsAndAnimals() {
-    // Generate forests procedurally based on map bounds
     const forestCount = Math.floor((this.mapWidth * this.mapHeight) / (800 * 800));
-    
     for (let i = 0; i < forestCount; i++) {
         const fx = Phaser.Math.Between(100, this.mapWidth - 100);
         const fy = Phaser.Math.Between(100, this.mapHeight - 100);
         const fRadius = Phaser.Math.Between(200, 450);
-        const fDensity = Phaser.Math.FloatBetween(0.6, 0.85);
-
-        const treeCount = Math.floor(fRadius * fDensity * 0.5);
-        
-        // Spawn trees in this forest
+        const treeCount = Math.floor(fRadius * 0.4);
         for(let j=0; j<treeCount; j++) {
             const angle = Math.random() * Math.PI * 2;
             const dist = Math.sqrt(Math.random()) * fRadius;
             const tx = fx + Math.cos(angle) * dist;
             const ty = fy + Math.sin(angle) * dist;
-            
-            // Avoid spawn area center
             if (Phaser.Math.Distance.Between(tx, ty, this.mapWidth/2, this.mapHeight/2) > 250) {
                  if (tx > 50 && tx < this.mapWidth-50 && ty > 50 && ty < this.mapHeight-50) {
                      this.entityFactory.spawnTree(tx, ty);
                  }
             }
         }
-
-        // Spawn animals in forest
         const animalCount = Phaser.Math.Between(2, 5);
         for(let k=0; k<animalCount; k++) {
+             // Fix: Define local angle for animal positioning to resolve 'Cannot find name angle' error
              const angle = Math.random() * Math.PI * 2;
-             const dist = Math.sqrt(Math.random()) * (fRadius * 0.8);
-             const ax = fx + Math.cos(angle) * dist;
-             const ay = fy + Math.sin(angle) * dist;
-             
+             const ax = fx + Math.cos(angle) * (fRadius * 0.8);
+             const ay = fy + Math.sin(angle) * (fRadius * 0.8);
              if (Phaser.Math.Distance.Between(ax, ay, this.mapWidth/2, this.mapHeight/2) > 300) {
                  if (ax > 50 && ax < this.mapWidth-50 && ay > 50 && ay < this.mapHeight-50) {
-                     // FIX: Spawn animals as Owner -1 (Neutral) so they don't count towards player population
                      this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
                  }
              }

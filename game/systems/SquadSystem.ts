@@ -1,4 +1,3 @@
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitStats } from '../../types';
@@ -6,10 +5,10 @@ import { UNIT_STATS, FACTION_COLORS } from '../../constants';
 import { toIso } from '../utils/iso';
 
 interface SoldierState {
-    x: number; // World Logic X
-    y: number; // World Logic Y
-    z: number; // Simulated Height (Visual only)
-    offset: { x: number, y: number }; // Target offset relative to squad center
+    x: number; 
+    y: number; 
+    z: number; 
+    offset: { x: number, y: number };
 }
 
 export class SquadSystem {
@@ -34,11 +33,10 @@ export class SquadSystem {
         
         this.initializeSoldiers(unit, stats.squadSize, type);
 
-        // Ensure EntityFactory visual is hidden, although EntityFactory should now create it hidden.
         const commanderVisual = (unit as any).visual as Phaser.GameObjects.Container;
         if (commanderVisual) {
             commanderVisual.setVisible(false);
-            commanderVisual.removeAll(true); // Clear potential artifacts just in case
+            commanderVisual.removeAll(true);
         }
 
         this.scene.add.existing(container);
@@ -53,12 +51,8 @@ export class SquadSystem {
         for (let i = 0; i < count; i++) {
             const col = i % cols;
             const row = Math.floor(i / cols);
-            
-            const jitterX = (Math.random() - 0.5) * (spacing * 0.4);
-            const jitterY = (Math.random() - 0.5) * (spacing * 0.4);
-
-            const offsetX = (col - cols/2) * spacing + jitterX;
-            const offsetY = (row - (count/cols)/2) * spacing + jitterY;
+            const offsetX = (col - cols/2) * spacing;
+            const offsetY = (row - (count/cols)/2) * spacing;
 
             soldiers.push({
                 x: (unit as any).x + offsetX,
@@ -78,27 +72,26 @@ export class SquadSystem {
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) return;
 
+            // Optimization: Skip processing if the squad container is culled
+            if (!container.visible) return;
+
             const body = unit.body as Phaser.Physics.Arcade.Body;
             const stats = UNIT_STATS[unit.unitType as UnitType];
             
-            // 1. Update Formation Rotation
             let angle = unit.getData('formationAngle');
             const speed = body.velocity.length();
             const isMoving = speed > 10;
 
             if (isMoving) {
                 const targetAngle = body.velocity.angle();
-                // Smoother, tighter turn
                 angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1); 
                 unit.setData('formationAngle', angle);
             }
 
-            // 2. Sync Container to Commander (Center Point)
             const commanderIso = toIso(unit.x, unit.y);
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
-            // 3. Update Soldier Count
             const hp = unit.getData('hp');
             const maxHp = unit.getData('maxHp');
             const targetCount = Math.ceil((hp / maxHp) * stats.squadSize);
@@ -119,18 +112,15 @@ export class SquadSystem {
                 }
             }
 
-            // 4. Render & Simulate Soldiers
             const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
             gfx.clear();
 
             const owner = unit.getData('owner');
             let color = owner === 1 ? 0xef4444 : (stats.squadColor || FACTION_COLORS[this.scene.faction]);
-            if (unit.unitType === UnitType.LEGION && owner === 0) color = 0x1e3a8a;
 
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
 
-            // Selection Highlight
             if (unit.isSelected) {
                 gfx.lineStyle(2, 0xffffff, 0.8);
                 const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
@@ -138,52 +128,37 @@ export class SquadSystem {
             }
 
             soldiers.forEach((soldier, index) => {
-                // A. Calculate Target Position (World Space)
                 const dx = soldier.offset.x * cos - soldier.offset.y * sin;
                 const dy = soldier.offset.x * sin + soldier.offset.y * cos;
-                
                 const targetX = unit.x + dx;
                 const targetY = unit.y + dy;
 
-                // B. Lerp Position (Fluid movement)
-                // Much tighter lerp when moving to keep formation cohesive
-                const lerpSpeed = isMoving ? 0.15 + ((index % 3) * 0.02) : 0.1;
+                const lerpSpeed = isMoving ? 0.15 : 0.1;
                 soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
                 soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
 
-                // C. Walking Bob (Visual Z)
                 if (isMoving) {
                     soldier.z = Math.abs(Math.sin((this.scene.time.now / 150) + index)) * 3;
                 } else {
                     soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.2);
                 }
 
-                // D. Convert to Relative Isometric for Drawing
                 const isoSoldier = toIso(soldier.x, soldier.y);
                 const drawX = isoSoldier.x - commanderIso.x;
                 const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
-                // E. Draw
                 if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.SOLDIER) {
-                    // Shadow
                     gfx.fillStyle(0x000000, 0.3);
                     gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
-                    
-                    // Body
                     gfx.fillStyle(color, 1);
                     gfx.fillRect(drawX - 2, drawY - 4, 4, 6);
-                    // Head
                     gfx.fillStyle(0xffffff, 0.8);
                     gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
                 } else if (unit.unitType === UnitType.CAVALRY) {
-                     // Shadow
                     gfx.fillStyle(0x000000, 0.3);
                     gfx.fillEllipse(drawX, drawY + soldier.z, 10, 5);
-
                     gfx.fillStyle(color, 1);
-                    // Horse Body
                     gfx.fillEllipse(drawX, drawY, 14, 8);
-                    // Rider
                     gfx.fillStyle(0xffffff, 1);
                     gfx.fillCircle(drawX, drawY - 5, 2.5);
                 }
