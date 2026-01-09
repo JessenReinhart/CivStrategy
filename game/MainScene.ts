@@ -399,15 +399,47 @@ export class MainScene extends Phaser.Scene {
     
     // Initialize Minimap System
     this.minimapSystem = new MinimapSystem(this);
+
+    // Handle UI Events
+    const minimapClickHandler = (e: Event) => {
+        const detail = (e as CustomEvent).detail;
+        this.handleMinimapClick(detail.x, detail.y);
+    };
+    window.addEventListener('minimap-click-ui', minimapClickHandler);
+
+    this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
+        window.removeEventListener('minimap-click-ui', minimapClickHandler);
+    });
   }
 
+  private lastTcIndex = -1;
+
   public centerCameraOnTownCenter() {
-      // Find Player TC (Owner 0)
-      const tc = this.buildings.getChildren().find((b: any) => b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle;
-      if (tc) {
-          const iso = toIso(tc.x, tc.y);
+      // Find Player TCs (Owner 0)
+      const tcs = this.buildings.getChildren().filter((b: any) => 
+        b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+      ) as Phaser.GameObjects.Rectangle[];
+      
+      if (tcs.length === 0) return;
+
+      // Cycle to the next TC
+      this.lastTcIndex = (this.lastTcIndex + 1) % tcs.length;
+      const target = tcs[this.lastTcIndex];
+
+      if (target) {
+          const iso = toIso(target.x, target.y);
           this.cameras.main.pan(iso.x, iso.y, 1000, 'Power2');
       }
+  }
+
+  public handleMinimapClick(mx: number, my: number) {
+      if (!this.minimapSystem) return;
+      
+      // Convert UI click (relative to 192x192 box) to World Coordinates
+      const worldPos = this.minimapSystem.getWorldFromMinimap(mx, my);
+      const iso = toIso(worldPos.x, worldPos.y);
+      
+      this.cameras.main.pan(iso.x, iso.y, 500, 'Power2');
   }
 
   update(time: number, delta: number) {

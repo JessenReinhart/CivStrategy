@@ -224,6 +224,28 @@ export class MinimapSystem {
         this.renderTexture.draw(this.viewportGraphics, 0, 0);
     }
 
+    public getWorldFromMinimap(miniX: number, miniY: number): { x: number, y: number } {
+        const scalar = this.getMapScalar();
+        
+        if (this.scene.mapMode === MapMode.INFINITE) {
+             const cam = this.scene.cameras.main;
+             const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
+             
+             const dx = miniX - this.mapSize / 2;
+             const dy = miniY - this.mapSize / 2;
+             
+             return {
+                 x: center.x + dx / scalar,
+                 y: center.y + dy / scalar
+             };
+        } else {
+            return {
+                x: miniX / scalar,
+                y: miniY / scalar
+            };
+        }
+    }
+
     private getMapScalar(): number {
         // In Infinite mode, we treat the minimap as a 4096x4096 radar around the player
         const worldSize = this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096;
