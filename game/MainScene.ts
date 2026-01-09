@@ -63,7 +63,7 @@ export class MainScene extends Phaser.Scene {
 
   // Ground Layer
   private groundLayer: Phaser.GameObjects.TileSprite;
-  private readonly groundScale = 0.3; // Scale down texture to make grass look smaller/higher res
+  private readonly groundScale = 0.08; // Significantly reduced from 0.3 for finer detail
 
   // Systems
   public pathfinder: Pathfinder;
