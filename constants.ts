@@ -1,4 +1,6 @@
 
+
+
 import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats } from "./types";
 
 export const TILE_SIZE = 32;
@@ -25,21 +27,39 @@ export const UNIT_VISION = {
   [UnitType.VILLAGER]: 150,
   [UnitType.SOLDIER]: 250,
   [UnitType.CAVALRY]: 350,
+  [UnitType.LEGION]: 300,
   [UnitType.ANIMAL]: 50
 };
 
 // Centralized Unit Stats
 export const UNIT_STATS: Record<UnitType, UnitStats> = {
-  [UnitType.VILLAGER]: { maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80 },
-  [UnitType.SOLDIER]: { maxHp: 120, attack: 15, range: 40, attackSpeed: 1200, speed: 100 },
-  [UnitType.CAVALRY]: { maxHp: 200, attack: 20, range: 40, attackSpeed: 1000, speed: 160 },
-  [UnitType.ANIMAL]: { maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40 }
+  [UnitType.VILLAGER]: { 
+      maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80,
+      squadSize: 1, squadSpacing: 0, squadColor: 0xcccccc 
+  },
+  [UnitType.SOLDIER]: { 
+      maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 100,
+      squadSize: 16, squadSpacing: 8, squadColor: 0xef4444
+  },
+  [UnitType.CAVALRY]: { 
+      maxHp: 400, attack: 20, range: 40, attackSpeed: 1000, speed: 160,
+      squadSize: 6, squadSpacing: 12, squadColor: 0x8D6E63
+  },
+  [UnitType.LEGION]: { 
+      maxHp: 2000, attack: 10, range: 40, attackSpeed: 1500, speed: 70,
+      squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6 // 100 soldiers for massive feel
+  },
+  [UnitType.ANIMAL]: { 
+      maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40,
+      squadSize: 1, squadSpacing: 0, squadColor: 0x795548
+  }
 };
 
 export const UNIT_SPEED = {
   [UnitType.VILLAGER]: UNIT_STATS[UnitType.VILLAGER].speed,
   [UnitType.SOLDIER]: UNIT_STATS[UnitType.SOLDIER].speed,
   [UnitType.CAVALRY]: UNIT_STATS[UnitType.CAVALRY].speed,
+  [UnitType.LEGION]: UNIT_STATS[UnitType.LEGION].speed,
   [UnitType.ANIMAL]: UNIT_STATS[UnitType.ANIMAL].speed
 };
 

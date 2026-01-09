@@ -13,6 +13,7 @@ import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EnemyAISystem } from './systems/EnemyAISystem';
 import { MinimapSystem } from './systems/MinimapSystem';
+import { SquadSystem } from './systems/SquadSystem'; // NEW
 
 export class MainScene extends Phaser.Scene {
   // Explicitly declare inherited properties to resolve type errors
@@ -77,6 +78,7 @@ export class MainScene extends Phaser.Scene {
   public fogOfWar: FogOfWarSystem | null;
   public enemyAI: EnemyAISystem;
   public minimapSystem: MinimapSystem;
+  public squadSystem: SquadSystem; // NEW
 
   // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -298,6 +300,7 @@ export class MainScene extends Phaser.Scene {
     // Core Systems First
     this.pathfinder = new Pathfinder();
     this.entityFactory = new EntityFactory(this);
+    this.squadSystem = new SquadSystem(this); // Init Squad System
 
     // Initialize Infinite Scrolling Ground
     // We place it in world space (default scrollFactor) so it scales with zoom naturally.
@@ -489,6 +492,9 @@ export class MainScene extends Phaser.Scene {
     // Unit Logic uses Game Time
     this.unitSystem.update(this.gameTime, dt);
     
+    // Squad System Visual Update
+    this.squadSystem.update(dt);
+
     // Building Manager handles visual updates (hover etc) - mostly real time inputs
     this.buildingManager.update();
 
@@ -592,6 +598,7 @@ export class MainScene extends Phaser.Scene {
     this.units.getChildren().forEach((u: any) => {
         if (u.visual) {
             const iso = toIso(u.x, u.y);
+            // If it's a squad commander (invisible), we still update pos for hitboxes
             u.visual.setPosition(iso.x, iso.y);
             u.visual.setDepth(iso.y);
         }
