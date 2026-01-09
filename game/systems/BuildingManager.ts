@@ -227,11 +227,13 @@ export class BuildingManager {
 
     private demolishBuilding(b: Phaser.GameObjects.GameObject) {
         const def = b.getData('def') as BuildingDef;
+        const owner = b.getData('owner');
         
         if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
         
-        if (def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
-        if (def.happinessBonus) this.scene.happiness -= def.happinessBonus;
+        // FIX: Only reduce maxPopulation if it was a player building
+        if (owner === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+        if (owner === 0 && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
   
         const worker = b.getData('assignedWorker');
         if (worker) {

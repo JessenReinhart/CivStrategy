@@ -1,6 +1,4 @@
 
-
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FactionType } from '../../types';
@@ -335,7 +333,14 @@ export class EntityFactory {
             this.scene.squadSystem.destroySquad(entity);
         } else {
             const def = entity.getData('def') as BuildingDef;
+            const owner = entity.getData('owner');
+            
             this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
+
+            // FIX: Reduce max population if player building destroyed by damage
+            if (owner === 0 && def.populationBonus) {
+                this.scene.maxPopulation -= def.populationBonus;
+            }
         }
 
         const visual = (entity as any).visual;
