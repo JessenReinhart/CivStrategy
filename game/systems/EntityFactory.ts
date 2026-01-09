@@ -1,4 +1,6 @@
 
+
+
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FactionType } from '../../types';
@@ -185,7 +187,8 @@ export class EntityFactory {
             return dummy;
         }
 
-        const radius = 6; 
+        // Logic Unit (Invisible Commander)
+        const radius = 8; 
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
@@ -210,94 +213,53 @@ export class EntityFactory {
         (unit as any).target = null;
 
         if (owner === 0) {
-            if (type === UnitType.VILLAGER) {
-                this.scene.population++;
-            } else if (type === UnitType.SOLDIER || type === UnitType.CAVALRY) {
-                this.scene.population++;
-            }
+             // For population count, we treat a squad as 1 "Population Unit" 
+             // even though it has many soldiers, to avoid breaking the economy limit logic.
+             // Or we could weight it. For simplicity, 1 squad = 1 pop slot.
+             this.scene.population++;
         }
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
         
-        const primaryColor = owner === 1 ? 0xef4444 : (type === UnitType.SOLDIER ? FACTION_COLORS[this.scene.faction] : 0x5D4037);
+        const primaryColor = owner === 1 ? 0xef4444 : (type === UnitType.SOLDIER ? FACTION_COLORS[this.scene.faction] : stats.squadColor || 0x5D4037);
         const secondaryColor = owner === 1 ? 0x000000 : 0xffffff;
 
+        // Visual Construction
         if (type === UnitType.VILLAGER) {
             gfx.fillStyle(primaryColor, 1);
             gfx.fillEllipse(0, 0, 10, 6); 
             const torso = this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342);
             const head = this.scene.add.circle(0, -11, 2.5, 0xffcccc);
             visual.add([gfx, torso, head]);
-        } else if (type === UnitType.SOLDIER) {
-            gfx.fillStyle(primaryColor, 1);
-            gfx.fillEllipse(0, 0, 14, 8); 
-            gfx.lineStyle(1, secondaryColor, 0.5);
-            gfx.strokeEllipse(0, 0, 14, 8);
-            
-            const ring = this.scene.add.graphics();
-            ring.lineStyle(1.5, 0xffffff, 1); 
-            ring.strokeEllipse(0, 0, 20, 12);
-            ring.visible = false;
-            visual.setData('ring', ring);
-            
-            const hoverRing = this.scene.add.graphics();
-            hoverRing.lineStyle(1.5, 0xffffff, 0.5);
-            hoverRing.strokeEllipse(0, 0, 20, 12);
-            hoverRing.visible = false;
-
-            const torso = this.scene.add.rectangle(0, -6, 6, 8, primaryColor);
-            const head = this.scene.add.circle(0, -11, 3, 0x9e9e9e); 
-            visual.add([hoverRing, ring, gfx, torso, head]);
-            visual.setSize(20, 20);
-            visual.setInteractive(new Phaser.Geom.Circle(0, 0, 12), Phaser.Geom.Circle.Contains);
-            visual.on('pointerover', () => { if(owner===0) hoverRing.visible = true; this.scene.input.setDefaultCursor('pointer'); });
-            visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
-        } else if (type === UnitType.CAVALRY) {
-            gfx.fillStyle(0x8D6E63, 1); 
-            gfx.fillEllipse(0, 4, 24, 8); 
-            gfx.lineStyle(1, 0x5D4037, 1);
-            gfx.strokeEllipse(0, 4, 24, 8);
-            const horseHead = this.scene.add.graphics();
-            horseHead.fillStyle(0x8D6E63, 1);
-            horseHead.fillEllipse(8, -4, 10, 6); 
-            const riderColor = primaryColor;
-            const rider = this.scene.add.graphics();
-            rider.fillStyle(riderColor, 1);
-            rider.fillEllipse(0, -4, 8, 8); 
-            rider.lineStyle(1, secondaryColor, 0.5);
-            rider.strokeEllipse(0, -4, 8, 8);
-            const riderHead = this.scene.add.circle(0, -10, 3, 0xeeeeee);
-            const ring = this.scene.add.graphics();
-            ring.lineStyle(1.5, 0xffffff, 1); 
-            ring.strokeEllipse(0, 4, 35, 18);
-            ring.visible = false;
-            visual.setData('ring', ring);
-            const hoverRing = this.scene.add.graphics();
-            hoverRing.lineStyle(1.5, 0xffffff, 0.5);
-            hoverRing.strokeEllipse(0, 4, 35, 18);
-            hoverRing.visible = false;
-            visual.add([hoverRing, ring, gfx, horseHead, rider, riderHead]);
-            visual.setSize(35, 25);
-            visual.setInteractive(new Phaser.Geom.Circle(0, 0, 18), Phaser.Geom.Circle.Contains);
-            visual.on('pointerover', () => { if(owner===0) hoverRing.visible = true; this.scene.input.setDefaultCursor('pointer'); });
-            visual.on('pointerout', () => { hoverRing.visible = false; this.scene.input.setDefaultCursor('default'); });
         } else if (type === UnitType.ANIMAL) {
             gfx.fillStyle(0x795548, 1);
             gfx.fillEllipse(0, 0, 12, 7); 
             gfx.fillStyle(0x8D6E63, 1);
             gfx.fillCircle(-5, -5, 3.5); 
-            gfx.lineStyle(1, 0xD7CCC8, 0.8);
-            gfx.beginPath(); gfx.moveTo(-5, -6); gfx.lineTo(-8, -10); gfx.strokePath();
-            gfx.beginPath(); gfx.moveTo(-5, -6); gfx.lineTo(-2, -10); gfx.strokePath();
             visual.add(gfx);
             visual.setScale(0.8);
+        } else {
+             // SQUAD UNITS (Soldier, Cavalry, Legion)
+             // Create Selection Ring (Always added to visual container, even if container is hidden later)
+             const ring = this.scene.add.graphics();
+             ring.lineStyle(1.5, 0xffffff, 1); 
+             ring.strokeEllipse(0, 0, 30, 18);
+             ring.visible = false;
+             visual.setData('ring', ring);
+             
+             // Placeholder for Commander Visual (Will be hidden by SquadSystem)
+             gfx.fillStyle(primaryColor, 1);
+             gfx.fillCircle(0, 0, 5);
+             visual.add([ring, gfx]);
         }
 
-        // --- HEALTH BAR ---
-        const barY = type === UnitType.CAVALRY ? -30 : -20;
-        const hpBar = this.createHealthBar(visual, 24, barY);
-        visual.setData('hpBar', hpBar);
+        // --- HEALTH BAR (Only for single entities like Villagers/Animals) ---
+        if (stats.squadSize === 1) {
+            const barY = -20;
+            const hpBar = this.createHealthBar(visual, 24, barY);
+            visual.setData('hpBar', hpBar);
+        }
 
         this.scene.add.existing(visual);
         (unit as any).visual = visual;
@@ -309,13 +271,50 @@ export class EntityFactory {
         u.isSelected = false;
 
         u.setSelected = (selected: boolean) => {
-            if (owner === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
+            // Squad Unit Selection
+            if (stats.squadSize > 1 && owner === 0) {
+                u.isSelected = selected;
+                // If squad, we might show a ring on the ground around the squad?
+                // The SquadSystem hides the 'visual' container, but we attached the ring to it.
+                // We need to ensure the ring is visible if selected.
+                const ring = visual.getData('ring');
+                // Force visual container visible ONLY for ring if squad? 
+                // No, SquadSystem hides the visual container entirely.
+                // Let's attach the ring to the Squad Container instead in SquadSystem?
+                // Actually, simpler: SquadSystem only hides the COMMANDER GRAPHICS, not the container?
+                // Currently SquadSystem sets visual.setVisible(false). 
+                // We will handle selection in SquadSystem logic or allow the visual container to stay visible but empty except ring.
+                
+                // For now, let's assume SquadSystem handles the visuals completely.
+                // We will add a 'selection' indicator to the squad container in SquadSystem or here.
+                const squadContainer = unit.getData('squadContainer') as Phaser.GameObjects.Container;
+                if (squadContainer) {
+                    // Add/Remove selection ring from squad container
+                    let squadRing = squadContainer.getData('selectionRing') as Phaser.GameObjects.Graphics;
+                    if (!squadRing) {
+                         squadRing = this.scene.add.graphics();
+                         squadRing.lineStyle(2, 0xffffff, 0.8);
+                         // Approximate size based on squad size
+                         const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.8;
+                         squadRing.strokeEllipse(0, 0, radius * 2, radius);
+                         squadContainer.addAt(squadRing, 0); // Bottom
+                         squadContainer.setData('selectionRing', squadRing);
+                    }
+                    squadRing.visible = selected;
+                }
+            } 
+            // Single Unit Selection
+            else if (owner === 0 && (type === UnitType.VILLAGER)) {
                  u.isSelected = selected;
-                 hpBar.setVisible(selected || u.getData('hp') < u.getData('maxHp'));
-                 const ring = visual.getData('ring');
-                 if (ring) ring.visible = selected;
+                 const hpBar = visual.getData('hpBar');
+                 if(hpBar) hpBar.setVisible(selected || u.getData('hp') < u.getData('maxHp'));
             }
         };
+
+        // Initialize Squad System if needed
+        if (stats.squadSize > 1) {
+            this.scene.squadSystem.createSquad(unit, type, owner);
+        }
 
         // Damage Handler
         u.takeDamage = (amount: number) => this.handleDamage(u, amount, true);
@@ -345,7 +344,9 @@ export class EntityFactory {
 
         // Update Visuals
         const visual = (entity as any).visual as Phaser.GameObjects.Container;
-        if (visual) {
+        
+        // Single Unit Health Bar
+        if (visual && visual.visible && visual.getData('hpBar')) {
             const hpBar = visual.getData('hpBar') as Phaser.GameObjects.Container;
             if (hpBar) {
                 hpBar.setVisible(true);
@@ -364,6 +365,20 @@ export class EntityFactory {
             });
         }
 
+        // Squad Units don't need explicit flash here because SquadSystem handles soldier count,
+        // but we can flash the squad container.
+        if (isUnit) {
+            const squadContainer = entity.getData('squadContainer') as Phaser.GameObjects.Container;
+            if (squadContainer) {
+                 this.scene.tweens.add({
+                    targets: squadContainer,
+                    alpha: 0.5,
+                    yoyo: true,
+                    duration: 50
+                });
+            }
+        }
+
         if (hp <= 0) {
             this.handleDeath(entity, isUnit);
         }
@@ -373,9 +388,11 @@ export class EntityFactory {
         if (isUnit) {
             const type = entity.getData('unitType');
             const owner = entity.getData('owner');
-            if (owner === 0 && (type === UnitType.VILLAGER || type === UnitType.SOLDIER || type === UnitType.CAVALRY)) {
+            if (owner === 0) {
                 this.scene.population--;
             }
+            // Cleanup Squad
+            this.scene.squadSystem.destroySquad(entity);
         } else {
             // Building Destruction
             const def = entity.getData('def') as BuildingDef;
