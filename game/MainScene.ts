@@ -12,6 +12,7 @@ import { InputManager } from './systems/InputManager';
 import { InfiniteMapSystem } from './systems/InfiniteMapSystem';
 import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EnemyAISystem } from './systems/EnemyAISystem';
+import { MinimapSystem } from './systems/MinimapSystem';
 
 export class MainScene extends Phaser.Scene {
   // Explicitly declare inherited properties to resolve type errors
@@ -75,6 +76,7 @@ export class MainScene extends Phaser.Scene {
   public infiniteMapSystem: InfiniteMapSystem;
   public fogOfWar: FogOfWarSystem | null;
   public enemyAI: EnemyAISystem;
+  public minimapSystem: MinimapSystem;
 
   // Input Keys
   public cursors: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -394,6 +396,9 @@ export class MainScene extends Phaser.Scene {
     } else {
         this.fogOfWar = null;
     }
+    
+    // Initialize Minimap System
+    this.minimapSystem = new MinimapSystem(this);
   }
 
   public centerCameraOnTownCenter() {
@@ -461,6 +466,9 @@ export class MainScene extends Phaser.Scene {
     // Infinite Map loading (throttled real time to avoid lag)
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
     
+    // Minimap Update
+    if (this.minimapSystem) this.minimapSystem.update();
+
     // Update Fog last to ensure it overlays everything correctly (Visuals follow camera)
     if (this.fogOfWar) this.fogOfWar.update();
 
