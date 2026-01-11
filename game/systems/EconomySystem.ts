@@ -201,8 +201,9 @@ export class EconomySystem {
                                 if (Math.random() < 0.1) {
                                     this.scene.entityFactory.updateTreeVisual(t, true);
                                     // if (this.scene.minimapSystem) this.scene.minimapSystem.refreshStaticLayer();
-                                    this.scene.showFloatingText(t.x, t.y, "Chopped!", "#a0522d");
+                                    this.scene.feedbackSystem.showFloatingText(t.x, t.y, "Chopped!", "#a0522d");
                                 }
+
                             }
                         }
                     }
@@ -233,14 +234,16 @@ export class EconomySystem {
                             const victimVisual = (victim as any).visual;
                             if (victimVisual) victimVisual.destroy();
                             victim.destroy();
-                            this.scene.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
+                            this.scene.feedbackSystem.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
                         }
+
                     }
                 }
             }
             if (productionAmount > 0) {
-                this.scene.showFloatingResource(b.x, b.y, productionAmount, productionType);
+                this.scene.feedbackSystem.showFloatingResource(b.x, b.y, productionAmount, productionType);
             }
+
         });
 
         if (goldGen > 0) {
@@ -248,8 +251,9 @@ export class EconomySystem {
                 b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
             ) as Phaser.GameObjects.Rectangle[];
             if (tcs.length > 0) {
-                this.scene.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
+                this.scene.feedbackSystem.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
             }
+
         }
 
         const foodConsumed = this.scene.population * 1;

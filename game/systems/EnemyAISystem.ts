@@ -147,8 +147,9 @@ export class EnemyAISystem {
                     this.attackTarget = playerTC;
 
                     const leader = army[0] as any;
-                    this.scene.showFloatingText(leader.x, leader.y, "The Boar: CRUSH THEM!", "#ef4444");
+                    this.scene.feedbackSystem.showFloatingText(leader.x, leader.y, "The Boar: CRUSH THEM!", "#ef4444");
                 }
+
             }
 
             if (this.attackTarget && this.attackTarget.scene) {
