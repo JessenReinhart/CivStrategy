@@ -3,7 +3,7 @@ import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
-import { FactionType, GameStats, BuildingType, MapMode, MapSize } from './types';
+import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
@@ -35,6 +35,7 @@ const App: React.FC = () => {
     treatyTimeRemaining: 0
   });
   const [selectedCount, setSelectedCount] = useState(0);
+  const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
 
   const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, disableAI: boolean) => {
@@ -97,8 +98,15 @@ const App: React.FC = () => {
       setStats(newStats);
     };
 
-    const selectionHandler = (count: number) => {
-      setSelectedCount(count);
+    const selectionHandler = (data: any) => {
+      // Handle both minimal (count only) and rich (object) payloads
+      if (typeof data === 'number') {
+        setSelectedCount(data);
+        setSelectedCounts({});
+      } else {
+        setSelectedCount(data.count);
+        setSelectedCounts(data.counts || {});
+      }
     };
 
     const buildingSelectionHandler = (type: BuildingType | null) => {
@@ -179,8 +187,10 @@ const App: React.FC = () => {
               onRegrowForest={handleRegrowForest}
               onQuit={handleQuit}
               selectedCount={selectedCount}
+              selectedCounts={selectedCounts}
               selectedBuildingType={selectedBuildingType}
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
+              onFilterSelection={(type: UnitType) => gameInstance?.events.emit('filter-selection', type)}
             />
           )}
         </>

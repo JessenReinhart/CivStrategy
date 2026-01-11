@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameStats, BuildingType, MapMode } from '../types';
+import { GameStats, BuildingType, MapMode, UnitType } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
@@ -20,12 +20,14 @@ interface GameUIProps {
     onRegrowForest: () => void;
     onQuit: () => void;
     selectedCount: number;
+    selectedCounts?: Record<string, number>;
     selectedBuildingType: BuildingType | null;
     onDemolishSelected: () => void;
+    onFilterSelection?: (type: UnitType) => void;
 }
 
 export const GameUI: React.FC<GameUIProps> = ({
-    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType, onDemolishSelected
+    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
@@ -270,21 +272,58 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 {selectedBuildingType ? (
                                     <Home size={32} className="text-amber-500 opacity-80" />
                                 ) : (
-                                    <User size={32} className="text-blue-400 opacity-80" />
+                                    <div className="flex flex-col items-center gap-1">
+                                        <User size={32} className="text-blue-400 opacity-80" />
+                                    </div>
                                 )}
                             </div>
 
                             {/* Stats Section */}
                             <div className="flex-1 px-4 py-2 flex flex-col justify-center">
-                                <h3 className="text-lg font-serif font-bold text-stone-100 flex items-center justify-between">
-                                    {selectedBuildingType ? BUILDINGS[selectedBuildingType].name : `Unit Group (${selectedCount})`}
-                                    <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, { detail: 0 }))} className="text-stone-500 hover:text-white">
-                                        <X size={16} />
-                                    </button>
-                                </h3>
-                                <p className="text-xs text-stone-400 italic leading-tight mt-1">
-                                    {selectedBuildingType ? BUILDINGS[selectedBuildingType].description : 'Ready for orders, commander.'}
-                                </p>
+                                {selectedBuildingType ? (
+                                    <>
+                                        <h3 className="text-lg font-serif font-bold text-stone-100 flex items-center justify-between">
+                                            {BUILDINGS[selectedBuildingType].name}
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, { detail: 0 }))} className="text-stone-500 hover:text-white">
+                                                <X size={16} />
+                                            </button>
+                                        </h3>
+                                        <p className="text-xs text-stone-400 italic leading-tight mt-1">
+                                            {BUILDINGS[selectedBuildingType].description}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <div className="flex flex-col gap-1 w-full">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Selected Group</span>
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, { detail: 0 }))} className="text-stone-500 hover:text-white">
+                                                <X size={16} />
+                                            </button>
+                                        </div>
+                                        {/* Grouped Unit Icons */}
+                                        <div className="flex gap-2 overflow-x-auto pb-1">
+                                            {selectedCounts && Object.keys(selectedCounts).length > 0 ? (
+                                                Object.entries(selectedCounts).map(([type, count]) => (
+                                                    <button
+                                                        key={type}
+                                                        onClick={() => onFilterSelection && onFilterSelection(type as UnitType)}
+                                                        className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all hover:scale-105 active:scale-95 group min-w-[100px]"
+                                                    >
+                                                        {type === UnitType.SOLDIER && <Sword size={14} className="text-red-400" />}
+                                                        {type === UnitType.ARCHER && <Target size={14} className="text-emerald-400" />}
+                                                        {type === UnitType.CAVALRY && <FastForward size={14} className="text-amber-400" />}
+                                                        {type === UnitType.VILLAGER && <Pickaxe size={14} className="text-yellow-400" />}
+                                                        {type === UnitType.LEGION && <Shield size={14} className="text-blue-400" />}
+                                                        <span className="text-xs font-bold text-stone-200 uppercase tracking-wider">{type}</span>
+                                                        <span className="text-xs font-mono text-stone-400 ml-auto bg-black/40 px-1.5 rounded">{count}</span>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <span className="text-sm font-bold text-stone-200">Total: {selectedCount}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Actions Section */}
@@ -455,7 +494,14 @@ const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: any, onS
     return list;
 };
 
-const BuildCard = ({ type, stats, onClick, icon }: any) => {
+interface BuildCardProps {
+    type: BuildingType;
+    stats: GameStats;
+    onClick: () => void;
+    icon: React.ReactNode;
+}
+
+const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => {
     const b = BUILDINGS[type];
     const canAfford =
         stats.resources.wood >= b.cost.wood &&

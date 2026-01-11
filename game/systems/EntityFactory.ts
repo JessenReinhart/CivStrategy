@@ -26,7 +26,11 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
-        const baseColor = owner === 1 ? 0x3f3f46 : def.color;
+        const baseColor = owner === 1 ? 0x3f3f46 : def.color; // Keep dark base for enemy buildings for contrast, or maybe subtle tint? Let's keep it but make banner colorful.
+        // ACTUALLY plan says "Update the enemy banner creation to use this.scene.getFactionColor(owner)".
+        // And "Update spawnUnit to use this.scene.getFactionColor(owner)".
+        // Let's stick to the plan.
+
         let spriteUsed = false;
 
         const setupSprite = (key: string, scaleMultiplier: number = 2.2, originY: number = 0.75) => {
@@ -61,7 +65,7 @@ export class EntityFactory {
         }
 
         if (owner === 1) {
-            const banner = this.scene.add.rectangle(0, -40, 16, 8, 0xef4444);
+            const banner = this.scene.add.rectangle(0, -40, 16, 8, this.scene.getFactionColor(owner));
             visual.add(banner);
         }
 
@@ -122,7 +126,7 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
-        const primaryColor = owner === 1 ? 0xef4444 : (type === UnitType.SOLDIER ? FACTION_COLORS[this.scene.faction] : stats.squadColor || 0x5D4037);
+        const primaryColor = this.scene.getFactionColor(owner);
 
         if (type === UnitType.VILLAGER) {
             gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6);

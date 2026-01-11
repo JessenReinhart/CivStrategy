@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_SIZES, TILE_SIZE } from '../constants';
+import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_SIZES, TILE_SIZE, FACTION_COLORS } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize } from '../types';
 import { toIso, toCartesian } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
@@ -25,6 +25,7 @@ export class MainScene extends Phaser.Scene {
   public maxPopulation = 10;
   public happiness = 100;
   public faction: FactionType = FactionType.ROMANS;
+  public enemyFaction: FactionType = FactionType.GAULS; // Default Fallback
   public mapMode: MapMode = MapMode.FIXED;
   public mapWidth: number = 2048;
   public mapHeight: number = 2048;
@@ -86,6 +87,12 @@ export class MainScene extends Phaser.Scene {
     D: Phaser.Input.Keyboard.Key;
   };
 
+  public getFactionColor(owner: number): number {
+    if (owner === 0) return FACTION_COLORS[this.faction];
+    if (owner === 1) return FACTION_COLORS[this.enemyFaction];
+    return 0xffffff;
+  }
+
   constructor() {
     super('MainScene');
   }
@@ -118,6 +125,11 @@ export class MainScene extends Phaser.Scene {
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     this.peacefulMode = data.peacefulMode === true;
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
+
+    // Pick a random enemy faction that is NOT the player's faction
+    const allFactions = Object.values(FactionType);
+    const available = allFactions.filter(f => f !== this.faction);
+    this.enemyFaction = available[Phaser.Math.Between(0, available.length - 1)];
 
     if (this.mapMode === MapMode.FIXED) {
       const sizePx = MAP_SIZES[(data.mapSize || MapSize.MEDIUM) as MapSize];

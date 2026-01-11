@@ -371,8 +371,9 @@ export class BuildingManager {
             const def = b.getData('def') as BuildingDef;
             const iso = toIso(b.x, b.y);
             if (def.territoryRadius) {
-                this.territoryGraphics.fillStyle(FACTION_COLORS[this.scene.faction], 0.1);
-                this.territoryGraphics.lineStyle(1, FACTION_COLORS[this.scene.faction], 0.3);
+                const color = this.scene.getFactionColor(b.getData('owner'));
+                this.territoryGraphics.fillStyle(color, 0.1);
+                this.territoryGraphics.lineStyle(1, color, 0.3);
                 this.territoryGraphics.fillEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
                 this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
             }

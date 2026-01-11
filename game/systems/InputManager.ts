@@ -15,6 +15,9 @@ export class InputManager {
     private dragRect = new Phaser.Geom.Rectangle();
     private selectionGraphics: Phaser.GameObjects.Graphics;
 
+    private lastClickTime = 0;
+    private lastClickPos = new Phaser.Math.Vector2();
+
     constructor(scene: MainScene) {
         this.scene = scene;
         this.selectionGraphics = this.scene.add.graphics().setDepth(Number.MAX_VALUE);
@@ -28,6 +31,11 @@ export class InputManager {
         this.scene.input.on('wheel', (pointer: any, gameObjects: any, deltaX: number, deltaY: number, deltaZ: number) => {
             const newZoom = Phaser.Math.Clamp(this.scene.cameras.main.zoom - deltaY * 0.001, 0.5, 2);
             this.scene.cameras.main.setZoom(newZoom);
+        });
+
+        this.scene.game.events.on('filter-selection', (type: UnitType) => {
+            console.log('Filter Selection Event:', type);
+            this.filterSelectionByType(type);
         });
     }
 
@@ -68,9 +76,63 @@ export class InputManager {
         if (this.scene.buildingManager.previewBuildingType) {
             this.scene.buildingManager.tryBuild(pointer.worldX, pointer.worldY);
         } else {
+            // DOUBLE CLICK DETECTION
+            const now = this.scene.time.now;
+            const dist = this.lastClickPos.distance(new Phaser.Math.Vector2(pointer.x, pointer.y));
+
+            if (now - this.lastClickTime < 300 && dist < 10) {
+                this.handleDoubleClick(pointer);
+                this.isDragging = false;
+                return;
+            }
+
+            this.lastClickTime = now;
+            this.lastClickPos.set(pointer.x, pointer.y);
+
             this.isDragging = true;
             this.dragStart.set(pointer.worldX, pointer.worldY);
         }
+    }
+
+    private handleDoubleClick(pointer: Phaser.Input.Pointer) {
+        const targets = this.scene.input.hitTestPointer(pointer);
+        const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
+
+        if (unitVisual) {
+            const unit = unitVisual.getData('unit');
+            const type = (unit as any).unitType;
+            if ((unit as any).getData('owner') === 0 && this.isSelectable(type)) {
+                this.selectAllOfType(type);
+                return;
+            }
+        }
+    }
+
+    private selectAllOfType(type: UnitType) {
+        this.clearSelection();
+        this.deselectBuilding();
+
+        this.scene.units.getChildren().forEach((u: any) => {
+            if (u.getData('owner') === 0 && u.unitType === type) {
+                u.setSelected(true);
+                this.selectedUnits.push(u);
+            }
+        });
+        this.emitSelectionChanged();
+    }
+
+    private filterSelectionByType(type: UnitType) {
+        const toKeep: any[] = [];
+        this.selectedUnits.forEach((u: any) => {
+            if (u.unitType === type) {
+                toKeep.push(u);
+            } else {
+                u.setSelected(false);
+            }
+        });
+
+        this.selectedUnits = toKeep;
+        this.emitSelectionChanged();
     }
 
     private handlePointerMove(pointer: Phaser.Input.Pointer) {
@@ -166,7 +228,7 @@ export class InputManager {
             const unit = unitVisual.getData('unit');
             const type = (unit as any).unitType;
             // Only select Player units
-            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION)) {
+            if (unit && (unit as any).getData('owner') === 0 && this.isSelectable(type)) {
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
@@ -182,7 +244,7 @@ export class InputManager {
             this.scene.game.events.emit(EVENTS.BUILDING_SELECTED, def.type);
         }
 
-        this.scene.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
+        this.emitSelectionChanged();
     }
 
     private selectUnitsInIsoRect(rect: Phaser.Geom.Rectangle) {
@@ -192,7 +254,7 @@ export class InputManager {
         this.scene.units.getChildren().forEach((u: any) => {
             // Only select Player units in combat roles
             if (u.getData('owner') !== 0) return;
-            if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY && u.unitType !== UnitType.ARCHER && u.unitType !== UnitType.LEGION) return;
+            if (!this.isSelectable(u.unitType)) return;
 
             const visual = u.visual;
             if (visual) {
@@ -203,13 +265,31 @@ export class InputManager {
                 }
             }
         });
-        this.scene.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
+        this.emitSelectionChanged();
+    }
+
+    private isSelectable(type: UnitType) {
+        return type === UnitType.SOLDIER || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION;
     }
 
     public clearSelection() {
         this.selectedUnits.forEach((u: any) => u.setSelected(false));
         this.selectedUnits = [];
-        this.scene.game.events.emit(EVENTS.SELECTION_CHANGED, 0);
+        this.emitSelectionChanged();
+    }
+
+    private emitSelectionChanged() {
+        // Aggregate Counts
+        const counts: Record<string, number> = {};
+        this.selectedUnits.forEach((u: any) => {
+            const type = u.unitType;
+            counts[type] = (counts[type] || 0) + 1;
+        });
+
+        this.scene.game.events.emit(EVENTS.SELECTION_CHANGED, {
+            count: this.selectedUnits.length,
+            counts: counts
+        });
     }
 
     public deselectBuilding() {
