@@ -130,7 +130,7 @@ export class SquadSystem {
             gfx.clear();
 
             const owner = unit.getData('owner');
-            let color = owner === 1 ? 0xef4444 : (stats.squadColor || FACTION_COLORS[this.scene.faction]);
+            let color = this.scene.getFactionColor(owner);
 
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
