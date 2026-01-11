@@ -26,6 +26,20 @@ export class SquadSystem {
         const gfx = this.scene.add.graphics();
         container.add(gfx);
 
+        // Create unit indicator label (initially hidden)
+        const unitName = type === UnitType.LEGION ? 'LEGION' :
+            type === UnitType.SOLDIER ? 'SOLDIERS' :
+                type === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
+        const indicatorLabel = this.scene.add.text(0, -26, unitName, {
+            fontFamily: 'Arial',
+            fontSize: '10px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2
+        }).setOrigin(0.5).setVisible(false);
+        container.add(indicatorLabel);
+        unit.setData('indicatorLabel', indicatorLabel);
+
         unit.setData('squadContainer', container);
         unit.setData('squadCurrentCount', stats.squadSize);
         unit.setData('squadMaxCount', stats.squadSize);
@@ -125,6 +139,58 @@ export class SquadSystem {
                 gfx.lineStyle(2, 0xffffff, 0.8);
                 const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
                 gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
+            }
+
+            // Unit Indicator Icon (Global Toggle)
+            if (this.scene.showUnitIndicators && owner === 0) {
+                const indicatorY = -60; // Position above the squad
+                const circleRadius = 22;
+
+                // Background circle with border
+                gfx.fillStyle(0x1a1a2e, 0.95);
+                gfx.fillCircle(0, indicatorY, circleRadius);
+                gfx.lineStyle(2, 0xffffff, 0.9);
+                gfx.strokeCircle(0, indicatorY, circleRadius);
+
+                // Draw unit icon silhouette inside
+                gfx.fillStyle(0xffffff, 0.9);
+                if (unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.LEGION) {
+                    // Soldier icon: body + head + spear
+                    gfx.fillRect(-3, indicatorY - 8, 6, 12); // body
+                    gfx.fillCircle(0, indicatorY - 12, 4); // head
+                    gfx.fillRect(5, indicatorY - 14, 2, 18); // spear
+                    gfx.fillStyle(0x888888, 0.9);
+                    gfx.fillTriangle(6, indicatorY - 14, 4, indicatorY - 10, 8, indicatorY - 10); // spear tip
+                } else if (unit.unitType === UnitType.CAVALRY) {
+                    // Cavalry icon: horse shape + rider
+                    gfx.fillEllipse(0, indicatorY + 2, 16, 8); // horse body
+                    gfx.fillCircle(-6, indicatorY - 2, 3); // horse head
+                    gfx.fillRect(-2, indicatorY - 8, 4, 6); // rider body
+                    gfx.fillCircle(0, indicatorY - 12, 3); // rider head
+                }
+
+                // Unit type name below the indicator
+                const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
+                    unit.unitType === UnitType.SOLDIER ? 'SOLDIERS' :
+                        unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
+
+                // Draw text background
+                const textY = indicatorY + circleRadius + 10;
+                gfx.fillStyle(0x000000, 0.7);
+                gfx.fillRoundedRect(-35, textY - 8, 70, 14, 4);
+
+                // Show and position the indicator label
+                const indicatorLabel = unit.getData('indicatorLabel') as Phaser.GameObjects.Text;
+                if (indicatorLabel) {
+                    indicatorLabel.setY(textY);
+                    indicatorLabel.setVisible(true);
+                }
+            } else {
+                // Hide indicator label when not showing
+                const indicatorLabel = unit.getData('indicatorLabel') as Phaser.GameObjects.Text;
+                if (indicatorLabel) {
+                    indicatorLabel.setVisible(false);
+                }
             }
 
             soldiers.forEach((soldier, index) => {

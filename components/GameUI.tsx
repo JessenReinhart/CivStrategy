@@ -21,10 +21,11 @@ interface GameUIProps {
     onQuit: () => void;
     selectedCount: number;
     selectedBuildingType: BuildingType | null;
+    onDemolishSelected: () => void;
 }
 
 export const GameUI: React.FC<GameUIProps> = ({
-    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType
+    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedBuildingType, onDemolishSelected
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
@@ -295,7 +296,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                                 {/* Demolish Action (Only for buildings) */}
                                 {selectedBuildingType && (
-                                    <ActionButton onClick={() => onToggleDemolish(true)} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
+                                    <ActionButton onClick={onDemolishSelected} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
                                 )}
 
                                 {/* No Actions Placeholder */}

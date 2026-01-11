@@ -9,7 +9,7 @@ export class InputManager {
     private scene: MainScene;
     public selectedUnits: Phaser.GameObjects.GameObject[] = [];
     public selectedBuilding: Phaser.GameObjects.GameObject | null = null;
-    
+
     private isDragging = false;
     private dragStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
@@ -50,9 +50,9 @@ export class InputManager {
                 return;
             }
             if (this.scene.buildingManager.previewBuildingType) {
-                this.scene.buildingManager.enterBuildMode(null as any); 
+                this.scene.buildingManager.enterBuildMode(null as any);
                 this.scene.buildingManager.previewBuildingType = null;
-                if(this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
+                if (this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
                 return;
             }
 
@@ -86,7 +86,7 @@ export class InputManager {
                 Math.abs(pointer.worldX - this.dragStart.x),
                 Math.abs(pointer.worldY - this.dragStart.y)
             );
-            
+
             this.selectionGraphics.clear();
             this.selectionGraphics.lineStyle(2, 0xffffff);
             this.selectionGraphics.strokeRectShape(this.dragRect);
@@ -122,7 +122,7 @@ export class InputManager {
         const targets = this.scene.input.hitTestPointer(pointer);
         const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
-        
+
         let targetEntity: Phaser.GameObjects.GameObject | null = null;
         let isEnemy = false;
 
@@ -147,44 +147,45 @@ export class InputManager {
         const targets = this.scene.input.hitTestPointer(pointer);
         const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
-  
+
         this.clearSelection();
-        
+
         if (unitVisual || !buildingVisual) {
             this.deselectBuilding();
         }
-  
+
         if (unitVisual) {
             const unit = unitVisual.getData('unit');
             const type = (unit as any).unitType;
             // Only select Player units
-            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) { 
+            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) {
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
         } else if (buildingVisual) {
             const b = buildingVisual.getData('building');
             this.selectedBuilding = b;
+            if ((b as any).setSelected) (b as any).setSelected(true);
             const visual = (b as any).visual;
             const ring = visual.getData('ring');
             if (ring) ring.visible = true;
-            
+
             const def = b.getData('def') as BuildingDef;
             this.scene.game.events.emit(EVENTS.BUILDING_SELECTED, def.type);
         }
-        
+
         this.scene.game.events.emit(EVENTS.SELECTION_CHANGED, this.selectedUnits.length);
     }
 
     private selectUnitsInIsoRect(rect: Phaser.Geom.Rectangle) {
         this.clearSelection();
         this.deselectBuilding();
-  
+
         this.scene.units.getChildren().forEach((u: any) => {
             // Only select Player units in combat roles
             if (u.getData('owner') !== 0) return;
             if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY) return;
-            
+
             const visual = u.visual;
             if (visual) {
                 const inside = rect.contains(visual.x, visual.y);
@@ -205,6 +206,7 @@ export class InputManager {
 
     public deselectBuilding() {
         if (this.selectedBuilding) {
+            if ((this.selectedBuilding as any).setSelected) (this.selectedBuilding as any).setSelected(false);
             const v = (this.selectedBuilding as any).visual;
             if (v) {
                 const ring = v.getData('ring');

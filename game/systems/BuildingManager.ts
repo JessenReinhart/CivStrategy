@@ -22,6 +22,7 @@ export class BuildingManager {
         this.scene.game.events.on('request-build', this.enterBuildMode, this);
         this.scene.game.events.on(EVENTS.TOGGLE_DEMOLISH, this.toggleDemolishMode, this);
         this.scene.game.events.on(EVENTS.REGROW_FOREST, this.handleRegrowForest, this);
+        this.scene.game.events.on(EVENTS.DEMOLISH_SELECTED, this.handleDemolishSelected, this);
     }
 
     public update() {
@@ -138,7 +139,14 @@ export class BuildingManager {
         const cy = gy + def.height / 2;
 
         if (this.checkBuildValidity(cx, cy, this.previewBuildingType)) {
-            this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
+            const building = this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
+
+            // Juice: Screen shake (subtle)
+            this.scene.cameras.main.shake(80, 0.003);
+
+            // Juice: Dust particles poof
+            const iso = toIso(cx, cy);
+            this.emitDustParticles(iso.x, iso.y, def.width);
 
             this.scene.resources.wood -= def.cost.wood;
             this.scene.resources.food -= def.cost.food;
@@ -207,11 +215,15 @@ export class BuildingManager {
         if (buildingVisual) {
             const b = buildingVisual.getData('building');
             if (b) {
-                const def = b.getData('def') as BuildingDef;
-                const highlight = this.scene.add.graphics();
-                this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
-                buildingVisual.add(highlight);
-                buildingVisual.setData('demolishHighlight', highlight);
+                // Fix: Only allow demolishing player buildings (owner 0)
+                const owner = b.getData('owner');
+                if (owner === 0) {
+                    const def = b.getData('def') as BuildingDef;
+                    const highlight = this.scene.add.graphics();
+                    this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
+                    buildingVisual.add(highlight);
+                    buildingVisual.setData('demolishHighlight', highlight);
+                }
             }
         }
     }
@@ -221,7 +233,11 @@ export class BuildingManager {
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
         if (buildingVisual) {
             const b = buildingVisual.getData('building');
-            this.demolishBuilding(b);
+            // Fix: Security check before demolition
+            const owner = b.getData('owner');
+            if (owner === 0) {
+                this.demolishBuilding(b);
+            }
         }
     }
 
@@ -246,6 +262,10 @@ export class BuildingManager {
         const logic = b as Phaser.GameObjects.Rectangle;
         this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
 
+        // Explosion Effect
+        const iso = toIso(logic.x, logic.y);
+        this.emitExplosionParticles(iso.x, iso.y, def.width);
+
         const visual = (b as any).visual;
         if (visual) visual.destroy();
         b.destroy();
@@ -256,6 +276,57 @@ export class BuildingManager {
 
         this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
+    }
+
+    public emitExplosionParticles(isoX: number, isoY: number, buildingWidth: number) {
+        // Larger, more dramatic explosion for demolition/destruction
+        const count = 30;
+        const emitter = this.scene.add.particles(isoX, isoY, 'smoke', {
+            speed: { min: 100, max: 200 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.5, end: 0 },
+            alpha: { start: 1, end: 0 },
+            lifespan: 1200,
+            gravityY: -50,
+            blendMode: 'ADD',
+            emitting: false
+        });
+        emitter.setDepth(Number.MAX_VALUE - 5);
+
+        // Fire burst
+        const fireEmitter = this.scene.add.particles(isoX, isoY, 'flare', {
+            speed: { min: 50, max: 150 },
+            angle: { min: 0, max: 360 },
+            scale: { start: 0.3, end: 0 },
+            alpha: { start: 0.8, end: 0 },
+            tint: 0xff4500, // Orange-Red fire color
+            lifespan: 800,
+            blendMode: 'ADD',
+            emitting: false
+        });
+        fireEmitter.setDepth(Number.MAX_VALUE - 5);
+
+        emitter.explode(count);
+        fireEmitter.explode(20);
+
+        // Shake camera for impact
+        this.scene.cameras.main.shake(150, 0.005);
+
+        this.scene.time.delayedCall(1500, () => {
+            emitter.destroy();
+            fireEmitter.destroy();
+        });
+    }
+
+    private handleDemolishSelected() {
+        const selected = this.scene.inputManager.selectedBuilding;
+        if (!selected) return;
+
+        // Security check
+        const owner = selected.getData('owner');
+        if (owner === 0) {
+            this.demolishBuilding(selected);
+        }
     }
 
     private handleRegrowForest() {
@@ -309,6 +380,45 @@ export class BuildingManager {
                 this.territoryGraphics.lineStyle(2, 0xffd700, 0.3);
                 this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.effectRadius * 2, def.effectRadius);
             }
+        });
+    }
+
+    private emitDustParticles(isoX: number, isoY: number, buildingWidth: number) {
+        // Smoke poof from 8 points around building - like building dropped from sky
+        const offset = buildingWidth * 0.45;
+        const diagOffset = offset * 0.7;
+        const particlesPerPoint = 5;
+
+        // 8 emission points: 4 cardinal + 4 diagonal corners
+        const emissionPoints = [
+            // Cardinal directions
+            { x: isoX - offset, y: isoY, angle: 180 },           // Left
+            { x: isoX + offset, y: isoY, angle: 0 },             // Right  
+            { x: isoX, y: isoY - offset * 0.5, angle: 270 },     // Top
+            { x: isoX, y: isoY + offset * 0.5, angle: 90 },      // Bottom
+            // Diagonal corners
+            { x: isoX - diagOffset, y: isoY - diagOffset * 0.5, angle: 225 }, // Top-left
+            { x: isoX + diagOffset, y: isoY - diagOffset * 0.5, angle: 315 }, // Top-right
+            { x: isoX - diagOffset, y: isoY + diagOffset * 0.5, angle: 135 }, // Bottom-left
+            { x: isoX + diagOffset, y: isoY + diagOffset * 0.5, angle: 45 },  // Bottom-right
+        ];
+
+        emissionPoints.forEach(point => {
+            const emitter = this.scene.add.particles(point.x, point.y, 'smoke', {
+                speed: { min: 40, max: 80 },
+                angle: { min: point.angle - 25, max: point.angle + 25 }, // Horizontal spread
+                scale: { start: 0.08, end: 0.18 },
+                alpha: { start: 0.65, end: 0 },
+                lifespan: 900,
+                gravityY: 0, // No initial gravity
+                accelerationY: -60, // Curves upward over time - billowing effect!
+                rotate: { min: -90, max: 90 },
+                emitting: false
+            });
+            emitter.setDepth(Number.MAX_VALUE - 10);
+            emitter.explode(particlesPerPoint);
+
+            this.scene.time.delayedCall(1100, () => emitter.destroy());
         });
     }
 }
