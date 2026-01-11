@@ -11,10 +11,11 @@ interface PhaserGameProps {
   fowEnabled: boolean;
   peacefulMode: boolean;
   treatyLength: number; // minutes
+  aiDisabled: boolean;
   onGameReady: (game: Phaser.Game) => void;
 }
 
-export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, onGameReady }) => {
+export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, onGameReady }) => {
   const gameRef = useRef<Phaser.Game | null>(null);
 
   useEffect(() => {
@@ -38,12 +39,12 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       },
       // IMPORTANT: Do not add MainScene to this array. 
       // We will add and start it manually to ensure data is passed correctly.
-      scene: [] 
+      scene: []
     };
 
     const game = new Phaser.Game(config);
     gameRef.current = game;
-    
+
     // Manually add the scene class
     game.scene.add('MainScene', MainScene);
 
@@ -51,23 +52,24 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     // We don't need to wait for 'ready' if we are manually managing the scene lifecycle here
     // but wrapping in a small timeout or ready check is safer for asset loading manager initialization
     game.events.once('ready', () => {
-        console.log("Phaser Ready. Starting MainScene with:", { faction, peacefulMode, treatyLength });
-        game.scene.start('MainScene', { 
-            faction, 
-            mapMode, 
-            mapSize, 
-            fowEnabled,
-            peacefulMode,
-            treatyLength // minutes
-        });
-        onGameReady(game);
+      console.log("Phaser Ready. Starting MainScene with:", { faction, peacefulMode, treatyLength, aiDisabled });
+      game.scene.start('MainScene', {
+        faction,
+        mapMode,
+        mapSize,
+        fowEnabled,
+        peacefulMode,
+        treatyLength, // minutes
+        aiDisabled
+      });
+      onGameReady(game);
     });
 
     return () => {
       game.destroy(true);
       gameRef.current = null;
     };
-  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, onGameReady]);
+  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, onGameReady]);
 
   return (
     <div id="game-container" className="absolute inset-0 z-0" />
