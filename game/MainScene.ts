@@ -15,6 +15,10 @@ import { FogOfWarSystem } from './systems/FogOfWarSystem';
 import { EnemyAISystem } from './systems/EnemyAISystem';
 import { MinimapSystem } from './systems/MinimapSystem';
 import { SquadSystem } from './systems/SquadSystem';
+import { MapGenerationSystem } from './systems/MapGenerationSystem';
+import { CullingSystem } from './systems/CullingSystem';
+import { FeedbackSystem } from './systems/FeedbackSystem';
+
 
 export class MainScene extends Phaser.Scene {
 
@@ -71,12 +75,11 @@ export class MainScene extends Phaser.Scene {
   public enemyAI!: EnemyAISystem;
   public minimapSystem!: MinimapSystem;
   public squadSystem!: SquadSystem;
+  public mapGenerationSystem!: MapGenerationSystem;
+  public cullingSystem!: CullingSystem;
+  public feedbackSystem!: FeedbackSystem;
 
-  private visibleTrees: Set<any> = new Set();
   public treeVisuals!: Phaser.GameObjects.Group; // Pool for tree visuals
-
-  // Performance throttling
-  private cullTimer = 0;
 
   // Input Keys
   public cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -183,12 +186,15 @@ export class MainScene extends Phaser.Scene {
     this.economySystem = new EconomySystem(this);
     this.inputManager = new InputManager(this);
     this.enemyAI = new EnemyAISystem(this);
+    this.mapGenerationSystem = new MapGenerationSystem(this);
+    this.cullingSystem = new CullingSystem(this);
+    this.feedbackSystem = new FeedbackSystem(this);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
-      this.createEnvironment();
-      this.generateFertileZones();
-      this.generateForestsAndAnimals();
+      this.mapGenerationSystem.createEnvironment();
+      this.mapGenerationSystem.generateFertileZones();
+      this.mapGenerationSystem.generateForestsAndAnimals();
     } else {
       this.physics.world.setBounds(-100000, -100000, 200000, 200000);
       this.infiniteMapSystem = new InfiniteMapSystem(this);
@@ -304,12 +310,9 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer.tilePositionX = topLeft.x / this.groundScale;
     this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
 
-    // Performance: Throttle culling to every few frames
-    this.cullTimer += delta;
-    if (this.cullTimer > 200) {
-      this.cullObjects();
-      this.cullTimer = 0;
-    }
+    this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
+
+    this.cullingSystem.update(delta);
 
     this.unitSystem.update(this.gameTime, dt);
     this.squadSystem.update(dt);
@@ -338,154 +341,10 @@ export class MainScene extends Phaser.Scene {
     this.syncVisuals();
   }
 
-  private cullObjects() {
-    const cam = this.cameras.main;
-    const view = cam.worldView;
-    const padding = 100; // Extra buffer outside viewport
-    const radius = Math.max(view.width, view.height) / 2 + padding;
 
-    // 1. Cull Trees using SpatialHash + Virtualization
-
-    // Convert Camera View (ISO) to Cartesian for SpatialHash query
-    const isoTopLeft = { x: view.x - padding, y: view.y - padding };
-    const isoBottomRight = { x: view.right + padding, y: view.bottom + padding };
-    const isoTopRight = { x: view.right + padding, y: view.y - padding };
-    const isoBottomLeft = { x: view.x - padding, y: view.bottom + padding };
-
-    const c1 = toCartesian(isoTopLeft.x, isoTopLeft.y);
-    const c2 = toCartesian(isoBottomRight.x, isoBottomRight.y);
-    const c3 = toCartesian(isoTopRight.x, isoTopRight.y);
-    const c4 = toCartesian(isoBottomLeft.x, isoBottomLeft.y);
-
-    // Fine check bounds
-    const cullBounds = new Phaser.Geom.Rectangle(
-      view.x - padding,
-      view.y - padding,
-      view.width + padding * 2,
-      view.height + padding * 2
-    );
-
-    // Calculate Cartesian AABB of readability
-    const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
-    const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
-    const minY = Math.min(c1.y, c2.y, c3.y, c4.y);
-    const maxY = Math.max(c1.y, c2.y, c3.y, c4.y);
-
-    // Center and check radius (approximate is fine for SpatialHash)
-    const midX = (minX + maxX) / 2;
-    const midY = (minY + maxY) / 2;
-    const searchRadius = Math.max(maxX - minX, maxY - minY) / 2;
-
-    const candidates = this.treeSpatialHash.query(midX, midY, searchRadius);
-
-    // Fine check using Cartesian Polygon (Diamond in ISO)? 
-    // Or just simple rectangular check in Cartesian space is mostly fine since trees map 1:1 roughly.
-    // However, the View is ISO, so it's rotated. 
-    // To be precise: Check if tree's ISO projection is in View.
-    const treesInView = new Set<any>();
-    candidates.forEach(tree => {
-      // Optimization: Convert tree Pos to Iso, then check Rect
-      const isoPos = toIso(tree.x, tree.y);
-      if (cullBounds.contains(isoPos.x, isoPos.y)) {
-        treesInView.add(tree);
-      }
-    });
-
-    // 1A. Handle Exiting Trees (Visible -> Hidden)
-    // Trees that were visible but are NO LONGER in view
-    this.visibleTrees.forEach(tree => {
-      if (!treesInView.has(tree)) {
-        // Release visual back to pool
-        const visual = tree.visual;
-        if (visual) {
-          visual.setVisible(false);
-          visual.setActive(false);
-          this.treeVisuals.killAndHide(visual);
-          tree.visual = undefined; // Detach
-        }
-        this.visibleTrees.delete(tree);
-      }
-    });
-
-    // 1B. Handle Entering Trees (Hidden -> Visible)
-    // Trees that are NOW in view but weren't before
-    treesInView.forEach(tree => {
-      if (!this.visibleTrees.has(tree)) {
-        // Acquire visual from pool
-        let visual = this.treeVisuals.getFirstDead(false) as Phaser.GameObjects.Image;
-        if (!visual) {
-          visual = this.treeVisuals.create(0, 0, 'tree');
-          // Ensure depth sorting works by default
-        }
-
-        visual.setActive(true);
-        visual.setVisible(true);
-
-        // Hydrate visual from tree data
-        const iso = toIso(tree.x, tree.y);
-        visual.setPosition(iso.x, iso.y);
-        visual.setDepth(iso.y); // Manual depth sort
-
-        visual.setTexture(tree.getData('visualTexture') || 'tree');
-        visual.setScale(tree.getData('visualScale') || 0.08);
-        visual.setOrigin(0.5, tree.getData('visualOriginY') || 0.95);
-
-        tree.visual = visual;
-        this.visibleTrees.add(tree);
-      }
-    });
-
-    // 2. Cull Units (Keep brute force for now as units move and count is lower than trees)
-    this.units.getChildren().forEach((uObj: any) => {
-      const visual = uObj.visual;
-      const squad = uObj.getData('squadContainer');
-      // Fix: Cast visual and squad to any to access/set 'visible' property as GameObjects might not expose it directly in all TS configs
-      if (visual && (visual as any).visible !== undefined) {
-        (visual as any).visible = cullBounds.contains(visual.x, visual.y);
-      }
-      if (squad) {
-        (squad as any).visible = cullBounds.contains(squad.x, squad.y);
-      }
-    });
-  }
-
-  createEnvironment() {
-    const p1 = toIso(0, 0);
-    const p2 = toIso(this.mapWidth, 0);
-    const p3 = toIso(this.mapWidth, this.mapHeight);
-    const p4 = toIso(0, this.mapHeight);
-
-    const border = this.add.graphics();
-    border.lineStyle(8, 0x000000, 0.4);
-    border.beginPath();
-    border.moveTo(p1.x, p1.y);
-    border.lineTo(p2.x, p2.y);
-    border.lineTo(p3.x, p3.y);
-    border.lineTo(p4.x, p4.y);
-    border.closePath();
-    border.strokePath();
-    border.setDepth(-19000);
-
-    const grid = this.add.graphics();
-    grid.lineStyle(2, 0x000000, 0.15);
-    const gridSpacing = TILE_SIZE * 4;
-    for (let x = 0; x <= this.mapWidth; x += gridSpacing) {
-      const start = toIso(x, 0);
-      const end = toIso(x, this.mapHeight);
-      grid.moveTo(start.x, start.y);
-      grid.lineTo(end.x, end.y);
-    }
-    for (let y = 0; y <= this.mapHeight; y += gridSpacing) {
-      const start = toIso(0, y);
-      const end = toIso(this.mapWidth, y);
-      grid.moveTo(start.x, start.y);
-      grid.lineTo(end.x, end.y);
-    }
-    grid.strokePath();
-    grid.setDepth(-9999);
-  }
 
   handleSoldierSpawnRequest() {
+
     if (this.resources.food >= 100 && this.resources.gold >= 50) {
       const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
       if (barracks.length > 0) {
@@ -497,7 +356,8 @@ export class MainScene extends Phaser.Scene {
         this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY, 0);
         this.economySystem.updateStats();
       } else {
-        this.showFloatingText(this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY, "Build a Barracks first!", "#ff0000");
+        this.feedbackSystem.showFloatingText(this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY, "Build a Barracks first!", "#ff0000");
+
       }
     }
   }
@@ -517,67 +377,5 @@ export class MainScene extends Phaser.Scene {
         b.visual.setDepth(iso.y);
       }
     });
-  }
-
-  showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
-    const iso = toIso(x, y);
-    const text = this.add.text(iso.x, iso.y - 50, message, {
-      fontFamily: 'Arial', fontSize: '14px', color: color, stroke: '#000000', strokeThickness: 3
-    });
-    text.setOrigin(0.5).setDepth(Number.MAX_VALUE);
-    this.tweens.add({ targets: text, y: iso.y - 100, alpha: 0, duration: 1500, onComplete: () => text.destroy() });
-  }
-
-  showFloatingResource(x: number, y: number, amount: number, type: string) {
-    const colorMap: Record<string, string> = { 'Wood': '#4ade80', 'Food': '#facc15', 'Gold': '#fbbf24' };
-    this.showFloatingText(x, y, `+${amount} ${type}`, colorMap[type] || '#ffffff');
-  }
-
-  generateFertileZones() {
-    const zoneCount = Math.floor((this.mapWidth * this.mapHeight) / (500 * 500));
-    for (let i = 0; i < zoneCount; i++) {
-      const x = Phaser.Math.Between(150, this.mapWidth - 150);
-      const y = Phaser.Math.Between(150, this.mapHeight - 150);
-      const radius = Phaser.Math.Between(100, 180);
-      this.fertileZones.push(new Phaser.Geom.Circle(x, y, radius));
-      const iso = toIso(x, y);
-      const graphics = this.add.graphics();
-      graphics.setDepth(-9500);
-      graphics.fillStyle(0x3e2723, 0.4);
-      graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
-    }
-  }
-
-  generateForestsAndAnimals() {
-    const forestCount = Math.floor((this.mapWidth * this.mapHeight) / (800 * 800));
-    for (let i = 0; i < forestCount; i++) {
-      const fx = Phaser.Math.Between(100, this.mapWidth - 100);
-      const fy = Phaser.Math.Between(100, this.mapHeight - 100);
-      const fRadius = Phaser.Math.Between(200, 450);
-      const treeCount = Math.floor(fRadius * 0.4);
-      for (let j = 0; j < treeCount; j++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.sqrt(Math.random()) * fRadius;
-        const tx = fx + Math.cos(angle) * dist;
-        const ty = fy + Math.sin(angle) * dist;
-        if (Phaser.Math.Distance.Between(tx, ty, this.mapWidth / 2, this.mapHeight / 2) > 250) {
-          if (tx > 50 && tx < this.mapWidth - 50 && ty > 50 && ty < this.mapHeight - 50) {
-            this.entityFactory.spawnTree(tx, ty);
-          }
-        }
-      }
-      const animalCount = Phaser.Math.Between(2, 5);
-      for (let k = 0; k < animalCount; k++) {
-        // Fix: Define local angle for animal positioning to resolve 'Cannot find name angle' error
-        const angle = Math.random() * Math.PI * 2;
-        const ax = fx + Math.cos(angle) * (fRadius * 0.8);
-        const ay = fy + Math.sin(angle) * (fRadius * 0.8);
-        if (Phaser.Math.Distance.Between(ax, ay, this.mapWidth / 2, this.mapHeight / 2) > 300) {
-          if (ax > 50 && ax < this.mapWidth - 50 && ay > 50 && ay < this.mapHeight - 50) {
-            this.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
-          }
-        }
-      }
-    }
   }
 }

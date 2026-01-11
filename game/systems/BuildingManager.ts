@@ -154,8 +154,9 @@ export class BuildingManager {
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
                 this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
-                this.scene.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
+                this.scene.feedbackSystem.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
+
 
             this.markTerritoryDirty();
             this.scene.economySystem.updateStats();
@@ -338,9 +339,10 @@ export class BuildingManager {
 
         const cost = 50;
         if (this.scene.resources.wood < cost) {
-            this.scene.showFloatingText(b.x, b.y, "Not enough wood!", "#ff0000");
+            this.scene.feedbackSystem.showFloatingText(b.x, b.y, "Not enough wood!", "#ff0000");
             return;
         }
+
 
         this.scene.resources.wood -= cost;
 
@@ -356,12 +358,13 @@ export class BuildingManager {
         });
 
         if (regrownCount > 0) {
-            this.scene.showFloatingText(b.x, b.y, "Forest Regrown!", "#4ade80");
+            this.scene.feedbackSystem.showFloatingText(b.x, b.y, "Forest Regrown!", "#4ade80");
             this.scene.economySystem.updateStats();
         } else {
-            this.scene.showFloatingText(b.x, b.y, "No stumps nearby.", "#ffffff");
+            this.scene.feedbackSystem.showFloatingText(b.x, b.y, "No stumps nearby.", "#ffffff");
             this.scene.resources.wood += cost;
         }
+
     }
 
     private drawTerritory() {
