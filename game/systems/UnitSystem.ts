@@ -84,16 +84,20 @@ export class UnitSystem {
             // ----------------------
 
             // Only combat units attack
-            if (unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.CAVALRY) {
+            if ([UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
+                console.log(`Unit ${unit.unitType} engaging target.`);
                 unit.target = target;
                 unit.state = UnitState.CHASING;
                 unit.path = null; // Clear old move path
                 unit.body.reset(unit.x, unit.y);
+            } else {
+                console.log(`Unit ${unit.unitType} CANNOT attack.`);
             }
         });
 
         // Visual Feedback (Red Flash on target)
         if ((target as any).visual) {
+            console.log("Flashing Target visual");
             this.scene.tweens.add({
                 targets: (target as any).visual,
                 alpha: 0.5,
@@ -101,6 +105,8 @@ export class UnitSystem {
                 duration: 100,
                 repeat: 2
             });
+        } else {
+            console.log("Target has no visual to flash");
         }
     }
 
@@ -206,8 +212,13 @@ export class UnitSystem {
             unit.body.setVelocity(0, 0);
             unit.state = UnitState.ATTACKING;
 
-            if (time - unit.lastAttackTime > attackSpeed) {
-                unit.lastAttackTime = time;
+            const now = time;
+            const last = unit.lastAttackTime || 0;
+            const cooldown = attackSpeed;
+
+            if (now - last > cooldown) {
+                console.log(`Attack Ready! Time: ${now}, Last: ${last}, CD: ${cooldown}`);
+                unit.lastAttackTime = now;
                 this.performAttack(unit, target);
             }
         } else {
@@ -220,34 +231,131 @@ export class UnitSystem {
 
     private performAttack(unit: any, target: any) {
         const dmg = unit.getData('attack') || 10;
+        console.log(`PerformAttack: ${unit.unitType} -> Target (HP: ${target.getData('hp')})`);
 
-        // Lunge visual
-        const visual = unit.visual;
-        if (visual) {
-            const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
-            const ox = visual.x;
-            const oy = visual.y;
-            const lungeX = ox + Math.cos(angle) * 10;
-            const lungeY = oy + Math.sin(angle) * 5; // Iso squash
+        if (unit.unitType === UnitType.ARCHER) {
+            // VOLLEY LOGIC
+            // Calculate active soldiers based on HP ratio
+            const maxHp = unit.getData('maxHp');
+            const currentHp = unit.getData('hp');
+            const squadSize = UNIT_STATS[UnitType.ARCHER].squadSize;
 
-            this.scene.tweens.add({
-                targets: visual,
-                x: lungeX,
-                y: lungeY,
-                duration: 100,
-                yoyo: true,
-                onComplete: () => {
-                    // Reset position exactly to avoid drift
-                    const iso = toIso(unit.x, unit.y);
-                    visual.setPosition(iso.x, iso.y);
+            // At least 1 arrow, up to squadSize
+            const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
+            const damagePerArrow = dmg / arrowCount;
+
+            for (let i = 0; i < arrowCount; i++) {
+                // Randomize delay for loose volley feel (0-300ms)
+                const delay = Phaser.Math.Between(0, 300);
+
+                // Add minor random offset to target position for visual variety
+                const spread = 15;
+                const targetVaried = {
+                    x: target.x + Phaser.Math.Between(-spread, spread),
+                    y: target.y + Phaser.Math.Between(-spread, spread),
+                    scene: target.scene, // Duck-type validity check
+                    takeDamage: (amt: number) => { if (target && target.takeDamage) target.takeDamage(amt); }
+                };
+
+                this.scene.time.delayedCall(delay, () => {
+                    if (unit.scene && target.scene) { // Validity check
+                        this.fireProjectile(unit, targetVaried, damagePerArrow);
+                    }
+                });
+            }
+
+        } else {
+            // Melee Lunge visual
+            const visual = unit.visual;
+            if (visual) {
+                const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
+                const ox = visual.x;
+                const oy = visual.y;
+                const lungeX = ox + Math.cos(angle) * 10;
+                const lungeY = oy + Math.sin(angle) * 5; // Iso squash
+
+                this.scene.tweens.add({
+                    targets: visual,
+                    x: lungeX,
+                    y: lungeY,
+                    duration: 100,
+                    yoyo: true,
+                    onComplete: () => {
+                        // Reset position exactly to avoid drift
+                        const iso = toIso(unit.x, unit.y);
+                        visual.setPosition(iso.x, iso.y);
+                    }
+                });
+            }
+
+            // Apply Damage Immediately (Melee)
+            if (target.takeDamage) {
+                target.takeDamage(dmg);
+            }
+        }
+    }
+
+    private fireProjectile(unit: any, target: any, dmg: number) {
+        const startIso = toIso(unit.x, unit.y);
+        const endIso = toIso(target.x, target.y);
+
+        // Visual: Arrow (WHITE)
+        const arrow = this.scene.add.rectangle(startIso.x, startIso.y - 20, 10, 1, 0xffffff);
+        arrow.setDepth(startIso.y + 100);
+
+        // Visual: Trail Effect (WHITE, LONGER)
+        const emitter = this.scene.add.particles(0, 0, 'white_flare', {
+            speed: 0,
+            scale: { start: 0.2, end: 0 },
+            alpha: { start: 0.8, end: 0 },
+            lifespan: 500, // Longer trail
+            tint: 0xffffff, // White trail
+            blendMode: 'ADD',
+            frequency: 10,
+            follow: arrow
+        });
+        emitter.setDepth(Number.MAX_VALUE - 100);
+
+        // Parabolic arc simulation
+        // We tween X and Y linearly for ground movement
+        // We use a custom update or a separate tween for 'height' to simulate arc
+
+        // Simple linear movement for now, with a "height" offset curve?
+        // Actually, just standard Phaser tween with a custom onUpdate is easy.
+
+        const midX = (startIso.x + endIso.x) / 2;
+        const midY = (startIso.y + endIso.y) / 2 - 50; // Arc peak control point
+
+        // Or we can use a Quadratic Bezier curve
+        const curve = new Phaser.Curves.QuadraticBezier(
+            new Phaser.Math.Vector2(startIso.x, startIso.y - 15),
+            new Phaser.Math.Vector2(midX, midY - 50), // Peak
+            new Phaser.Math.Vector2(endIso.x, endIso.y - 10)
+        );
+
+        const projectileObj = { t: 0, vec: new Phaser.Math.Vector2() };
+
+        this.scene.tweens.add({
+            targets: projectileObj,
+            t: 1,
+            duration: 800, // Slower flight (was 400)
+            onUpdate: () => {
+                curve.getPoint(projectileObj.t, projectileObj.vec);
+                arrow.setPosition(projectileObj.vec.x, projectileObj.vec.y);
+
+                // Orient arrow along tangent
+                const tangent = curve.getTangent(projectileObj.t);
+                arrow.setRotation(tangent.angle());
+            },
+            onComplete: () => {
+                arrow.destroy();
+                emitter.destroy();
+                // Check if target is still valid before damaging
+                if (target.takeDamage) {
+                    target.takeDamage(dmg);
                 }
-            });
-        }
-
-        // Apply Damage
-        if (target.takeDamage) {
-            target.takeDamage(dmg);
-        }
+            }
+        });
     }
 
     private drawDebugLines() {
@@ -282,7 +390,7 @@ export class UnitSystem {
         this.pathGraphics.clear();
         this.scene.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
             const u = uObj as any;
-            const isSelectable = u.unitType === UnitType.SOLDIER || u.unitType === UnitType.CAVALRY;
+            const isSelectable = [UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(u.unitType);
 
             if (isSelectable && u.path && u.pathCreatedAt) {
                 const age = time - u.pathCreatedAt;

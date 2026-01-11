@@ -142,6 +142,7 @@ export class SquadSystem {
             }
 
             // Unit Indicator Icon (Global Toggle)
+            // Unit Indicator Icon (Global Toggle)
             if (this.scene.showUnitIndicators && owner === 0) {
                 const indicatorY = -60; // Position above the squad
                 const circleRadius = 22;
@@ -167,12 +168,25 @@ export class SquadSystem {
                     gfx.fillCircle(-6, indicatorY - 2, 3); // horse head
                     gfx.fillRect(-2, indicatorY - 8, 4, 6); // rider body
                     gfx.fillCircle(0, indicatorY - 12, 3); // rider head
+                } else if (unit.unitType === UnitType.ARCHER) {
+                    // Archer icon: Bow path
+                    gfx.lineStyle(2, 0xffffff, 1);
+                    gfx.beginPath();
+                    gfx.arc(0, indicatorY, 8, Phaser.Math.DegToRad(-45), Phaser.Math.DegToRad(45), false); // Bow curve
+                    gfx.strokePath();
+                    // Arrow
+                    gfx.lineStyle(1, 0xffffff, 1);
+                    gfx.beginPath();
+                    gfx.moveTo(-8, indicatorY);
+                    gfx.lineTo(8, indicatorY);
+                    gfx.strokePath();
                 }
 
                 // Unit type name below the indicator
                 const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
                     unit.unitType === UnitType.SOLDIER ? 'SOLDIERS' :
-                        unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
+                        unit.unitType === UnitType.ARCHER ? 'ARCHERS' :
+                            unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
 
                 // Draw text background
                 const textY = indicatorY + circleRadius + 10;
@@ -182,6 +196,7 @@ export class SquadSystem {
                 // Show and position the indicator label
                 const indicatorLabel = unit.getData('indicatorLabel') as Phaser.GameObjects.Text;
                 if (indicatorLabel) {
+                    indicatorLabel.setText(unitName); // Ensure name is correct
                     indicatorLabel.setY(textY);
                     indicatorLabel.setVisible(true);
                 }
@@ -213,7 +228,7 @@ export class SquadSystem {
                 const drawX = isoSoldier.x - commanderIso.x;
                 const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
-                if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.SOLDIER) {
+                if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.ARCHER) {
                     gfx.fillStyle(0x000000, 0.3);
                     gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
                     gfx.fillStyle(color, 1);
