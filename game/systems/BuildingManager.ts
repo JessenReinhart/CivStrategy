@@ -38,7 +38,7 @@ export class BuildingManager {
     public enterBuildMode(buildingType: BuildingType) {
         const def = BUILDINGS[buildingType];
         if (!def) return;
-        
+
         if (this.isDemolishMode) {
             this.toggleDemolishMode(false);
             this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
@@ -69,11 +69,11 @@ export class BuildingManager {
             this.scene.buildings.getChildren().forEach((b: any) => {
                 const visual = b.visual as Phaser.GameObjects.Container;
                 if (visual) {
-                   const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
-                   if (highlight) {
-                       highlight.destroy();
-                       visual.setData('demolishHighlight', null);
-                   }
+                    const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
+                    if (highlight) {
+                        highlight.destroy();
+                        visual.setData('demolishHighlight', null);
+                    }
                 }
             });
         }
@@ -88,16 +88,16 @@ export class BuildingManager {
         const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
         const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
-        const cx = gx + def.width/2;
-        const cy = gy + def.height/2;
+        const cx = gx + def.width / 2;
+        const cy = gy + def.height / 2;
 
         const iso = toIso(cx, cy);
         this.previewBuilding.setPosition(iso.x, iso.y);
-        this.previewBuilding.setDepth(Number.MAX_VALUE - 100); 
-        
+        this.previewBuilding.setDepth(Number.MAX_VALUE - 100);
+
         const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType);
         const color = isValid ? 0x00ff00 : 0xff0000;
-        
+
         const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
         graphics.clear();
 
@@ -115,7 +115,7 @@ export class BuildingManager {
     }
 
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
-         if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
+        if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
             const range = def.effectRadius || 200;
             this.scene.trees.getChildren().forEach((t: any) => {
                 if (Phaser.Math.Distance.Between(cx, cy, t.x, t.y) <= range) {
@@ -129,17 +129,17 @@ export class BuildingManager {
 
     public tryBuild(worldX: number, worldY: number) {
         if (!this.previewBuildingType) return;
-        
+
         const cart = toCartesian(worldX, worldY);
         const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
         const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
-        const cx = gx + def.width/2;
-        const cy = gy + def.height/2;
+        const cx = gx + def.width / 2;
+        const cy = gy + def.height / 2;
 
         if (this.checkBuildValidity(cx, cy, this.previewBuildingType)) {
             this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
-            
+
             this.scene.resources.wood -= def.cost.wood;
             this.scene.resources.food -= def.cost.food;
             this.scene.resources.gold -= def.cost.gold;
@@ -148,7 +148,7 @@ export class BuildingManager {
                 this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
                 this.scene.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
-            
+
             this.markTerritoryDirty();
             this.scene.economySystem.updateStats();
         }
@@ -156,11 +156,11 @@ export class BuildingManager {
 
     private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
         const def = BUILDINGS[type];
-        
+
         if (this.scene.resources.wood < def.cost.wood || this.scene.resources.food < def.cost.food || this.scene.resources.gold < def.cost.gold) {
             return false;
         }
-  
+
         let inTerritory = false;
         this.scene.buildings.getChildren().forEach((b: any) => {
             const bDef = b.getData('def') as BuildingDef;
@@ -170,8 +170,8 @@ export class BuildingManager {
             }
         });
         if (!inTerritory && this.scene.buildings.getLength() > 0) return false;
-  
-        const bounds = new Phaser.Geom.Rectangle(x - def.width/2, y - def.height/2, def.width, def.height);
+
+        const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
         let overlaps = false;
         this.scene.buildings.getChildren().forEach((b: any) => {
             if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, b.getBounds())) {
@@ -179,13 +179,13 @@ export class BuildingManager {
             }
         });
         if (overlaps) return false;
-  
+
         let treeOverlap = false;
         this.scene.trees.getChildren().forEach((t: any) => {
             if (bounds.contains(t.x, t.y)) treeOverlap = true;
         });
         if (treeOverlap) return false;
-  
+
         return true;
     }
 
@@ -205,14 +205,14 @@ export class BuildingManager {
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building')) as Phaser.GameObjects.Container | undefined;
 
         if (buildingVisual) {
-             const b = buildingVisual.getData('building');
-             if (b) {
+            const b = buildingVisual.getData('building');
+            if (b) {
                 const def = b.getData('def') as BuildingDef;
                 const highlight = this.scene.add.graphics();
                 this.scene.entityFactory.drawIsoBuilding(highlight, def, 0xff0000, 0.5);
                 buildingVisual.add(highlight);
                 buildingVisual.setData('demolishHighlight', highlight);
-             }
+            }
         }
     }
 
@@ -228,32 +228,32 @@ export class BuildingManager {
     private demolishBuilding(b: Phaser.GameObjects.GameObject) {
         const def = b.getData('def') as BuildingDef;
         const owner = b.getData('owner');
-        
+
         if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
-        
+
         // FIX: Only reduce maxPopulation if it was a player building
         if (owner === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
         if (owner === 0 && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
-  
+
         const worker = b.getData('assignedWorker');
         if (worker) {
             worker.state = UnitState.IDLE;
             worker.jobBuilding = null;
             worker.path = null;
-            worker.body.setVelocity(0,0);
+            worker.body.setVelocity(0, 0);
         }
 
         const logic = b as Phaser.GameObjects.Rectangle;
         this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
-  
+
         const visual = (b as any).visual;
         if (visual) visual.destroy();
         b.destroy();
-        
+
         if (this.scene.inputManager.selectedBuilding === b) {
             this.scene.inputManager.deselectBuilding();
         }
-  
+
         this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
     }
@@ -264,15 +264,15 @@ export class BuildingManager {
 
         const def = b.getData('def') as BuildingDef;
         if (def.type !== BuildingType.LUMBER_CAMP) return;
-        
+
         const cost = 50;
         if (this.scene.resources.wood < cost) {
             this.scene.showFloatingText(b.x, b.y, "Not enough wood!", "#ff0000");
             return;
         }
-        
+
         this.scene.resources.wood -= cost;
-        
+
         let regrownCount = 0;
         this.scene.trees.getChildren().forEach((tObj: Phaser.GameObjects.GameObject) => {
             const t = tObj as any;
@@ -283,7 +283,7 @@ export class BuildingManager {
                 }
             }
         });
-        
+
         if (regrownCount > 0) {
             this.scene.showFloatingText(b.x, b.y, "Forest Regrown!", "#4ade80");
             this.scene.economySystem.updateStats();
@@ -300,14 +300,14 @@ export class BuildingManager {
             const def = b.getData('def') as BuildingDef;
             const iso = toIso(b.x, b.y);
             if (def.territoryRadius) {
-               this.territoryGraphics.fillStyle(FACTION_COLORS[this.scene.faction], 0.1);
-               this.territoryGraphics.lineStyle(1, FACTION_COLORS[this.scene.faction], 0.3);
-               this.territoryGraphics.fillEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
-               this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
+                this.territoryGraphics.fillStyle(FACTION_COLORS[this.scene.faction], 0.1);
+                this.territoryGraphics.lineStyle(1, FACTION_COLORS[this.scene.faction], 0.3);
+                this.territoryGraphics.fillEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
+                this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
             }
             if (def.effectRadius) {
-               this.territoryGraphics.lineStyle(2, 0xffd700, 0.3); 
-               this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.effectRadius * 2, def.effectRadius);
+                this.territoryGraphics.lineStyle(2, 0xffd700, 0.3);
+                this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.effectRadius * 2, def.effectRadius);
             }
         });
     }

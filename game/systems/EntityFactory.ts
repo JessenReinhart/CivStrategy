@@ -14,7 +14,7 @@ export class EntityFactory {
 
     public spawnBuilding(type: BuildingType, x: number, y: number, owner: number = 0): Phaser.GameObjects.GameObject {
         const def = BUILDINGS[type];
-        const b = this.scene.add.rectangle(x, y, def.width, def.height, 0x000000, 0); 
+        const b = this.scene.add.rectangle(x, y, def.width, def.height, 0x000000, 0);
         this.scene.physics.add.existing(b, true);
         b.setData('def', def);
         b.setData('owner', owner);
@@ -28,7 +28,7 @@ export class EntityFactory {
         const gfx = this.scene.add.graphics();
         const baseColor = owner === 1 ? 0x3f3f46 : def.color;
         let spriteUsed = false;
-        
+
         const setupSprite = (key: string, scaleMultiplier: number = 2.2, originY: number = 0.75) => {
             if (!this.scene.textures.exists(key)) return false;
             const sprite = this.scene.add.image(0, 0, key);
@@ -39,7 +39,7 @@ export class EntityFactory {
             visual.add(sprite);
             return true;
         };
-        
+
         if (type === BuildingType.FARM) { if (setupSprite('field', 2.0, 0.5)) spriteUsed = true; }
         else if (type === BuildingType.HOUSE) { if (setupSprite('house', 2.5, 0.85)) spriteUsed = true; }
         else if (type === BuildingType.HUNTERS_LODGE) { if (setupSprite('lodge', 2.5, 0.75)) spriteUsed = true; }
@@ -59,17 +59,17 @@ export class EntityFactory {
                 this.drawIsoBuilding(gfx, def, baseColor);
             }
         }
-        
+
         if (owner === 1) {
-             const banner = this.scene.add.rectangle(0, -40, 16, 8, 0xef4444);
-             visual.add(banner);
+            const banner = this.scene.add.rectangle(0, -40, 16, 8, 0xef4444);
+            visual.add(banner);
         }
 
         if (!spriteUsed || type === BuildingType.BONFIRE || type === BuildingType.SMALL_PARK) {
             const text = this.scene.add.text(0, -def.height * 0.5 - 10, def.name[0], { fontSize: '14px', color: '#ffffff' }).setOrigin(0.5);
             visual.add([gfx, text]);
         } else {
-             visual.add(gfx); 
+            visual.add(gfx);
         }
 
         const hpBar = this.createHealthBar(visual, def.width, -def.height * 0.8 - 35);
@@ -79,7 +79,8 @@ export class EntityFactory {
         (b as any).visual = visual;
         const iso = toIso(x, y);
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
-        visual.setInteractive(new Phaser.Geom.Circle(0, -10, Math.max(def.width/2, 20)), Phaser.Geom.Circle.Contains);
+        visual.setInteractive(new Phaser.Geom.Circle(0, -10, Math.max(def.width / 2, 20)), Phaser.Geom.Circle.Contains);
+        visual.setData('building', b);
 
         if (owner === 0) {
             if (def.populationBonus) this.scene.maxPopulation += def.populationBonus;
@@ -92,27 +93,27 @@ export class EntityFactory {
 
     public spawnUnit(type: UnitType, x: number, y: number, owner: number = 0) {
         const stats = UNIT_STATS[type];
-        const radius = 8; 
+        const radius = 8;
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
         unit.setData({ owner, unitType: type, hp: stats.maxHp, maxHp: stats.maxHp, attack: stats.attack, range: stats.range, attackSpeed: stats.attackSpeed });
         this.scene.units.add(unit);
-        
+
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
         const primaryColor = owner === 1 ? 0xef4444 : (type === UnitType.SOLDIER ? FACTION_COLORS[this.scene.faction] : stats.squadColor || 0x5D4037);
 
         if (type === UnitType.VILLAGER) {
-            gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6); 
+            gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6);
             visual.add([gfx, this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342), this.scene.add.circle(0, -11, 2.5, 0xffcccc)]);
         } else if (type === UnitType.ANIMAL) {
-            gfx.fillStyle(0x795548, 1).fillEllipse(0, 0, 12, 7); 
+            gfx.fillStyle(0x795548, 1).fillEllipse(0, 0, 12, 7);
             visual.add(gfx);
             visual.setScale(0.8);
         } else {
-             visual.setVisible(false);
+            visual.setVisible(false);
         }
 
         if (stats.squadSize === 1) {
@@ -126,7 +127,7 @@ export class EntityFactory {
         (unit as any).setSelected = (selected: boolean) => {
             (unit as any).isSelected = selected;
             const hpBar = visual.getData('hpBar');
-            if(hpBar) hpBar.setVisible(selected || unit.getData('hp') < unit.getData('maxHp'));
+            if (hpBar) hpBar.setVisible(selected || unit.getData('hp') < unit.getData('maxHp'));
         };
 
         if (stats.squadSize > 1) this.scene.squadSystem.createSquad(unit, type, owner);
@@ -136,7 +137,7 @@ export class EntityFactory {
 
     private createHealthBar(visual: Phaser.GameObjects.Container, width: number, y: number): Phaser.GameObjects.Container {
         const bar = this.scene.add.container(0, y);
-        const fg = this.scene.add.rectangle(-width/2, 0, width, 2, 0x22c55e).setOrigin(0, 0.5).setName('barFill');
+        const fg = this.scene.add.rectangle(-width / 2, 0, width, 2, 0x22c55e).setOrigin(0, 0.5).setName('barFill');
         bar.add([this.scene.add.rectangle(0, 0, width, 4, 0x000000), fg]);
         bar.setVisible(false);
         visual.add(bar);
@@ -157,56 +158,66 @@ export class EntityFactory {
             fill.fillColor = fill.scaleX < 0.3 ? 0xef4444 : 0x22c55e;
         }
         if (hp <= 0) {
-            if (isUnit) { this.scene.squadSystem.destroySquad(entity); if(entity.getData('owner')===0) this.scene.population--; }
-            else { 
-                const def = entity.getData('def'); 
+            if (isUnit) { this.scene.squadSystem.destroySquad(entity); if (entity.getData('owner') === 0) this.scene.population--; }
+            else {
+                const def = entity.getData('def');
                 this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
-                if(entity.getData('owner')===0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+                if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
             }
-            if(visual) visual.destroy();
+            if (visual) visual.destroy();
             entity.destroy();
         }
     }
 
     public spawnTree(x: number, y: number) {
-        // Optimization: Use static bodies and simple sprites
-        const tree = this.scene.add.circle(x, y, 6, 0x000000, 0); 
-        this.scene.physics.add.existing(tree, true);
-        this.scene.trees.add(tree);
-        
-        const visual = this.scene.add.container(0, 0);
-        const stump = this.scene.add.image(0, 0, 'stump').setScale(0.075).setVisible(false).setName('stumpSprite');
-        const treeSprite = this.scene.add.image(0, 0, 'tree').setOrigin(0.5, 0.95).setScale(0.075).setName('treeSprite');
-        visual.add([stump, treeSprite]).setScale(Phaser.Math.FloatBetween(0.8, 1.1));
-        
-        this.scene.add.existing(visual);
-        const iso = toIso(x, y);
-        visual.setPosition(iso.x, iso.y).setDepth(iso.y);
-        (tree as any).visual = visual;
-        tree.setData('isChopped', false);
+        // Optimization: Use single Image instead of Container + 2 Images
+        // VIRTUALIZATON: Do NOT create visual here. Store data for pool.
+        const treeBase = this.scene.add.circle(x, y, 6, 0x000000, 0);
+        treeBase.setVisible(false); // Invisible, logic only
+        this.scene.physics.add.existing(treeBase, true);
+        this.scene.trees.add(treeBase);
+        this.scene.treeSpatialHash.insert(treeBase);
+
+        // Store visual properties for later hydration
+        treeBase.setData('visualScale', Phaser.Math.FloatBetween(0.8, 1.1) * 0.075);
+        treeBase.setData('visualTexture', 'tree');
+        treeBase.setData('visualOriginY', 0.95);
+        treeBase.setData('isChopped', false);
     }
 
     public updateTreeVisual(tree: any, isChopped: boolean) {
-        const visual = tree.visual as Phaser.GameObjects.Container;
-        if (!visual) return;
-        // Fix: Cast getByName result to any to access 'visible' property correctly in TypeScript
-        const treeSprite = visual.getByName('treeSprite') as any;
-        const stumpSprite = visual.getByName('stumpSprite') as any;
-        if (treeSprite) treeSprite.visible = !isChopped;
-        if (stumpSprite) stumpSprite.visible = isChopped;
         tree.setData('isChopped', isChopped);
+
+        // Update data
+        if (isChopped) {
+            tree.setData('visualTexture', 'stump');
+            tree.setData('visualScale', 0.075);
+            tree.setData('visualOriginY', 0.5);
+        } else {
+            tree.setData('visualTexture', 'tree');
+            // Keep original random scale? simplified for now
+            tree.setData('visualOriginY', 0.95);
+        }
+
+        // If currently visible (has visual), update it immediately
+        const visual = tree.visual as Phaser.GameObjects.Image;
+        if (visual) {
+            visual.setTexture(tree.getData('visualTexture'));
+            visual.setScale(tree.getData('visualScale'));
+            visual.setOrigin(0.5, tree.getData('visualOriginY'));
+        }
     }
 
     public drawIsoBuilding(gfx: Phaser.GameObjects.Graphics, def: BuildingDef, color: number, alpha = 1) {
-        const w = def.width, h = def.height, height = Math.min(w, h) * 0.45; 
-        const corners = [{ x: -w/2, y: -h/2 }, { x: w/2, y: -h/2 }, { x: w/2, y: h/2 }, { x: -w/2, y: h/2 }];
+        const w = def.width, h = def.height, height = Math.min(w, h) * 0.45;
+        const corners = [{ x: -w / 2, y: -h / 2 }, { x: w / 2, y: -h / 2 }, { x: w / 2, y: h / 2 }, { x: -w / 2, y: h / 2 }];
         const isoCorners = corners.map(c => toIso(c.x, c.y));
         gfx.fillStyle(color, alpha).beginPath();
         gfx.moveTo(isoCorners[0].x, isoCorners[0].y - height).lineTo(isoCorners[1].x, isoCorners[1].y - height)
-           .lineTo(isoCorners[2].x, isoCorners[2].y - height).lineTo(isoCorners[3].x, isoCorners[3].y - height).closePath().fillPath();
+            .lineTo(isoCorners[2].x, isoCorners[2].y - height).lineTo(isoCorners[3].x, isoCorners[3].y - height).closePath().fillPath();
         gfx.fillStyle(Phaser.Display.Color.IntegerToColor(color).darken(20).color, alpha).beginPath()
-           .moveTo(isoCorners[2].x, isoCorners[2].y - height).lineTo(isoCorners[1].x, isoCorners[1].y - height)
-           .lineTo(isoCorners[1].x, isoCorners[1].y).lineTo(isoCorners[2].x, isoCorners[2].y).closePath().fillPath();
+            .moveTo(isoCorners[2].x, isoCorners[2].y - height).lineTo(isoCorners[1].x, isoCorners[1].y - height)
+            .lineTo(isoCorners[1].x, isoCorners[1].y).lineTo(isoCorners[2].x, isoCorners[2].y).closePath().fillPath();
     }
 
     private drawBonfire(gfx: Phaser.GameObjects.Graphics) {

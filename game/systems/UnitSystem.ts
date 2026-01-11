@@ -19,7 +19,7 @@ export class UnitSystem {
     public update(time: number, delta: number) {
         this.updateUnitLogic(time, delta);
         this.drawUnitPaths(time);
-        
+
         if (this.scene.debugMode) {
             this.drawDebugLines();
         } else {
@@ -35,16 +35,16 @@ export class UnitSystem {
             const unit = unitObj as any;
             const col = index % formationCols;
             const row = Math.floor(index / formationCols);
-            const offsetX = (col - formationCols/2) * spacing;
-            const offsetY = (row - Math.ceil(units.length/formationCols)/2) * spacing;
+            const offsetX = (col - formationCols / 2) * spacing;
+            const offsetY = (row - Math.ceil(units.length / formationCols) / 2) * spacing;
             const unitTarget = new Phaser.Math.Vector2(target.x + offsetX, target.y + offsetY);
-            
+
             const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), unitTarget);
             if (path) {
                 unit.path = path;
                 unit.pathStep = 0;
                 unit.pathCreatedAt = this.scene.gameTime;
-                unit.state = UnitState.IDLE; 
+                unit.state = UnitState.IDLE;
                 unit.target = null; // Clear combat target
                 unit.body.reset(unit.x, unit.y);
             }
@@ -54,7 +54,7 @@ export class UnitSystem {
         const iso = toIso(target.x, target.y);
         const circle = this.scene.add.circle(iso.x, iso.y, 5, 0xffffff);
         circle.setScale(1, 0.5);
-        circle.setDepth(iso.y); 
+        circle.setDepth(iso.y);
         this.scene.tweens.add({
             targets: circle,
             scaleX: 0,
@@ -68,16 +68,16 @@ export class UnitSystem {
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
         units.forEach((unitObj) => {
             const unit = unitObj as any;
-            
+
             // --- SECURITY BLOCK ---
             // If peaceful mode is active and this is an ENEMY unit, reject the attack command entirely.
             if (this.scene.peacefulMode && unit.getData('owner') !== 0) {
                 // Flash a debug indicator if in debug mode
                 if (this.scene.debugMode) {
-                     const iso = toIso(unit.x, unit.y);
-                     const x = this.scene.add.text(iso.x, iso.y, "X", { color: '#ff0000', fontSize: '20px' });
-                     x.setOrigin(0.5);
-                     this.scene.tweens.add({ targets: x, y: iso.y - 20, alpha: 0, duration: 500, onComplete: () => x.destroy() });
+                    const iso = toIso(unit.x, unit.y);
+                    const x = this.scene.add.text(iso.x, iso.y, "X", { color: '#ff0000', fontSize: '20px' });
+                    x.setOrigin(0.5);
+                    this.scene.tweens.add({ targets: x, y: iso.y - 20, alpha: 0, duration: 500, onComplete: () => x.destroy() });
                 }
                 return;
             }
@@ -108,7 +108,7 @@ export class UnitSystem {
         this.scene.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
             const unit = item as any;
             const body = unit.body as Phaser.Physics.Arcade.Body;
-            
+
             if (!body) return;
 
             // Failsafe: If peaceful mode is on, force enemy combat units to stop attacking
@@ -126,23 +126,23 @@ export class UnitSystem {
             }
             // --- ANIMAL WANDERING AI ---
             else if (unit.unitType === UnitType.ANIMAL) {
-                 if (body.velocity.length() > 0) {
-                     const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
-                     if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
-                         body.setVelocity(0, 0);
-                         unit.state = UnitState.IDLE;
-                     }
-                 } else if (Math.random() < 0.005) { 
-                     const wanderRadius = 100;
-                     const angle = Math.random() * Math.PI * 2;
-                     const dist = Math.random() * wanderRadius;
-                     const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
-                     const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
-                     
-                     unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
-                     this.scene.physics.moveTo(unit, tx, ty, 20);
-                     unit.state = UnitState.WANDERING;
-                 }
+                if (body.velocity.length() > 0) {
+                    const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
+                    if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
+                        body.setVelocity(0, 0);
+                        unit.state = UnitState.IDLE;
+                    }
+                } else if (Math.random() < 0.005) {
+                    const wanderRadius = 100;
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = Math.random() * wanderRadius;
+                    const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
+                    const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
+
+                    unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
+                    this.scene.physics.moveTo(unit, tx, ty, 20);
+                    unit.state = UnitState.WANDERING;
+                }
             }
             // --- PATH FOLLOWING ---
             else if (unit.path && unit.path.length > 0) {
@@ -165,30 +165,30 @@ export class UnitSystem {
                     this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, speed);
                 }
             } else {
-                if (body.velocity.length() > 0) body.setVelocity(0,0);
+                if (body.velocity.length() > 0) body.setVelocity(0, 0);
             }
         });
-        
+
         // Separation
         this.scene.physics.overlap(this.scene.units, this.scene.units, (obj1, obj2) => {
             const u1 = obj1 as any;
             const u2 = obj2 as any;
             if (u1 === u2) return;
             const dist = Phaser.Math.Distance.Between(u1.x, u1.y, u2.x, u2.y);
-            if (dist < 18) { 
-                 const angle = Phaser.Math.Angle.Between(u2.x, u2.y, u1.x, u1.y);
-                 const force = (18 - dist) * 1.5; 
-                 u1.body.velocity.x += Math.cos(angle) * force;
-                 u1.body.velocity.y += Math.sin(angle) * force;
-                 u2.body.velocity.x -= Math.cos(angle) * force;
-                 u2.body.velocity.y -= Math.sin(angle) * force;
+            if (dist < 18) {
+                const angle = Phaser.Math.Angle.Between(u2.x, u2.y, u1.x, u1.y);
+                const force = (18 - dist) * 1.5;
+                u1.body.velocity.x += Math.cos(angle) * force;
+                u1.body.velocity.y += Math.sin(angle) * force;
+                u2.body.velocity.x -= Math.cos(angle) * force;
+                u2.body.velocity.y -= Math.sin(angle) * force;
             }
         });
     }
 
     private handleCombatState(unit: any, time: number) {
         const target = unit.target;
-        
+
         // Target dead or destroyed
         if (!target || !target.scene) {
             unit.state = UnitState.IDLE;
@@ -200,12 +200,12 @@ export class UnitSystem {
         const dist = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
         const range = unit.getData('range') || 40;
         const attackSpeed = unit.getData('attackSpeed') || 1000;
-        
+
         // Attack Logic
         if (dist <= range) {
             unit.body.setVelocity(0, 0);
             unit.state = UnitState.ATTACKING;
-            
+
             if (time - unit.lastAttackTime > attackSpeed) {
                 unit.lastAttackTime = time;
                 this.performAttack(unit, target);
@@ -220,7 +220,7 @@ export class UnitSystem {
 
     private performAttack(unit: any, target: any) {
         const dmg = unit.getData('attack') || 10;
-        
+
         // Lunge visual
         const visual = unit.visual;
         if (visual) {
@@ -229,7 +229,7 @@ export class UnitSystem {
             const oy = visual.y;
             const lungeX = ox + Math.cos(angle) * 10;
             const lungeY = oy + Math.sin(angle) * 5; // Iso squash
-            
+
             this.scene.tweens.add({
                 targets: visual,
                 x: lungeX,
@@ -254,7 +254,7 @@ export class UnitSystem {
         this.debugGraphics.clear();
         this.scene.units.getChildren().forEach((u: any) => {
             const startIso = toIso(u.x, u.y);
-            
+
             // Draw Target Lines (Combat)
             if (u.target && u.target.scene) {
                 const endIso = toIso(u.target.x, u.target.y);
@@ -267,13 +267,13 @@ export class UnitSystem {
 
             // Draw Path Lines (Movement)
             if (u.path && u.path.length > 0) {
-                 const dest = u.path[u.path.length - 1];
-                 const endIso = toIso(dest.x, dest.y);
-                 this.debugGraphics.lineStyle(1, 0xffffff, 0.5);
-                 this.debugGraphics.beginPath();
-                 this.debugGraphics.moveTo(startIso.x, startIso.y);
-                 this.debugGraphics.lineTo(endIso.x, endIso.y);
-                 this.debugGraphics.strokePath();
+                const dest = u.path[u.path.length - 1];
+                const endIso = toIso(dest.x, dest.y);
+                this.debugGraphics.lineStyle(1, 0xffffff, 0.5);
+                this.debugGraphics.beginPath();
+                this.debugGraphics.moveTo(startIso.x, startIso.y);
+                this.debugGraphics.lineTo(endIso.x, endIso.y);
+                this.debugGraphics.strokePath();
             }
         });
     }

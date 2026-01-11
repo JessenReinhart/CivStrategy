@@ -30,24 +30,24 @@ const AI_BLUEPRINT: BlueprintItem[] = [
 
 export class EnemyAISystem {
     private scene: MainScene;
-    
+
     // AI State
     private resources: Resources = { wood: 500, food: 500, gold: 500 };
     private baseX: number = 200;
     private baseY: number = 200;
     private buildings: (Phaser.GameObjects.GameObject | null)[] = new Array(AI_BLUEPRINT.length).fill(null);
-    
+
     // Personality
     private aggressionThreshold = 8;
     private unitPreference = UnitType.SOLDIER;
     private attackTarget: Phaser.GameObjects.GameObject | null = null; // Changed to GameObject for Entity targeting
-    
+
     private lastTick: number = 0;
     private buildIndex: number = 0;
 
     constructor(scene: MainScene) {
         this.scene = scene;
-        
+
         if (this.scene.mapMode === MapMode.INFINITE) {
             // Spawn far away in infinite mode
             this.baseX = 4000;
@@ -60,7 +60,7 @@ export class EnemyAISystem {
     }
 
     public update(time: number, delta: number) {
-        if (time - this.lastTick > 1000) { 
+        if (time - this.lastTick > 1000) {
             this.lastTick = time;
             this.tickEconomy();
             this.tickBuild();
@@ -84,7 +84,7 @@ export class EnemyAISystem {
 
             if (!this.buildings[i]) {
                 this.tryConstruct(i);
-                if (i < this.buildIndex) return; 
+                if (i < this.buildIndex) return;
             }
         }
 
@@ -100,7 +100,7 @@ export class EnemyAISystem {
         if (this.canAfford(def.cost)) {
             const bx = this.baseX + item.x;
             const by = this.baseY + item.y;
-            
+
             this.resources.wood -= def.cost.wood;
             this.resources.food -= def.cost.food;
             this.resources.gold -= def.cost.gold;
@@ -120,7 +120,7 @@ export class EnemyAISystem {
 
             const spawnX = this.baseX + Phaser.Math.Between(-50, 50);
             const spawnY = this.baseY + Phaser.Math.Between(-50, 50);
-            
+
             this.scene.entityFactory.spawnUnit(this.unitPreference, spawnX, spawnY, 1);
         }
     }
@@ -129,23 +129,23 @@ export class EnemyAISystem {
         // DIPLOMACY CHECKS
         // Strictly check boolean true
         if (this.scene.peacefulMode === true) return;
-        
+
         // Check treaty timer
         if (this.scene.gameTime < this.scene.treatyLength) return;
 
         // Get all AI units
         const army = this.scene.units.getChildren().filter((u: any) => u.getData('owner') === 1) as Phaser.GameObjects.GameObject[];
-        
+
         if (army.length > this.aggressionThreshold) {
             // Find Target (Player Town Center or any building)
             if (!this.attackTarget || !this.attackTarget.scene) {
                 const playerTC = this.scene.buildings.getChildren().find((b: any) => {
                     return b.getData('owner') === 0 && b.getData('def').type === BuildingType.TOWN_CENTER;
                 });
-                
+
                 if (playerTC) {
                     this.attackTarget = playerTC;
-                    
+
                     const leader = army[0] as any;
                     this.scene.showFloatingText(leader.x, leader.y, "The Boar: CRUSH THEM!", "#ef4444");
                 }
@@ -165,14 +165,14 @@ export class EnemyAISystem {
         }
     }
 
-    private canAfford(cost: {wood: number, food: number, gold: number}): boolean {
-        return this.resources.wood >= cost.wood && 
-               this.resources.food >= cost.food && 
-               this.resources.gold >= cost.gold;
+    private canAfford(cost: { wood: number, food: number, gold: number }): boolean {
+        return this.resources.wood >= cost.wood &&
+            this.resources.food >= cost.food &&
+            this.resources.gold >= cost.gold;
     }
 
     public getDebugInfo(): string {
-        const armySize = this.scene.units.getChildren().filter((u:any)=>u.getData('owner')===1).length;
+        const armySize = this.scene.units.getChildren().filter((u: any) => u.getData('owner') === 1).length;
         const target = this.attackTarget ? (this.attackTarget as any).getData('def')?.name || "Unit" : "None";
         return `Army: ${armySize}/${this.aggressionThreshold} | Res: ${this.resources.food}F | Target: ${target}`;
     }
