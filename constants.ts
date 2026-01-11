@@ -33,25 +33,25 @@ export const UNIT_VISION = {
 
 // Centralized Unit Stats
 export const UNIT_STATS: Record<UnitType, UnitStats> = {
-  [UnitType.VILLAGER]: { 
-      maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80,
-      squadSize: 1, squadSpacing: 0, squadColor: 0xcccccc 
+  [UnitType.VILLAGER]: {
+    maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80,
+    squadSize: 1, squadSpacing: 0, squadColor: 0xcccccc
   },
-  [UnitType.SOLDIER]: { 
-      maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 100,
-      squadSize: 16, squadSpacing: 8, squadColor: 0xef4444
+  [UnitType.SOLDIER]: {
+    maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 100,
+    squadSize: 16, squadSpacing: 8, squadColor: 0xef4444
   },
-  [UnitType.CAVALRY]: { 
-      maxHp: 400, attack: 20, range: 40, attackSpeed: 1000, speed: 160,
-      squadSize: 6, squadSpacing: 12, squadColor: 0x8D6E63
+  [UnitType.CAVALRY]: {
+    maxHp: 400, attack: 20, range: 40, attackSpeed: 1000, speed: 160,
+    squadSize: 6, squadSpacing: 12, squadColor: 0x8D6E63
   },
-  [UnitType.LEGION]: { 
-      maxHp: 2000, attack: 10, range: 40, attackSpeed: 1500, speed: 70,
-      squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6 // 100 soldiers for massive feel
+  [UnitType.LEGION]: {
+    maxHp: 2000, attack: 10, range: 40, attackSpeed: 1500, speed: 70,
+    squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6 // 100 soldiers for massive feel
   },
-  [UnitType.ANIMAL]: { 
-      maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40,
-      squadSize: 1, squadSpacing: 0, squadColor: 0x795548
+  [UnitType.ANIMAL]: {
+    maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40,
+    squadSize: 1, squadSpacing: 0, squadColor: 0x795548
   }
 };
 
@@ -73,7 +73,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     color: 0x2563eb,
     description: 'Main hub. Large territory range.',
     maxHp: 2000,
-    territoryRadius: 600, 
+    territoryRadius: 600,
     populationBonus: 5
   },
   [BuildingType.BONFIRE]: {
@@ -174,5 +174,6 @@ export const EVENTS = {
   REGROW_FOREST: 'regrow-forest',
   CENTER_CAMERA: 'center-camera',
   SET_GAME_SPEED: 'set-game-speed',
-  MINIMAP_CLICK: 'minimap-click'
+  MINIMAP_CLICK: 'minimap-click',
+  DEMOLISH_SELECTED: 'demolish-selected'
 };

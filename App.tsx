@@ -180,6 +180,7 @@ const App: React.FC = () => {
               onQuit={handleQuit}
               selectedCount={selectedCount}
               selectedBuildingType={selectedBuildingType}
+              onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
             />
           )}
         </>

@@ -38,6 +38,7 @@ export class MainScene extends Phaser.Scene {
 
   // Debug
   public debugMode: boolean = false;
+  public showUnitIndicators: boolean = true;
   private debugText!: Phaser.GameObjects.Text;
 
   // Game Speed & Time
@@ -108,6 +109,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('stump', 'https://i.imgur.com/bEjOzbv.png');
     this.load.image('house', 'https://i.imgur.com/Ix1nDUv.png');
     this.load.image('lodge', 'https://i.ibb.co.com/4nGGymPZ/hunterslodge.png');
+    this.load.image('smoke', 'https://labs.phaser.io/assets/particles/smoke-puff.png');
   }
 
   init(data: any) {
@@ -195,6 +197,10 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-F3', () => {
       this.debugMode = !this.debugMode;
       this.debugText.setVisible(this.debugMode);
+    });
+
+    this.input.keyboard!.on('keydown-I', () => {
+      this.showUnitIndicators = !this.showUnitIndicators;
     });
 
     this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);

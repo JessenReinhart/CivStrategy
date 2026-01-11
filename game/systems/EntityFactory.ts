@@ -82,6 +82,19 @@ export class EntityFactory {
         visual.setInteractive(new Phaser.Geom.Circle(0, -10, Math.max(def.width / 2, 20)), Phaser.Geom.Circle.Contains);
         visual.setData('building', b);
 
+        // Building selection method with pulsing glow effect
+        (b as any).setSelected = (selected: boolean) => {
+            (b as any).isSelected = selected;
+            const hpBar = visual.getData('hpBar') as Phaser.GameObjects.Container;
+            if (hpBar) hpBar.setVisible(selected || b.getData('hp') < b.getData('maxHp'));
+
+            if (selected) {
+                this.startGlowEffect(visual, def);
+            } else {
+                this.stopGlowEffect(visual);
+            }
+        };
+
         if (owner === 0) {
             if (def.populationBonus) this.scene.maxPopulation += def.populationBonus;
             if (def.happinessBonus) this.scene.happiness += def.happinessBonus;
@@ -100,6 +113,11 @@ export class EntityFactory {
         body.setCircle(radius);
         unit.setData({ owner, unitType: type, hp: stats.maxHp, maxHp: stats.maxHp, attack: stats.attack, range: stats.range, attackSpeed: stats.attackSpeed });
         this.scene.units.add(unit);
+
+        // Increment population for player-owned units (but not animals)
+        if (owner === 0 && type !== UnitType.ANIMAL) {
+            this.scene.population++;
+        }
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
@@ -163,6 +181,10 @@ export class EntityFactory {
                 const def = entity.getData('def');
                 this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
                 if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+
+                // Trigger explosion effect
+                const iso = toIso((entity as any).x, (entity as any).y);
+                this.scene.buildingManager.emitExplosionParticles(iso.x, iso.y, def.width);
             }
             if (visual) visual.destroy();
             entity.destroy();
@@ -230,5 +252,56 @@ export class EntityFactory {
         const pts = [toIso(-14, -14), toIso(14, -14), toIso(14, 14), toIso(-14, 14)];
         gfx.moveTo(pts[0].x, pts[0].y).lineTo(pts[1].x, pts[1].y).lineTo(pts[2].x, pts[2].y).lineTo(pts[3].x, pts[3].y).closePath().fillPath();
         gfx.fillStyle(0x15803d).fillCircle(0, -4, 6);
+    }
+
+    private startGlowEffect(visual: Phaser.GameObjects.Container, def: BuildingDef) {
+        // Remove any existing glow
+        this.stopGlowEffect(visual);
+
+        // Find all sprites/images in the container and create additive overlays
+        const glowOverlays: Phaser.GameObjects.Image[] = [];
+        visual.each((child: Phaser.GameObjects.GameObject) => {
+            if (child instanceof Phaser.GameObjects.Image) {
+                // Create a duplicate sprite on top with ADD blend mode
+                const overlay = this.scene.add.image(child.x, child.y, child.texture.key);
+                overlay.setOrigin(child.originX, child.originY);
+                overlay.setScale(child.scaleX, child.scaleY);
+                overlay.setBlendMode(Phaser.BlendModes.ADD);
+                overlay.setAlpha(0);
+                visual.add(overlay);
+                glowOverlays.push(overlay);
+            }
+        });
+
+        if (glowOverlays.length === 0) return;
+
+        visual.setData('glowOverlays', glowOverlays);
+
+        // Create pulsing tween on the overlay alphas
+        const tween = this.scene.tweens.add({
+            targets: glowOverlays,
+            alpha: { from: 0, to: 0.35 },
+            duration: 600,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut'
+        });
+        visual.setData('glowTween', tween);
+    }
+
+    private stopGlowEffect(visual: Phaser.GameObjects.Container) {
+        const tween = visual.getData('glowTween') as Phaser.Tweens.Tween;
+        if (tween) {
+            tween.stop();
+            tween.destroy();
+            visual.setData('glowTween', null);
+        }
+
+        // Destroy overlay sprites
+        const glowOverlays = visual.getData('glowOverlays') as Phaser.GameObjects.Image[];
+        if (glowOverlays) {
+            glowOverlays.forEach(overlay => overlay.destroy());
+            visual.setData('glowOverlays', null);
+        }
     }
 }
