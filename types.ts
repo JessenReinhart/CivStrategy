@@ -87,6 +87,7 @@ export enum UnitType {
   SOLDIER = 'Soldier', // Standard Infantry (Medium Squad)
   CAVALRY = 'Cavalry', // Fast, Heavy (Small Squad)
   LEGION = 'Legion', // Massive Infantry (Large Squad)
+  ARCHER = 'Archer', // Ranged Unit
   ANIMAL = 'Animal'
 }
 
@@ -100,16 +101,16 @@ export enum UnitState {
   ATTACKING = 'attacking' // NEW
 }
 
-export interface UnitStats { 
-    maxHp: number;
-    attack: number;
-    range: number;
-    attackSpeed: number; // ms
-    speed: number;
-    // Squad System
-    squadSize: number; // Max visual soldiers
-    squadSpacing: number; // Distance between soldiers
-    squadColor: number;
+export interface UnitStats {
+  maxHp: number;
+  attack: number;
+  range: number;
+  attackSpeed: number; // ms
+  speed: number;
+  // Squad System
+  squadSize: number; // Max visual soldiers
+  squadSpacing: number; // Distance between soldiers
+  squadColor: number;
 }
 
 export interface EntityData {

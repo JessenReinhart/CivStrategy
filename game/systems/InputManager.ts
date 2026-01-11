@@ -120,6 +120,8 @@ export class InputManager {
 
         // Check for click on Enemy Unit/Building
         const targets = this.scene.input.hitTestPointer(pointer);
+        console.log("Right Click Targets:", targets.length, targets.map((t: any) => t.type));
+
         const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
 
@@ -128,15 +130,21 @@ export class InputManager {
 
         if (unitVisual) {
             targetEntity = unitVisual.getData('unit');
-            if (targetEntity && (targetEntity as any).getData('owner') !== 0) isEnemy = true;
+            const owner = (targetEntity as any).getData('owner');
+            console.log("Clicked Unit. Owner:", owner);
+            if (targetEntity && owner !== 0) isEnemy = true;
         } else if (buildingVisual) {
             targetEntity = buildingVisual.getData('building');
-            if (targetEntity && (targetEntity as any).getData('owner') !== 0) isEnemy = true;
+            const owner = (targetEntity as any).getData('owner');
+            console.log("Clicked Building. Owner:", owner);
+            if (targetEntity && owner !== 0) isEnemy = true;
         }
 
         if (isEnemy && targetEntity) {
+            console.log("Commanding Attack on:", targetEntity);
             this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
         } else {
+            console.log("Commanding Move");
             // Standard Move
             const cart = toCartesian(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y));
@@ -158,7 +166,7 @@ export class InputManager {
             const unit = unitVisual.getData('unit');
             const type = (unit as any).unitType;
             // Only select Player units
-            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY)) {
+            if (unit && (unit as any).getData('owner') === 0 && (type === UnitType.SOLDIER || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION)) {
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
@@ -184,7 +192,7 @@ export class InputManager {
         this.scene.units.getChildren().forEach((u: any) => {
             // Only select Player units in combat roles
             if (u.getData('owner') !== 0) return;
-            if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY) return;
+            if (u.unitType !== UnitType.SOLDIER && u.unitType !== UnitType.CAVALRY && u.unitType !== UnitType.ARCHER && u.unitType !== UnitType.LEGION) return;
 
             const visual = u.visual;
             if (visual) {

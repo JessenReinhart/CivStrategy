@@ -79,7 +79,7 @@ export class EntityFactory {
         (b as any).visual = visual;
         const iso = toIso(x, y);
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
-        visual.setInteractive(new Phaser.Geom.Circle(0, -10, Math.max(def.width / 2, 20)), Phaser.Geom.Circle.Contains);
+        visual.setInteractive(new Phaser.Geom.Rectangle(-def.width / 2, -def.height, def.width, def.height), Phaser.Geom.Rectangle.Contains);
         visual.setData('building', b);
 
         // Building selection method with pulsing glow effect
@@ -112,6 +112,7 @@ export class EntityFactory {
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
         unit.setData({ owner, unitType: type, hp: stats.maxHp, maxHp: stats.maxHp, attack: stats.attack, range: stats.range, attackSpeed: stats.attackSpeed });
+        (unit as any).lastAttackTime = 0;
         this.scene.units.add(unit);
 
         // Increment population for player-owned units (but not animals)
@@ -141,6 +142,11 @@ export class EntityFactory {
         this.scene.add.existing(visual);
         (unit as any).visual = visual;
         (unit as any).unitType = type;
+
+        // CRITICAL FIX: Make unit visual click-able for selection/targeting
+        visual.setInteractive(new Phaser.Geom.Circle(0, -10, 15), Phaser.Geom.Circle.Contains);
+        visual.setData('unit', unit);
+
         (unit as any).state = UnitState.IDLE;
         (unit as any).setSelected = (selected: boolean) => {
             (unit as any).isSelected = selected;

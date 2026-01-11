@@ -26,6 +26,7 @@ export const FACTION_COLORS = {
 export const UNIT_VISION = {
   [UnitType.VILLAGER]: 150,
   [UnitType.SOLDIER]: 250,
+  [UnitType.ARCHER]: 300,
   [UnitType.CAVALRY]: 350,
   [UnitType.LEGION]: 300,
   [UnitType.ANIMAL]: 50
@@ -49,6 +50,10 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
     maxHp: 2000, attack: 10, range: 40, attackSpeed: 1500, speed: 70,
     squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6 // 100 soldiers for massive feel
   },
+  [UnitType.ARCHER]: {
+    maxHp: 150, attack: 12, range: 200, attackSpeed: 1000, speed: 90,
+    squadSize: 10, squadSpacing: 10, squadColor: 0x10b981
+  },
   [UnitType.ANIMAL]: {
     maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40,
     squadSize: 1, squadSpacing: 0, squadColor: 0x795548
@@ -58,6 +63,7 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
 export const UNIT_SPEED = {
   [UnitType.VILLAGER]: UNIT_STATS[UnitType.VILLAGER].speed,
   [UnitType.SOLDIER]: UNIT_STATS[UnitType.SOLDIER].speed,
+  [UnitType.ARCHER]: UNIT_STATS[UnitType.ARCHER].speed,
   [UnitType.CAVALRY]: UNIT_STATS[UnitType.CAVALRY].speed,
   [UnitType.LEGION]: UNIT_STATS[UnitType.LEGION].speed,
   [UnitType.ANIMAL]: UNIT_STATS[UnitType.ANIMAL].speed

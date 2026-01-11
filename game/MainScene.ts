@@ -138,6 +138,14 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     this.game.canvas.oncontextmenu = (e) => e.preventDefault();
+
+    // Generate robust textures
+    if (!this.textures.exists('white_flare')) {
+      const graphics = this.make.graphics({ x: 0, y: 0 });
+      graphics.fillStyle(0xffffff, 1);
+      graphics.fillCircle(4, 4, 4);
+      graphics.generateTexture('white_flare', 8, 8);
+    }
     this.pathfinder = new Pathfinder();
     this.treeSpatialHash = new SpatialHash(250); // 250px cells (approx 1-2 trees width)
     this.entityFactory = new EntityFactory(this);
@@ -182,6 +190,14 @@ export class MainScene extends Phaser.Scene {
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50, 0);
     this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50, 0);
     this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90, 0);
+
+    // Spawn a squad of Archers
+    for (let i = 0; i < 5; i++) {
+      this.entityFactory.spawnUnit(UnitType.ARCHER, centerX - 60 + (i * 15), centerY + 80, 0);
+    }
+
+    // DEBUG: Spawn Enemy Barracks for Target Practice
+    this.entityFactory.spawnBuilding(BuildingType.BARRACKS, centerX + 300, centerY, 1);
 
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
