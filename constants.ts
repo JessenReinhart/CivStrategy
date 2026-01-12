@@ -1,6 +1,4 @@
 
-
-
 import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats } from "./types";
 
 export const TILE_SIZE = 32;
@@ -181,5 +179,6 @@ export const EVENTS = {
   CENTER_CAMERA: 'center-camera',
   SET_GAME_SPEED: 'set-game-speed',
   MINIMAP_CLICK: 'minimap-click',
-  DEMOLISH_SELECTED: 'demolish-selected'
+  DEMOLISH_SELECTED: 'demolish-selected',
+  SET_BLOOM_INTENSITY: 'set-bloom-intensity'
 };

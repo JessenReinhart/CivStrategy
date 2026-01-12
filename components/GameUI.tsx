@@ -203,6 +203,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         )}
                     </div>
 
+
                     {/* Menu Toggle */}
                     <button
                         onClick={() => setShowMenu(!showMenu)}
@@ -214,7 +215,27 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                 {/* Menu Dropdown */}
                 {showMenu && (
-                    <div className="flex flex-col gap-2 w-40 animate-in slide-in-from-top-2 fade-in duration-200">
+                    <div className="flex flex-col gap-2 w-48 animate-in slide-in-from-top-2 fade-in duration-200">
+                        {/* Bloom Intensity Slider in Menu */}
+                        <div className="p-4 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl flex flex-col gap-2">
+                            <div className="flex justify-between items-center text-[10px] font-bold text-stone-400 uppercase tracking-widest">
+                                <span>Bloom Strength</span>
+                                <span className="text-amber-400">{Math.round(stats.bloomIntensity * 100)}%</span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0"
+                                max="3"
+                                step="0.1"
+                                value={stats.bloomIntensity}
+                                onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    window.dispatchEvent(new CustomEvent('set-bloom-intensity-ui', { detail: val }));
+                                }}
+                                className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                            />
+                        </div>
+
                         <button onClick={onQuit} className="flex items-center gap-3 px-4 py-3 bg-red-900/80 backdrop-blur hover:bg-red-800 text-red-100 rounded-xl border border-red-700/50 shadow-xl transition-all font-bold text-sm">
                             <LogOut size={16} />
                             Quit Game

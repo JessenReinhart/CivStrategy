@@ -32,7 +32,8 @@ const App: React.FC = () => {
     taxRate: 0,
     mapMode: MapMode.FIXED,
     peacefulMode: false,
-    treatyTimeRemaining: 0
+    treatyTimeRemaining: 0,
+    bloomIntensity: 1.0
   });
   const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
@@ -68,7 +69,8 @@ const App: React.FC = () => {
       taxRate: 0,
       mapMode: MapMode.FIXED,
       peacefulMode: false,
-      treatyTimeRemaining: 0
+      treatyTimeRemaining: 0,
+      bloomIntensity: 1.0
     });
   };
 
@@ -128,10 +130,15 @@ const App: React.FC = () => {
       const customEvent = e as CustomEvent;
       gameInstance.events.emit(EVENTS.SET_GAME_SPEED, customEvent.detail);
     };
+    const bloomHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit(EVENTS.SET_BLOOM_INTENSITY, customEvent.detail);
+    };
 
     window.addEventListener('set-tax-rate-ui', taxHandler);
     window.addEventListener('center-camera-ui', centerCameraHandler);
     window.addEventListener('set-game-speed-ui', speedHandler);
+    window.addEventListener('set-bloom-intensity-ui', bloomHandler);
 
     return () => {
       if (gameInstance) {
@@ -142,6 +149,7 @@ const App: React.FC = () => {
       window.removeEventListener('set-tax-rate-ui', taxHandler);
       window.removeEventListener('center-camera-ui', centerCameraHandler);
       window.removeEventListener('set-game-speed-ui', speedHandler);
+      window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
     };
   }, [gameInstance]);
 
