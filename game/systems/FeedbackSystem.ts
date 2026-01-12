@@ -1,4 +1,3 @@
-import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 

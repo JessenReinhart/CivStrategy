@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
-import { BUILDINGS, EVENTS, INITIAL_RESOURCES, MAP_SIZES, TILE_SIZE, FACTION_COLORS } from '../constants';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize } from '../types';
-import { toIso, toCartesian } from './utils/iso';
+import { toIso } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -122,7 +122,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('smoke', 'https://labs.phaser.io/assets/particles/smoke-puff.png');
   }
 
-  init(data: any) {
+  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
@@ -130,8 +130,8 @@ export class MainScene extends Phaser.Scene {
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
 
     // Pick a random enemy faction that is NOT the player's faction
-    const allFactions = Object.values(FactionType);
-    const available = allFactions.filter(f => f !== this.faction);
+    const allFactions = Object.values(FactionType) as FactionType[];
+    const available = allFactions.filter((f) => f !== this.faction);
     this.enemyFaction = available[Phaser.Math.Between(0, available.length - 1)];
 
     if (this.mapMode === MapMode.FIXED) {
@@ -177,8 +177,8 @@ export class MainScene extends Phaser.Scene {
     this.treeVisuals = this.add.group(); // Visual pool
 
     // Hook into tree group to maintain spatial hash
-    this.trees.on('create', (item: any) => this.treeSpatialHash.insert(item));
-    this.trees.on('remove', (item: any) => this.treeSpatialHash.remove(item));
+    this.trees.on('create', (item: Phaser.GameObjects.GameObject) => this.treeSpatialHash.insert(item));
+    this.trees.on('remove', (item: Phaser.GameObjects.GameObject) => this.treeSpatialHash.remove(item));
 
 
     this.unitSystem = new UnitSystem(this);
@@ -222,7 +222,7 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#0d1117');
 
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as any;
+    this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key; };
 
     this.debugText = this.add.text(10, 80, '', {
       font: '14px monospace', color: '#00ff00', backgroundColor: '#000000bb', padding: { x: 10, y: 10 }
@@ -262,7 +262,7 @@ export class MainScene extends Phaser.Scene {
   private lastTcIndex = -1;
 
   public centerCameraOnTownCenter() {
-    const tcs = this.buildings.getChildren().filter((b: any) =>
+    const tcs = this.buildings.getChildren().filter((b: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
       b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
     ) as Phaser.GameObjects.Rectangle[];
     if (tcs.length === 0) return;
@@ -286,13 +286,13 @@ export class MainScene extends Phaser.Scene {
     this.gameTime += dt;
 
     if (this.debugMode) {
-      const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
+      // const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
       this.debugText.setText([
         `FPS: ${this.game.loop.actualFps.toFixed(1)}`,
         `Speed: ${this.gameSpeed}x`,
         // Fix: Cast GameObject to any to access 'visible' property for debug HUD reporting
-        `Units: ${this.units.getLength()} | Visible: ${this.units.getChildren().filter(u => (u as any).visible).length}`,
-        `Trees: ${this.trees.getLength()} | Visible: ${this.trees.getChildren().filter(t => (t as any).visible).length}`,
+        `Units: ${this.units.getLength()} | Visible: ${this.units.getChildren().filter(u => (u as unknown as Phaser.GameObjects.Components.Visible).visible).length}`,
+        `Trees: ${this.trees.getLength()} | Visible: ${this.trees.getChildren().filter(t => (t as unknown as Phaser.GameObjects.Components.Visible).visible).length}`,
         `AI: ${this.enemyAI.getDebugInfo()}`
       ]);
     }
@@ -346,7 +346,7 @@ export class MainScene extends Phaser.Scene {
   handleSoldierSpawnRequest() {
 
     if (this.resources.food >= 100 && this.resources.gold >= 50) {
-      const barracks = this.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
+      const barracks = this.buildings.getChildren().filter((b) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
       if (barracks.length > 0) {
         const spawnSource = barracks[Phaser.Math.Between(0, barracks.length - 1)];
         this.resources.food -= 100;
@@ -363,18 +363,21 @@ export class MainScene extends Phaser.Scene {
   }
 
   syncVisuals() {
-    this.units.getChildren().forEach((u: any) => {
-      // Fix: Use any-cast to safely check 'visible' property on generic units
-      if (u.visual && (u as any).visible) {
-        const iso = toIso(u.x, u.y);
-        u.visual.setPosition(iso.x, iso.y);
-        u.visual.setDepth(iso.y);
+    this.units.getChildren().forEach((u) => {
+      // Fix: Use any-cast to safely check 'visible' property
+      const unit = u as Phaser.GameObjects.Sprite;
+      const visual = (u as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (visual && (visual as Phaser.GameObjects.Components.Visible).visible) {
+        const iso = toIso(unit.x, unit.y);
+        visual.setPosition(iso.x, iso.y);
+        visual.setDepth(iso.y);
       }
     });
-    this.buildings.getChildren().forEach((b: any) => {
-      if (b.visual) {
-        const iso = toIso(b.x, b.y);
-        b.visual.setDepth(iso.y);
+    this.buildings.getChildren().forEach((b) => {
+      const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (visual) {
+        const iso = toIso((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
+        visual.setDepth(iso.y);
       }
     });
   }

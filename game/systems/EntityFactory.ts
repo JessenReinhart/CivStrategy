@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FactionType } from '../../types';
-import { BUILDINGS, FACTION_COLORS, TILE_SIZE, UNIT_STATS } from '../../constants';
+import { BUILDINGS, UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class EntityFactory {
@@ -80,20 +80,20 @@ export class EntityFactory {
         visual.setData('hpBar', hpBar);
 
         this.scene.add.existing(visual);
-        (b as any).visual = visual;
+        (b as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         const iso = toIso(x, y);
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
         visual.setInteractive(new Phaser.Geom.Rectangle(-def.width / 2, -def.height, def.width, def.height), Phaser.Geom.Rectangle.Contains);
         visual.setData('building', b);
 
         // Building selection method with pulsing glow effect
-        (b as any).setSelected = (selected: boolean) => {
-            (b as any).isSelected = selected;
+        (b as any).setSelected = (selected: boolean) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            (b as any).isSelected = selected; // eslint-disable-line @typescript-eslint/no-explicit-any
             const hpBar = visual.getData('hpBar') as Phaser.GameObjects.Container;
             if (hpBar) hpBar.setVisible(selected || b.getData('hp') < b.getData('maxHp'));
 
             if (selected) {
-                this.startGlowEffect(visual, def);
+                this.startGlowEffect(visual);
             } else {
                 this.stopGlowEffect(visual);
             }
@@ -104,7 +104,7 @@ export class EntityFactory {
             if (def.happinessBonus) this.scene.happiness += def.happinessBonus;
         }
 
-        (b as any).takeDamage = (amount: number) => this.handleDamage(b, amount, false);
+        (b as any).takeDamage = (amount: number) => this.handleDamage(b, amount, false); // eslint-disable-line @typescript-eslint/no-explicit-any
         return b;
     }
 
@@ -116,7 +116,7 @@ export class EntityFactory {
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
         unit.setData({ owner, unitType: type, hp: stats.maxHp, maxHp: stats.maxHp, attack: stats.attack, range: stats.range, attackSpeed: stats.attackSpeed });
-        (unit as any).lastAttackTime = 0;
+        (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
         this.scene.units.add(unit);
 
         // Increment population for player-owned units (but not animals)
@@ -136,7 +136,7 @@ export class EntityFactory {
             visual.add(gfx);
             visual.setScale(0.8);
         } else {
-            visual.setVisible(false);
+            // visual.setVisible(false);
         }
 
         if (stats.squadSize === 1) {
@@ -144,22 +144,22 @@ export class EntityFactory {
         }
 
         this.scene.add.existing(visual);
-        (unit as any).visual = visual;
-        (unit as any).unitType = type;
+        (unit as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+        (unit as any).unitType = type; // eslint-disable-line @typescript-eslint/no-explicit-any
 
         // CRITICAL FIX: Make unit visual click-able for selection/targeting
         visual.setInteractive(new Phaser.Geom.Circle(0, -10, 15), Phaser.Geom.Circle.Contains);
         visual.setData('unit', unit);
 
-        (unit as any).state = UnitState.IDLE;
-        (unit as any).setSelected = (selected: boolean) => {
-            (unit as any).isSelected = selected;
+        (unit as any).state = UnitState.IDLE; // eslint-disable-line @typescript-eslint/no-explicit-any
+        (unit as any).setSelected = (selected: boolean) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            (unit as any).isSelected = selected; // eslint-disable-line @typescript-eslint/no-explicit-any
             const hpBar = visual.getData('hpBar');
             if (hpBar) hpBar.setVisible(selected || unit.getData('hp') < unit.getData('maxHp'));
         };
 
         if (stats.squadSize > 1) this.scene.squadSystem.createSquad(unit, type, owner);
-        (unit as any).takeDamage = (amount: number) => this.handleDamage(unit, amount, true);
+        (unit as any).takeDamage = (amount: number) => this.handleDamage(unit, amount, true); // eslint-disable-line @typescript-eslint/no-explicit-any
         return unit;
     }
 
@@ -177,7 +177,7 @@ export class EntityFactory {
         const maxHp = entity.getData('maxHp');
         hp -= amount;
         entity.setData('hp', hp);
-        const visual = (entity as any).visual as Phaser.GameObjects.Container;
+        const visual = (entity as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (visual && visual.getData('hpBar')) {
             const hpBar = visual.getData('hpBar') as Phaser.GameObjects.Container;
             hpBar.setVisible(true);
@@ -189,11 +189,11 @@ export class EntityFactory {
             if (isUnit) { this.scene.squadSystem.destroySquad(entity); if (entity.getData('owner') === 0) this.scene.population--; }
             else {
                 const def = entity.getData('def');
-                this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false);
+                this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
 
                 // Trigger explosion effect
-                const iso = toIso((entity as any).x, (entity as any).y);
+                const iso = toIso((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.scene.buildingManager.emitExplosionParticles(iso.x, iso.y, def.width);
             }
             if (visual) visual.destroy();
@@ -217,6 +217,7 @@ export class EntityFactory {
         treeBase.setData('isChopped', false);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     public updateTreeVisual(tree: any, isChopped: boolean) {
         tree.setData('isChopped', isChopped);
 
@@ -264,7 +265,7 @@ export class EntityFactory {
         gfx.fillStyle(0x15803d).fillCircle(0, -4, 6);
     }
 
-    private startGlowEffect(visual: Phaser.GameObjects.Container, def: BuildingDef) {
+    private startGlowEffect(visual: Phaser.GameObjects.Container) {
         // Remove any existing glow
         this.stopGlowEffect(visual);
 

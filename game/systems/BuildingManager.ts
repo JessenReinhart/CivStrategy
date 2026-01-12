@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
-import { BUILDINGS, EVENTS, TILE_SIZE, FACTION_COLORS } from '../../constants';
+import { BUILDINGS, EVENTS, TILE_SIZE } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
 
 export class BuildingManager {
@@ -67,8 +67,8 @@ export class BuildingManager {
             this.scene.input.setDefaultCursor('crosshair');
         } else {
             this.scene.input.setDefaultCursor('default');
-            this.scene.buildings.getChildren().forEach((b: any) => {
-                const visual = b.visual as Phaser.GameObjects.Container;
+            this.scene.buildings.getChildren().forEach((b) => {
+                const visual = (b as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (visual) {
                     const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
                     if (highlight) {
@@ -118,9 +118,11 @@ export class BuildingManager {
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
         if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
             const range = def.effectRadius || 200;
-            this.scene.trees.getChildren().forEach((t: any) => {
-                if (Phaser.Math.Distance.Between(cx, cy, t.x, t.y) <= range) {
-                    const isoT = toIso(t.x, t.y);
+            this.scene.trees.getChildren().forEach((t) => {
+                const tx = (t as Phaser.GameObjects.Image).x;
+                const ty = (t as Phaser.GameObjects.Image).y;
+                if (Phaser.Math.Distance.Between(cx, cy, tx, ty) <= range) {
+                    const isoT = toIso(tx, ty);
                     this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.8);
                     this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
                 }
@@ -139,7 +141,7 @@ export class BuildingManager {
         const cy = gy + def.height / 2;
 
         if (this.checkBuildValidity(cx, cy, this.previewBuildingType)) {
-            const building = this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
+            this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
 
             // Juice: Screen shake (subtle)
             this.scene.cameras.main.shake(80, 0.003);
@@ -171,10 +173,10 @@ export class BuildingManager {
         }
 
         let inTerritory = false;
-        this.scene.buildings.getChildren().forEach((b: any) => {
+        this.scene.buildings.getChildren().forEach((b) => {
             const bDef = b.getData('def') as BuildingDef;
             if (bDef.territoryRadius) {
-                const dist = Phaser.Math.Distance.Between(x, y, b.x, b.y);
+                const dist = Phaser.Math.Distance.Between(x, y, (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
                 if (dist <= bDef.territoryRadius) inTerritory = true;
             }
         });
@@ -182,16 +184,16 @@ export class BuildingManager {
 
         const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
         let overlaps = false;
-        this.scene.buildings.getChildren().forEach((b: any) => {
-            if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, b.getBounds())) {
+        this.scene.buildings.getChildren().forEach((b) => {
+            if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, (b as Phaser.GameObjects.Image).getBounds())) {
                 overlaps = true;
             }
         });
         if (overlaps) return false;
 
         let treeOverlap = false;
-        this.scene.trees.getChildren().forEach((t: any) => {
-            if (bounds.contains(t.x, t.y)) treeOverlap = true;
+        this.scene.trees.getChildren().forEach((t) => {
+            if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) treeOverlap = true;
         });
         if (treeOverlap) return false;
 
@@ -199,8 +201,8 @@ export class BuildingManager {
     }
 
     public handleDemolishHover(pointer: Phaser.Input.Pointer) {
-        this.scene.buildings.getChildren().forEach((b: any) => {
-            const visual = b.visual as Phaser.GameObjects.Container;
+        this.scene.buildings.getChildren().forEach((b) => {
+            const visual = (b as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (visual) {
                 const highlight = visual.getData('demolishHighlight') as Phaser.GameObjects.Graphics;
                 if (highlight) {
@@ -211,6 +213,7 @@ export class BuildingManager {
         });
 
         const targets = this.scene.input.hitTestPointer(pointer);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building')) as Phaser.GameObjects.Container | undefined;
 
         if (buildingVisual) {
@@ -231,6 +234,7 @@ export class BuildingManager {
 
     public handleDemolishClick(pointer: Phaser.Input.Pointer) {
         const targets = this.scene.input.hitTestPointer(pointer);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
         if (buildingVisual) {
             const b = buildingVisual.getData('building');
@@ -267,7 +271,7 @@ export class BuildingManager {
         const iso = toIso(logic.x, logic.y);
         this.emitExplosionParticles(iso.x, iso.y, def.width);
 
-        const visual = (b as any).visual;
+        const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (visual) visual.destroy();
         b.destroy();
 
@@ -279,7 +283,7 @@ export class BuildingManager {
         this.scene.economySystem.updateStats();
     }
 
-    public emitExplosionParticles(isoX: number, isoY: number, buildingWidth: number) {
+    public emitExplosionParticles(isoX: number, isoY: number, _buildingWidth: number) {
         // Larger, more dramatic explosion for demolition/destruction
         const count = 30;
         const emitter = this.scene.add.particles(isoX, isoY, 'smoke', {
@@ -348,7 +352,7 @@ export class BuildingManager {
 
         let regrownCount = 0;
         this.scene.trees.getChildren().forEach((tObj: Phaser.GameObjects.GameObject) => {
-            const t = tObj as any;
+            const t = tObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (t.getData('isChopped')) {
                 if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < (def.effectRadius || 200)) {
                     this.scene.entityFactory.updateTreeVisual(t, false);
@@ -387,7 +391,7 @@ export class BuildingManager {
         });
     }
 
-    private emitDustParticles(isoX: number, isoY: number, buildingWidth: number) {
+    public emitDustParticles(isoX: number, isoY: number, buildingWidth: number) {
         // Smoke poof from 8 points around building - like building dropped from sky
         const offset = buildingWidth * 0.45;
         const diagOffset = offset * 0.7;

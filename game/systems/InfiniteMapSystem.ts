@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { CHUNK_SIZE, TILE_SIZE } from '../../constants';
+import { CHUNK_SIZE } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
 import { UnitType } from '../../types';
 
@@ -21,10 +21,10 @@ export class InfiniteMapSystem {
         this.lastUpdate = now;
 
         const cam = this.scene.cameras.main;
-        
+
         // Convert Camera Center (Iso) to Logic (Cartesian) to find the correct chunk
         const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
-        
+
         const chunkX = Math.floor(center.x / CHUNK_SIZE);
         const chunkY = Math.floor(center.y / CHUNK_SIZE);
 
@@ -47,8 +47,8 @@ export class InfiniteMapSystem {
         const seed = cx * 1000 + cy;
         const rng = new Phaser.Math.RandomDataGenerator([seed.toString()]);
 
-        const treeCount = rng.between(4, 12); 
-        for(let i=0; i<treeCount; i++) {
+        const treeCount = rng.between(4, 12);
+        for (let i = 0; i < treeCount; i++) {
             const tx = startX + rng.between(20, CHUNK_SIZE - 20);
             const ty = startY + rng.between(20, CHUNK_SIZE - 20);
             // Don't spawn on top of initial spawn area
@@ -65,13 +65,13 @@ export class InfiniteMapSystem {
                 this.scene.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
             }
         }
-        
+
         if (rng.frac() < 0.08) {
-            const fx = startX + CHUNK_SIZE/2;
-            const fy = startY + CHUNK_SIZE/2;
+            const fx = startX + CHUNK_SIZE / 2;
+            const fy = startY + CHUNK_SIZE / 2;
             const radius = rng.between(80, 150);
             this.scene.fertileZones.push(new Phaser.Geom.Circle(fx, fy, radius));
-            
+
             // Draw fertile zone
             const fGfx = this.scene.add.graphics();
             fGfx.setDepth(-9500);

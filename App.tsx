@@ -98,7 +98,7 @@ const App: React.FC = () => {
       setStats(newStats);
     };
 
-    const selectionHandler = (data: any) => {
+    const selectionHandler = (data: number | { count: number; counts: Record<string, number> }) => {
       // Handle both minimal (count only) and rich (object) payloads
       if (typeof data === 'number') {
         setSelectedCount(data);

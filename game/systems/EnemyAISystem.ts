@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, BuildingDef, Resources, UnitState, MapMode } from '../../types';
+import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef } from '../../types';
 import { BUILDINGS } from '../../constants';
 
 interface BlueprintItem {
@@ -59,14 +59,21 @@ export class EnemyAISystem {
         }
     }
 
-    public update(time: number, delta: number) {
+    public update(time: number, _delta: number) {
+        if (this.scene.aiDisabled) return;
+
+        // Tick AI logic every 1s
         if (time - this.lastTick > 1000) {
+            this.tickAI();
             this.lastTick = time;
-            this.tickEconomy();
-            this.tickBuild();
-            this.tickRecruit();
-            this.tickAttack();
         }
+    }
+
+    private tickAI() {
+        this.tickEconomy();
+        this.tickBuild();
+        this.tickRecruit();
+        this.tickAttack();
     }
 
     private tickEconomy() {
@@ -111,7 +118,7 @@ export class EnemyAISystem {
     }
 
     private tickRecruit() {
-        const hasBarracks = this.buildings.some(b => b && b.scene && (b as any).getData('def').type === BuildingType.BARRACKS);
+        const hasBarracks = this.buildings.some(b => b && b.scene && (b.getData('def') as BuildingDef).type === BuildingType.BARRACKS);
         if (!hasBarracks) return;
 
         if (this.resources.food >= 100 && this.resources.gold >= 50) {
@@ -134,36 +141,52 @@ export class EnemyAISystem {
         if (this.scene.gameTime < this.scene.treatyLength) return;
 
         // Get all AI units
-        const army = this.scene.units.getChildren().filter((u: any) => u.getData('owner') === 1) as Phaser.GameObjects.GameObject[];
+        const mySoldiers = this.scene.units.getChildren().filter((u) => u.getData('owner') === 1 && (u.getData('def') && (u.getData('def') as any).isMilitary)) as Phaser.GameObjects.GameObject[]; // eslint-disable-line @typescript-eslint/no-explicit-any
 
-        if (army.length > this.aggressionThreshold) {
+        const readyToAttack = mySoldiers.length >= this.aggressionThreshold;
+
+        if (readyToAttack) {
             // Find Target (Player Town Center or any building)
             if (!this.attackTarget || !this.attackTarget.scene) {
-                const playerTC = this.scene.buildings.getChildren().find((b: any) => {
+                const playerTC = this.scene.buildings.getChildren().find((b) => {
                     return b.getData('owner') === 0 && b.getData('def').type === BuildingType.TOWN_CENTER;
                 });
 
                 if (playerTC) {
                     this.attackTarget = playerTC;
 
-                    const leader = army[0] as any;
+                    const leader = mySoldiers[0] as Phaser.GameObjects.Image;
                     this.scene.feedbackSystem.showFloatingText(leader.x, leader.y, "The Boar: CRUSH THEM!", "#ef4444");
+                } else {
+                    this.attackTarget = this.findAttackTarget();
                 }
-
             }
 
             if (this.attackTarget && this.attackTarget.scene) {
                 // Command all idle units to attack
-                const idleTroops = army.filter((u: any) => (u as any).state === UnitState.IDLE);
+                const idleTroops = mySoldiers.filter((u) => (u as unknown as { state: UnitState }).state === UnitState.IDLE);
                 if (idleTroops.length > 0) {
                     this.scene.unitSystem.commandAttack(idleTroops, this.attackTarget);
                 }
             }
         } else {
-            if (army.length < 2) {
+            if (mySoldiers.length < 2) {
                 this.attackTarget = null;
             }
         }
+    }
+
+    private findAttackTarget(): Phaser.GameObjects.GameObject | null {
+        const enemyUnits = this.scene.units.getChildren().filter((u) => u.getData('owner') === 0);
+        if (enemyUnits.length > 0) {
+            return enemyUnits[Phaser.Math.Between(0, enemyUnits.length - 1)];
+        }
+
+        const enemyBuildings = this.scene.buildings.getChildren().filter((b) => b.getData('owner') === 0);
+        if (enemyBuildings.length > 0) {
+            return enemyBuildings[Phaser.Math.Between(0, enemyBuildings.length - 1)];
+        }
+        return null;
     }
 
     private canAfford(cost: { wood: number, food: number, gold: number }): boolean {
@@ -173,8 +196,8 @@ export class EnemyAISystem {
     }
 
     public getDebugInfo(): string {
-        const armySize = this.scene.units.getChildren().filter((u: any) => u.getData('owner') === 1).length;
-        const target = this.attackTarget ? (this.attackTarget as any).getData('def')?.name || "Unit" : "None";
-        return `Army: ${armySize}/${this.aggressionThreshold} | Res: ${this.resources.food}F | Target: ${target}`;
+        const armySize = this.scene.units.getChildren().filter((u) => u.getData('owner') === 1).length;
+        const target = this.attackTarget ? (this.attackTarget.getData('def') ? (this.attackTarget.getData('def') as BuildingDef).type : 'Unit') : 'None';
+        return `Res: ${this.resources.wood}/${this.resources.food} | Army: ${armySize} | Target: ${target} | State: ${this.buildIndex}/${AI_BLUEPRINT.length}`;
     }
 }
