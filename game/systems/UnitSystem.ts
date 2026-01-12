@@ -27,7 +27,7 @@ export class UnitSystem {
         }
     }
 
-    public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2) {
+    public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2, queue: boolean = false) {
         const spacing = 15;
         const formationCols = Math.ceil(Math.sqrt(units.length));
 
@@ -39,20 +39,29 @@ export class UnitSystem {
             const offsetY = (row - Math.ceil(units.length / formationCols) / 2) * spacing;
             const unitTarget = new Phaser.Math.Vector2(target.x + offsetX, target.y + offsetY);
 
-            const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), unitTarget);
+            const startPos = (queue && unit.path && unit.path.length > 0)
+                ? unit.path[unit.path.length - 1]
+                : new Phaser.Math.Vector2(unit.x, unit.y);
+
+            const path = this.scene.pathfinder.findPath(startPos, unitTarget);
             if (path) {
-                unit.path = path;
-                unit.pathStep = 0;
-                unit.pathCreatedAt = this.scene.gameTime;
-                unit.state = UnitState.IDLE;
-                unit.target = null; // Clear combat target
-                unit.body.reset(unit.x, unit.y);
+                if (queue && unit.path) {
+                    unit.path = unit.path.concat(path);
+                } else {
+                    unit.path = path;
+                    unit.pathStep = 0;
+                    unit.pathCreatedAt = this.scene.gameTime;
+                    unit.state = UnitState.IDLE;
+                    unit.target = null; // Clear combat target
+                    unit.body.reset(unit.x, unit.y);
+                }
             }
         });
 
         // Visual feedback
         const iso = toIso(target.x, target.y);
-        const circle = this.scene.add.circle(iso.x, iso.y, 5, 0xffffff);
+        const color = queue ? 0xffff00 : 0xffffff;
+        const circle = this.scene.add.circle(iso.x, iso.y, 5, color);
         circle.setScale(1, 0.5);
         circle.setDepth(iso.y);
         this.scene.tweens.add({
@@ -65,7 +74,7 @@ export class UnitSystem {
         });
     }
 
-    public commandFollowPath(units: Phaser.GameObjects.GameObject[], pathPoints: Phaser.Math.Vector2[]) {
+    public commandFollowPath(units: Phaser.GameObjects.GameObject[], pathPoints: Phaser.Math.Vector2[], queue: boolean = false) {
         if (pathPoints.length < 2) return;
 
         units.forEach((unitObj) => {
@@ -73,21 +82,23 @@ export class UnitSystem {
 
             // 1. Find path to start of drawn path
             let fullPath: Phaser.Math.Vector2[] = [];
-            const startPath = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), pathPoints[0]);
+
+            const startPos = (queue && unit.path && unit.path.length > 0)
+                ? unit.path[unit.path.length - 1]
+                : new Phaser.Math.Vector2(unit.x, unit.y);
+
+            const startPath = this.scene.pathfinder.findPath(startPos, pathPoints[0]);
             if (startPath) {
                 fullPath = startPath;
             } else {
-                // If direct path blocked, at least start from current position
-                fullPath = [new Phaser.Math.Vector2(unit.x, unit.y)];
+                // If direct path blocked, at least start from startPos
+                fullPath = [new Phaser.Math.Vector2(startPos.x, startPos.y)];
             }
 
             // 2. Add segments between drawn points, avoiding obstacles
             for (let i = 0; i < pathPoints.length - 1; i++) {
                 const segment = this.scene.pathfinder.findPath(pathPoints[i], pathPoints[i + 1]);
                 if (segment && segment.length > 0) {
-                    // Since finder currently returns [end], just push it.
-                    // If it ever returns [start, ...path], we'd want to handle that.
-                    // For now, let's be robust: if first point == last of fullPath, skip it.
                     const lastPoint = fullPath[fullPath.length - 1];
                     const startIdx = (lastPoint && Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, segment[0].x, segment[0].y) < 2) ? 1 : 0;
 
@@ -98,19 +109,24 @@ export class UnitSystem {
             }
 
             if (fullPath.length > 0) {
-                unit.path = fullPath;
-                unit.pathStep = 0;
-                unit.pathCreatedAt = this.scene.gameTime;
-                unit.state = UnitState.IDLE;
-                unit.target = null;
-                unit.body.reset(unit.x, unit.y);
+                if (queue && unit.path) {
+                    unit.path = unit.path.concat(fullPath);
+                } else {
+                    unit.path = fullPath;
+                    unit.pathStep = 0;
+                    unit.pathCreatedAt = this.scene.gameTime;
+                    unit.state = UnitState.IDLE;
+                    unit.target = null;
+                    unit.body.reset(unit.x, unit.y);
+                }
             }
         });
 
         // Visual feedback at destination
         const lastPoint = pathPoints[pathPoints.length - 1];
         const iso = toIso(lastPoint.x, lastPoint.y);
-        const circle = this.scene.add.circle(iso.x, iso.y, 5, 0x00ff00);
+        const color = queue ? 0x00ffff : 0x00ff00;
+        const circle = this.scene.add.circle(iso.x, iso.y, 5, color);
         circle.setScale(1, 0.5);
         circle.setDepth(iso.y);
         this.scene.tweens.add({

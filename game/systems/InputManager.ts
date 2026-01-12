@@ -223,7 +223,7 @@ export class InputManager {
 
             if (this.rightDragPoints.length > 1) {
                 // If we dragged, it's a path command
-                this.scene.unitSystem.commandFollowPath(this.selectedUnits, this.rightDragPoints);
+                this.scene.unitSystem.commandFollowPath(this.selectedUnits, this.rightDragPoints, pointer.event.shiftKey);
             } else {
                 // If it was just a click (or very small drag), treat as normal move
                 this.handleRightClick(pointer);
@@ -266,7 +266,7 @@ export class InputManager {
         } else {
             // Standard Move
             const cart = toCartesian(pointer.worldX, pointer.worldY);
-            this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y));
+            this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
         }
     }
 
