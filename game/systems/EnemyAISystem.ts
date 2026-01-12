@@ -39,7 +39,7 @@ export class EnemyAISystem {
 
     // Personality
     private aggressionThreshold = 8;
-    private unitPreference = UnitType.SOLDIER;
+    private unitPreference = UnitType.PIKESMAN;
     private attackTarget: Phaser.GameObjects.GameObject | null = null; // Changed to GameObject for Entity targeting
 
     private lastTick: number = 0;

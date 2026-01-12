@@ -28,7 +28,7 @@ export class SquadSystem {
 
         // Create unit indicator label (initially hidden)
         const unitName = type === UnitType.LEGION ? 'LEGION' :
-            type === UnitType.SOLDIER ? 'SOLDIERS' :
+            type === UnitType.PIKESMAN ? 'SOLDIERS' :
                 type === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
         const indicatorLabel = this.scene.add.text(0, -26, unitName, {
             fontFamily: 'Arial',
@@ -155,7 +155,7 @@ export class SquadSystem {
 
                 // Draw unit icon silhouette inside
                 gfx.fillStyle(0xffffff, 0.9);
-                if (unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.LEGION) {
+                if (unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.LEGION) {
                     // Soldier icon: body + head + spear
                     gfx.fillRect(-3, indicatorY - 8, 6, 12); // body
                     gfx.fillCircle(0, indicatorY - 12, 4); // head
@@ -184,7 +184,7 @@ export class SquadSystem {
 
                 // Unit type name below the indicator
                 const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
-                    unit.unitType === UnitType.SOLDIER ? 'SOLDIERS' :
+                    unit.unitType === UnitType.PIKESMAN ? 'SOLDIERS' :
                         unit.unitType === UnitType.ARCHER ? 'ARCHERS' :
                             unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
 
@@ -228,7 +228,7 @@ export class SquadSystem {
                 const drawX = isoSoldier.x - commanderIso.x;
                 const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
-                if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.SOLDIER || unit.unitType === UnitType.ARCHER) {
+                if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.ARCHER) {
                     gfx.fillStyle(0x000000, 0.3);
                     gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
                     gfx.fillStyle(color, 1);
