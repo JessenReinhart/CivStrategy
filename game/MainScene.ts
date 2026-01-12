@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType } from '../types';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance } from '../types';
 import { toIso } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
@@ -276,6 +276,13 @@ export class MainScene extends Phaser.Scene {
     this.game.events.on('request-set-formation', (type: FormationType) => {
       if (this.unitSystem) {
         this.unitSystem.setFormation(type);
+        this.economySystem.updateStats();
+      }
+    }, this);
+
+    this.game.events.on('request-set-stance', (stance: UnitStance) => {
+      if (this.unitSystem) {
+        this.unitSystem.setStance(stance);
         this.economySystem.updateStats();
       }
     }, this);

@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState, FormationType } from '../../types';
+import { UnitType, UnitState, FormationType, UnitStance, GameUnit } from '../../types';
 import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
@@ -12,6 +12,7 @@ export class UnitSystem {
     private debugGraphics: Phaser.GameObjects.Graphics;
 
     public currentFormation: FormationType = FormationType.BOX;
+    public currentStance: UnitStance = UnitStance.AGGRESSIVE;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -58,7 +59,7 @@ export class UnitSystem {
         }
 
         units.forEach((unitObj, index) => {
-            const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            const unit = unitObj as GameUnit;
 
             // Apply Squad Formation (Individual Soldiers)
             // This ensures soldiers inside the unit also follow the chosen pattern
@@ -90,7 +91,9 @@ export class UnitSystem {
                     unit.pathCreatedAt = this.scene.gameTime;
                     unit.state = UnitState.IDLE;
                     unit.target = null; // Clear combat target
-                    unit.body.reset(unit.x, unit.y);
+                    (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
+                    // Update Anchor for Defensive stance
+                    unit.setData('anchor', { x: target.x, y: target.y });
                 }
             }
         });
@@ -154,7 +157,7 @@ export class UnitSystem {
                     unit.pathCreatedAt = this.scene.gameTime;
                     unit.state = UnitState.IDLE;
                     unit.target = null;
-                    unit.body.reset(unit.x, unit.y);
+                    (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
                 }
             }
         });
@@ -174,6 +177,31 @@ export class UnitSystem {
             duration: 500,
             onComplete: () => circle.destroy()
         });
+    }
+
+    public setStance(stance: UnitStance) {
+        this.currentStance = stance;
+        // Optional: Update selected units? For now just sets default for future training (if applicable) 
+        // or user might want to simple Toggle checking logic. 
+        // Usually, in RTS, you select units -> click 'Stand Ground' -> updates those units.
+        const selected = this.scene.inputManager.selectedUnits; // Assuming MainScene has this or we iterate
+        if (selected && selected.length > 0) {
+            selected.forEach(obj => {
+                const u = obj as Phaser.GameObjects.Image;
+                u.setData('stance', stance);
+                // If switching to HOLD, stop moving if chasing?
+                if (stance === UnitStance.HOLD && ((u as GameUnit).state === UnitState.CHASING)) {
+                    (u as GameUnit).state = UnitState.IDLE;
+                    (u as GameUnit).target = null;
+                    const body = u.body as Phaser.Physics.Arcade.Body;
+                    if (body) body.setVelocity(0, 0);
+                }
+                // Update anchor to current position if switching to Defensive/Hold?
+                // Usually anchor is set where they were last ordered to move. 
+                // If I toggle Defensive now, anchor should probably be *here*.
+                u.setData('anchor', { x: u.x, y: u.y });
+            });
+        }
     }
 
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
@@ -200,7 +228,7 @@ export class UnitSystem {
                 unit.target = target;
                 unit.state = UnitState.CHASING;
                 unit.path = null; // Clear old move path
-                unit.body.reset(unit.x, unit.y);
+                (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
             } else {
                 // console.log(`Unit ${unit.unitType} CANNOT attack.`);
             }
@@ -223,7 +251,7 @@ export class UnitSystem {
 
     private updateUnitLogic(time: number, _delta: number) {
         this.scene.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
-            const unit = item as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            const unit = item as GameUnit;
             const body = unit.body as Phaser.Physics.Arcade.Body;
 
             if (!body) return;
@@ -233,33 +261,13 @@ export class UnitSystem {
                 if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
                     unit.state = UnitState.IDLE;
                     unit.target = null;
-                    body.setVelocity(0, 0);
+                    (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
                 }
             }
 
             // Combat State Logic
             if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
                 this.handleCombatState(unit, time);
-            }
-            // --- ANIMAL WANDERING AI ---
-            else if (unit.unitType === UnitType.ANIMAL) {
-                if (body.velocity.length() > 0) {
-                    const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
-                    if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
-                        body.setVelocity(0, 0);
-                        unit.state = UnitState.IDLE;
-                    }
-                } else if (Math.random() < 0.005) {
-                    const wanderRadius = 100;
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = Math.random() * wanderRadius;
-                    const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
-                    const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
-
-                    unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
-                    this.scene.physics.moveTo(unit, tx, ty, 20);
-                    unit.state = UnitState.WANDERING;
-                }
             }
             // --- PATH FOLLOWING ---
             else if (unit.path && unit.path.length > 0) {
@@ -283,7 +291,32 @@ export class UnitSystem {
                     const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
                     this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
                 }
-            } else {
+            }
+            // --- ANIMAL WANDERING AI ---
+            else if (unit.unitType === UnitType.ANIMAL) {
+                if (body.velocity.length() > 0) {
+                    const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
+                    if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
+                        body.setVelocity(0, 0);
+                        unit.state = UnitState.IDLE;
+                    }
+                } else if (Math.random() < 0.005) {
+                    const wanderRadius = 100;
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = Math.random() * wanderRadius;
+                    const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
+                    const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
+
+                    unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
+                    this.scene.physics.moveTo(unit, tx, ty, 20);
+                    unit.state = UnitState.WANDERING;
+                }
+            }
+            else if (unit.state === UnitState.IDLE) {
+                // Auto-Targeting
+                this.scanForTargets(unit, time);
+            }
+            else {
                 if (body.velocity.length() > 0) body.setVelocity(0, 0);
             }
         });
@@ -305,24 +338,126 @@ export class UnitSystem {
         });
     }
 
-    private handleCombatState(unit: any, time: number) { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const target = unit.target;
+    private scanForTargets(unit: GameUnit, time: number) {
+        // Throttle scanning: Only scan periodically (e.g. every 10 ticks or based on ID)
+        // Simple optimization: check (time + unitID) % 500 < delta
+        if (time % 500 > 20) return; // Check roughly every 0.5s
+
+        // Only combat units should auto-target
+        const isCombatUnit = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType);
+        if (!isCombatUnit) return;
+
+        const stance = unit.getData('stance') as UnitStance || UnitStance.AGGRESSIVE;
+        const visionRange = 250; // Scan range
+        const myOwner = unit.getData('owner');
+
+        // Find closest enemy
+        let closest: Phaser.GameObjects.GameObject | null = null;
+        let closestDist = visionRange;
+
+        // 1. Scan Units
+        this.scene.units.getChildren().forEach((other: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (other === unit) return;
+            if (other.getData('owner') !== myOwner && other.getData('hp') > 0) {
+                const dist = Phaser.Math.Distance.Between(unit.x, unit.y, other.x, other.y);
+                if (dist < closestDist) {
+                    // Visibility check could go here (e.g. Fog of War)
+                    closest = other;
+                    closestDist = dist;
+                }
+            }
+        });
+
+        // 2. Scan Buildings (if no unit found or strict priority?)
+        // Usually units prioritize units.
+        if (!closest) {
+            this.scene.buildings.getChildren().forEach((b: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                if (b.getData('owner') !== myOwner && b.getData('hp') > 0) {
+                    const dist = Phaser.Math.Distance.Between(unit.x, unit.y, b.x, b.y);
+                    if (dist < closestDist) {
+                        closest = b;
+                        closestDist = dist;
+                    }
+                }
+            });
+        }
+
+        if (closest) {
+            // Found target!
+            // If HOLDStance, only engage if in ATTACK range (not scan range)? 
+            // Or engage = set target. Handle movement restrictions in handleCombat.
+            // Actually, if HOLD, we shouldn't even set target if it's out of range, because setting target triggers CHASE state typically.
+
+            const range = unit.getData('range') || 40;
+            if (stance === UnitStance.HOLD && closestDist > range) {
+                return; // Ignore
+            }
+
+            // Engage
+            unit.target = closest;
+            unit.state = UnitState.CHASING; // Default to chasing, handleCombat will restriction movement if HOLD
+        }
+    }
+
+    private handleCombatState(unit: GameUnit, time: number) {
+        const target = unit.target as Phaser.GameObjects.Image; // Cast for x/y access
 
         // Target dead or destroyed
         if (!target || !target.scene) {
             unit.state = UnitState.IDLE;
             unit.target = null;
-            unit.body.setVelocity(0, 0);
+            if (unit.body) (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
             return;
         }
 
         const dist = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
         const range = unit.getData('range') || 40;
         const attackSpeed = unit.getData('attackSpeed') || 1000;
+        const stance = unit.getData('stance') as UnitStance || UnitStance.AGGRESSIVE;
+        const anchor = unit.getData('anchor') || { x: unit.x, y: unit.y };
+
+        // STANCE LOGIC: Check constraints
+        if (stance === UnitStance.DEFENSIVE) {
+            const tetherDist = Phaser.Math.Distance.Between(unit.x, unit.y, anchor.x, anchor.y);
+            if (tetherDist > 300) { // Tether Radius
+                // Too far! Give up chase.
+                unit.target = null;
+                unit.state = UnitState.IDLE; // Next loop will path back? 
+                // Force move back to anchor
+                this.scene.physics.moveTo(unit, anchor.x, anchor.y, UNIT_SPEED[unit.unitType as UnitType] || 100);
+                // We need a state for "Return to Anchor" so we don't scan immediately
+                // But for now, returning to IDLE with velocity might just drift.
+                // Better: commandMove them back?
+                // Or just set path.
+                const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), new Phaser.Math.Vector2(anchor.x, anchor.y));
+                if (path) {
+                    unit.path = path;
+                    unit.pathStep = 0;
+                    unit.pathCreatedAt = time;
+                }
+                return;
+            }
+        }
+        else if (stance === UnitStance.HOLD) {
+            // Ensure we don't move.
+            // If target is out of range, drop it? Or just stand there?
+            // "Hold Place" - attack if in range.
+            if (dist > range) {
+                // Out of range. Stop trying to chase.
+                (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+                // If we were attacking, we stop.
+                // We keep target? No, if we keep target, we stay in CombatState.
+                // If we drop target, we scan again.
+                // If enemy is just outside range, we might toggle target/no-target. This is fine.
+                unit.target = null;
+                unit.state = UnitState.IDLE;
+                return;
+            }
+        }
 
         // Attack Logic
         if (dist <= range) {
-            unit.body.setVelocity(0, 0);
+            (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
             unit.state = UnitState.ATTACKING;
 
             const now = time;
@@ -336,13 +471,22 @@ export class UnitSystem {
             }
         } else {
             // Chase Logic
-            unit.state = UnitState.CHASING;
-            const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
-            this.scene.physics.moveTo(unit, target.x, target.y, speed);
+            if (stance === UnitStance.HOLD) {
+                // Do NOT move
+                (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+                // Drop target since we can't reach it
+                unit.target = null;
+                unit.state = UnitState.IDLE;
+            } else {
+                unit.state = UnitState.CHASING;
+                const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+                this.scene.physics.moveTo(unit, target.x, target.y, speed);
+            }
         }
     }
 
-    private performAttack(unit: any, target: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    private performAttack(unit: GameUnit, targetObj: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const target = targetObj as GameUnit;
         let dmg = unit.getData('attack') || 10;
         const formation = unit.getData('formation') as FormationType || FormationType.BOX;
         // Apply Formation Attack Bonus

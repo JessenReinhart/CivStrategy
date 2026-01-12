@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType } from '../../types';
+import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType, UnitStance } from '../../types';
 import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
 import { toIso } from '../utils/iso';
 
@@ -147,7 +147,17 @@ export class EntityFactory {
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
-        unit.setData({ owner, unitType: type, hp: stats.maxHp, maxHp: stats.maxHp, attack: stats.attack, range: stats.range, attackSpeed: stats.attackSpeed });
+        unit.setData({
+            owner,
+            unitType: type,
+            hp: stats.maxHp,
+            maxHp: stats.maxHp,
+            attack: stats.attack,
+            range: stats.range,
+            attackSpeed: stats.attackSpeed,
+            stance: UnitStance.AGGRESSIVE, // Default stance
+            anchor: { x: x, y: y }         // Default anchor
+        });
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
         this.scene.units.add(unit);
 

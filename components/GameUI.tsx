@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameStats, BuildingType, MapMode, UnitType, FormationType } from '../types';
+import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
@@ -9,7 +9,7 @@ import {
     Target, LogOut, Handshake, Clock,
     Menu, FastForward, Flame, Flower,
     X, Shield, Crown,
-    Grid, Minus, Circle, Activity, Triangle
+    Grid, Minus, Circle, Activity, Triangle, Hand
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -398,6 +398,12 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             <FormationButton type={FormationType.SKIRMISH} current={stats.currentFormation} icon={<Activity size={16} />} />
                                             <FormationButton type={FormationType.WEDGE} current={stats.currentFormation} icon={<Triangle size={16} />} />
                                         </div>
+                                        {/* STANCE CONTROLS */}
+                                        <div className="flex gap-1 bg-black/40 p-1 rounded-lg mt-1">
+                                            <StanceButton type={UnitStance.AGGRESSIVE} current={stats.currentStance} icon={<Sword size={16} />} />
+                                            <StanceButton type={UnitStance.DEFENSIVE} current={stats.currentStance} icon={<Shield size={16} />} />
+                                            <StanceButton type={UnitStance.HOLD} current={stats.currentStance} icon={<Hand size={16} />} />
+                                        </div>
                                         <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
                                             Right Click to Move
                                         </div>
@@ -634,6 +640,29 @@ const FormationButton: React.FC<{ type: FormationType, current: FormationType, i
                 : 'bg-white/5 border-white/10 text-stone-400 hover:bg-white/10 hover:text-stone-200'
                 }`}
             title={`Set Formation: ${type}`}
+        >
+            {icon}
+        </button>
+    );
+};
+
+const StanceButton: React.FC<{ type: UnitStance, current: UnitStance, icon: React.ReactNode }> = ({ type, current, icon }) => {
+    const isActive = type === current;
+    // Helper to map enum number to string or readable name
+    const labels = {
+        [UnitStance.AGGRESSIVE]: 'Aggressive',
+        [UnitStance.DEFENSIVE]: 'Defensive',
+        [UnitStance.HOLD]: 'Hold'
+    };
+
+    return (
+        <button
+            onClick={() => window.dispatchEvent(new CustomEvent('request-set-stance-ui', { detail: type }))}
+            className={`p-1.5 rounded-lg border transition-all ${isActive
+                ? 'bg-red-600 border-red-500 text-white shadow'
+                : 'bg-white/5 border-white/10 text-stone-400 hover:bg-white/10 hover:text-stone-200'
+                }`}
+            title={`Set Stance: ${labels[type]}`}
         >
             {icon}
         </button>

@@ -3,7 +3,7 @@ import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
-import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType } from './types';
+import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType, UnitStance } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
@@ -34,7 +34,8 @@ const App: React.FC = () => {
     peacefulMode: false,
     treatyTimeRemaining: 0,
     bloomIntensity: 1.0,
-    currentFormation: FormationType.BOX
+    currentFormation: FormationType.BOX,
+    currentStance: UnitStance.AGGRESSIVE
   });
   const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
@@ -72,7 +73,8 @@ const App: React.FC = () => {
       peacefulMode: false,
       treatyTimeRemaining: 0,
       bloomIntensity: 1.0,
-      currentFormation: FormationType.BOX
+      currentFormation: FormationType.BOX,
+      currentStance: UnitStance.AGGRESSIVE
     });
   };
 
@@ -140,12 +142,17 @@ const App: React.FC = () => {
       const customEvent = e as CustomEvent;
       gameInstance.events.emit('request-set-formation', customEvent.detail);
     };
+    const stanceHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit('request-set-stance', customEvent.detail);
+    };
 
     window.addEventListener('set-tax-rate-ui', taxHandler);
     window.addEventListener('center-camera-ui', centerCameraHandler);
     window.addEventListener('set-game-speed-ui', speedHandler);
     window.addEventListener('set-bloom-intensity-ui', bloomHandler);
     window.addEventListener('request-set-formation-ui', formationHandler);
+    window.addEventListener('request-set-stance-ui', stanceHandler);
 
     return () => {
       if (gameInstance) {
@@ -159,6 +166,7 @@ const App: React.FC = () => {
       window.removeEventListener('set-game-speed-ui', speedHandler);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
       window.removeEventListener('request-set-formation-ui', formationHandler);
+      window.removeEventListener('request-set-stance-ui', stanceHandler);
     };
   }, [gameInstance]);
 
