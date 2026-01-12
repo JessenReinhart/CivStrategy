@@ -5,11 +5,10 @@ import { BUILDINGS, EVENTS } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
-    Rabbit, Sprout, AlertTriangle,
-    Map as MapIcon, Infinity as InfinityIcon,
+    Rabbit, Sprout,
     Target, LogOut, Handshake, Clock,
-    Menu, Play, FastForward, Flame, Flower,
-    X, ChevronUp, Shield, Crown
+    Menu, FastForward, Flame, Flower,
+    X, Shield, Crown
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -82,10 +81,11 @@ export const GameUI: React.FC<GameUIProps> = ({
 
     // Close build menu when selecting something
     useEffect(() => {
-        if (selectedCount > 0 || selectedBuildingType) {
-            setActiveCategory(null);
+        if ((selectedCount > 0 || selectedBuildingType) && activeCategory !== null) {
+            const timer = setTimeout(() => setActiveCategory(null), 0);
+            return () => clearTimeout(timer);
         }
-    }, [selectedCount, selectedBuildingType]);
+    }, [selectedCount, selectedBuildingType, activeCategory]);
 
     const hasSelection = selectedCount > 0 || selectedBuildingType !== null;
 
@@ -413,7 +413,13 @@ export const GameUI: React.FC<GameUIProps> = ({
 
 // --- SUBCOMPONENTS ---
 
-const ResourceItem = ({ icon, value, sub }: any) => (
+interface ResourceItemProps {
+    icon: React.ReactNode;
+    value: React.ReactNode;
+    sub?: string;
+}
+
+const ResourceItem: React.FC<ResourceItemProps> = ({ icon, value, sub }) => (
     <div className="flex items-center gap-2">
         <div className="flex items-center justify-center">
             {icon}
@@ -425,7 +431,14 @@ const ResourceItem = ({ icon, value, sub }: any) => (
     </div>
 );
 
-const DockButton = ({ isActive, onClick, icon, label }: any) => (
+interface DockButtonProps {
+    isActive: boolean;
+    onClick: () => void;
+    icon: React.ReactNode;
+    label: string;
+}
+
+const DockButton: React.FC<DockButtonProps> = ({ isActive, onClick, icon, label }) => (
     <button
         onClick={onClick}
         className={`relative group p-3 rounded-xl transition-all duration-300 flex items-center gap-2
@@ -440,7 +453,14 @@ const DockButton = ({ isActive, onClick, icon, label }: any) => (
     </button>
 );
 
-const ActionButton = ({ onClick, icon, label, color }: any) => (
+interface ActionButtonProps {
+    onClick: () => void;
+    icon: React.ReactNode;
+    label: string;
+    color: string;
+}
+
+const ActionButton: React.FC<ActionButtonProps> = ({ onClick, icon, label, color }) => (
     <button
         onClick={onClick}
         className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white/10 transition-colors ${color} gap-1 min-w-[60px]`}
@@ -451,10 +471,10 @@ const ActionButton = ({ onClick, icon, label, color }: any) => (
 );
 
 // Helper to generate build icons based on category
-const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: any, onSpawnUnit: any) => {
-    const list: any[] = [];
+const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: BuildingType) => void, onSpawnUnit: () => void) => {
+    const list: React.ReactNode[] = [];
 
-    const renderBuildBtn = (type: BuildingType, icon: any) => (
+    const renderBuildBtn = (type: BuildingType, icon: React.ReactNode) => (
         <BuildCard key={type} type={type} stats={stats} onClick={() => onBuild(type)} icon={icon} />
     );
 

@@ -7,7 +7,7 @@ import { toIso } from '../utils/iso';
 
 export class FogOfWarSystem {
     private scene: MainScene;
-    private screenRT: Phaser.GameObjects.RenderTexture;
+    private screenRT!: Phaser.GameObjects.RenderTexture;
     private visionBrush: Phaser.GameObjects.Image;
     private isVisible: boolean = true;
 
@@ -23,16 +23,18 @@ export class FogOfWarSystem {
 
         if (!this.scene.textures.exists(key)) {
             const canvas = this.scene.textures.createCanvas(key, radius * 2, radius * 2);
-            const ctx = canvas.context;
+            if (canvas) {
+                const ctx = canvas.context;
 
-            const grd = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
-            grd.addColorStop(0, 'rgba(0, 0, 0, 1)');
-            grd.addColorStop(0.4, 'rgba(0, 0, 0, 1)');
-            grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                const grd = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+                grd.addColorStop(0, 'rgba(0, 0, 0, 1)');
+                grd.addColorStop(0.4, 'rgba(0, 0, 0, 1)');
+                grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
-            ctx.fillStyle = grd;
-            ctx.fillRect(0, 0, radius * 2, radius * 2);
-            canvas.refresh();
+                ctx.fillStyle = grd;
+                ctx.fillRect(0, 0, radius * 2, radius * 2);
+                canvas.refresh();
+            }
         }
 
         this.visionBrush = this.scene.make.image({ key: key, add: false });
@@ -133,10 +135,9 @@ export class FogOfWarSystem {
         // 2. Process Units
         const units = this.scene.units.getChildren();
         for (let i = 0; i < units.length; i++) {
-            const u = units[i] as any;
-
-            // Fix: Animals do not reveal fog
-            if (u.unitType === UnitType.ANIMAL) continue;
+            const u = units[i] as Phaser.GameObjects.Sprite;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((u as any).unitType === UnitType.ANIMAL) continue;
 
             // Fix: Enemy units do not reveal fog
             if (u.getData('owner') !== 0) continue;
@@ -148,14 +149,15 @@ export class FogOfWarSystem {
             if (iso.x < viewRect.x - padding || iso.x > viewRect.right + padding ||
                 iso.y < viewRect.y - padding || iso.y > viewRect.bottom + padding) continue;
 
-            const range = UNIT_VISION[u.unitType as UnitType] || 150;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const range = UNIT_VISION[(u as any).unitType as UnitType] || 150;
             drawVision(iso.x, iso.y, range);
         }
 
         // 3. Process Buildings
         const buildings = this.scene.buildings.getChildren();
         for (let i = 0; i < buildings.length; i++) {
-            const b = buildings[i] as any;
+            const b = buildings[i] as Phaser.GameObjects.Image; // or Rectangle
 
             // Fix: Enemy buildings do not reveal fog
             if (b.getData('owner') !== 0) continue;

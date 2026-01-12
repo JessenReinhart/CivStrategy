@@ -52,7 +52,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     // We don't need to wait for 'ready' if we are manually managing the scene lifecycle here
     // but wrapping in a small timeout or ready check is safer for asset loading manager initialization
     game.events.once('ready', () => {
-      console.log("Phaser Ready. Starting MainScene with:", { faction, peacefulMode, treatyLength, aiDisabled });
+      // console.log("Phaser Ready. Starting MainScene with:", { faction, peacefulMode, treatyLength, aiDisabled });
       game.scene.start('MainScene', {
         faction,
         mapMode,

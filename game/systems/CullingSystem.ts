@@ -4,7 +4,7 @@ import { toIso, toCartesian } from '../utils/iso';
 
 export class CullingSystem {
     private scene: MainScene;
-    private visibleTrees: Set<any> = new Set();
+    private visibleTrees: Set<Phaser.GameObjects.GameObject> = new Set();
     private cullTimer = 0;
 
     constructor(scene: MainScene) {
@@ -58,10 +58,11 @@ export class CullingSystem {
 
         const candidates = this.scene.treeSpatialHash.query(midX, midY, searchRadius);
 
-        const treesInView = new Set<any>();
+        const treesInView = new Set<Phaser.GameObjects.GameObject>();
         candidates.forEach(tree => {
             // Optimization: Convert tree Pos to Iso, then check Rect
-            const isoPos = toIso(tree.x, tree.y);
+            const t = tree as Phaser.GameObjects.Image;
+            const isoPos = toIso(t.x, t.y);
             if (cullBounds.contains(isoPos.x, isoPos.y)) {
                 treesInView.add(tree);
             }
@@ -72,12 +73,12 @@ export class CullingSystem {
         this.visibleTrees.forEach(tree => {
             if (!treesInView.has(tree)) {
                 // Release visual back to pool
-                const visual = tree.visual;
+                const visual = (tree as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (visual) {
                     visual.setVisible(false);
                     visual.setActive(false);
                     this.scene.treeVisuals.killAndHide(visual);
-                    tree.visual = undefined; // Detach
+                    (tree as any).visual = undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
                 }
                 this.visibleTrees.delete(tree);
             }
@@ -98,7 +99,8 @@ export class CullingSystem {
                 visual.setVisible(true);
 
                 // Hydrate visual from tree data
-                const iso = toIso(tree.x, tree.y);
+                const t = tree as Phaser.GameObjects.Image;
+                const iso = toIso(t.x, t.y);
                 visual.setPosition(iso.x, iso.y);
                 visual.setDepth(iso.y); // Manual depth sort
 
@@ -106,21 +108,21 @@ export class CullingSystem {
                 visual.setScale(tree.getData('visualScale') || 0.08);
                 visual.setOrigin(0.5, tree.getData('visualOriginY') || 0.95);
 
-                tree.visual = visual;
+                (tree as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.visibleTrees.add(tree);
             }
         });
 
         // 2. Cull Units (Keep brute force for now as units move and count is lower than trees)
-        this.scene.units.getChildren().forEach((uObj: any) => {
-            const visual = uObj.visual;
+        this.scene.units.getChildren().forEach((uObj) => {
+            const visual = (uObj as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
             const squad = uObj.getData('squadContainer');
             // Fix: Cast visual and squad to any to access/set 'visible' property as GameObjects might not expose it directly in all TS configs
-            if (visual && (visual as any).visible !== undefined) {
-                (visual as any).visible = cullBounds.contains(visual.x, visual.y);
+            if (visual && (visual as Phaser.GameObjects.Components.Visible).visible !== undefined) {
+                (visual as Phaser.GameObjects.Components.Visible).visible = cullBounds.contains((visual as any).x, (visual as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
             }
             if (squad) {
-                (squad as any).visible = cullBounds.contains(squad.x, squad.y);
+                (squad as Phaser.GameObjects.Components.Visible).visible = cullBounds.contains((squad as any).x, (squad as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
             }
         });
     }

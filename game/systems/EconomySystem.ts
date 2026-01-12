@@ -4,6 +4,14 @@ import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, UnitType, GameStats, ResourceRates } from '../../types';
 import { EVENTS } from '../../constants';
 
+interface GameUnit extends Phaser.GameObjects.Image {
+    unitType: UnitType;
+    state: UnitState;
+    jobBuilding?: Phaser.GameObjects.GameObject;
+    path?: Phaser.Math.Vector2[];
+    pathStep?: number;
+}
+
 export class EconomySystem {
     private scene: MainScene;
     private lastRates: ResourceRates = { wood: 0, food: 0, gold: 0, foodConsumption: 0 };
@@ -16,7 +24,7 @@ export class EconomySystem {
     public tickPopulation() {
         // Only manage Player population (Owner 0)
         if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
-            const houses = this.scene.buildings.getChildren().filter((b: any) =>
+            const houses = this.scene.buildings.getChildren().filter((b) =>
                 b.getData('def').type === BuildingType.HOUSE && b.getData('owner') === 0
             ) as Phaser.GameObjects.Rectangle[];
 
@@ -24,7 +32,7 @@ export class EconomySystem {
             if (houses.length > 0) {
                 spawnSource = houses[Phaser.Math.Between(0, houses.length - 1)];
             } else {
-                const townCenters = this.scene.buildings.getChildren().filter((b: any) =>
+                const townCenters = this.scene.buildings.getChildren().filter((b) =>
                     b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
                 ) as Phaser.GameObjects.Rectangle[];
                 if (townCenters.length > 0) spawnSource = townCenters[0];
@@ -43,28 +51,29 @@ export class EconomySystem {
     }
 
     public assignJobs() {
-        const vacantBuildings = this.scene.buildings.getChildren().filter((b: any) => {
+        const vacantBuildings = this.scene.buildings.getChildren().filter((b) => {
             const def = b.getData('def') as BuildingDef;
             const assignedWorker = b.getData('assignedWorker');
             return def.workerNeeds && !assignedWorker;
         });
 
-        let idleVillagers = this.scene.units.getChildren().filter((u: any) => {
-            return u.unitType === UnitType.VILLAGER && (u.state === UnitState.IDLE || u.state === UnitState.MOVING_TO_RALLY);
+        const idleVillagers = this.scene.units.getChildren().filter((u) => {
+            const unit = u as unknown as GameUnit;
+            return (unit.unitType === UnitType.VILLAGER) && (unit.state === UnitState.IDLE || unit.state === UnitState.MOVING_TO_RALLY);
         }) as Phaser.GameObjects.GameObject[];
 
         for (const building of vacantBuildings) {
             if (idleVillagers.length === 0) break;
 
-            const b = building as any;
+            const b = building as Phaser.GameObjects.Image;
             const buildingOwner = b.getData('owner');
 
-            let closestWorker = null;
+            let closestWorker: Phaser.GameObjects.GameObject | null = null;
             let minDist = Number.MAX_VALUE;
             let workerIndex = -1;
 
             for (let i = 0; i < idleVillagers.length; i++) {
-                const u = idleVillagers[i] as any;
+                const u = idleVillagers[i] as Phaser.GameObjects.Image;
 
                 // STRICT OWNERSHIP CHECK: Only assign villagers to buildings of the same owner
                 if (u.getData('owner') !== buildingOwner) continue;
@@ -80,36 +89,37 @@ export class EconomySystem {
             if (closestWorker) {
                 idleVillagers.splice(workerIndex, 1);
                 b.setData('assignedWorker', closestWorker);
-                (closestWorker as any).state = UnitState.MOVING_TO_WORK;
-                (closestWorker as any).jobBuilding = b;
+                (closestWorker as unknown as GameUnit).state = UnitState.MOVING_TO_WORK;
+                (closestWorker as unknown as GameUnit).jobBuilding = b;
 
-                const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2((closestWorker as any).x, (closestWorker as any).y), new Phaser.Math.Vector2(b.x, b.y));
+                const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2((closestWorker as unknown as GameUnit).x, (closestWorker as unknown as GameUnit).y), new Phaser.Math.Vector2(b.x, b.y));
                 if (path) {
-                    (closestWorker as any).path = path;
-                    (closestWorker as any).pathStep = 0;
+                    (closestWorker as unknown as GameUnit).path = path;
+                    (closestWorker as unknown as GameUnit).pathStep = 0;
                 }
             }
         }
 
         // Re-filter idle villagers to those who are still truly idle and job-less
-        const remainingIdle = this.scene.units.getChildren().filter((u: any) => {
-            return u.unitType === UnitType.VILLAGER && u.state === UnitState.IDLE && !u.jobBuilding;
+        const remainingIdle = this.scene.units.getChildren().filter((u) => {
+            const unit = u as unknown as GameUnit;
+            return unit.unitType === UnitType.VILLAGER && unit.state === UnitState.IDLE && !unit.jobBuilding;
         });
 
         if (remainingIdle.length > 0) {
-            const allBonfires = this.scene.buildings.getChildren().filter((b: any) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
+            const allBonfires = this.scene.buildings.getChildren().filter((b) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
 
             if (allBonfires.length > 0) {
-                remainingIdle.forEach((u: any) => {
+                remainingIdle.forEach((u) => {
                     const owner = u.getData('owner');
                     // Filter bonfires by OWNER
-                    const myBonfires = allBonfires.filter((b: any) => b.getData('owner') === owner);
+                    const myBonfires = allBonfires.filter((b) => b.getData('owner') === owner);
 
                     if (myBonfires.length > 0) {
                         let closestBonfire = myBonfires[0];
                         let minDistance = Number.MAX_VALUE;
                         for (const bonfire of myBonfires) {
-                            const d = Phaser.Math.Distance.Between(u.x, u.y, bonfire.x, bonfire.y);
+                            const d = Phaser.Math.Distance.Between((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y, bonfire.x, bonfire.y);
                             if (d < minDistance) {
                                 minDistance = d;
                                 closestBonfire = bonfire;
@@ -118,15 +128,15 @@ export class EconomySystem {
                         const rallyPoint = closestBonfire;
                         // Only move if far away
                         if (minDistance > 100) {
-                            u.state = UnitState.MOVING_TO_RALLY;
+                            (u as unknown as GameUnit).state = UnitState.MOVING_TO_RALLY;
                             const angle = Math.random() * Math.PI * 2;
                             const r = Math.random() * 60 + 40;
                             const destX = rallyPoint.x + Math.cos(angle) * r;
                             const destY = rallyPoint.y + Math.sin(angle) * r;
-                            const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(u.x, u.y), new Phaser.Math.Vector2(destX, destY));
+                            const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y), new Phaser.Math.Vector2(destX, destY));
                             if (path) {
-                                u.path = path;
-                                u.pathStep = 0;
+                                (u as unknown as GameUnit).path = path;
+                                (u as unknown as GameUnit).pathStep = 0;
                             }
                         }
                     }
@@ -148,12 +158,13 @@ export class EconomySystem {
 
         const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
 
-        this.scene.buildings.getChildren().forEach((b: any) => {
+        this.scene.buildings.getChildren().forEach((bObj) => {
+            const b = bObj as Phaser.GameObjects.Image;
             // STRICT OWNERSHIP CHECK: Only process PLAYER buildings for player economy
             if (b.getData('owner') !== 0) return;
 
             const def = b.getData('def') as BuildingDef;
-            const visual = b.visual as Phaser.GameObjects.Container;
+            const visual = (b as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
             const vacantIcon = visual.getData('vacantIcon') as Phaser.GameObjects.Text;
             const noResIcon = visual.getData('noResIcon') as Phaser.GameObjects.Text;
 
@@ -179,7 +190,7 @@ export class EconomySystem {
             if (isWorking) {
                 if (def.type === BuildingType.FARM) {
                     let gain = 5;
-                    const isFertile = this.scene.fertileZones.some(zone => zone.contains(b.x, b.y));
+                    const isFertile = this.scene.fertileZones.some(zone => zone.contains((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y));
                     if (isFertile) gain = Math.floor(gain * 1.5);
                     gain = Math.floor(gain * efficiency);
                     foodGen += gain;
@@ -190,18 +201,20 @@ export class EconomySystem {
                 if (def.type === BuildingType.LUMBER_CAMP && def.effectRadius) {
                     let treesNearby = 0;
                     // Optimize: Use Spatial Partitioning
-                    const candidates = this.scene.treeSpatialHash.query(b.x, b.y, def.effectRadius);
+                    const candidates = this.scene.treeSpatialHash.query((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, def.effectRadius);
 
                     for (const t of candidates) {
-                        if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < def.effectRadius) {
-                            const isChopped = t.getData('isChopped');
-                            if (!isChopped && !harvestedTrees.has(t)) {
+                        // Cast t to Image to access x,y
+                        const tree = t as Phaser.GameObjects.Image;
+                        if (Phaser.Math.Distance.Between((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, tree.x, tree.y) < def.effectRadius) {
+                            const isChopped = tree.getData('isChopped');
+                            if (!isChopped && !harvestedTrees.has(tree)) {
                                 treesNearby++;
-                                harvestedTrees.add(t);
+                                harvestedTrees.add(tree);
                                 if (Math.random() < 0.1) {
-                                    this.scene.entityFactory.updateTreeVisual(t, true);
+                                    this.scene.entityFactory.updateTreeVisual(tree, true);
                                     // if (this.scene.minimapSystem) this.scene.minimapSystem.refreshStaticLayer();
-                                    this.scene.feedbackSystem.showFloatingText(t.x, t.y, "Chopped!", "#a0522d");
+                                    this.scene.feedbackSystem.showFloatingText(tree.x, tree.y, "Chopped!", "#a0522d");
                                 }
 
                             }
@@ -218,8 +231,8 @@ export class EconomySystem {
                 }
 
                 if (def.type === BuildingType.HUNTERS_LODGE && def.effectRadius) {
-                    let animals = this.scene.units.getChildren().filter((u: any) => {
-                        return u.unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between(b.x, b.y, u.x, u.y) < def.effectRadius!;
+                    const animals = this.scene.units.getChildren().filter((u) => {
+                        return (u as any).unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, (u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y) < def.effectRadius!; // eslint-disable-line @typescript-eslint/no-explicit-any
                     });
                     const animalsNearby = animals.length;
                     if (noResIcon) noResIcon.visible = (animalsNearby === 0);
@@ -231,7 +244,7 @@ export class EconomySystem {
                         productionType = 'Food';
                         if (Math.random() < 0.20) {
                             const victim = animals[Phaser.Math.Between(0, animalsNearby - 1)];
-                            const victimVisual = (victim as any).visual;
+                            const victimVisual = (victim as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
                             if (victimVisual) victimVisual.destroy();
                             victim.destroy();
                             this.scene.feedbackSystem.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
@@ -241,13 +254,13 @@ export class EconomySystem {
                 }
             }
             if (productionAmount > 0) {
-                this.scene.feedbackSystem.showFloatingResource(b.x, b.y, productionAmount, productionType);
+                this.scene.feedbackSystem.showFloatingResource((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, productionAmount, productionType);
             }
 
         });
 
         if (goldGen > 0) {
-            const tcs = this.scene.buildings.getChildren().filter((b: any) =>
+            const tcs = this.scene.buildings.getChildren().filter((b) =>
                 b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
             ) as Phaser.GameObjects.Rectangle[];
             if (tcs.length > 0) {
@@ -272,7 +285,7 @@ export class EconomySystem {
         happinessChange += (taxImpact[this.scene.taxRate] || 0);
 
         // Count ONLY player parks
-        const parks = this.scene.buildings.getChildren().filter((b: any) =>
+        const parks = this.scene.buildings.getChildren().filter((b) =>
             b.getData('def').type === BuildingType.SMALL_PARK && b.getData('owner') === 0
         );
         happinessChange += parks.length;

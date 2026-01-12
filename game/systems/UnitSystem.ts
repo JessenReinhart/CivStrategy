@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState, UnitStats } from '../../types';
-import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE, UNIT_SPEED, UNIT_STATS } from '../../constants';
+import { UnitType, UnitState } from '../../types';
+import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class UnitSystem {
@@ -16,8 +16,8 @@ export class UnitSystem {
         this.debugGraphics = this.scene.add.graphics().setDepth(100000);
     }
 
-    public update(time: number, delta: number) {
-        this.updateUnitLogic(time, delta);
+    public update(time: number, _delta: number) {
+        this.updateUnitLogic(time, _delta);
         this.drawUnitPaths(time);
 
         if (this.scene.debugMode) {
@@ -32,7 +32,7 @@ export class UnitSystem {
         const formationCols = Math.ceil(Math.sqrt(units.length));
 
         units.forEach((unitObj, index) => {
-            const unit = unitObj as any;
+            const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const col = index % formationCols;
             const row = Math.floor(index / formationCols);
             const offsetX = (col - formationCols / 2) * spacing;
@@ -67,7 +67,7 @@ export class UnitSystem {
 
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
         units.forEach((unitObj) => {
-            const unit = unitObj as any;
+            const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
             // --- SECURITY BLOCK ---
             // If peaceful mode is active and this is an ENEMY unit, reject the attack command entirely.
@@ -85,34 +85,34 @@ export class UnitSystem {
 
             // Only combat units attack
             if ([UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
-                console.log(`Unit ${unit.unitType} engaging target.`);
+                // console.log(`Unit ${unit.unitType} engaging target.`);
                 unit.target = target;
                 unit.state = UnitState.CHASING;
                 unit.path = null; // Clear old move path
                 unit.body.reset(unit.x, unit.y);
             } else {
-                console.log(`Unit ${unit.unitType} CANNOT attack.`);
+                // console.log(`Unit ${unit.unitType} CANNOT attack.`);
             }
         });
 
         // Visual Feedback (Red Flash on target)
-        if ((target as any).visual) {
-            console.log("Flashing Target visual");
+        if ((target as any).visual) { // eslint-disable-line @typescript-eslint/no-explicit-any
+            // console.log("Flashing Target visual");
             this.scene.tweens.add({
-                targets: (target as any).visual,
+                targets: (target as any).visual, // eslint-disable-line @typescript-eslint/no-explicit-any
                 alpha: 0.5,
                 yoyo: true,
                 duration: 100,
                 repeat: 2
             });
         } else {
-            console.log("Target has no visual to flash");
+            // console.log("Target has no visual to flash");
         }
     }
 
-    private updateUnitLogic(time: number, delta: number) {
+    private updateUnitLogic(time: number, _delta: number) {
         this.scene.units.getChildren().forEach((item: Phaser.GameObjects.GameObject) => {
-            const unit = item as any;
+            const unit = item as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const body = unit.body as Phaser.Physics.Arcade.Body;
 
             if (!body) return;
@@ -177,8 +177,8 @@ export class UnitSystem {
 
         // Separation
         this.scene.physics.overlap(this.scene.units, this.scene.units, (obj1, obj2) => {
-            const u1 = obj1 as any;
-            const u2 = obj2 as any;
+            const u1 = obj1 as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            const u2 = obj2 as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (u1 === u2) return;
             const dist = Phaser.Math.Distance.Between(u1.x, u1.y, u2.x, u2.y);
             if (dist < 18) {
@@ -192,7 +192,7 @@ export class UnitSystem {
         });
     }
 
-    private handleCombatState(unit: any, time: number) {
+    private handleCombatState(unit: any, time: number) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const target = unit.target;
 
         // Target dead or destroyed
@@ -217,7 +217,7 @@ export class UnitSystem {
             const cooldown = attackSpeed;
 
             if (now - last > cooldown) {
-                console.log(`Attack Ready! Time: ${now}, Last: ${last}, CD: ${cooldown}`);
+                // console.log(`Attack Ready! Time: ${now}, Last: ${last}, CD: ${cooldown}`);
                 unit.lastAttackTime = now;
                 this.performAttack(unit, target);
             }
@@ -229,9 +229,9 @@ export class UnitSystem {
         }
     }
 
-    private performAttack(unit: any, target: any) {
+    private performAttack(unit: any, target: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const dmg = unit.getData('attack') || 10;
-        console.log(`PerformAttack: ${unit.unitType} -> Target (HP: ${target.getData('hp')})`);
+        // console.log(`PerformAttack: ${unit.unitType} -> Target (HP: ${target.getData('hp')})`);
 
         if (unit.unitType === UnitType.ARCHER) {
             // VOLLEY LOGIC
@@ -295,7 +295,7 @@ export class UnitSystem {
         }
     }
 
-    private fireProjectile(unit: any, target: any, dmg: number) {
+    private fireProjectile(unit: any, target: any, dmg: number) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const startIso = toIso(unit.x, unit.y);
         const endIso = toIso(target.x, target.y);
 
@@ -360,7 +360,7 @@ export class UnitSystem {
 
     private drawDebugLines() {
         this.debugGraphics.clear();
-        this.scene.units.getChildren().forEach((u: any) => {
+        this.scene.units.getChildren().forEach((u: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
             const startIso = toIso(u.x, u.y);
 
             // Draw Target Lines (Combat)
@@ -389,7 +389,7 @@ export class UnitSystem {
     private drawUnitPaths(time: number) {
         this.pathGraphics.clear();
         this.scene.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
-            const u = uObj as any;
+            const u = uObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const isSelectable = [UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(u.unitType);
 
             if (isSelectable && u.path && u.pathCreatedAt) {

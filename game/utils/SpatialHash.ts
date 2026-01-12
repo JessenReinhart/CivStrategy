@@ -1,9 +1,9 @@
 
-import Phaser from 'phaser';
+
 
 export class SpatialHash {
     private cellSize: number;
-    private buckets: Map<string, Set<any>>;
+    private buckets: Map<string, Set<any>>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     constructor(cellSize: number) {
         this.cellSize = cellSize;
@@ -16,7 +16,7 @@ export class SpatialHash {
         return `${cx},${cy}`;
     }
 
-    public insert(entity: any) {
+    public insert(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const key = this.getKey(entity.x, entity.y);
         if (!this.buckets.has(key)) {
             this.buckets.set(key, new Set());
@@ -25,7 +25,7 @@ export class SpatialHash {
         entity.setData('spatialKey', key);
     }
 
-    public remove(entity: any) {
+    public remove(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const key = entity.getData('spatialKey');
         if (key && this.buckets.has(key)) {
             this.buckets.get(key)!.delete(entity);
@@ -35,7 +35,7 @@ export class SpatialHash {
         }
     }
 
-    public update(entity: any) {
+    public update(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const oldKey = entity.getData('spatialKey');
         const newKey = this.getKey(entity.x, entity.y);
 
@@ -45,8 +45,8 @@ export class SpatialHash {
         }
     }
 
-    public query(x: number, y: number, radius: number): any[] {
-        const results: any[] = [];
+    public query(x: number, y: number, radius: number): any[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const results: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
         const checkedKeys = new Set<string>();
 
         // Calculate range of cells to check

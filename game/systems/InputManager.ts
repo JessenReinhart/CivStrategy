@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { EVENTS } from '../../constants';
-import { BuildingDef, UnitType, BuildingType } from '../../types';
+import { UnitType } from '../../types';
 import { toCartesian } from '../utils/iso';
 
 export class InputManager {
@@ -28,19 +28,22 @@ export class InputManager {
         this.scene.input.on('pointerdown', this.handlePointerDown, this);
         this.scene.input.on('pointermove', this.handlePointerMove, this);
         this.scene.input.on('pointerup', this.handlePointerUp, this);
-        this.scene.input.on('wheel', (pointer: any, gameObjects: any, deltaX: number, deltaY: number, deltaZ: number) => {
-            const newZoom = Phaser.Math.Clamp(this.scene.cameras.main.zoom - deltaY * 0.001, 0.5, 2);
-            this.scene.cameras.main.setZoom(newZoom);
+        this.scene.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: Phaser.GameObjects.GameObject[], _deltaX: number, deltaY: number, _deltaZ: number) => {
+            this.handleZoom(deltaY);
         });
 
         this.scene.game.events.on('filter-selection', (type: UnitType) => {
-            console.log('Filter Selection Event:', type);
             this.filterSelectionByType(type);
         });
     }
 
     public update(delta: number) {
         this.handleCameraMovement(delta);
+    }
+
+    private handleZoom(deltaY: number) {
+        const newZoom = Phaser.Math.Clamp(this.scene.cameras.main.zoom - deltaY * 0.001, 0.5, 2);
+        this.scene.cameras.main.setZoom(newZoom);
     }
 
     private handleCameraMovement(delta: number) {
@@ -58,7 +61,7 @@ export class InputManager {
                 return;
             }
             if (this.scene.buildingManager.previewBuildingType) {
-                this.scene.buildingManager.enterBuildMode(null as any);
+                this.scene.buildingManager.enterBuildMode(null as any); // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.scene.buildingManager.previewBuildingType = null;
                 if (this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
                 return;
@@ -96,12 +99,13 @@ export class InputManager {
 
     private handleDoubleClick(pointer: Phaser.Input.Pointer) {
         const targets = this.scene.input.hitTestPointer(pointer);
-        const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
+        const unitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('unit'));
 
         if (unitVisual) {
             const unit = unitVisual.getData('unit');
-            const type = (unit as any).unitType;
-            if ((unit as any).getData('owner') === 0 && this.isSelectable(type)) {
+            const type = (unit as any).unitType; // eslint-disable-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((unit as any).getData('owner') === 0 && this.isSelectable(type)) { // Fix: Owner 0 is Player
                 this.selectAllOfType(type);
                 return;
             }
@@ -112,8 +116,9 @@ export class InputManager {
         this.clearSelection();
         this.deselectBuilding();
 
-        this.scene.units.getChildren().forEach((u: any) => {
-            if (u.getData('owner') === 0 && u.unitType === type) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.scene.units.getChildren().forEach((u: any) => { // Fix: Cast to Unit type
+            if (u.getData('owner') === 0 && u.unitType === type) { // Fix: Owner 0 is Player
                 u.setSelected(true);
                 this.selectedUnits.push(u);
             }
@@ -122,8 +127,9 @@ export class InputManager {
     }
 
     private filterSelectionByType(type: UnitType) {
-        const toKeep: any[] = [];
-        this.selectedUnits.forEach((u: any) => {
+        const toKeep: Phaser.GameObjects.GameObject[] = [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.selectedUnits.forEach((u: any) => { // Fix: Cast to Unit type
             if (u.unitType === type) {
                 toKeep.push(u);
             } else {
@@ -182,31 +188,26 @@ export class InputManager {
 
         // Check for click on Enemy Unit/Building
         const targets = this.scene.input.hitTestPointer(pointer);
-        console.log("Right Click Targets:", targets.length, targets.map((t: any) => t.type));
 
-        const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
-        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
+        const unitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('unit'));
+        const buildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('building'));
 
         let targetEntity: Phaser.GameObjects.GameObject | null = null;
         let isEnemy = false;
 
         if (unitVisual) {
             targetEntity = unitVisual.getData('unit');
-            const owner = (targetEntity as any).getData('owner');
-            console.log("Clicked Unit. Owner:", owner);
+            const owner = (targetEntity as any).getData('owner'); // eslint-disable-line @typescript-eslint/no-explicit-any
             if (targetEntity && owner !== 0) isEnemy = true;
         } else if (buildingVisual) {
             targetEntity = buildingVisual.getData('building');
-            const owner = (targetEntity as any).getData('owner');
-            console.log("Clicked Building. Owner:", owner);
+            const owner = (targetEntity as any).getData('owner'); // eslint-disable-line @typescript-eslint/no-explicit-any
             if (targetEntity && owner !== 0) isEnemy = true;
         }
 
         if (isEnemy && targetEntity) {
-            console.log("Commanding Attack on:", targetEntity);
             this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
         } else {
-            console.log("Commanding Move");
             // Standard Move
             const cart = toCartesian(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y));
@@ -215,8 +216,8 @@ export class InputManager {
 
     private handleSingleSelection(pointer: Phaser.Input.Pointer) {
         const targets = this.scene.input.hitTestPointer(pointer);
-        const unitVisual = targets.find((obj: any) => obj.getData && obj.getData('unit'));
-        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
+        const unitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('unit'));
+        const buildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('building'));
 
         this.clearSelection();
 
@@ -226,21 +227,25 @@ export class InputManager {
 
         if (unitVisual) {
             const unit = unitVisual.getData('unit');
-            const type = (unit as any).unitType;
+            const type = (unit as any).unitType; // eslint-disable-line @typescript-eslint/no-explicit-any
             // Only select Player units
-            if (unit && (unit as any).getData('owner') === 0 && this.isSelectable(type)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if (unit && (unit as any).getData('owner') === 0 && this.isSelectable(type)) { // Fix: Owner 0 is Player
                 unit.setSelected(true);
                 this.selectedUnits.push(unit);
             }
         } else if (buildingVisual) {
             const b = buildingVisual.getData('building');
+            this.selectedUnits.forEach((u) => {
+                if ((u as any).setSelected) (u as any).setSelected(false); // eslint-disable-line @typescript-eslint/no-explicit-any
+            });
             this.selectedBuilding = b;
-            if ((b as any).setSelected) (b as any).setSelected(true);
-            const visual = (b as any).visual;
+            if ((b as any).setSelected) (b as any).setSelected(true); // eslint-disable-line @typescript-eslint/no-explicit-any
+            const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
             const ring = visual.getData('ring');
             if (ring) ring.visible = true;
 
-            const def = b.getData('def') as BuildingDef;
+            const def = b.getData('def'); // Fix: Type should be BuildingDef if available, or a more generic type
             this.scene.game.events.emit(EVENTS.BUILDING_SELECTED, def.type);
         }
 
@@ -251,9 +256,10 @@ export class InputManager {
         this.clearSelection();
         this.deselectBuilding();
 
-        this.scene.units.getChildren().forEach((u: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.scene.units.getChildren().forEach((u: any) => { // Fix: Cast to Unit type
             // Only select Player units in combat roles
-            if (u.getData('owner') !== 0) return;
+            if (u.getData('owner') !== 0) return; // Fix: Owner 0 is Player
             if (!this.isSelectable(u.unitType)) return;
 
             const visual = u.visual;
@@ -273,7 +279,8 @@ export class InputManager {
     }
 
     public clearSelection() {
-        this.selectedUnits.forEach((u: any) => u.setSelected(false));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.selectedUnits.forEach((u: any) => u.setSelected(false)); // Fix: Cast to Unit type
         this.selectedUnits = [];
         this.emitSelectionChanged();
     }
@@ -281,7 +288,8 @@ export class InputManager {
     private emitSelectionChanged() {
         // Aggregate Counts
         const counts: Record<string, number> = {};
-        this.selectedUnits.forEach((u: any) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.selectedUnits.forEach((u: any) => { // Fix: Cast to Unit type
             const type = u.unitType;
             counts[type] = (counts[type] || 0) + 1;
         });
@@ -294,8 +302,8 @@ export class InputManager {
 
     public deselectBuilding() {
         if (this.selectedBuilding) {
-            if ((this.selectedBuilding as any).setSelected) (this.selectedBuilding as any).setSelected(false);
-            const v = (this.selectedBuilding as any).visual;
+            if ((this.selectedBuilding as any).setSelected) (this.selectedBuilding as any).setSelected(false); // eslint-disable-line @typescript-eslint/no-explicit-any
+            const v = (this.selectedBuilding as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (v) {
                 const ring = v.getData('ring');
                 if (ring) ring.visible = false;

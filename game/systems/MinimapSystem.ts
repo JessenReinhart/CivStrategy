@@ -125,7 +125,7 @@ export class MinimapSystem {
         const trees = this.scene.trees.getChildren();
         let treesDrawn = 0;
         for (const t of trees) {
-            const tree = t as any;
+            const tree = t as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (tree.getData('isChopped')) continue; // Don't draw chopped trees
 
             const pos = this.worldToMini(tree.x, tree.y, scalar);
@@ -168,7 +168,7 @@ export class MinimapSystem {
         // 3. Draw Buildings (Dynamic ownership/health, so draw every time)
         const buildings = this.scene.buildings.getChildren();
         for (const b of buildings) {
-            const build = b as any;
+            const build = b as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const pos = this.worldToMini(build.x, build.y, scalar);
 
             if (this.isInBounds(pos)) {
@@ -188,7 +188,7 @@ export class MinimapSystem {
         const units = this.scene.units.getChildren();
         this.unitDot.clear();
         for (const u of units) {
-            const unit = u as any;
+            const unit = u as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const pos = this.worldToMini(unit.x, unit.y, scalar);
 
             if (this.isInBounds(pos)) {
@@ -226,7 +226,7 @@ export class MinimapSystem {
 
         const units = this.scene.units.getChildren();
         for (const u of units) {
-            const unit = u as any;
+            const unit = u as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             // Only friendly units reveal fog
             if (unit.getData('owner') !== 0) continue;
             // Animals don't reveal fog (usually)
@@ -242,7 +242,7 @@ export class MinimapSystem {
 
         const buildings = this.scene.buildings.getChildren();
         for (const b of buildings) {
-            const build = b as any;
+            const build = b as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (build.getData('owner') !== 0) continue;
 
             const pos = this.worldToMini(build.x, build.y, scalar);

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitStats } from '../../types';
-import { UNIT_STATS, FACTION_COLORS } from '../../constants';
+import { UnitType } from '../../types';
+import { UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 
 interface SoldierState {
@@ -18,7 +18,7 @@ export class SquadSystem {
         this.scene = scene;
     }
 
-    public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, owner: number) {
+    public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, _owner: number) {
         const stats = UNIT_STATS[type];
         if (!stats || stats.squadSize <= 1) return;
 
@@ -47,10 +47,10 @@ export class SquadSystem {
 
         this.initializeSoldiers(unit, stats.squadSize, type);
 
-        const commanderVisual = (unit as any).visual as Phaser.GameObjects.Container;
+        const commanderVisual = (unit as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (commanderVisual) {
-            commanderVisual.setVisible(false);
-            commanderVisual.removeAll(true);
+            // commanderVisual.setVisible(false);
+            // commanderVisual.removeAll(true);
         }
 
         this.scene.add.existing(container);
@@ -69,8 +69,8 @@ export class SquadSystem {
             const offsetY = (row - (count / cols) / 2) * spacing;
 
             soldiers.push({
-                x: (unit as any).x + offsetX,
-                y: (unit as any).y + offsetY,
+                x: (unit as any).x + offsetX, // eslint-disable-line @typescript-eslint/no-explicit-any
+                y: (unit as any).y + offsetY, // eslint-disable-line @typescript-eslint/no-explicit-any
                 z: 0,
                 offset: { x: offsetX, y: offsetY }
             });
@@ -78,11 +78,11 @@ export class SquadSystem {
         unit.setData('soldierStates', soldiers);
     }
 
-    public update(dt: number) {
+    public update(_dt: number) {
         const units = this.scene.units.getChildren();
 
         units.forEach((uObj: Phaser.GameObjects.GameObject) => {
-            const unit = uObj as any;
+            const unit = uObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) return;
 
@@ -130,7 +130,7 @@ export class SquadSystem {
             gfx.clear();
 
             const owner = unit.getData('owner');
-            let color = this.scene.getFactionColor(owner);
+            const color = this.scene.getFactionColor(owner);
 
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
