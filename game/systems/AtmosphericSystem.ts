@@ -6,6 +6,8 @@ export class AtmosphericSystem {
     private scene: MainScene;
     private clouds: Phaser.GameObjects.Sprite[] = [];
     private bloomEffect!: Phaser.FX.Bloom;
+    private tiltShiftEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    private vignetteEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;
 
@@ -73,6 +75,8 @@ export class AtmosphericSystem {
 
     private setupBloom() {
         this.bloomEffect = this.scene.cameras.main.postFX.addBloom(0xffffff, 1, 1, 1.2, 1.0);
+        this.tiltShiftEffect = this.scene.cameras.main.postFX.addTiltShift(0.1); // Initial blur
+        this.vignetteEffect = this.scene.cameras.main.postFX.addVignette(0.5, 0.5, 0.8, 0.3); // x, y, radius, strength
     }
 
     public setBloomIntensity(intensity: number) {
@@ -118,6 +122,22 @@ export class AtmosphericSystem {
 
             // Smooth lerp (Eye Adaptation Speed)
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.05);
+        }
+
+        // --- Tilt Shift Logic ---
+        if (this.tiltShiftEffect) {
+            // Zoom Adaptation:
+            // High Zoom (1.5x) -> Close up -> Strong Depth of Field -> High Blur
+            // Low Zoom (0.5x) -> Far away -> Clearer view -> Low Blur
+            const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
+
+            // Blur strength range: 0.1 (Far) to 2.5 (Close)
+            // Blur strength range: 0.1 (Far) to 2.5 (Close)
+            // Use sqrt to ramp up blur quickly as we zoom in, so mid-zoom still feels "diaroma-like"
+            const easedProgress = Math.sqrt(zoomProgress);
+            const targetBlur = Phaser.Math.Linear(0.1, 2.5, easedProgress);
+
+            this.tiltShiftEffect.blur = Phaser.Math.Linear(this.tiltShiftEffect.blur, targetBlur, 0.1);
         }
 
         // --- Cloud Logic ---
