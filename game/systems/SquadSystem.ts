@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, FormationType } from '../../types';
+import { UnitType, FormationType, UnitState } from '../../types';
 import { UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
@@ -29,7 +29,7 @@ export class SquadSystem {
 
         // Create unit indicator label (initially hidden)
         const unitName = type === UnitType.LEGION ? 'LEGION' :
-            type === UnitType.PIKESMAN ? 'SOLDIERS' :
+            type === UnitType.PIKESMAN ? 'PIKESMAN' :
                 type === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
         const indicatorLabel = this.scene.add.text(0, -26, unitName, {
             fontFamily: 'Arial',
@@ -96,6 +96,11 @@ export class SquadSystem {
 
             if (isMoving) {
                 const targetAngle = body.velocity.angle();
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                unit.setData('formationAngle', angle);
+            } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
+                // Face target when attacking/chasing
+                const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, unit.target.x, unit.target.y);
                 angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
                 unit.setData('formationAngle', angle);
             }
@@ -182,7 +187,7 @@ export class SquadSystem {
 
                 // Unit type name below the indicator
                 const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
-                    unit.unitType === UnitType.PIKESMAN ? 'SOLDIERS' :
+                    unit.unitType === UnitType.PIKESMAN ? 'PIKESMAN' :
                         unit.unitType === UnitType.ARCHER ? 'ARCHERS' :
                             unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
 
@@ -227,6 +232,54 @@ export class SquadSystem {
                 const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
                 if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.ARCHER) {
+                    // Draw Pike for Pikesman
+                    if (unit.unitType === UnitType.PIKESMAN) {
+                        // Length of the pike
+                        const pikeLen = 14;
+                        // Calculate pike tip position based on unit facing angle
+                        // We use 'angle' which is the squad's facing direction
+                        // Draw it originating from center/side of body
+
+                        const pikeStartX = drawX + Math.cos(angle + Math.PI / 4) * 2;
+                        const pikeStartY = drawY - 2 + Math.sin(angle + Math.PI / 4) * 2;
+
+                        const pikeTipX = pikeStartX + Math.cos(angle) * pikeLen;
+                        const pikeTipY = pikeStartY + Math.sin(angle) * pikeLen;
+
+                        gfx.lineStyle(1, 0x8D6E63, 1); // Wood color shaft
+                        gfx.beginPath();
+                        gfx.moveTo(pikeStartX, pikeStartY);
+                        gfx.lineTo(pikeTipX, pikeTipY);
+                        gfx.strokePath();
+
+                        // Silver tip (Pointy Triangle)
+                        gfx.fillStyle(0xC0C0C0, 1);
+
+                        // Calculate triangle vertices
+                        const tipLen = 3;
+                        const tipWidth = 2;
+
+                        // P1: Tip
+                        const p1x = pikeTipX;
+                        const p1y = pikeTipY;
+
+                        // Base center is back along the shaft
+                        const bx = pikeTipX - Math.cos(angle) * tipLen;
+                        const by = pikeTipY - Math.sin(angle) * tipLen;
+
+                        // Perpendicular vector for width
+                        const px = Math.cos(angle + Math.PI / 2) * (tipWidth / 2);
+                        const py = Math.sin(angle + Math.PI / 2) * (tipWidth / 2);
+
+                        // P2 & P3: Base corners
+                        const p2x = bx + px;
+                        const p2y = by + py;
+                        const p3x = bx - px;
+                        const p3y = by - py;
+
+                        gfx.fillTriangle(p1x, p1y, p2x, p2y, p3x, p3y);
+                    }
+
                     gfx.fillStyle(0x000000, 0.3);
                     gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
                     gfx.fillStyle(color, 1);
