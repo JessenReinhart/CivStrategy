@@ -149,8 +149,8 @@ const App: React.FC = () => {
     gameInstance?.events.emit('request-build', type);
   };
 
-  const handleSpawnSoldier = () => {
-    gameInstance?.events.emit('request-soldier-spawn');
+  const handleSpawnUnit = (type: UnitType) => {
+    gameInstance?.events.emit('request-unit-spawn', type);
   };
 
   const handleRegrowForest = () => {
@@ -182,7 +182,7 @@ const App: React.FC = () => {
             <GameUI
               stats={stats}
               onBuild={handleBuild}
-              onSpawnUnit={handleSpawnSoldier}
+              onSpawnUnit={handleSpawnUnit}
               onToggleDemolish={handleToggleDemolish}
               onRegrowForest={handleRegrowForest}
               onQuit={handleQuit}
