@@ -11,12 +11,14 @@ export class CullingSystem {
         this.scene = scene;
     }
 
-    update(delta: number) {
+    update(time: number, delta: number) {
         this.cullTimer += delta;
         if (this.cullTimer > 200) {
             this.cullObjects();
             this.cullTimer = 0;
         }
+
+        this.animateTrees(time);
     }
 
     private cullObjects() {
@@ -123,6 +125,25 @@ export class CullingSystem {
             }
             if (squad) {
                 (squad as Phaser.GameObjects.Components.Visible).visible = cullBounds.contains((squad as any).x, (squad as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
+            }
+        });
+    }
+
+    private animateTrees(time: number) {
+        // PERF: Only iterate visible trees
+        this.visibleTrees.forEach(tree => {
+            // Check if tree is chopped (stump)
+            if (tree.getData('isChopped')) return;
+
+            const visual = (tree as any).visual as Phaser.GameObjects.Image; // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (visual) {
+                // Calculate wind sway based on tree position
+                const sway = this.scene.atmosphericSystem.getWindSway(visual.x, visual.y, time);
+
+                // visual.setRotation(sway); // Simple rotation
+                // Better: Skew for "bending" effect if origin is bottom
+                // Since origin is ~0.95 (bottom), rotation works well for swaying.
+                visual.setRotation(sway);
             }
         });
     }

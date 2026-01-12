@@ -152,4 +152,17 @@ export class AtmosphericSystem {
             }
         });
     }
+
+    public getWindSway(x: number, y: number, time: number): number {
+        // Use Perlin-like noise (sine combination) for wind
+        // Low frequency base sway
+        const base = Math.sin(time * 0.0005 + x * 0.002 + y * 0.002);
+
+        // High frequency gusts (more variation)
+        const gust = Math.sin(time * 0.002 + x * 0.01 + y * 0.01) * 0.3;
+
+        // Combine and scale
+        // Return a rotation value in radians (small amplitude)
+        return (base + gust) * 0.05; // +/- 0.05 - 0.08 radians (approx 3-5 degrees)
+    }
 }
