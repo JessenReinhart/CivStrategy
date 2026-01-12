@@ -1,4 +1,5 @@
 
+import Phaser from 'phaser';
 
 export enum FactionType {
   ROMANS = 'Romans',
@@ -23,6 +24,12 @@ export enum FormationType {
   CIRCLE = 'Circle',
   SKIRMISH = 'Skirmish',
   WEDGE = 'Wedge'
+}
+
+export enum UnitStance {
+  AGGRESSIVE = 'Aggressive', // Chase indefinitely
+  DEFENSIVE = 'Defensive',   // Chase briefly, return to anchor
+  HOLD = 'Hold'              // Stand ground, attack in range only
 }
 
 export enum ResourceType {
@@ -57,6 +64,7 @@ export interface GameStats {
   treatyTimeRemaining: number; // NEW (ms)
   bloomIntensity: number; // Intensity of sunlit bloom effect
   currentFormation: FormationType; // NEW
+  currentStance: UnitStance; // NEW - Global default for new orders/units
 }
 
 export interface BuildingCost {
@@ -132,4 +140,19 @@ export interface EntityData {
   owner: number;
   type: string;
   selected?: boolean;
+}
+
+export interface GameUnit extends Phaser.GameObjects.Image {
+  unitType: UnitType;
+  state: UnitState;
+  target: Phaser.GameObjects.GameObject | null;
+  path: Phaser.Math.Vector2[] | null;
+  pathStep: number;
+  pathCreatedAt: number;
+  visual?: Phaser.GameObjects.Container;
+  lastAttackTime?: number;
+  takeDamage?: (amount: number) => void;
+  // Custom data properties that might be accessed via direct property or getData
+  // But we extend Image so standard props are there.
+  // We'll trust the specific props we need.
 }
