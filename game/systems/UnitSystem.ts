@@ -65,6 +65,64 @@ export class UnitSystem {
         });
     }
 
+    public commandFollowPath(units: Phaser.GameObjects.GameObject[], pathPoints: Phaser.Math.Vector2[]) {
+        if (pathPoints.length < 2) return;
+
+        units.forEach((unitObj) => {
+            const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+            // 1. Find path to start of drawn path
+            let fullPath: Phaser.Math.Vector2[] = [];
+            const startPath = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), pathPoints[0]);
+            if (startPath) {
+                fullPath = startPath;
+            } else {
+                // If direct path blocked, at least start from current position
+                fullPath = [new Phaser.Math.Vector2(unit.x, unit.y)];
+            }
+
+            // 2. Add segments between drawn points, avoiding obstacles
+            for (let i = 0; i < pathPoints.length - 1; i++) {
+                const segment = this.scene.pathfinder.findPath(pathPoints[i], pathPoints[i + 1]);
+                if (segment && segment.length > 0) {
+                    // Since finder currently returns [end], just push it.
+                    // If it ever returns [start, ...path], we'd want to handle that.
+                    // For now, let's be robust: if first point == last of fullPath, skip it.
+                    const lastPoint = fullPath[fullPath.length - 1];
+                    const startIdx = (lastPoint && Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, segment[0].x, segment[0].y) < 2) ? 1 : 0;
+
+                    for (let j = startIdx; j < segment.length; j++) {
+                        fullPath.push(segment[j]);
+                    }
+                }
+            }
+
+            if (fullPath.length > 0) {
+                unit.path = fullPath;
+                unit.pathStep = 0;
+                unit.pathCreatedAt = this.scene.gameTime;
+                unit.state = UnitState.IDLE;
+                unit.target = null;
+                unit.body.reset(unit.x, unit.y);
+            }
+        });
+
+        // Visual feedback at destination
+        const lastPoint = pathPoints[pathPoints.length - 1];
+        const iso = toIso(lastPoint.x, lastPoint.y);
+        const circle = this.scene.add.circle(iso.x, iso.y, 5, 0x00ff00);
+        circle.setScale(1, 0.5);
+        circle.setDepth(iso.y);
+        this.scene.tweens.add({
+            targets: circle,
+            scaleX: 0,
+            scaleY: 0,
+            alpha: 0,
+            duration: 500,
+            onComplete: () => circle.destroy()
+        });
+    }
+
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject) {
         units.forEach((unitObj) => {
             const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -84,7 +142,7 @@ export class UnitSystem {
             // ----------------------
 
             // Only combat units attack
-            if ([UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
+            if ([UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
                 // console.log(`Unit ${unit.unitType} engaging target.`);
                 unit.target = target;
                 unit.state = UnitState.CHASING;
@@ -390,7 +448,7 @@ export class UnitSystem {
         this.pathGraphics.clear();
         this.scene.units.getChildren().forEach((uObj: Phaser.GameObjects.GameObject) => {
             const u = uObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-            const isSelectable = [UnitType.SOLDIER, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(u.unitType);
+            const isSelectable = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(u.unitType);
 
             if (isSelectable && u.path && u.pathCreatedAt) {
                 const age = time - u.pathCreatedAt;

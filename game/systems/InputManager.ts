@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { EVENTS } from '../../constants';
 import { UnitType, BuildingType } from '../../types';
-import { toCartesian } from '../utils/iso';
+import { toCartesian, toIso } from '../utils/iso';
 
 export class InputManager {
     private scene: MainScene;
@@ -11,9 +11,12 @@ export class InputManager {
     public selectedBuilding: Phaser.GameObjects.GameObject | null = null;
 
     private isDragging = false;
+    private isRightDragging = false;
     private dragStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
     private selectionGraphics: Phaser.GameObjects.Graphics;
+    private rightDragGraphics: Phaser.GameObjects.Graphics;
+    private rightDragPoints: Phaser.Math.Vector2[] = [];
 
     private lastClickTime = 0;
     private lastClickPos = new Phaser.Math.Vector2();
@@ -21,6 +24,7 @@ export class InputManager {
     constructor(scene: MainScene) {
         this.scene = scene;
         this.selectionGraphics = this.scene.add.graphics().setDepth(Number.MAX_VALUE);
+        this.rightDragGraphics = this.scene.add.graphics().setDepth(Number.MAX_VALUE - 1);
         this.setupInputs();
     }
 
@@ -67,7 +71,14 @@ export class InputManager {
                 return;
             }
 
-            this.handleRightClick(pointer);
+            if (this.selectedUnits.length > 0) {
+                this.isRightDragging = true;
+                this.rightDragPoints = [];
+                const cart = toCartesian(pointer.worldX, pointer.worldY);
+                this.rightDragPoints.push(new Phaser.Math.Vector2(cart.x, cart.y));
+            } else {
+                this.handleRightClick(pointer);
+            }
             return;
         }
 
@@ -160,12 +171,38 @@ export class InputManager {
             this.selectionGraphics.strokeRectShape(this.dragRect);
             this.selectionGraphics.fillStyle(0xffffff, 0.1);
             this.selectionGraphics.fillRectShape(this.dragRect);
+        } else if (this.isRightDragging) {
+            const cart = toCartesian(pointer.worldX, pointer.worldY);
+            const lastPoint = this.rightDragPoints[this.rightDragPoints.length - 1];
+            const dist = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, cart.x, cart.y);
+
+            if (dist > 10) { // Add point if far enough from last
+                this.rightDragPoints.push(new Phaser.Math.Vector2(cart.x, cart.y));
+                this.drawRightDragPath();
+            }
         }
 
         if (this.scene.buildingManager.previewBuildingType) {
             this.scene.buildingManager.updatePreview(pointer.worldX, pointer.worldY);
         }
     }
+
+    private drawRightDragPath() {
+        this.rightDragGraphics.clear();
+        if (this.rightDragPoints.length < 2) return;
+
+        this.rightDragGraphics.lineStyle(3, 0x00ff00, 0.8);
+        this.rightDragGraphics.beginPath();
+        const startIso = toIso(this.rightDragPoints[0].x, this.rightDragPoints[0].y);
+        this.rightDragGraphics.moveTo(startIso.x, startIso.y);
+
+        for (let i = 1; i < this.rightDragPoints.length; i++) {
+            const iso = toIso(this.rightDragPoints[i].x, this.rightDragPoints[i].y);
+            this.rightDragGraphics.lineTo(iso.x, iso.y);
+        }
+        this.rightDragGraphics.strokePath();
+    }
+
 
     private handlePointerUp(pointer: Phaser.Input.Pointer) {
         if (this.isDragging) {
@@ -180,6 +217,18 @@ export class InputManager {
             } else {
                 this.selectUnitsInIsoRect(this.dragRect);
             }
+        } else if (this.isRightDragging) {
+            this.isRightDragging = false;
+            this.rightDragGraphics.clear();
+
+            if (this.rightDragPoints.length > 1) {
+                // If we dragged, it's a path command
+                this.scene.unitSystem.commandFollowPath(this.selectedUnits, this.rightDragPoints);
+            } else {
+                // If it was just a click (or very small drag), treat as normal move
+                this.handleRightClick(pointer);
+            }
+            this.rightDragPoints = [];
         }
     }
 
