@@ -310,7 +310,8 @@ export class EconomySystem {
             mapMode: this.scene.mapMode,
             peacefulMode: this.scene.peacefulMode,
             treatyTimeRemaining: remainingTreaty,
-            bloomIntensity: this.scene.bloomIntensity || 1.0
+            bloomIntensity: this.scene.bloomIntensity || 1.0,
+            currentFormation: this.scene.unitSystem.currentFormation
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }

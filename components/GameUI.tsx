@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameStats, BuildingType, MapMode, UnitType } from '../types';
+import { GameStats, BuildingType, MapMode, UnitType, FormationType } from '../types';
 import { BUILDINGS, EVENTS } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
@@ -8,7 +8,8 @@ import {
     Rabbit, Sprout,
     Target, LogOut, Handshake, Clock,
     Menu, FastForward, Flame, Flower,
-    X, Shield, Crown
+    X, Shield, Crown,
+    Grid, Minus, Circle, Activity, Triangle
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -388,8 +389,18 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                                 {/* No Actions Placeholder */}
                                 {!selectedBuildingType && selectedCount > 0 && (
-                                    <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
-                                        Right Click to Move
+                                    <div className="flex flex-col gap-1 items-end">
+                                        {/* FORMATION CONTROLS */}
+                                        <div className="flex gap-1 bg-black/40 p-1 rounded-lg">
+                                            <FormationButton type={FormationType.BOX} current={stats.currentFormation} icon={<Grid size={16} />} />
+                                            <FormationButton type={FormationType.LINE} current={stats.currentFormation} icon={<Minus size={16} />} />
+                                            <FormationButton type={FormationType.CIRCLE} current={stats.currentFormation} icon={<Circle size={16} />} />
+                                            <FormationButton type={FormationType.SKIRMISH} current={stats.currentFormation} icon={<Activity size={16} />} />
+                                            <FormationButton type={FormationType.WEDGE} current={stats.currentFormation} icon={<Triangle size={16} />} />
+                                        </div>
+                                        <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
+                                            Right Click to Move
+                                        </div>
                                     </div>
                                 )}
                                 {selectedBuildingType === BuildingType.BARRACKS && (
@@ -609,6 +620,22 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
                 {b.cost.food > 0 && <span className="text-[9px] text-yellow-400 font-mono">{b.cost.food}F</span>}
                 {b.cost.gold > 0 && <span className="text-[9px] text-amber-400 font-mono">{b.cost.gold}G</span>}
             </div>
+        </button>
+    );
+};
+
+const FormationButton: React.FC<{ type: FormationType, current: FormationType, icon: React.ReactNode }> = ({ type, current, icon }) => {
+    const isActive = type === current;
+    return (
+        <button
+            onClick={() => window.dispatchEvent(new CustomEvent('request-set-formation-ui', { detail: type }))}
+            className={`p-1.5 rounded-lg border transition-all ${isActive
+                ? 'bg-amber-600 border-amber-500 text-white shadow'
+                : 'bg-white/5 border-white/10 text-stone-400 hover:bg-white/10 hover:text-stone-200'
+                }`}
+            title={`Set Formation: ${type}`}
+        >
+            {icon}
         </button>
     );
 };

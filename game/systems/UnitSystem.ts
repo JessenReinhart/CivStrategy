@@ -1,14 +1,17 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState } from '../../types';
-import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS } from '../../constants';
+import { UnitType, UnitState, FormationType } from '../../types';
+import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
 import { toIso } from '../utils/iso';
+import { FormationSystem } from './FormationSystem';
 
 export class UnitSystem {
     private scene: MainScene;
     private pathGraphics: Phaser.GameObjects.Graphics;
     private debugGraphics: Phaser.GameObjects.Graphics;
+
+    public currentFormation: FormationType = FormationType.BOX;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -28,16 +31,50 @@ export class UnitSystem {
     }
 
     public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2, queue: boolean = false) {
-        const spacing = 15;
-        const formationCols = Math.ceil(Math.sqrt(units.length));
+        const spacing = 15; // Unit spacing (not squad spacing)
+
+        // 1. Calculate Group Offsets based on Formation
+        const groupOffsets = FormationSystem.getFormationOffsets(this.currentFormation, units.length, spacing);
+
+        // 2. Rotate offsets to face movement direction?
+        // Basic linear/box formations are usually axis-aligned or facing target.
+        // For now, let's keep them axis-aligned relative to the group center for simplicity,
+        // OR rotate them if it's a Line formation so the line is perpendicular to movement.
+
+        let rotationAngle = 0;
+        if (this.currentFormation === FormationType.LINE || this.currentFormation === FormationType.WEDGE) {
+            // Find center of mass of units
+            let sumX = 0, sumY = 0;
+            units.forEach((u: Phaser.GameObjects.GameObject) => {
+                const unit = u as Phaser.GameObjects.Image; // Image/Sprite has x/y
+                sumX += unit.x;
+                sumY += unit.y;
+            });
+            const avgX = sumX / units.length;
+            const avgY = sumY / units.length;
+
+            // Angle to target
+            rotationAngle = Phaser.Math.Angle.Between(avgX, avgY, target.x, target.y) + Math.PI / 2;
+        }
 
         units.forEach((unitObj, index) => {
             const unit = unitObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-            const col = index % formationCols;
-            const row = Math.floor(index / formationCols);
-            const offsetX = (col - formationCols / 2) * spacing;
-            const offsetY = (row - Math.ceil(units.length / formationCols) / 2) * spacing;
-            const unitTarget = new Phaser.Math.Vector2(target.x + offsetX, target.y + offsetY);
+
+            // Apply Squad Formation (Individual Soldiers)
+            // This ensures soldiers inside the unit also follow the chosen pattern
+            this.scene.squadSystem.applyFormation(unitObj, this.currentFormation);
+            unit.setData('formation', this.currentFormation);
+
+            // Calculate Unit Position in Group
+            // Use the offsets we generated
+            // Apply rotation if needed
+            const baseOffset = groupOffsets[index];
+            const rotatedOffset = new Phaser.Math.Vector2(
+                baseOffset.x * Math.cos(rotationAngle) - baseOffset.y * Math.sin(rotationAngle),
+                baseOffset.x * Math.sin(rotationAngle) + baseOffset.y * Math.cos(rotationAngle)
+            );
+
+            const unitTarget = new Phaser.Math.Vector2(target.x + rotatedOffset.x, target.y + rotatedOffset.y);
 
             const startPos = (queue && unit.path && unit.path.length > 0)
                 ? unit.path[unit.path.length - 1]
@@ -237,12 +274,14 @@ export class UnitSystem {
                 }
                 const nextPoint = unit.path[unit.pathStep];
                 const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
-                const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
 
                 if (dist < 4) {
                     unit.pathStep++;
                 } else {
-                    this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, speed);
+                    const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+                    const formation = unit.getData('formation') as FormationType || FormationType.BOX;
+                    const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
+                    this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
                 }
             } else {
                 if (body.velocity.length() > 0) body.setVelocity(0, 0);
@@ -304,7 +343,12 @@ export class UnitSystem {
     }
 
     private performAttack(unit: any, target: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const dmg = unit.getData('attack') || 10;
+        let dmg = unit.getData('attack') || 10;
+        const formation = unit.getData('formation') as FormationType || FormationType.BOX;
+        // Apply Formation Attack Bonus
+        const attackMult = FORMATION_BONUSES[formation]?.attack || 1.0;
+        dmg *= attackMult;
+
         // console.log(`PerformAttack: ${unit.unitType} -> Target (HP: ${target.getData('hp')})`);
 
         if (unit.unitType === UnitType.ARCHER) {
@@ -313,6 +357,7 @@ export class UnitSystem {
             const maxHp = unit.getData('maxHp');
             const currentHp = unit.getData('hp');
             const squadSize = UNIT_STATS[UnitType.ARCHER].squadSize;
+            const soldiers = unit.getData('soldierStates') || []; // Get soldier positions
 
             // At least 1 arrow, up to squadSize
             const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
@@ -331,9 +376,13 @@ export class UnitSystem {
                     takeDamage: (amt: number) => { if (target && target.takeDamage) target.takeDamage(amt); }
                 };
 
+                const origin = (soldiers.length > 0)
+                    ? soldiers[i % soldiers.length] // Cycle through soldiers
+                    : { x: unit.x, y: unit.y }; // Fallback to unit center
+
                 this.scene.time.delayedCall(delay, () => {
                     if (unit.scene && target.scene) { // Validity check
-                        this.fireProjectile(unit, targetVaried, damagePerArrow);
+                        this.fireProjectile(origin, targetVaried, damagePerArrow); // Pass origin point (Cartesian)
                     }
                 });
             }
@@ -369,8 +418,8 @@ export class UnitSystem {
         }
     }
 
-    private fireProjectile(unit: any, target: any, dmg: number) { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const startIso = toIso(unit.x, unit.y);
+    private fireProjectile(origin: { x: number, y: number }, target: any, dmg: number) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        const startIso = toIso(origin.x, origin.y);
         const endIso = toIso(target.x, target.y);
 
         // Visual: Arrow (WHITE)
@@ -488,5 +537,12 @@ export class UnitSystem {
                 }
             }
         });
+    }
+    public setFormation(type: FormationType) {
+        this.currentFormation = type;
+        // Optionally immediately re-form selected units? 
+        // For now, it just sets the mode for the NEXT move command, 
+        // OR we can trigger a short move to reform in place if we wanted.
+        // User requested UI button sets it.
     }
 }

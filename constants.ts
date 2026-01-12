@@ -1,5 +1,5 @@
 
-import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats, FormationType } from "./types";
 
 export const TILE_SIZE = 32;
 // Default Fallback
@@ -181,4 +181,12 @@ export const EVENTS = {
   MINIMAP_CLICK: 'minimap-click',
   DEMOLISH_SELECTED: 'demolish-selected',
   SET_BLOOM_INTENSITY: 'set-bloom-intensity'
+};
+
+export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense: number; speed: number }> = {
+  [FormationType.BOX]: { attack: 1.0, defense: 0.0, speed: 1.0 },
+  [FormationType.LINE]: { attack: 1.2, defense: 0.0, speed: 0.8 },      // +20% Dmg, -20% Speed
+  [FormationType.CIRCLE]: { attack: 1.0, defense: 0.25, speed: 0.7 },   // +25% Def, -30% Speed
+  [FormationType.SKIRMISH]: { attack: 1.0, defense: 0.15, speed: 1.1 }, // +15% Def (Dodge), +10% Speed
+  [FormationType.WEDGE]: { attack: 1.1, defense: 0.0, speed: 1.2 }      // +10% Dmg, +20% Speed
 };

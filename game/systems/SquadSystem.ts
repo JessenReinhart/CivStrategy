@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType } from '../../types';
+import { UnitType, FormationType } from '../../types';
 import { UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
+import { FormationSystem } from './FormationSystem';
 
 interface SoldierState {
     x: number;
@@ -56,26 +57,23 @@ export class SquadSystem {
         this.scene.add.existing(container);
     }
 
-    private initializeSoldiers(unit: Phaser.GameObjects.GameObject, count: number, type: UnitType) {
-        const stats = UNIT_STATS[type];
+    private initializeSoldiers(unit: Phaser.GameObjects.GameObject, count: number, _type: UnitType) {
+        // const stats = UNIT_STATS[type];
         const soldiers: SoldierState[] = [];
-        const spacing = stats.squadSpacing || 10;
-        const cols = Math.ceil(Math.sqrt(count));
+        const u = unit as Phaser.GameObjects.Container; // Assuming unit has x/y
 
         for (let i = 0; i < count; i++) {
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            const offsetX = (col - cols / 2) * spacing;
-            const offsetY = (row - (count / cols) / 2) * spacing;
-
             soldiers.push({
-                x: (unit as any).x + offsetX, // eslint-disable-line @typescript-eslint/no-explicit-any
-                y: (unit as any).y + offsetY, // eslint-disable-line @typescript-eslint/no-explicit-any
+                x: u.x, // Start at center
+                y: u.y,
                 z: 0,
-                offset: { x: offsetX, y: offsetY }
+                offset: { x: 0, y: 0 } // Will be set by applyFormation
             });
         }
         unit.setData('soldierStates', soldiers);
+
+        // Apply default BOX formation initially
+        this.applyFormation(unit, FormationType.BOX);
     }
 
     public update(_dt: number) {
@@ -251,6 +249,28 @@ export class SquadSystem {
         const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
         if (container) {
             container.destroy();
+        }
+    }
+
+    public applyFormation(unit: Phaser.GameObjects.GameObject, formationType: FormationType) {
+        const soldiers = unit.getData('soldierStates') as SoldierState[];
+        if (!soldiers || soldiers.length === 0) return;
+
+        const count = soldiers.length;
+        // Keep existing spacing or default to 10
+        const stats = UNIT_STATS[unit.getData('unitType') as UnitType];
+        const spacing = stats.squadSpacing || 10;
+
+        // Get new offsets
+        const offsets = FormationSystem.getFormationOffsets(formationType, count, spacing);
+
+        // Update soldier targets
+        // We update the 'offset' property of each soldierState
+        // The update loop in SquadSystem will handle the lerping to the new positions
+        for (let i = 0; i < count; i++) {
+            if (i < offsets.length) {
+                soldiers[i].offset = { x: offsets[i].x, y: offsets[i].y };
+            }
         }
     }
 }
