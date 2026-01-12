@@ -309,7 +309,8 @@ export class EconomySystem {
             taxRate: this.scene.taxRate,
             mapMode: this.scene.mapMode,
             peacefulMode: this.scene.peacefulMode,
-            treatyTimeRemaining: remainingTreaty
+            treatyTimeRemaining: remainingTreaty,
+            bloomIntensity: this.scene.bloomIntensity || 1.0
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }

@@ -47,6 +47,7 @@ export interface GameStats {
   mapMode: MapMode;
   peacefulMode: boolean; // NEW
   treatyTimeRemaining: number; // NEW (ms)
+  bloomIntensity: number; // Intensity of sunlit bloom effect
 }
 
 export interface BuildingCost {

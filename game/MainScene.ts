@@ -18,6 +18,7 @@ import { SquadSystem } from './systems/SquadSystem';
 import { MapGenerationSystem } from './systems/MapGenerationSystem';
 import { CullingSystem } from './systems/CullingSystem';
 import { FeedbackSystem } from './systems/FeedbackSystem';
+import { AtmosphericSystem } from './systems/AtmosphericSystem';
 
 
 export class MainScene extends Phaser.Scene {
@@ -34,6 +35,7 @@ export class MainScene extends Phaser.Scene {
   public mapWidth: number = 2048;
   public mapHeight: number = 2048;
   public taxRate: number = 0;
+  public bloomIntensity: number = 1.0;
   public isFowEnabled: boolean = true;
 
   // Diplomacy
@@ -78,6 +80,7 @@ export class MainScene extends Phaser.Scene {
   public mapGenerationSystem!: MapGenerationSystem;
   public cullingSystem!: CullingSystem;
   public feedbackSystem!: FeedbackSystem;
+  public atmosphericSystem!: AtmosphericSystem;
 
   public treeVisuals!: Phaser.GameObjects.Group; // Pool for tree visuals
 
@@ -189,6 +192,7 @@ export class MainScene extends Phaser.Scene {
     this.mapGenerationSystem = new MapGenerationSystem(this);
     this.cullingSystem = new CullingSystem(this);
     this.feedbackSystem = new FeedbackSystem(this);
+    this.atmosphericSystem = new AtmosphericSystem(this);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
@@ -246,6 +250,12 @@ export class MainScene extends Phaser.Scene {
       this.tweens.timeScale = speed;
     }, this);
 
+    this.game.events.on(EVENTS.SET_BLOOM_INTENSITY, (intensity: number) => {
+      this.bloomIntensity = intensity;
+      this.atmosphericSystem.setBloomIntensity(intensity);
+      this.economySystem.updateStats(); // Update React state
+    });
+
     this.physics.world.timeScale = 1 / this.gameSpeed;
     this.economySystem.updateStats();
 
@@ -257,6 +267,11 @@ export class MainScene extends Phaser.Scene {
       this.handleMinimapClick(detail.x, detail.y);
     };
     window.addEventListener('minimap-click-ui', minimapClickHandler);
+
+    this.game.events.on('set-bloom-intensity-ui', (intensity: number) => {
+      this.atmosphericSystem.setBloomIntensity(intensity);
+      this.economySystem.updateStats(); // Update React state
+    });
   }
 
   private lastTcIndex = -1;
@@ -338,6 +353,7 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.economySystem.assignJobs();
+    this.atmosphericSystem.update(this.gameTime, dt);
     this.syncVisuals();
   }
 
