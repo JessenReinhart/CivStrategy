@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize } from '../types';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType } from '../types';
 import { toIso } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
@@ -272,6 +272,13 @@ export class MainScene extends Phaser.Scene {
       this.atmosphericSystem.setBloomIntensity(intensity);
       this.economySystem.updateStats(); // Update React state
     });
+
+    this.game.events.on('request-set-formation', (type: FormationType) => {
+      if (this.unitSystem) {
+        this.unitSystem.setFormation(type);
+        this.economySystem.updateStats();
+      }
+    }, this);
   }
 
   private lastTcIndex = -1;

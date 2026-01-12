@@ -17,6 +17,14 @@ export enum MapSize {
   LARGE = 'Large'
 }
 
+export enum FormationType {
+  BOX = 'Box',
+  LINE = 'Line',
+  CIRCLE = 'Circle',
+  SKIRMISH = 'Skirmish',
+  WEDGE = 'Wedge'
+}
+
 export enum ResourceType {
   WOOD = 'Wood',
   FOOD = 'Food',
@@ -48,6 +56,7 @@ export interface GameStats {
   peacefulMode: boolean; // NEW
   treatyTimeRemaining: number; // NEW (ms)
   bloomIntensity: number; // Intensity of sunlit bloom effect
+  currentFormation: FormationType; // NEW
 }
 
 export interface BuildingCost {

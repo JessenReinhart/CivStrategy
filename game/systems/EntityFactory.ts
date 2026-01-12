@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, UnitState, BuildingDef, FactionType } from '../../types';
-import { BUILDINGS, UNIT_STATS } from '../../constants';
+import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType } from '../../types';
+import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class EntityFactory {
@@ -207,6 +207,15 @@ export class EntityFactory {
     private handleDamage(entity: Phaser.GameObjects.GameObject, amount: number, isUnit: boolean) {
         let hp = entity.getData('hp');
         const maxHp = entity.getData('maxHp');
+
+        // Apply Formation Defense Bonus (Damage Reduction)
+        if (isUnit) {
+            const formation = entity.getData('formation') as FormationType || FormationType.BOX;
+            const defBonus = FORMATION_BONUSES[formation]?.defense || 0;
+            // E.g., 0.25 -> amount * 0.75
+            amount = Math.max(1, amount * (1 - defBonus));
+        }
+
         hp -= amount;
         entity.setData('hp', hp);
         const visual = (entity as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
