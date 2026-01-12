@@ -334,7 +334,7 @@ export class MainScene extends Phaser.Scene {
 
     this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
 
-    this.cullingSystem.update(delta);
+    this.cullingSystem.update(this.gameTime, dt);
 
     this.unitSystem.update(this.gameTime, dt);
     this.squadSystem.update(dt);
