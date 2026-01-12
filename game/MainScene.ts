@@ -237,7 +237,7 @@ export class MainScene extends Phaser.Scene {
       this.showUnitIndicators = !this.showUnitIndicators;
     });
 
-    this.game.events.on('request-soldier-spawn', this.handleSoldierSpawnRequest, this);
+    this.game.events.on('request-unit-spawn', this.handleUnitSpawnRequest, this);
     this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
     this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
     this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
@@ -343,21 +343,44 @@ export class MainScene extends Phaser.Scene {
 
 
 
-  handleSoldierSpawnRequest() {
+  handleUnitSpawnRequest(type: UnitType) {
+    const costs: Record<UnitType, { food: number; gold: number }> = {
+      [UnitType.PIKESMAN]: { food: 100, gold: 50 },
+      [UnitType.ARCHER]: { food: 80, gold: 40 },
+      [UnitType.CAVALRY]: { food: 150, gold: 100 },
+      [UnitType.VILLAGER]: { food: 0, gold: 0 },
+      [UnitType.LEGION]: { food: 500, gold: 300 },
+      [UnitType.ANIMAL]: { food: 0, gold: 0 }
+    };
 
-    if (this.resources.food >= 100 && this.resources.gold >= 50) {
-      const barracks = this.buildings.getChildren().filter((b) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
-      if (barracks.length > 0) {
-        const spawnSource = barracks[Phaser.Math.Between(0, barracks.length - 1)];
-        this.resources.food -= 100;
-        this.resources.gold -= 50;
-        const spawnX = spawnSource.x + 60;
-        const spawnY = spawnSource.y + 60;
-        this.entityFactory.spawnUnit(UnitType.SOLDIER, spawnX, spawnY, 0);
-        this.economySystem.updateStats();
-      } else {
-        this.feedbackSystem.showFloatingText(this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY, "Build a Barracks first!", "#ff0000");
+    const cost = costs[type];
+    if (this.resources.food >= cost.food && this.resources.gold >= cost.gold) {
+      // Find selected barracks OR any barracks if nothing selected
+      let spawnSource = this.inputManager.selectedBuilding as Phaser.GameObjects.Rectangle;
+      if (!spawnSource || spawnSource.getData('def').type !== BuildingType.BARRACKS) {
+        const barracks = this.buildings.getChildren().filter((b) => b.getData('def').type === BuildingType.BARRACKS && b.getData('owner') === 0) as Phaser.GameObjects.Rectangle[];
+        if (barracks.length > 0) {
+          spawnSource = barracks[0];
+        } else {
+          this.feedbackSystem.showFloatingText(this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY, "Build a Barracks first!", "#ff0000");
+          return;
+        }
+      }
 
+      this.resources.food -= cost.food;
+      this.resources.gold -= cost.gold;
+      const spawnX = spawnSource.x + 60;
+      const spawnY = spawnSource.y + 60;
+
+      const unit = this.entityFactory.spawnUnit(type, spawnX, spawnY, 0);
+      this.economySystem.updateStats();
+
+      // Check for waypoint
+      const waypoint = spawnSource.getData('waypoint');
+      if (waypoint) {
+        this.time.delayedCall(500, () => {
+          this.unitSystem.commandMove([unit], new Phaser.Math.Vector2(waypoint.x, waypoint.y));
+        });
       }
     }
   }

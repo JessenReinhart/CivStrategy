@@ -84,7 +84,7 @@ export interface BuildingDef {
 
 export enum UnitType {
   VILLAGER = 'Villager',
-  SOLDIER = 'Soldier', // Standard Infantry (Medium Squad)
+  PIKESMAN = 'Pikesman', // Standard Infantry (Medium Squad)
   CAVALRY = 'Cavalry', // Fast, Heavy (Small Squad)
   LEGION = 'Legion', // Massive Infantry (Large Squad)
   ARCHER = 'Archer', // Ranged Unit

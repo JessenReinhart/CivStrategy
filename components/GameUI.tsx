@@ -14,7 +14,7 @@ import {
 interface GameUIProps {
     stats: GameStats;
     onBuild: (type: BuildingType) => void;
-    onSpawnUnit: () => void;
+    onSpawnUnit: (type: UnitType) => void;
     onToggleDemolish: (isActive: boolean) => void;
     onRegrowForest: () => void;
     onQuit: () => void;
@@ -309,7 +309,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                         onClick={() => onFilterSelection && onFilterSelection(type as UnitType)}
                                                         className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all hover:scale-105 active:scale-95 group min-w-[100px]"
                                                     >
-                                                        {type === UnitType.SOLDIER && <Sword size={14} className="text-red-400" />}
+                                                        {type === UnitType.PIKESMAN && <Sword size={14} className="text-red-400" />}
                                                         {type === UnitType.ARCHER && <Target size={14} className="text-emerald-400" />}
                                                         {type === UnitType.CAVALRY && <FastForward size={14} className="text-amber-400" />}
                                                         {type === UnitType.VILLAGER && <Pickaxe size={14} className="text-yellow-400" />}
@@ -333,6 +333,33 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     <ActionButton onClick={onRegrowForest} icon={<Sprout size={18} />} label="Regrow" color="text-emerald-400" />
                                 )}
 
+                                {/* Barracks Actions */}
+                                {selectedBuildingType === BuildingType.BARRACKS && (
+                                    <div className="flex gap-1 border-r border-white/10 pr-2 mr-2">
+                                        <TrainButton
+                                            label="Pikesman"
+                                            cost={{ food: 100, gold: 50 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.PIKESMAN)}
+                                            icon={<Sword size={16} />}
+                                        />
+                                        <TrainButton
+                                            label="Archer"
+                                            cost={{ food: 80, gold: 40 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.ARCHER)}
+                                            icon={<Target size={16} />}
+                                        />
+                                        <TrainButton
+                                            label="Cavalry"
+                                            cost={{ food: 150, gold: 100 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.CAVALRY)}
+                                            icon={<FastForward size={16} />}
+                                        />
+                                    </div>
+                                )}
+
                                 {/* Demolish Action (Only for buildings) */}
                                 {selectedBuildingType && (
                                     <ActionButton onClick={onDemolishSelected} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
@@ -342,6 +369,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 {!selectedBuildingType && selectedCount > 0 && (
                                     <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
                                         Right Click to Move
+                                    </div>
+                                )}
+                                {selectedBuildingType === BuildingType.BARRACKS && (
+                                    <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
+                                        Right Click map to set waypoint
                                     </div>
                                 )}
                             </div>
@@ -357,7 +389,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         {activeCategory && (
                             <div className="bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2">
                                 <div className="flex gap-2">
-                                    {getBuildingsByCategory(activeCategory, stats, onBuild, onSpawnUnit)}
+                                    {getBuildingsByCategory(activeCategory, stats, onBuild)}
                                 </div>
                             </div>
                         )}
@@ -471,7 +503,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({ onClick, icon, label, color
 );
 
 // Helper to generate build icons based on category
-const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: BuildingType) => void, onSpawnUnit: () => void) => {
+const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: BuildingType) => void) => {
     const list: React.ReactNode[] = [];
 
     const renderBuildBtn = (type: BuildingType, icon: React.ReactNode) => (
@@ -489,29 +521,38 @@ const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: B
         list.push(renderBuildBtn(BuildingType.SMALL_PARK, <Flower size={18} />));
     } else if (cat === 'military') {
         list.push(renderBuildBtn(BuildingType.BARRACKS, <Hammer size={18} />));
-        // Special Unit Card
-        const canAffordUnit = stats.resources.food >= 100 && stats.resources.gold >= 50;
-        list.push(
-            <button
-                key="unit"
-                onClick={onSpawnUnit}
-                disabled={!canAffordUnit}
-                className={`flex flex-col items-center p-2 rounded-xl border transition-all min-w-[70px]
-                    ${canAffordUnit
-                        ? 'bg-stone-800 border-stone-600 hover:border-red-500 hover:bg-stone-700 cursor-pointer'
-                        : 'bg-stone-900/50 border-stone-800 opacity-50 cursor-not-allowed'}
-                `}
-            >
-                <Sword size={20} className="mb-1 text-red-400" />
-                <span className="text-[10px] font-bold text-stone-300">Soldier</span>
-                <div className="flex gap-1 mt-1">
-                    <span className="text-[9px] text-yellow-500">100F</span>
-                    <span className="text-[9px] text-amber-500">50G</span>
-                </div>
-            </button>
-        );
     }
     return list;
+};
+
+interface TrainButtonProps {
+    label: string;
+    cost: { food: number; gold: number };
+    stats: GameStats;
+    onClick: () => void;
+    icon: React.ReactNode;
+}
+
+const TrainButton: React.FC<TrainButtonProps> = ({ label, cost, stats, onClick, icon }) => {
+    const canAfford = stats.resources.food >= cost.food && stats.resources.gold >= cost.gold;
+    return (
+        <button
+            onClick={onClick}
+            disabled={!canAfford}
+            className={`flex flex-col items-center p-1.5 rounded-lg border transition-all min-w-[64px]
+                ${canAfford
+                    ? 'bg-stone-800 border-stone-600 hover:border-red-500 hover:bg-stone-700'
+                    : 'bg-stone-900/50 border-stone-800 opacity-40 cursor-not-allowed grayscale'}
+            `}
+        >
+            <div className={`mb-0.5 ${canAfford ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
+            <span className="text-[9px] font-bold text-stone-300">{label}</span>
+            <div className="flex gap-1 mt-0.5">
+                <span className="text-[8px] text-yellow-500 font-mono">{cost.food}F</span>
+                <span className="text-[8px] text-amber-500 font-mono">{cost.gold}G</span>
+            </div>
+        </button>
+    );
 };
 
 interface BuildCardProps {

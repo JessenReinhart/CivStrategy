@@ -105,6 +105,38 @@ export class EntityFactory {
         }
 
         (b as any).takeDamage = (amount: number) => this.handleDamage(b, amount, false); // eslint-disable-line @typescript-eslint/no-explicit-any
+
+        // Waypoint Logic for Barracks
+        if (type === BuildingType.BARRACKS) {
+            const waypointGfx = this.scene.add.graphics().setDepth(iso.y - 1);
+            visual.add(waypointGfx);
+            (b as any).setWaypoint = (cx: number, cy: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                const isoDest = toIso(cx, cy);
+                const isoStart = toIso(b.x, b.y);
+                b.setData('waypoint', { x: cx, y: cy });
+
+                waypointGfx.clear();
+                waypointGfx.lineStyle(2, 0xffffff, 0.5);
+                // Points relative to visual container
+                const relDest = { x: isoDest.x - isoStart.x, y: isoDest.y - isoStart.y };
+                waypointGfx.moveTo(0, 0).lineTo(relDest.x, relDest.y);
+                // Draw a small flag or circle at dest
+                waypointGfx.fillStyle(0xffffff, 0.8).fillCircle(relDest.x, relDest.y, 4);
+
+                // Show floating text confirmation
+                this.scene.feedbackSystem.showFloatingText(isoDest.x, isoDest.y, "Waypoint Set", "#ffffff");
+            };
+
+            // Hide waypoint if not selected? Or always show? 
+            // In many RTS it shows only when selected.
+            waypointGfx.setVisible(false);
+            const originalSetSelected = (b as any).setSelected; // eslint-disable-line @typescript-eslint/no-explicit-any
+            (b as any).setSelected = (sel: boolean) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                originalSetSelected(sel);
+                waypointGfx.setVisible(sel);
+            };
+        }
+
         return b;
     }
 

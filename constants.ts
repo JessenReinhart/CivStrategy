@@ -25,7 +25,7 @@ export const FACTION_COLORS = {
 // Vision range for units used by the Fog of War system
 export const UNIT_VISION = {
   [UnitType.VILLAGER]: 150,
-  [UnitType.SOLDIER]: 250,
+  [UnitType.PIKESMAN]: 250,
   [UnitType.ARCHER]: 300,
   [UnitType.CAVALRY]: 350,
   [UnitType.LEGION]: 300,
@@ -38,7 +38,7 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
     maxHp: 50, attack: 3, range: 30, attackSpeed: 1000, speed: 80,
     squadSize: 1, squadSpacing: 0, squadColor: 0xcccccc
   },
-  [UnitType.SOLDIER]: {
+  [UnitType.PIKESMAN]: {
     maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 100,
     squadSize: 16, squadSpacing: 8, squadColor: 0xef4444
   },
@@ -62,7 +62,7 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
 
 export const UNIT_SPEED = {
   [UnitType.VILLAGER]: UNIT_STATS[UnitType.VILLAGER].speed,
-  [UnitType.SOLDIER]: UNIT_STATS[UnitType.SOLDIER].speed,
+  [UnitType.PIKESMAN]: UNIT_STATS[UnitType.PIKESMAN].speed,
   [UnitType.ARCHER]: UNIT_STATS[UnitType.ARCHER].speed,
   [UnitType.CAVALRY]: UNIT_STATS[UnitType.CAVALRY].speed,
   [UnitType.LEGION]: UNIT_STATS[UnitType.LEGION].speed,
@@ -158,7 +158,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 72,
     height: 72,
     color: 0xb91c1c,
-    description: 'Allows training of soldiers.',
+    description: 'Allows training of pikesmen, archers and cavalry.',
     maxHp: 800,
     happinessBonus: -2
   }

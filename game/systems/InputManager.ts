@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { EVENTS } from '../../constants';
-import { UnitType } from '../../types';
+import { UnitType, BuildingType } from '../../types';
 import { toCartesian } from '../utils/iso';
 
 export class InputManager {
@@ -184,7 +184,14 @@ export class InputManager {
     }
 
     private handleRightClick(pointer: Phaser.Input.Pointer) {
-        if (this.selectedUnits.length === 0) return;
+        if (this.selectedUnits.length === 0) {
+            // Check if a Barracks is selected and no units are selected
+            if (this.selectedBuilding && this.selectedBuilding.getData('def').type === BuildingType.BARRACKS) {
+                const cart = toCartesian(pointer.worldX, pointer.worldY);
+                (this.selectedBuilding as any).setWaypoint(cart.x, cart.y); // eslint-disable-line @typescript-eslint/no-explicit-any
+            }
+            return;
+        }
 
         // Check for click on Enemy Unit/Building
         const targets = this.scene.input.hitTestPointer(pointer);
@@ -275,7 +282,7 @@ export class InputManager {
     }
 
     private isSelectable(type: UnitType) {
-        return type === UnitType.SOLDIER || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION;
+        return type === UnitType.PIKESMAN || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION;
     }
 
     public clearSelection() {
