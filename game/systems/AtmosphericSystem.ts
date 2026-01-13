@@ -4,7 +4,8 @@ import { MainScene } from '../MainScene';
 
 export class AtmosphericSystem {
     private scene: MainScene;
-    private clouds: Phaser.GameObjects.Sprite[] = [];
+    public clouds: Phaser.GameObjects.Sprite[] = [];
+
     private bloomEffect!: Phaser.FX.Bloom;
     private tiltShiftEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any
     private vignetteEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any

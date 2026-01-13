@@ -7,7 +7,8 @@ import { toIso } from '../utils/iso';
 
 export class FogOfWarSystem {
     private scene: MainScene;
-    private screenRT!: Phaser.GameObjects.RenderTexture;
+    public screenRT!: Phaser.GameObjects.RenderTexture;
+
     private visionBrush: Phaser.GameObjects.Image;
     private isVisible: boolean = true;
 
