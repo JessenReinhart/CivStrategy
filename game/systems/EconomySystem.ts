@@ -1,16 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, UnitType, GameStats, ResourceRates } from '../../types';
+import { BuildingType, BuildingDef, UnitState, UnitType, GameStats, ResourceRates, VillagerData } from '../../types';
 import { EVENTS } from '../../constants';
-
-interface GameUnit extends Phaser.GameObjects.Image {
-    unitType: UnitType;
-    state: UnitState;
-    jobBuilding?: Phaser.GameObjects.GameObject;
-    path?: Phaser.Math.Vector2[];
-    pathStep?: number;
-}
 
 export class EconomySystem {
     private scene: MainScene;
@@ -44,7 +36,7 @@ export class EconomySystem {
                 const spawnX = spawnSource.x + (offsetX >= 0 ? 50 : -50) + offsetX;
                 const spawnY = spawnSource.y + (offsetY >= 0 ? 50 : -50) + offsetY;
 
-                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, spawnX, spawnY, 0);
+                this.scene.villagerSystem.spawnVillager(spawnX, spawnY, 0);
                 this.scene.events.emit('message', "A new peasant has arrived.");
             }
         }
@@ -57,10 +49,7 @@ export class EconomySystem {
             return def.workerNeeds && !assignedWorker;
         });
 
-        const idleVillagers = this.scene.units.getChildren().filter((u) => {
-            const unit = u as unknown as GameUnit;
-            return (unit.unitType === UnitType.VILLAGER) && (unit.state === UnitState.IDLE || unit.state === UnitState.MOVING_TO_RALLY);
-        }) as Phaser.GameObjects.GameObject[];
+        const idleVillagers = this.scene.villagerSystem.getIdleVillagers(0);
 
         for (const building of vacantBuildings) {
             if (idleVillagers.length === 0) break;
@@ -68,20 +57,20 @@ export class EconomySystem {
             const b = building as Phaser.GameObjects.Image;
             const buildingOwner = b.getData('owner');
 
-            let closestWorker: Phaser.GameObjects.GameObject | null = null;
+            let closestWorker: VillagerData | null = null;
             let minDist = Number.MAX_VALUE;
             let workerIndex = -1;
 
             for (let i = 0; i < idleVillagers.length; i++) {
-                const u = idleVillagers[i] as Phaser.GameObjects.Image;
+                const villager = idleVillagers[i];
 
                 // STRICT OWNERSHIP CHECK: Only assign villagers to buildings of the same owner
-                if (u.getData('owner') !== buildingOwner) continue;
+                if (villager.owner !== buildingOwner) continue;
 
-                const dist = Phaser.Math.Distance.Between(b.x, b.y, u.x, u.y);
+                const dist = Phaser.Math.Distance.Between(b.x, b.y, villager.x, villager.y);
                 if (dist < minDist) {
                     minDist = dist;
-                    closestWorker = u;
+                    closestWorker = villager;
                     workerIndex = i;
                 }
             }
@@ -89,29 +78,21 @@ export class EconomySystem {
             if (closestWorker) {
                 idleVillagers.splice(workerIndex, 1);
                 b.setData('assignedWorker', closestWorker);
-                (closestWorker as unknown as GameUnit).state = UnitState.MOVING_TO_WORK;
-                (closestWorker as unknown as GameUnit).jobBuilding = b;
-
-                const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2((closestWorker as unknown as GameUnit).x, (closestWorker as unknown as GameUnit).y), new Phaser.Math.Vector2(b.x, b.y));
-                if (path) {
-                    (closestWorker as unknown as GameUnit).path = path;
-                    (closestWorker as unknown as GameUnit).pathStep = 0;
-                }
+                this.scene.villagerSystem.assignJob(closestWorker, b);
             }
         }
 
         // Re-filter idle villagers to those who are still truly idle and job-less
-        const remainingIdle = this.scene.units.getChildren().filter((u) => {
-            const unit = u as unknown as GameUnit;
-            return unit.unitType === UnitType.VILLAGER && unit.state === UnitState.IDLE && !unit.jobBuilding;
-        });
+        const remainingIdle = this.scene.villagerSystem.getAllVillagers().filter((villager) =>
+            villager.state === UnitState.IDLE && !villager.jobBuilding
+        );
 
         if (remainingIdle.length > 0) {
             const allBonfires = this.scene.buildings.getChildren().filter((b) => b.getData('def').type === BuildingType.BONFIRE) as Phaser.GameObjects.Rectangle[];
 
             if (allBonfires.length > 0) {
-                remainingIdle.forEach((u) => {
-                    const owner = u.getData('owner');
+                remainingIdle.forEach((villager) => {
+                    const owner = villager.owner;
                     // Filter bonfires by OWNER
                     const myBonfires = allBonfires.filter((b) => b.getData('owner') === owner);
 
@@ -119,7 +100,7 @@ export class EconomySystem {
                         let closestBonfire = myBonfires[0];
                         let minDistance = Number.MAX_VALUE;
                         for (const bonfire of myBonfires) {
-                            const d = Phaser.Math.Distance.Between((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y, bonfire.x, bonfire.y);
+                            const d = Phaser.Math.Distance.Between(villager.x, villager.y, bonfire.x, bonfire.y);
                             if (d < minDistance) {
                                 minDistance = d;
                                 closestBonfire = bonfire;
@@ -128,16 +109,11 @@ export class EconomySystem {
                         const rallyPoint = closestBonfire;
                         // Only move if far away
                         if (minDistance > 100) {
-                            (u as unknown as GameUnit).state = UnitState.MOVING_TO_RALLY;
                             const angle = Math.random() * Math.PI * 2;
                             const r = Math.random() * 60 + 40;
                             const destX = rallyPoint.x + Math.cos(angle) * r;
                             const destY = rallyPoint.y + Math.sin(angle) * r;
-                            const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y), new Phaser.Math.Vector2(destX, destY));
-                            if (path) {
-                                (u as unknown as GameUnit).path = path;
-                                (u as unknown as GameUnit).pathStep = 0;
-                            }
+                            this.scene.villagerSystem.sendToRallyPoint(villager, destX, destY);
                         }
                     }
                 });
@@ -173,7 +149,7 @@ export class EconomySystem {
             let productionType = '';
 
             if (def.workerNeeds) {
-                const worker = b.getData('assignedWorker');
+                const worker = b.getData('assignedWorker') as VillagerData | null;
                 if (worker && worker.state === UnitState.WORKING) {
                     if (vacantIcon) vacantIcon.visible = false;
                 } else {

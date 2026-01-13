@@ -141,6 +141,12 @@ export class EntityFactory {
     }
 
     public spawnUnit(type: UnitType, x: number, y: number, owner: number = 0) {
+        // Villagers are now handled by VillagerSystem, not EntityFactory
+        if (type === UnitType.VILLAGER) {
+            console.warn('Villagers should be spawned through VillagerSystem, not EntityFactory.spawnUnit');
+            return;
+        }
+
         const stats = UNIT_STATS[type];
         const radius = 8;
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
@@ -168,12 +174,8 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
-        const primaryColor = this.scene.getFactionColor(owner);
 
-        if (type === UnitType.VILLAGER) {
-            gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6);
-            visual.add([gfx, this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342), this.scene.add.circle(0, -11, 2.5, 0xffcccc)]);
-        } else if (type === UnitType.ANIMAL) {
+        if (type === UnitType.ANIMAL) {
             gfx.fillStyle(0x795548, 1).fillEllipse(0, 0, 12, 7);
             visual.add(gfx);
             visual.setScale(0.8);
