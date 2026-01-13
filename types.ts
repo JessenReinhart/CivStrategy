@@ -156,3 +156,15 @@ export interface GameUnit extends Phaser.GameObjects.Image {
   // But we extend Image so standard props are there.
   // We'll trust the specific props we need.
 }
+
+export interface VillagerData {
+  id: string;
+  x: number;
+  y: number;
+  owner: number;
+  state: UnitState;
+  jobBuilding?: Phaser.GameObjects.GameObject;
+  path?: Phaser.Math.Vector2[];
+  pathStep?: number;
+  visual?: Phaser.GameObjects.Container;
+}

@@ -19,6 +19,7 @@ import { MapGenerationSystem } from './systems/MapGenerationSystem';
 import { CullingSystem } from './systems/CullingSystem';
 import { FeedbackSystem } from './systems/FeedbackSystem';
 import { AtmosphericSystem } from './systems/AtmosphericSystem';
+import { VillagerSystem } from './systems/VillagerSystem';
 
 
 export class MainScene extends Phaser.Scene {
@@ -81,6 +82,7 @@ export class MainScene extends Phaser.Scene {
   public cullingSystem!: CullingSystem;
   public feedbackSystem!: FeedbackSystem;
   public atmosphericSystem!: AtmosphericSystem;
+  public villagerSystem!: VillagerSystem;
 
   public treeVisuals!: Phaser.GameObjects.Group; // Pool for tree visuals
 
@@ -193,6 +195,7 @@ export class MainScene extends Phaser.Scene {
     this.cullingSystem = new CullingSystem(this);
     this.feedbackSystem = new FeedbackSystem(this);
     this.atmosphericSystem = new AtmosphericSystem(this);
+    this.villagerSystem = new VillagerSystem(this);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
@@ -209,8 +212,8 @@ export class MainScene extends Phaser.Scene {
 
     this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX, centerY, 0);
     this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY, 0);
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX + 50, centerY + 50, 0);
-    this.entityFactory.spawnUnit(UnitType.VILLAGER, centerX - 50, centerY + 50, 0);
+    this.villagerSystem.spawnVillager(centerX + 50, centerY + 50, 0);
+    this.villagerSystem.spawnVillager(centerX - 50, centerY + 50, 0);
     this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90, 0);
 
     // Spawn a squad of Archers
@@ -343,6 +346,7 @@ export class MainScene extends Phaser.Scene {
 
     this.cullingSystem.update(this.gameTime, dt);
 
+    this.villagerSystem.update(this.gameTime, dt);
     this.unitSystem.update(this.gameTime, dt);
     this.squadSystem.update(dt);
     this.buildingManager.update();
@@ -406,11 +410,13 @@ export class MainScene extends Phaser.Scene {
       this.economySystem.updateStats();
 
       // Check for waypoint
-      const waypoint = spawnSource.getData('waypoint');
-      if (waypoint) {
-        this.time.delayedCall(500, () => {
-          this.unitSystem.commandMove([unit], new Phaser.Math.Vector2(waypoint.x, waypoint.y));
-        });
+      if (unit) {
+        const waypoint = spawnSource.getData('waypoint');
+        if (waypoint) {
+          this.time.delayedCall(500, () => {
+            this.unitSystem.commandMove([unit], new Phaser.Math.Vector2(waypoint.x, waypoint.y));
+          });
+        }
       }
     }
   }

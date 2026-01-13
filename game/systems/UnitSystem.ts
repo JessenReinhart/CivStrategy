@@ -256,6 +256,9 @@ export class UnitSystem {
 
             if (!body) return;
 
+            // Skip Villagers - they are now managed by VillagerSystem
+            if (unit.unitType === UnitType.VILLAGER) return;
+
             // Failsafe: If peaceful mode is on, force enemy combat units to stop attacking
             if (this.scene.peacefulMode === true && unit.getData('owner') !== 0) {
                 if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
@@ -274,10 +277,6 @@ export class UnitSystem {
                 if (unit.pathStep >= unit.path.length) {
                     body.setVelocity(0, 0);
                     unit.path = null;
-                    if (unit.unitType === UnitType.VILLAGER) {
-                        if (unit.state === UnitState.MOVING_TO_WORK) unit.state = UnitState.WORKING;
-                        else if (unit.state === UnitState.MOVING_TO_RALLY) unit.state = UnitState.IDLE;
-                    }
                     return;
                 }
                 const nextPoint = unit.path[unit.pathStep];
