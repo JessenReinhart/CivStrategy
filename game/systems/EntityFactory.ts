@@ -24,7 +24,12 @@ export class EntityFactory {
 
         this.scene.pathfinder.markGrid(x, y, def.width, def.height, true);
 
+
+
         const visual = this.scene.add.container(0, 0);
+        this.scene.worldVisuals.add(visual); // Add to ignored group
+
+
         const gfx = this.scene.add.graphics();
         const baseColor = owner === 1 ? 0x3f3f46 : def.color; // Keep dark base for enemy buildings for contrast, or maybe subtle tint? Let's keep it but make banner colorful.
         // ACTUALLY plan says "Update the enemy banner creation to use this.scene.getFactionColor(owner)".
@@ -79,10 +84,35 @@ export class EntityFactory {
         const hpBar = this.createHealthBar(visual, def.width, -def.height * 0.8 - 35);
         visual.setData('hpBar', hpBar);
 
-        this.scene.add.existing(visual);
-        (b as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         const iso = toIso(x, y);
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
+
+        // --- VACANT / NO RES ICONS (UI Camera Only) ---
+        // These are added to uiGroup so they are NOT bloomed
+        if (def.workerNeeds || def.effectRadius) {
+            const vy = -def.height * 0.5 - 30; // Position above building
+
+            // Vacant Icon (Yellow Warning)
+            const vacantIcon = this.scene.add.text(iso.x, iso.y + vy, "⚠️", { fontSize: '24px' });
+            vacantIcon.setOrigin(0.5);
+            vacantIcon.setVisible(false); // Default hidden
+            this.scene.uiGroup.add(vacantIcon);
+            visual.setData('vacantIcon', vacantIcon);
+
+            // No Resources Icon (Red Ban)
+            const noResIcon = this.scene.add.text(iso.x, iso.y + vy, "🚫", { fontSize: '24px' });
+            noResIcon.setOrigin(0.5);
+            noResIcon.setVisible(false); // Default hidden
+            this.scene.uiGroup.add(noResIcon);
+            visual.setData('noResIcon', noResIcon);
+        }
+
+        this.scene.add.existing(visual);
+        (b as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+        // Position set earlier
+
+
         visual.setInteractive(new Phaser.Geom.Rectangle(-def.width / 2, -def.height, def.width, def.height), Phaser.Geom.Rectangle.Contains);
         visual.setData('building', b);
 
@@ -173,6 +203,9 @@ export class EntityFactory {
         }
 
         const visual = this.scene.add.container(0, 0);
+        this.scene.worldVisuals.add(visual); // Add to ignored group
+
+
         const gfx = this.scene.add.graphics();
 
         if (type === UnitType.ANIMAL) {

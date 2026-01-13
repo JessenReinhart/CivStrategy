@@ -84,7 +84,11 @@ export class MainScene extends Phaser.Scene {
   public atmosphericSystem!: AtmosphericSystem;
   public villagerSystem!: VillagerSystem;
 
+  public uiGroup!: Phaser.GameObjects.Group;
+  public uiCamera!: Phaser.Cameras.Scene2D.Camera;
+
   public treeVisuals!: Phaser.GameObjects.Group; // Pool for tree visuals
+  public worldVisuals!: Phaser.GameObjects.Group; // General visuals
 
   // Input Keys
   public cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -180,6 +184,8 @@ export class MainScene extends Phaser.Scene {
     this.buildings = this.add.group();
     this.trees = this.add.group();
     this.treeVisuals = this.add.group(); // Visual pool
+    this.worldVisuals = this.add.group(); // General visuals (units, buildings)
+
 
     // Hook into tree group to maintain spatial hash
     this.trees.on('create', (item: Phaser.GameObjects.GameObject) => this.treeSpatialHash.insert(item));
@@ -289,6 +295,22 @@ export class MainScene extends Phaser.Scene {
         this.economySystem.updateStats();
       }
     }, this);
+
+    // --- UI CAMERA SETUP (Must be done AFTER systems init) ---
+    this.uiGroup = this.add.group({ runChildUpdate: true });
+    this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height);
+    this.cameras.main.ignore(this.uiGroup);
+
+    // Careful exclusions for UI Camera
+    this.uiCamera.ignore(this.groundLayer);
+    this.uiCamera.ignore(this.trees);
+    this.uiCamera.ignore(this.buildings);
+    this.uiCamera.ignore(this.units);
+    this.uiCamera.ignore(this.treeVisuals);
+    this.uiCamera.ignore(this.worldVisuals);
+    this.uiCamera.ignore(this.atmosphericSystem.clouds);
+
+    if (this.fogOfWar) { this.uiCamera.ignore(this.fogOfWar.screenRT); }
   }
 
   private lastTcIndex = -1;
@@ -373,6 +395,11 @@ export class MainScene extends Phaser.Scene {
     this.economySystem.assignJobs();
     this.atmosphericSystem.update(this.gameTime, dt);
     this.syncVisuals();
+
+    // Sync UI camera
+    this.uiCamera.scrollX = this.cameras.main.scrollX;
+    this.uiCamera.scrollY = this.cameras.main.scrollY;
+    this.uiCamera.zoom = this.cameras.main.zoom;
   }
 
 
