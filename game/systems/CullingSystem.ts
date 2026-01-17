@@ -94,6 +94,8 @@ export class CullingSystem {
                 let visual = this.scene.treeVisuals.getFirstDead(false) as Phaser.GameObjects.Image;
                 if (!visual) {
                     visual = this.scene.treeVisuals.create(0, 0, 'tree');
+                    if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
+                    if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to layer
                     // Ensure depth sorting works by default
                 }
 

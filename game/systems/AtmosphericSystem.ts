@@ -50,6 +50,7 @@ export class AtmosphericSystem {
             const y = Phaser.Math.Between(bounds.top, bounds.bottom);
 
             const cloud = this.scene.add.sprite(x, y, this.cloudTextureKey);
+            if (this.scene.worldLayer) this.scene.worldLayer.add(cloud);
             cloud.setDepth(15000 + i); // Stagger depth slightly so they layer
             cloud.setAlpha(Phaser.Math.FloatBetween(0.2, 0.5));
             cloud.setScale(Phaser.Math.FloatBetween(4.0, 8.0)); // Big puffy clouds
@@ -75,9 +76,12 @@ export class AtmosphericSystem {
     }
 
     private setupBloom() {
-        this.bloomEffect = this.scene.cameras.main.postFX.addBloom(0xffffff, 1, 1, 1.2, 1.0);
-        this.tiltShiftEffect = this.scene.cameras.main.postFX.addTiltShift(0.1); // Initial blur
-        this.vignetteEffect = this.scene.cameras.main.postFX.addVignette(0.5, 0.5, 0.8, 0.3); // x, y, radius, strength
+        // Use worldLayer for PostFX if available
+        const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
+
+        this.bloomEffect = target.addBloom(0xffffff, 1, 1, 1.2, 1.0);
+        this.tiltShiftEffect = target.addTiltShift(0.1); // Initial blur
+        this.vignetteEffect = target.addVignette(0.5, 0.5, 0.8, 0.3); // x, y, radius, strength
     }
 
     public setBloomIntensity(intensity: number) {

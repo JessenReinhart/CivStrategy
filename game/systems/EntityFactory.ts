@@ -28,6 +28,8 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         this.scene.worldVisuals.add(visual); // Add to ignored group
+        if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to rendering layer
+        if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
 
         const gfx = this.scene.add.graphics();
@@ -107,7 +109,7 @@ export class EntityFactory {
             visual.setData('noResIcon', noResIcon);
         }
 
-        this.scene.add.existing(visual);
+        if (!this.scene.worldLayer) this.scene.add.existing(visual);
         (b as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
 
         // Position set earlier
@@ -204,6 +206,8 @@ export class EntityFactory {
 
         const visual = this.scene.add.container(0, 0);
         this.scene.worldVisuals.add(visual); // Add to ignored group
+        if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to rendering layer
+        if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
 
         const gfx = this.scene.add.graphics();
@@ -220,7 +224,7 @@ export class EntityFactory {
             visual.setData('hpBar', this.createHealthBar(visual, 24, -20));
         }
 
-        this.scene.add.existing(visual);
+        if (!this.scene.worldLayer) this.scene.add.existing(visual);
         (unit as any).visual = visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         (unit as any).unitType = type; // eslint-disable-line @typescript-eslint/no-explicit-any
 
