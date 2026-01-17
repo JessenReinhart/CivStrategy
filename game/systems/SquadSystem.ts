@@ -24,23 +24,13 @@ export class SquadSystem {
         if (!stats || stats.squadSize <= 1) return;
 
         const container = this.scene.add.container(0, 0);
+        this.scene.worldVisuals.add(container);
+        if (this.scene.worldLayer) this.scene.worldLayer.add(container); // Add to layer
+        if (this.scene.uiCamera) this.scene.uiCamera.ignore(container);
         const gfx = this.scene.add.graphics();
         container.add(gfx);
 
-        // Create unit indicator label (initially hidden)
-        const unitName = type === UnitType.LEGION ? 'LEGION' :
-            type === UnitType.PIKESMAN ? 'PIKESMAN' :
-                type === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
-        const indicatorLabel = this.scene.add.text(0, -26, unitName, {
-            fontFamily: 'Arial',
-            fontSize: '10px',
-            color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 2
-        }).setOrigin(0.5).setVisible(false);
-        container.add(indicatorLabel);
-        unit.setData('indicatorLabel', indicatorLabel);
-
+        // Indicator now handled mainly in update() via uiGroup separation
         unit.setData('squadContainer', container);
         unit.setData('squadCurrentCount', stats.squadSize);
         unit.setData('squadMaxCount', stats.squadSize);
@@ -54,7 +44,7 @@ export class SquadSystem {
             // commanderVisual.removeAll(true);
         }
 
-        this.scene.add.existing(container);
+        if (!this.scene.worldLayer) this.scene.add.existing(container);
     }
 
     private initializeSoldiers(unit: Phaser.GameObjects.GameObject, count: number, _type: UnitType) {
@@ -146,68 +136,102 @@ export class SquadSystem {
 
             // Unit Indicator Icon (Global Toggle)
             // Unit Indicator Icon (Global Toggle)
+            // Unit Indicator Icon (Global Toggle)
             if (this.scene.showUnitIndicators && owner === 0) {
                 const indicatorY = -60; // Position above the squad
                 const circleRadius = 22;
 
-                // Background circle with border
-                gfx.fillStyle(0x1a1a2e, 0.95);
-                gfx.fillCircle(0, indicatorY, circleRadius);
-                gfx.lineStyle(2, 0xffffff, 0.9);
-                gfx.strokeCircle(0, indicatorY, circleRadius);
+                // Draw to Graphics (which IS in worldLayer) - wait, if we want icon SHARP, we must move it out too?
+                // The user said "UNIT ICONS are affected". This likely means the circle+symbol drawn on graphics.
+                // If so, we need to move THAT drawing to a separate container in UI group too.
 
-                // Draw unit icon silhouette inside
-                gfx.fillStyle(0xffffff, 0.9);
-                if (unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.LEGION) {
-                    // Soldier icon: body + head + spear
-                    gfx.fillRect(-3, indicatorY - 8, 6, 12); // body
-                    gfx.fillCircle(0, indicatorY - 12, 4); // head
-                    gfx.fillRect(5, indicatorY - 14, 2, 18); // spear
-                    gfx.fillStyle(0x888888, 0.9);
-                    gfx.fillTriangle(6, indicatorY - 14, 4, indicatorY - 10, 8, indicatorY - 10); // spear tip
-                } else if (unit.unitType === UnitType.CAVALRY) {
-                    // Cavalry icon: horse shape + rider
-                    gfx.fillEllipse(0, indicatorY + 2, 16, 8); // horse body
-                    gfx.fillCircle(-6, indicatorY - 2, 3); // horse head
-                    gfx.fillRect(-2, indicatorY - 8, 4, 6); // rider body
-                    gfx.fillCircle(0, indicatorY - 12, 3); // rider head
-                } else if (unit.unitType === UnitType.ARCHER) {
-                    // Archer icon: Bow path
-                    gfx.lineStyle(2, 0xffffff, 1);
-                    gfx.beginPath();
-                    gfx.arc(0, indicatorY, 8, Phaser.Math.DegToRad(-45), Phaser.Math.DegToRad(45), false); // Bow curve
-                    gfx.strokePath();
-                    // Arrow
-                    gfx.lineStyle(1, 0xffffff, 1);
-                    gfx.beginPath();
-                    gfx.moveTo(-8, indicatorY);
-                    gfx.lineTo(8, indicatorY);
-                    gfx.strokePath();
+                // Let's create a dedicated UI container for the indicator if it doesn't exist.
+                let uiIndicator = unit.getData('uiIndicatorContainer') as Phaser.GameObjects.Container;
+                if (!uiIndicator) {
+                    uiIndicator = this.scene.add.container(0, 0);
+                    this.scene.uiGroup.add(uiIndicator); // Add to UI Group (Sharp)
+                    unit.setData('uiIndicatorContainer', uiIndicator);
+
+                    // Create Graphics for the icon background/symbol
+                    const iconGfx = this.scene.add.graphics();
+                    uiIndicator.add(iconGfx);
+
+                    // Create Text Label
+                    const label = this.scene.add.text(0, 32, '', {
+                        fontFamily: 'Arial',
+                        fontSize: '10px',
+                        color: '#ffffff',
+                        stroke: '#000000',
+                        strokeThickness: 2,
+                        backgroundColor: '#000000bb',
+                        padding: { x: 4, y: 2 }
+                    }).setOrigin(0.5);
+                    uiIndicator.add(label);
                 }
 
-                // Unit type name below the indicator
+                uiIndicator.setVisible(true);
+
+                // Sync Position (Convert World Iso -> Screen XY relative to UI Camera?)
+                // UI Camera and Main Camera share scroll/zoom? 
+                // MainScene.update: this.uiCamera.scrollX = this.cameras.main.scrollX;
+                // So we can just position at World Coordinates if UI Camera tracks World.
+                // MainScene.ts: "this.cameras.main.ignore(this.uiGroup);" 
+                // So UI elements are NOT drawn by Main Cam (with PostFX).
+                // They ARE drawn by UI Cam (No PostFX).
+
+                const indicatorIso = toIso(unit.x, unit.y);
+                uiIndicator.setPosition(indicatorIso.x, indicatorIso.y - 60);
+                // No depth needed for UI usually, or simple sorting
+
+                const iconGfx = uiIndicator.getAt(0) as Phaser.GameObjects.Graphics;
+                iconGfx.clear();
+
+                // Background circle with border
+                iconGfx.fillStyle(0x1a1a2e, 0.95);
+                iconGfx.fillCircle(0, 0, circleRadius);
+                iconGfx.lineStyle(2, 0xffffff, 0.9);
+                iconGfx.strokeCircle(0, 0, circleRadius);
+
+                // Draw unit icon silhouette inside
+                iconGfx.fillStyle(0xffffff, 0.9);
+                const drawY = 0; // Relative to container
+                if (unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.LEGION) {
+                    iconGfx.fillRect(-3, drawY - 8, 6, 12);
+                    iconGfx.fillCircle(0, drawY - 12, 4);
+                    iconGfx.fillRect(5, drawY - 14, 2, 18);
+                    iconGfx.fillStyle(0x888888, 0.9);
+                    iconGfx.fillTriangle(6, drawY - 14, 4, drawY - 10, 8, drawY - 10);
+                } else if (unit.unitType === UnitType.CAVALRY) {
+                    iconGfx.fillEllipse(0, drawY + 2, 16, 8);
+                    iconGfx.fillCircle(-6, drawY - 2, 3);
+                    iconGfx.fillRect(-2, drawY - 8, 4, 6);
+                    iconGfx.fillCircle(0, drawY - 12, 3);
+                } else if (unit.unitType === UnitType.ARCHER) {
+                    iconGfx.lineStyle(2, 0xffffff, 1);
+                    iconGfx.beginPath();
+                    iconGfx.arc(0, drawY, 8, Phaser.Math.DegToRad(-45), Phaser.Math.DegToRad(45), false);
+                    iconGfx.strokePath();
+                    iconGfx.lineStyle(1, 0xffffff, 1);
+                    iconGfx.beginPath();
+                    iconGfx.moveTo(-8, drawY);
+                    iconGfx.lineTo(8, drawY);
+                    iconGfx.strokePath();
+                }
+
+                // Unit type name
                 const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
                     unit.unitType === UnitType.PIKESMAN ? 'PIKESMAN' :
                         unit.unitType === UnitType.ARCHER ? 'ARCHERS' :
                             unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
 
-                // Draw text background
-                const textY = indicatorY + circleRadius + 10;
-                gfx.fillStyle(0x000000, 0.7);
-                gfx.fillRoundedRect(-35, textY - 8, 70, 14, 4);
+                const label = uiIndicator.getAt(1) as Phaser.GameObjects.Text;
+                label.setText(unitName);
 
-                // Show and position the indicator label
-                const indicatorLabel = unit.getData('indicatorLabel') as Phaser.GameObjects.Text;
-                if (indicatorLabel) {
-                    indicatorLabel.setText(unitName); // Ensure name is correct
-                    indicatorLabel.setY(textY);
-                    indicatorLabel.setVisible(true);
-                }
             } else {
-                // Hide indicator label when not showing
-                const indicatorLabel = unit.getData('indicatorLabel') as Phaser.GameObjects.Text;
-                if (indicatorLabel) {
-                    indicatorLabel.setVisible(false);
+                // Hide indicator
+                const uiIndicator = unit.getData('uiIndicatorContainer') as Phaser.GameObjects.Container;
+                if (uiIndicator) {
+                    uiIndicator.setVisible(false);
                 }
             }
 
@@ -302,6 +326,10 @@ export class SquadSystem {
         const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
         if (container) {
             container.destroy();
+        }
+        const uiIndicator = unit.getData('uiIndicatorContainer') as Phaser.GameObjects.Container;
+        if (uiIndicator) {
+            uiIndicator.destroy();
         }
     }
 

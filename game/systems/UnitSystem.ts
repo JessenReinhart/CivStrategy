@@ -567,6 +567,7 @@ export class UnitSystem {
 
         // Visual: Arrow (WHITE)
         const arrow = this.scene.add.rectangle(startIso.x, startIso.y - 20, 10, 1, 0xffffff);
+        if (this.scene.worldLayer) this.scene.worldLayer.add(arrow);
         arrow.setDepth(startIso.y + 100);
 
         // Visual: Trail Effect (WHITE, LONGER)
@@ -580,6 +581,7 @@ export class UnitSystem {
             frequency: 10,
             follow: arrow
         });
+        if (this.scene.worldLayer) this.scene.worldLayer.add(emitter);
         emitter.setDepth(Number.MAX_VALUE - 100);
 
         // Parabolic arc simulation

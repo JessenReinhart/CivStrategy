@@ -140,7 +140,9 @@ export class BuildingManager {
         const cx = gx + def.width / 2;
         const cy = gy + def.height / 2;
 
-        if (this.checkBuildValidity(cx, cy, this.previewBuildingType)) {
+        const validity = this.getBuildValidity(cx, cy, this.previewBuildingType);
+
+        if (validity.valid) {
             this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
 
             // Juice: Screen shake (subtle)
@@ -162,14 +164,20 @@ export class BuildingManager {
 
             this.markTerritoryDirty();
             this.scene.economySystem.updateStats();
+        } else {
+            this.scene.feedbackSystem.showFloatingText(cx, cy, validity.reason || "Unable to build", "#ff0000");
         }
     }
 
     private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
+        return this.getBuildValidity(x, y, type).valid;
+    }
+
+    private getBuildValidity(x: number, y: number, type: BuildingType): { valid: boolean; reason?: string } {
         const def = BUILDINGS[type];
 
         if (this.scene.resources.wood < def.cost.wood || this.scene.resources.food < def.cost.food || this.scene.resources.gold < def.cost.gold) {
-            return false;
+            return { valid: false, reason: "Not enough resources" };
         }
 
         let inTerritory = false;
@@ -180,7 +188,7 @@ export class BuildingManager {
                 if (dist <= bDef.territoryRadius) inTerritory = true;
             }
         });
-        if (!inTerritory && this.scene.buildings.getLength() > 0) return false;
+        if (!inTerritory && this.scene.buildings.getLength() > 0) return { valid: false, reason: "Outside Territory" };
 
         const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
         let overlaps = false;
@@ -189,15 +197,15 @@ export class BuildingManager {
                 overlaps = true;
             }
         });
-        if (overlaps) return false;
+        if (overlaps) return { valid: false, reason: "Space Occupied" };
 
         let treeOverlap = false;
         this.scene.trees.getChildren().forEach((t) => {
             if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) treeOverlap = true;
         });
-        if (treeOverlap) return false;
+        if (treeOverlap) return { valid: false, reason: "Tree in way" };
 
-        return true;
+        return { valid: true };
     }
 
     public handleDemolishHover(pointer: Phaser.Input.Pointer) {

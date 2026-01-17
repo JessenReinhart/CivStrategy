@@ -19,6 +19,9 @@ export class VillagerSystem {
 
         // Create visual container
         const visual = this.scene.add.container(0, 0);
+        this.scene.worldVisuals.add(visual);
+        if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to layer
+        if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
         const gfx = this.scene.add.graphics();
         const primaryColor = this.scene.getFactionColor(owner);
 
@@ -29,7 +32,7 @@ export class VillagerSystem {
             this.scene.add.circle(0, -11, 2.5, 0xffcccc)
         ]);
 
-        this.scene.add.existing(visual);
+        if (!this.scene.worldLayer) this.scene.add.existing(visual);
 
         // Position visual
         const iso = toIso(x, y);

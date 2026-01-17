@@ -61,6 +61,9 @@ export class MainScene extends Phaser.Scene {
   public trees!: Phaser.GameObjects.Group;
   public fertileZones: Phaser.Geom.Circle[] = [];
 
+  // Rendering Layer (for PostFX)
+  public worldLayer!: Phaser.GameObjects.Layer;
+
   // Ground Layer
   private groundLayer!: Phaser.GameObjects.TileSprite;
   private readonly groundScale = 0.08;
@@ -175,9 +178,13 @@ export class MainScene extends Phaser.Scene {
     this.entityFactory = new EntityFactory(this);
     this.squadSystem = new SquadSystem(this);
 
+    // Create World Layer for PostFX
+    this.worldLayer = this.add.layer();
+
     this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
     this.groundLayer.setOrigin(0, 0);
     this.groundLayer.setDepth(-20000);
+    this.worldLayer.add(this.groundLayer); // Add ground to layer
     this.groundLayer.setTileScale(this.groundScale);
 
     this.units = this.add.group({ runChildUpdate: true });
@@ -302,13 +309,15 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.ignore(this.uiGroup);
 
     // Careful exclusions for UI Camera
-    this.uiCamera.ignore(this.groundLayer);
-    this.uiCamera.ignore(this.trees);
-    this.uiCamera.ignore(this.buildings);
-    this.uiCamera.ignore(this.units);
-    this.uiCamera.ignore(this.treeVisuals);
-    this.uiCamera.ignore(this.worldVisuals);
-    this.uiCamera.ignore(this.atmosphericSystem.clouds);
+    // With worldLayer, we can just ignore that layer
+    if (this.worldLayer) {
+      this.uiCamera.ignore(this.worldLayer);
+    }
+    // Still ignore loose groups just in case, or if they are NOT in worldLayer
+    this.uiCamera.ignore(this.trees); // Physics objects (invisible)
+    this.uiCamera.ignore(this.buildings); // Physics objects (invisible)
+    this.uiCamera.ignore(this.units); // Physics objects (invisible)
+    this.uiCamera.ignore(this.atmosphericSystem.clouds); // These are now in worldLayer, but safe to keep ignore if they were in main display list
 
     if (this.fogOfWar) { this.uiCamera.ignore(this.fogOfWar.screenRT); }
   }
