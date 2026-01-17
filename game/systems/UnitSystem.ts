@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit } from '../../types';
-import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
+import { MAP_WIDTH, MAP_HEIGHT, UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
@@ -12,7 +12,7 @@ export class UnitSystem {
     private debugGraphics: Phaser.GameObjects.Graphics;
 
     public currentFormation: FormationType = FormationType.BOX;
-    public currentStance: UnitStance = UnitStance.AGGRESSIVE;
+    public currentStance: UnitStance = UnitStance.DEFENSIVE;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -222,6 +222,12 @@ export class UnitSystem {
             }
             // ----------------------
 
+            // Prevent attacking Animals (Static Resources)
+            const targetType = target.getData('type') || (target as any).unitType;
+            if (targetType === 'animal' || targetType === UnitType.ANIMAL) {
+                return;
+            }
+
             // Only combat units attack
             if ([UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
                 // console.log(`Unit ${unit.unitType} engaging target.`);
@@ -291,26 +297,6 @@ export class UnitSystem {
                     this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
                 }
             }
-            // --- ANIMAL WANDERING AI ---
-            else if (unit.unitType === UnitType.ANIMAL) {
-                if (body.velocity.length() > 0) {
-                    const dest = unit.getData('wanderDest') as Phaser.Math.Vector2;
-                    if (dest && Phaser.Math.Distance.Between(unit.x, unit.y, dest.x, dest.y) < 5) {
-                        body.setVelocity(0, 0);
-                        unit.state = UnitState.IDLE;
-                    }
-                } else if (Math.random() < 0.005) {
-                    const wanderRadius = 100;
-                    const angle = Math.random() * Math.PI * 2;
-                    const dist = Math.random() * wanderRadius;
-                    const tx = Phaser.Math.Clamp(unit.x + Math.cos(angle) * dist, 50, MAP_WIDTH - 50);
-                    const ty = Phaser.Math.Clamp(unit.y + Math.sin(angle) * dist, 50, MAP_HEIGHT - 50);
-
-                    unit.setData('wanderDest', new Phaser.Math.Vector2(tx, ty));
-                    this.scene.physics.moveTo(unit, tx, ty, 20);
-                    unit.state = UnitState.WANDERING;
-                }
-            }
             else if (unit.state === UnitState.IDLE) {
                 // Auto-Targeting
                 this.scanForTargets(unit, time);
@@ -346,7 +332,7 @@ export class UnitSystem {
         const isCombatUnit = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType);
         if (!isCombatUnit) return;
 
-        const stance = unit.getData('stance') as UnitStance || UnitStance.AGGRESSIVE;
+        const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
         const visionRange = 250; // Scan range
         const myOwner = unit.getData('owner');
 
@@ -412,13 +398,13 @@ export class UnitSystem {
         const dist = Phaser.Math.Distance.Between(unit.x, unit.y, target.x, target.y);
         const range = unit.getData('range') || 40;
         const attackSpeed = unit.getData('attackSpeed') || 1000;
-        const stance = unit.getData('stance') as UnitStance || UnitStance.AGGRESSIVE;
+        const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
         const anchor = unit.getData('anchor') || { x: unit.x, y: unit.y };
 
         // STANCE LOGIC: Check constraints
         if (stance === UnitStance.DEFENSIVE) {
             const tetherDist = Phaser.Math.Distance.Between(unit.x, unit.y, anchor.x, anchor.y);
-            if (tetherDist > 300) { // Tether Radius
+            if (tetherDist > STANCE_TETHER_RADIUS) { // Tether Radius
                 // Too far! Give up chase.
                 unit.target = null;
                 unit.state = UnitState.IDLE; // Next loop will path back? 

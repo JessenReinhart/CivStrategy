@@ -20,6 +20,7 @@ import { CullingSystem } from './systems/CullingSystem';
 import { FeedbackSystem } from './systems/FeedbackSystem';
 import { AtmosphericSystem } from './systems/AtmosphericSystem';
 import { VillagerSystem } from './systems/VillagerSystem';
+import { AnimalSystem } from './systems/AnimalSystem';
 
 
 export class MainScene extends Phaser.Scene {
@@ -86,6 +87,7 @@ export class MainScene extends Phaser.Scene {
   public feedbackSystem!: FeedbackSystem;
   public atmosphericSystem!: AtmosphericSystem;
   public villagerSystem!: VillagerSystem;
+  public animalSystem!: AnimalSystem;
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -209,6 +211,7 @@ export class MainScene extends Phaser.Scene {
     this.feedbackSystem = new FeedbackSystem(this);
     this.atmosphericSystem = new AtmosphericSystem(this);
     this.villagerSystem = new VillagerSystem(this);
+    this.animalSystem = new AnimalSystem(this);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
@@ -378,6 +381,7 @@ export class MainScene extends Phaser.Scene {
     this.cullingSystem.update(this.gameTime, dt);
 
     this.villagerSystem.update(this.gameTime, dt);
+    this.animalSystem.update(this.gameTime, dt);
     this.unitSystem.update(this.gameTime, dt);
     this.squadSystem.update(dt);
     this.buildingManager.update();

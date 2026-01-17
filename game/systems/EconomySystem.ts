@@ -207,10 +207,21 @@ export class EconomySystem {
                 }
 
                 if (def.type === BuildingType.HUNTERS_LODGE && def.effectRadius) {
-                    const animals = this.scene.units.getChildren().filter((u) => {
-                        return (u as any).unitType === UnitType.ANIMAL && Phaser.Math.Distance.Between((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, (u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y) < def.effectRadius!; // eslint-disable-line @typescript-eslint/no-explicit-any
-                    });
-                    const animalsNearby = animals.length;
+                    const animals = this.scene.animalSystem.getAnimals();
+                    let animalsNearby = 0;
+                    const nearbyAnimals: import('../../types').AnimalData[] = [];
+
+                    for (const animal of animals) {
+                        const dist = Phaser.Math.Distance.Between(
+                            (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y,
+                            animal.x, animal.y
+                        );
+                        if (dist < def.effectRadius!) {
+                            animalsNearby++;
+                            nearbyAnimals.push(animal);
+                        }
+                    }
+
                     if (noResIcon) noResIcon.visible = (animalsNearby === 0);
                     if (animalsNearby > 0) {
                         let gain = 20;
@@ -219,10 +230,8 @@ export class EconomySystem {
                         productionAmount = gain;
                         productionType = 'Food';
                         if (Math.random() < 0.20) {
-                            const victim = animals[Phaser.Math.Between(0, animalsNearby - 1)];
-                            const victimVisual = (victim as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
-                            if (victimVisual) victimVisual.destroy();
-                            victim.destroy();
+                            const victim = nearbyAnimals[Phaser.Math.Between(0, nearbyAnimals.length - 1)];
+                            this.scene.animalSystem.destroyAnimal(victim);
                             this.scene.feedbackSystem.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
                         }
 

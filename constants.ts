@@ -6,6 +6,8 @@ export const TILE_SIZE = 32;
 export const MAP_WIDTH = 2048;
 export const MAP_HEIGHT = 2048;
 
+export const STANCE_TETHER_RADIUS = 300; // Max distance to chase from anchor in Defensive stance
+
 export const CHUNK_SIZE = 512; // For infinite mode
 
 export const MAP_SIZES: Record<MapSize, number> = {

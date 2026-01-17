@@ -179,6 +179,11 @@ export class EntityFactory {
             return;
         }
 
+        if (type === UnitType.ANIMAL) {
+            console.warn('Animals should be spawned through AnimalSystem, not EntityFactory.spawnUnit');
+            return;
+        }
+
         const stats = UNIT_STATS[type];
         const radius = 8;
         const unit = this.scene.add.circle(x, y, radius, 0x000000, 0);
@@ -193,14 +198,14 @@ export class EntityFactory {
             attack: stats.attack,
             range: stats.range,
             attackSpeed: stats.attackSpeed,
-            stance: UnitStance.AGGRESSIVE, // Default stance
+            stance: UnitStance.DEFENSIVE, // Default stance
             anchor: { x: x, y: y }         // Default anchor
         });
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
         this.scene.units.add(unit);
 
-        // Increment population for player-owned units (but not animals)
-        if (owner === 0 && type !== UnitType.ANIMAL) {
+        // Increment population for player-owned units
+        if (owner === 0) {
             this.scene.population++;
         }
 
@@ -212,13 +217,6 @@ export class EntityFactory {
 
         const gfx = this.scene.add.graphics();
 
-        if (type === UnitType.ANIMAL) {
-            gfx.fillStyle(0x795548, 1).fillEllipse(0, 0, 12, 7);
-            visual.add(gfx);
-            visual.setScale(0.8);
-        } else {
-            // visual.setVisible(false);
-        }
 
         if (stats.squadSize === 1) {
             visual.setData('hpBar', this.createHealthBar(visual, 24, -20));
