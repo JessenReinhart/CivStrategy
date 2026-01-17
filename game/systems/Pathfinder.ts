@@ -1,5 +1,6 @@
 
 import Phaser from 'phaser';
+import { MAP_WIDTH, MAP_HEIGHT } from '../../constants';
 
 export class Pathfinder {
     private blockedCells: Set<string> = new Set();
@@ -32,6 +33,10 @@ export class Pathfinder {
     }
 
     public findPath(start: Phaser.Math.Vector2, end: Phaser.Math.Vector2): Phaser.Math.Vector2[] {
+        // Clamp to map boundaries
+        end.x = Phaser.Math.Clamp(end.x, 0, MAP_WIDTH);
+        end.y = Phaser.Math.Clamp(end.y, 0, MAP_HEIGHT);
+
         // Simple A* or direct path - for now, return direct path with obstacle avoidance
         // If end is blocked, find nearest unblocked cell
         if (this.isBlocked(end.x, end.y)) {

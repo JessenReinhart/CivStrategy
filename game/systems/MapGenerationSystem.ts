@@ -87,7 +87,7 @@ export class MapGenerationSystem {
                 const ay = fy + Math.sin(angle) * (fRadius * 0.8);
                 if (Phaser.Math.Distance.Between(ax, ay, this.scene.mapWidth / 2, this.scene.mapHeight / 2) > 300) {
                     if (ax > 50 && ax < this.scene.mapWidth - 50 && ay > 50 && ay < this.scene.mapHeight - 50) {
-                        this.scene.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
+                        this.scene.animalSystem.spawnAnimal(ax, ay);
                     }
                 }
             }

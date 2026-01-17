@@ -168,3 +168,12 @@ export interface VillagerData {
   pathStep?: number;
   visual?: Phaser.GameObjects.Container;
 }
+
+export interface AnimalData {
+  id: string;
+  x: number;
+  y: number;
+  state: UnitState;
+  visual?: Phaser.GameObjects.Container;
+  wanderDest?: Phaser.Math.Vector2;
+}
