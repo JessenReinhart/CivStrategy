@@ -174,12 +174,39 @@ export class BuildingManager {
         if (this.previewBuildingType === BuildingType.LUMBER_CAMP) {
             const range = def.effectRadius || 200;
             this.scene.trees.getChildren().forEach((t) => {
-                const tx = (t as Phaser.GameObjects.Image).x;
-                const ty = (t as Phaser.GameObjects.Image).y;
+                const tree = t as Phaser.GameObjects.Image;
+                const tx = tree.x;
+                const ty = tree.y;
                 if (Phaser.Math.Distance.Between(cx, cy, tx, ty) <= range) {
                     const isoT = toIso(tx, ty);
-                    this.treeHighlightGraphics.lineStyle(2, 0x4ade80, 0.8);
-                    this.treeHighlightGraphics.strokeCircle(isoT.x, isoT.y, 15);
+
+                    // Draw glowing effect on tree
+                    const glowRadius = 20;
+                    const glowHeight = 60;
+
+                    // Outer glow ring
+                    this.treeHighlightGraphics.fillStyle(0x4ade80, 0.15);
+                    this.treeHighlightGraphics.fillEllipse(isoT.x, isoT.y, glowRadius * 2.5, glowRadius * 1.25);
+
+                    // Inner glow ring
+                    this.treeHighlightGraphics.fillStyle(0x4ade80, 0.25);
+                    this.treeHighlightGraphics.fillEllipse(isoT.x, isoT.y, glowRadius * 1.5, glowRadius * 0.75);
+
+                    // Light pillar going up (fading)
+                    const pillarSteps = 4;
+                    for (let s = 0; s < pillarSteps; s++) {
+                        const progress = s / pillarSteps;
+                        const alpha = 0.2 * (1 - progress);
+                        const y = isoT.y - glowHeight * progress;
+                        const width = glowRadius * (1 - progress * 0.5);
+
+                        this.treeHighlightGraphics.fillStyle(0x4ade80, alpha);
+                        this.treeHighlightGraphics.fillEllipse(isoT.x, y, width * 2, width);
+                    }
+
+                    // Bright center ring
+                    this.treeHighlightGraphics.lineStyle(2, 0x86efac, 0.9);
+                    this.treeHighlightGraphics.strokeEllipse(isoT.x, isoT.y, glowRadius * 1.2, glowRadius * 0.6);
                 }
             });
         }
