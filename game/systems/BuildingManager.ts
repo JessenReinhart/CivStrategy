@@ -13,6 +13,7 @@ export class BuildingManager {
     private treeHighlightGraphics: Phaser.GameObjects.Graphics;
     private territoryGraphics: Phaser.GameObjects.Graphics;
     private isTerritoryDirty: boolean = true;
+    private activeSelectionBeam: Phaser.GameObjects.Graphics | null = null;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -25,6 +26,7 @@ export class BuildingManager {
         this.scene.game.events.on(EVENTS.TOGGLE_DEMOLISH, this.toggleDemolishMode, this);
         this.scene.game.events.on(EVENTS.REGROW_FOREST, this.handleRegrowForest, this);
         this.scene.game.events.on(EVENTS.DEMOLISH_SELECTED, this.handleDemolishSelected, this);
+        this.scene.game.events.on(EVENTS.BUILDING_SELECTED, this.handleBuildingSelection, this);
     }
 
     public update() {
@@ -493,5 +495,71 @@ export class BuildingManager {
 
             this.scene.time.delayedCall(1100, () => emitter.destroy());
         });
+    }
+
+    private handleBuildingSelection() {
+        // Clear previous selection beam
+        if (this.activeSelectionBeam) {
+            this.activeSelectionBeam.destroy();
+            this.activeSelectionBeam = null;
+        }
+
+        const selected = this.scene.inputManager.selectedBuilding;
+        if (!selected) return;
+
+        const def = selected.getData('def') as BuildingDef;
+        if (!def || !def.effectRadius) return;
+
+        // Create the light cylinder effect for selected building
+        const b = selected as Phaser.GameObjects.Rectangle;
+        const iso = toIso(b.x, b.y);
+        const radius = def.effectRadius;
+        const wallHeight = 150;
+        const segments = 48;
+
+        this.activeSelectionBeam = this.scene.add.graphics();
+        this.activeSelectionBeam.setPosition(iso.x, iso.y);
+        this.activeSelectionBeam.setDepth(100);
+        this.scene.worldLayer.add(this.activeSelectionBeam);
+
+        const graphics = this.activeSelectionBeam;
+
+        // Draw vertical wall segments around the cylinder
+        for (let i = 0; i < segments; i++) {
+            const angle1 = (i / segments) * Math.PI * 2;
+            const angle2 = ((i + 1) / segments) * Math.PI * 2;
+
+            const x1 = Math.cos(angle1) * radius;
+            const y1 = Math.sin(angle1) * radius * 0.5;
+            const x2 = Math.cos(angle2) * radius;
+            const y2 = Math.sin(angle2) * radius * 0.5;
+
+            const fadeSteps = 5;
+            for (let s = 0; s < fadeSteps; s++) {
+                const stepProgress = s / fadeSteps;
+                const nextProgress = (s + 1) / fadeSteps;
+                const stepAlpha = 0.2 * (1 - stepProgress);
+
+                const stepY1 = y1 - wallHeight * stepProgress;
+                const stepY2 = y2 - wallHeight * stepProgress;
+                const nextY1 = y1 - wallHeight * nextProgress;
+                const nextY2 = y2 - wallHeight * nextProgress;
+
+                graphics.fillStyle(0xffd700, stepAlpha);
+                graphics.beginPath();
+                graphics.moveTo(x1, stepY1);
+                graphics.lineTo(x2, stepY2);
+                graphics.lineTo(x2, nextY2);
+                graphics.lineTo(x1, nextY1);
+                graphics.closePath();
+                graphics.fillPath();
+            }
+        }
+
+        // Draw glowing ring at the base
+        graphics.lineStyle(3, 0xffd700, 0.8);
+        graphics.strokeEllipse(0, 0, radius * 2.02, radius * 1.01);
+        graphics.lineStyle(2, 0xffffcc, 1.0);
+        graphics.strokeEllipse(0, 0, radius * 2, radius);
     }
 }
