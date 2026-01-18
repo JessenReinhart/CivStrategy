@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef } from '../../types';
+import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance } from '../../types';
 import { BUILDINGS } from '../../constants';
 
 interface BlueprintItem {
@@ -73,7 +73,46 @@ export class EnemyAISystem {
         this.tickEconomy();
         this.tickBuild();
         this.tickRecruit();
+        this.tickRecruit();
+        this.tickBaseDefense(); // NEW: Check for base threats
         this.tickAttack();
+    }
+
+    private tickBaseDefense() {
+        // 1. Check for player units near base
+        const defenseRadius = 500; // Fairly large to react early
+        const threats = this.scene.units.getChildren().filter((u) => {
+            const unit = u as Phaser.GameObjects.Image;
+            return unit.getData('owner') === 0 &&
+                Phaser.Math.Distance.Between(unit.x, unit.y, this.baseX, this.baseY) < defenseRadius;
+        });
+
+        // Get my soldiers
+        const mySoldiers = this.scene.units.getChildren().filter((u) =>
+            u.getData('owner') === 1 && (u.getData('def') && (u.getData('def') as any).isMilitary)
+        ) as Phaser.GameObjects.GameObject[];
+
+        if (threats.length > 0) {
+            // BASE UNDER ATTACK!
+            // Force all units to AGGRESSIVE to swarm the enemy
+            mySoldiers.forEach((u) => {
+                // strict check to avoid spamming updates if already aggressive? 
+                // entity.setData handles it efficiently enough usually.
+                u.setData('stance', UnitStance.AGGRESSIVE);
+            });
+        } else {
+            // No threats near base.
+            // Revert to HOLD if they are currently AGGRESSIVE (and NOT attacking a distant target??)
+            // If we just blindly set HOLD, we might interrupt an offensive wave.
+            // Check if we have an active offensive target
+            if (!this.attackTarget) {
+                mySoldiers.forEach((u) => {
+                    // Only revert if we are not in the middle of a command?
+                    // Simplest logic: If not attacking, HOLD.
+                    u.setData('stance', UnitStance.HOLD);
+                });
+            }
+        }
     }
 
     private tickEconomy() {
@@ -166,6 +205,8 @@ export class EnemyAISystem {
                 // Command all idle units to attack
                 const idleTroops = mySoldiers.filter((u) => (u as unknown as { state: UnitState }).state === UnitState.IDLE);
                 if (idleTroops.length > 0) {
+                    // FORCE AGGRESSIVE STANCE for offensive wave
+                    idleTroops.forEach(u => u.setData('stance', UnitStance.AGGRESSIVE));
                     this.scene.unitSystem.commandAttack(idleTroops, this.attackTarget);
                 }
             }

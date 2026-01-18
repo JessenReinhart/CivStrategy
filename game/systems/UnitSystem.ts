@@ -12,7 +12,7 @@ export class UnitSystem {
     private debugGraphics: Phaser.GameObjects.Graphics;
 
     public currentFormation: FormationType = FormationType.BOX;
-    public currentStance: UnitStance = UnitStance.DEFENSIVE;
+    public currentStance: UnitStance = UnitStance.HOLD;
 
     constructor(scene: MainScene) {
         this.scene = scene;

@@ -190,6 +190,7 @@ export class EntityFactory {
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
+        body.setDrag(800); // Prevent drifting from separation forces
         unit.setData({
             owner,
             unitType: type,
@@ -198,7 +199,7 @@ export class EntityFactory {
             attack: stats.attack,
             range: stats.range,
             attackSpeed: stats.attackSpeed,
-            stance: UnitStance.DEFENSIVE, // Default stance
+            stance: UnitStance.HOLD, // Default stance (USER REQUESTED CHANGE)
             anchor: { x: x, y: y }         // Default anchor
         });
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -260,7 +261,16 @@ export class EntityFactory {
             const formation = entity.getData('formation') as FormationType || FormationType.BOX;
             const defBonus = FORMATION_BONUSES[formation]?.defense || 0;
             // E.g., 0.25 -> amount * 0.75
+            // E.g., 0.25 -> amount * 0.75
             amount = Math.max(1, amount * (1 - defBonus));
+
+            // REACTIVE DEFENSE: If holding ground and attacked, switch to Defensive to fight back
+            // unless it's an Animal (which flees/wanders) or Villager (which flees)
+            if (entity.getData('stance') === UnitStance.HOLD) {
+                entity.setData('stance', UnitStance.DEFENSIVE);
+                // Also update the visual stance if needed, but data is source of truth
+                // We might want to notify user? No, just behavior change.
+            }
         }
 
         hp -= amount;
