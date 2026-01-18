@@ -16,8 +16,10 @@ export class BuildingManager {
 
     constructor(scene: MainScene) {
         this.scene = scene;
-        this.treeHighlightGraphics = this.scene.add.graphics().setDepth(Number.MAX_VALUE - 500);
+        this.treeHighlightGraphics = this.scene.add.graphics().setDepth(-4500);
         this.territoryGraphics = this.scene.add.graphics().setDepth(-5000);
+        this.scene.worldLayer.add(this.treeHighlightGraphics);
+        this.scene.worldLayer.add(this.territoryGraphics);
 
         this.scene.game.events.on('request-build', this.enterBuildMode, this);
         this.scene.game.events.on(EVENTS.TOGGLE_DEMOLISH, this.toggleDemolishMode, this);
@@ -36,16 +38,28 @@ export class BuildingManager {
         this.isTerritoryDirty = true;
     }
 
+    public cancelBuildMode() {
+        this.previewBuildingType = null;
+        if (this.previewBuilding) {
+            this.previewBuilding.destroy();
+            this.previewBuilding = null;
+        }
+        if (this.treeHighlightGraphics) {
+            this.treeHighlightGraphics.clear();
+        }
+    }
+
     public enterBuildMode(buildingType: BuildingType) {
         const def = BUILDINGS[buildingType];
         if (!def) return;
+
+        // Ensure clean slate before starting new build
+        this.cancelBuildMode();
 
         if (this.isDemolishMode) {
             this.toggleDemolishMode(false);
             this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
         }
-
-        if (this.previewBuilding) this.previewBuilding.destroy();
         this.previewBuildingType = buildingType;
         this.previewBuilding = this.scene.add.container(0, 0);
         const gfx = this.scene.add.graphics();
@@ -59,11 +73,7 @@ export class BuildingManager {
         this.isDemolishMode = isActive;
         if (this.isDemolishMode) {
             this.scene.inputManager.clearSelection();
-            this.previewBuildingType = null;
-            if (this.previewBuilding) {
-                this.previewBuilding.destroy();
-                this.previewBuilding = null;
-            }
+            this.cancelBuildMode();
             this.scene.input.setDefaultCursor('crosshair');
         } else {
             this.scene.input.setDefaultCursor('default');
@@ -109,6 +119,10 @@ export class BuildingManager {
             graphics.fillEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
         }
 
+        if (!this.treeHighlightGraphics) {
+            this.treeHighlightGraphics = this.scene.add.graphics().setDepth(-4500);
+            this.scene.worldLayer.add(this.treeHighlightGraphics);
+        }
         this.treeHighlightGraphics.clear();
         this.updateHighlights(cx, cy, def);
 
@@ -380,6 +394,10 @@ export class BuildingManager {
     }
 
     private drawTerritory() {
+        if (!this.territoryGraphics) {
+            this.territoryGraphics = this.scene.add.graphics().setDepth(-5000);
+            this.scene.worldLayer.add(this.territoryGraphics);
+        }
         this.territoryGraphics.clear();
         this.scene.buildings.getChildren().forEach((bObj: Phaser.GameObjects.GameObject) => {
             const b = bObj as Phaser.GameObjects.Rectangle;
@@ -387,7 +405,7 @@ export class BuildingManager {
             const iso = toIso(b.x, b.y);
             if (def.territoryRadius) {
                 const color = this.scene.getFactionColor(b.getData('owner'));
-                this.territoryGraphics.fillStyle(color, 0.1);
+                this.territoryGraphics.fillStyle(color, 0.08);
                 this.territoryGraphics.lineStyle(1, color, 0.3);
                 this.territoryGraphics.fillEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
                 this.territoryGraphics.strokeEllipse(iso.x, iso.y, def.territoryRadius * 2, def.territoryRadius);
