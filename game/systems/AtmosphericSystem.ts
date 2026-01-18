@@ -155,7 +155,7 @@ export class AtmosphericSystem {
             bottom: viewRect.y + viewRect.height + pad
         };
 
-        const speed = 0.2 * (delta / 16.6); // Increased speed for visibility (was 0.02)
+        const speed = 2 * (delta / 16.6); // Increased speed for visibility (was 0.2)
 
         this.clouds.forEach(cloud => {
             // Move cloud

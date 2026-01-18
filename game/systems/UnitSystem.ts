@@ -234,6 +234,7 @@ export class UnitSystem {
                 unit.target = target;
                 unit.state = UnitState.CHASING;
                 unit.path = null; // Clear old move path
+                unit.setData('explicitTarget', true); // User explicitly ordered this attack
                 (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
             } else {
                 // console.log(`Unit ${unit.unitType} CANNOT attack.`);
@@ -280,22 +281,7 @@ export class UnitSystem {
             }
             // --- PATH FOLLOWING ---
             else if (unit.path && unit.path.length > 0) {
-                if (unit.pathStep >= unit.path.length) {
-                    body.setVelocity(0, 0);
-                    unit.path = null;
-                    return;
-                }
-                const nextPoint = unit.path[unit.pathStep];
-                const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
-
-                if (dist < 4) {
-                    unit.pathStep++;
-                } else {
-                    const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
-                    const formation = unit.getData('formation') as FormationType || FormationType.BOX;
-                    const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
-                    this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
-                }
+                this.moveAlongPath(unit);
             }
             else if (unit.state === UnitState.IDLE) {
                 // Auto-Targeting
@@ -380,6 +366,7 @@ export class UnitSystem {
 
             // Engage
             unit.target = closest;
+            unit.setData('explicitTarget', false); // Auto-acquired target
             unit.state = UnitState.CHASING; // Default to chasing, handleCombat will restriction movement if HOLD
         }
     }
@@ -400,43 +387,35 @@ export class UnitSystem {
         const attackSpeed = unit.getData('attackSpeed') || 1000;
         const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
         const anchor = unit.getData('anchor') || { x: unit.x, y: unit.y };
+        const explicitTarget = unit.getData('explicitTarget') === true;
 
-        // STANCE LOGIC: Check constraints
-        if (stance === UnitStance.DEFENSIVE) {
-            const tetherDist = Phaser.Math.Distance.Between(unit.x, unit.y, anchor.x, anchor.y);
-            if (tetherDist > STANCE_TETHER_RADIUS) { // Tether Radius
-                // Too far! Give up chase.
-                unit.target = null;
-                unit.state = UnitState.IDLE; // Next loop will path back? 
-                // Force move back to anchor
-                this.scene.physics.moveTo(unit, anchor.x, anchor.y, UNIT_SPEED[unit.unitType as UnitType] || 100);
-                // We need a state for "Return to Anchor" so we don't scan immediately
-                // But for now, returning to IDLE with velocity might just drift.
-                // Better: commandMove them back?
-                // Or just set path.
-                const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), new Phaser.Math.Vector2(anchor.x, anchor.y));
-                if (path) {
-                    unit.path = path;
-                    unit.pathStep = 0;
-                    unit.pathCreatedAt = time;
+        // STANCE LOGIC: Check constraints (Skipped if Explicit Target)
+        if (!explicitTarget) {
+            if (stance === UnitStance.DEFENSIVE) {
+                const tetherDist = Phaser.Math.Distance.Between(unit.x, unit.y, anchor.x, anchor.y);
+                if (tetherDist > STANCE_TETHER_RADIUS) { // Tether Radius
+                    // Too far! Give up chase.
+                    unit.target = null;
+                    unit.state = UnitState.IDLE;
+
+                    // Force move back to anchor
+                    const path = this.scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), new Phaser.Math.Vector2(anchor.x, anchor.y));
+                    if (path) {
+                        unit.path = path;
+                        unit.pathStep = 0;
+                        unit.pathCreatedAt = time;
+                    }
+                    return;
                 }
-                return;
             }
-        }
-        else if (stance === UnitStance.HOLD) {
-            // Ensure we don't move.
-            // If target is out of range, drop it? Or just stand there?
-            // "Hold Place" - attack if in range.
-            if (dist > range) {
-                // Out of range. Stop trying to chase.
-                (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
-                // If we were attacking, we stop.
-                // We keep target? No, if we keep target, we stay in CombatState.
-                // If we drop target, we scan again.
-                // If enemy is just outside range, we might toggle target/no-target. This is fine.
-                unit.target = null;
-                unit.state = UnitState.IDLE;
-                return;
+            else if (stance === UnitStance.HOLD) {
+                // If target is out of range, stop trying to chase.
+                if (dist > range) {
+                    (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+                    unit.target = null;
+                    unit.state = UnitState.IDLE;
+                    return;
+                }
             }
         }
 
@@ -444,29 +423,71 @@ export class UnitSystem {
         if (dist <= range) {
             (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
             unit.state = UnitState.ATTACKING;
+            unit.path = null; // Clear chase path when in range
 
             const now = time;
             const last = unit.lastAttackTime || 0;
             const cooldown = attackSpeed;
 
             if (now - last > cooldown) {
-                // console.log(`Attack Ready! Time: ${now}, Last: ${last}, CD: ${cooldown}`);
                 unit.lastAttackTime = now;
                 this.performAttack(unit, target);
             }
         } else {
             // Chase Logic
-            if (stance === UnitStance.HOLD) {
-                // Do NOT move
-                (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
-                // Drop target since we can't reach it
-                unit.target = null;
-                unit.state = UnitState.IDLE;
-            } else {
-                unit.state = UnitState.CHASING;
+            unit.state = UnitState.CHASING;
+
+            // Standard Chase (Direct Move) for Close Range
+            if (dist < 200) {
+                unit.path = null; // Clear path for direct micro
                 const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
                 this.scene.physics.moveTo(unit, target.x, target.y, speed);
             }
+            // Pathfinding Chase for Long Range
+            else {
+                // Recalculate path periodically or if no path
+                if (!unit.path || unit.path.length === 0 || (time % 1000 < 20)) {
+                    const path = this.scene.pathfinder.findPath(
+                        new Phaser.Math.Vector2(unit.x, unit.y),
+                        new Phaser.Math.Vector2(target.x, target.y)
+                    );
+                    if (path) {
+                        unit.path = path;
+                        unit.pathStep = 0;
+                        unit.pathCreatedAt = time;
+                    }
+                }
+
+                if (unit.path && unit.path.length > 0) {
+                    this.moveAlongPath(unit);
+                } else {
+                    // Fallback if no path found (e.g. invalid target loc), just try direct
+                    const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+                    this.scene.physics.moveTo(unit, target.x, target.y, speed);
+                }
+            }
+        }
+    }
+
+    private moveAlongPath(unit: GameUnit) {
+        if (!unit.path || unit.path.length === 0) return;
+
+        if (unit.pathStep >= unit.path.length) {
+            (unit.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+            unit.path = null;
+            return;
+        }
+
+        const nextPoint = unit.path[unit.pathStep];
+        const dist = Phaser.Math.Distance.Between(unit.x, unit.y, nextPoint.x, nextPoint.y);
+
+        if (dist < 4) {
+            unit.pathStep++;
+        } else {
+            const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+            const formation = unit.getData('formation') as FormationType || FormationType.BOX;
+            const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
+            this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
         }
     }
 

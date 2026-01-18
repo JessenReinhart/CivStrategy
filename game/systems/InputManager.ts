@@ -65,9 +65,7 @@ export class InputManager {
                 return;
             }
             if (this.scene.buildingManager.previewBuildingType) {
-                this.scene.buildingManager.enterBuildMode(null as any); // eslint-disable-line @typescript-eslint/no-explicit-any
-                this.scene.buildingManager.previewBuildingType = null;
-                if (this.scene.buildingManager.previewBuilding) this.scene.buildingManager.previewBuilding.destroy();
+                this.scene.buildingManager.cancelBuildMode();
                 return;
             }
 
