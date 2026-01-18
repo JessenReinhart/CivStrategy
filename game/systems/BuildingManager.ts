@@ -113,10 +113,49 @@ export class BuildingManager {
         graphics.clear();
 
         if (def.effectRadius) {
-            graphics.lineStyle(2, 0xffd700, 0.8);
-            graphics.strokeEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
-            graphics.fillStyle(0xffd700, 0.1);
-            graphics.fillEllipse(0, 0, def.effectRadius * 2, def.effectRadius);
+            const radius = def.effectRadius;
+            const wallHeight = 150; // Shorter height
+            const segments = 48; // More segments = smoother wall
+
+            // Draw vertical wall segments around the cylinder
+            for (let i = 0; i < segments; i++) {
+                const angle1 = (i / segments) * Math.PI * 2;
+                const angle2 = ((i + 1) / segments) * Math.PI * 2;
+
+                // Bottom points (on the ellipse)
+                const x1 = Math.cos(angle1) * radius;
+                const y1 = Math.sin(angle1) * radius * 0.5;
+                const x2 = Math.cos(angle2) * radius;
+                const y2 = Math.sin(angle2) * radius * 0.5;
+
+                // Draw gradient wall segment (multiple layers for fade effect)
+                const fadeSteps = 5;
+                for (let s = 0; s < fadeSteps; s++) {
+                    const stepProgress = s / fadeSteps;
+                    const nextProgress = (s + 1) / fadeSteps;
+                    const stepAlpha = 0.2 * (1 - stepProgress);
+
+                    const stepY1 = y1 - wallHeight * stepProgress;
+                    const stepY2 = y2 - wallHeight * stepProgress;
+                    const nextY1 = y1 - wallHeight * nextProgress;
+                    const nextY2 = y2 - wallHeight * nextProgress;
+
+                    graphics.fillStyle(0xffd700, stepAlpha);
+                    graphics.beginPath();
+                    graphics.moveTo(x1, stepY1);
+                    graphics.lineTo(x2, stepY2);
+                    graphics.lineTo(x2, nextY2);
+                    graphics.lineTo(x1, nextY1);
+                    graphics.closePath();
+                    graphics.fillPath();
+                }
+            }
+
+            // Draw glowing ring at the base
+            graphics.lineStyle(3, 0xffd700, 0.8);
+            graphics.strokeEllipse(0, 0, radius * 2.02, radius * 1.01);
+            graphics.lineStyle(2, 0xffffcc, 1.0);
+            graphics.strokeEllipse(0, 0, radius * 2, radius);
         }
 
         if (!this.treeHighlightGraphics) {
