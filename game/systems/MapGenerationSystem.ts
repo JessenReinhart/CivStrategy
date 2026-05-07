@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { TILE_SIZE } from '../../constants';
 import { toIso } from '../utils/iso';
-import { UnitType } from '../../types';
 
 export class MapGenerationSystem {
     private scene: MainScene;

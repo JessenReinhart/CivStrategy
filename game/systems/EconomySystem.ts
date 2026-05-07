@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, UnitType, GameStats, ResourceRates, VillagerData } from '../../types';
+import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData } from '../../types';
 import { EVENTS } from '../../constants';
 
 export class EconomySystem {

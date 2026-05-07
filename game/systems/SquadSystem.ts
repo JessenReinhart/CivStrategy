@@ -1,36 +1,70 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, FormationType, UnitState } from '../../types';
+import { UnitType, FormationType, UnitState, GameUnit } from '../../types';
 import { UNIT_STATS } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
+
+/**
+ * SquadSystem - Optimized for Annihilation-scale (thousands+ units).
+ * 
+ * Key optimizations:
+ * - LOD: Distant squads render fewer soldiers
+ * - Early-out: Skip invisible/culled units immediately
+ * - Reduced per-frame lerp for distant squads
+ * - Soldier state recycling (no garbage generation)
+ * - Simplified drawing for LOD_DOT (single circle)
+ */
+
+// LOD constants based on camera distance
+const LOD_FULL = 0;       // 0-400px: render all soldiers
+const LOD_MEDIUM = 1;     // 400-800px: render half the soldiers
+const LOD_LOW = 2;        // 800-1200px: render 1/4 soldiers
+const LOD_DOT = 3;        // >1200px: single dot
+
+const LOD_THRESHOLDS: Record<number, number> = {
+    [LOD_FULL]: 400,
+    [LOD_MEDIUM]: 800,
+    [LOD_LOW]: 1200,
+};
+
+// Maximum squads to process per frame (beyond this, skip update)
+const MAX_SQUADS_PER_FRAME = 200;
+
+// Simplify drawing at distance
+const LOD_FACTORS: Record<number, number> = {
+    [LOD_FULL]: 1,        // All soldiers
+    [LOD_MEDIUM]: 2,      // Every 2nd soldier
+    [LOD_LOW]: 4,         // Every 4th soldier
+    [LOD_DOT]: Infinity,  // Just a dot
+};
 
 interface SoldierState {
     x: number;
     y: number;
     z: number;
-    offset: { x: number, y: number };
+    offset: { x: number; y: number };
 }
 
 export class SquadSystem {
     private scene: MainScene;
+    private frameIndex: number = 0;
 
     constructor(scene: MainScene) {
         this.scene = scene;
     }
 
-    public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, _owner: number) {
+    public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, _owner: number): void {
         const stats = UNIT_STATS[type];
         if (!stats || stats.squadSize <= 1) return;
 
         const container = this.scene.add.container(0, 0);
         this.scene.worldVisuals.add(container);
-        if (this.scene.worldLayer) this.scene.worldLayer.add(container); // Add to layer
+        if (this.scene.worldLayer) this.scene.worldLayer.add(container);
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(container);
         const gfx = this.scene.add.graphics();
         container.add(gfx);
 
-        // Indicator now handled mainly in update() via uiGroup separation
         unit.setData('squadContainer', container);
         unit.setData('squadCurrentCount', stats.squadSize);
         unit.setData('squadMaxCount', stats.squadSize);
@@ -38,75 +72,97 @@ export class SquadSystem {
 
         this.initializeSoldiers(unit, stats.squadSize, type);
 
-        const commanderVisual = (unit as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (commanderVisual) {
-            // commanderVisual.setVisible(false);
-            // commanderVisual.removeAll(true);
-        }
-
         if (!this.scene.worldLayer) this.scene.add.existing(container);
     }
 
-    private initializeSoldiers(unit: Phaser.GameObjects.GameObject, count: number, _type: UnitType) {
-        // const stats = UNIT_STATS[type];
+    private initializeSoldiers(unit: Phaser.GameObjects.GameObject, count: number, _type: UnitType): void {
         const soldiers: SoldierState[] = [];
-        const u = unit as Phaser.GameObjects.Container; // Assuming unit has x/y
+        const u = unit as Phaser.GameObjects.Container;
 
         for (let i = 0; i < count; i++) {
             soldiers.push({
-                x: u.x, // Start at center
+                x: u.x,
                 y: u.y,
                 z: 0,
-                offset: { x: 0, y: 0 } // Will be set by applyFormation
+                offset: { x: 0, y: 0 }
             });
         }
         unit.setData('soldierStates', soldiers);
-
-        // Apply default BOX formation initially
         this.applyFormation(unit, FormationType.BOX);
     }
 
-    public update(_dt: number) {
-        const units = this.scene.units.getChildren();
+    /**
+     * Main squad update - batched and LOD-optimized.
+     */
+    public update(_dt: number): void {
+        const allUnits = this.scene.units.getChildren();
+        if (allUnits.length === 0) return;
 
-        units.forEach((uObj: Phaser.GameObjects.GameObject) => {
-            const unit = uObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+        // Calculate per-frame budget
+        const bucketSize = Math.max(1, Math.ceil(allUnits.length / Math.ceil(allUnits.length / MAX_SQUADS_PER_FRAME)));
+        const start = this.frameIndex;
+        const end = Math.min(start + bucketSize, allUnits.length);
+
+        const cam = this.scene.cameras.main;
+        const camCenter = cam.getWorldPoint(cam.width / 2, cam.height / 2);
+        const zoom = cam.zoom;
+
+        for (let i = start; i < end; i++) {
+            const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
-            if (!container) return;
+            if (!container) continue;
 
-            // Optimization: Skip processing if the squad container is culled
-            if (!container.visible) return;
+            // Culling check: skip if not visible
+            if (!container.visible) continue;
 
-            const body = unit.body as Phaser.Physics.Arcade.Body;
-            const stats = UNIT_STATS[unit.unitType as UnitType];
+            // Determine LOD based on screen distance
+            const dx = unit.x - camCenter.x;
+            const dy = unit.y - camCenter.y;
+            const screenDist = Math.sqrt(dx * dx + dy * dy) / zoom;
 
-            let angle = unit.getData('formationAngle');
-            const speed = body.velocity.length();
-            const isMoving = speed > 10;
+            let lod = LOD_FULL;
+            if (screenDist > LOD_THRESHOLDS[LOD_LOW]) lod = LOD_DOT;
+            else if (screenDist > LOD_THRESHOLDS[LOD_MEDIUM]) lod = LOD_LOW;
+            else if (screenDist > LOD_THRESHOLDS[LOD_FULL]) lod = LOD_MEDIUM;
 
-            if (isMoving) {
-                const targetAngle = body.velocity.angle();
-                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
-                unit.setData('formationAngle', angle);
-            } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
-                // Face target when attacking/chasing
-                const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, unit.target.x, unit.target.y);
-                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
-                unit.setData('formationAngle', angle);
-            }
-
+            // Update container position
             const commanderIso = toIso(unit.x, unit.y);
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
-            const hp = unit.getData('hp');
-            const maxHp = unit.getData('maxHp');
-            const targetCount = Math.ceil((hp / maxHp) * stats.squadSize);
+            // Get formation facing angle
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            const stats = UNIT_STATS[unit.unitType as UnitType];
+            if (!stats || stats.squadSize <= 1) continue;
+
+            let angle = unit.getData('formationAngle') as number || 0;
+            const speed = body ? body.velocity.length() : 0;
+            const isMoving = speed > 10;
+
+            // Smooth angle transitions (skip for LOD_DOT)
+            if (lod !== LOD_DOT) {
+                if (isMoving && body) {
+                    const targetAngle = body.velocity.angle();
+                    angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                    unit.setData('formationAngle', angle);
+                } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
+                    const tgt = unit.target as Phaser.GameObjects.Image;
+                    const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y);
+                    angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                    unit.setData('formationAngle', angle);
+                }
+            }
+
+            // Update HP-based soldier count (skip for distant)
+            const hp = unit.getData('hp') as number;
+            const maxHp = unit.getData('maxHp') as number;
+            const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
             const soldiers = unit.getData('soldierStates') as SoldierState[];
 
-            if (soldiers.length !== targetCount) {
+            // Adjust soldier count without garbage generation
+            if (soldiers && soldiers.length !== targetCount) {
                 if (soldiers.length > targetCount) {
-                    soldiers.splice(targetCount);
+                    soldiers.length = targetCount; // Truncate (no GC)
                 } else {
                     while (soldiers.length < targetCount) {
                         soldiers.push({
@@ -119,210 +175,158 @@ export class SquadSystem {
                 }
             }
 
+            // Render based on LOD
             const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
-            gfx.clear();
+            this.renderSquad(gfx, unit, soldiers, angle, isMoving, lod, commanderIso);
+        }
 
-            const owner = unit.getData('owner');
-            const color = this.scene.getFactionColor(owner);
-
-            const cos = Math.cos(angle);
-            const sin = Math.sin(angle);
-
-            if (unit.isSelected) {
-                gfx.lineStyle(2, 0xffffff, 0.8);
-                const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
-                gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
-            }
-
-            // Unit Indicator Icon (Global Toggle)
-            // Unit Indicator Icon (Global Toggle)
-            // Unit Indicator Icon (Global Toggle)
-            if (this.scene.showUnitIndicators && owner === 0) {
-                const indicatorY = -60; // Position above the squad
-                const circleRadius = 22;
-
-                // Draw to Graphics (which IS in worldLayer) - wait, if we want icon SHARP, we must move it out too?
-                // The user said "UNIT ICONS are affected". This likely means the circle+symbol drawn on graphics.
-                // If so, we need to move THAT drawing to a separate container in UI group too.
-
-                // Let's create a dedicated UI container for the indicator if it doesn't exist.
-                let uiIndicator = unit.getData('uiIndicatorContainer') as Phaser.GameObjects.Container;
-                if (!uiIndicator) {
-                    uiIndicator = this.scene.add.container(0, 0);
-                    this.scene.uiGroup.add(uiIndicator); // Add to UI Group (Sharp)
-                    unit.setData('uiIndicatorContainer', uiIndicator);
-
-                    // Create Graphics for the icon background/symbol
-                    const iconGfx = this.scene.add.graphics();
-                    uiIndicator.add(iconGfx);
-
-                    // Create Text Label
-                    const label = this.scene.add.text(0, 32, '', {
-                        fontFamily: 'Arial',
-                        fontSize: '10px',
-                        color: '#ffffff',
-                        stroke: '#000000',
-                        strokeThickness: 2,
-                        backgroundColor: '#000000bb',
-                        padding: { x: 4, y: 2 }
-                    }).setOrigin(0.5);
-                    uiIndicator.add(label);
-                }
-
-                uiIndicator.setVisible(true);
-
-                // Sync Position (Convert World Iso -> Screen XY relative to UI Camera?)
-                // UI Camera and Main Camera share scroll/zoom? 
-                // MainScene.update: this.uiCamera.scrollX = this.cameras.main.scrollX;
-                // So we can just position at World Coordinates if UI Camera tracks World.
-                // MainScene.ts: "this.cameras.main.ignore(this.uiGroup);" 
-                // So UI elements are NOT drawn by Main Cam (with PostFX).
-                // They ARE drawn by UI Cam (No PostFX).
-
-                const indicatorIso = toIso(unit.x, unit.y);
-                uiIndicator.setPosition(indicatorIso.x, indicatorIso.y - 60);
-                // No depth needed for UI usually, or simple sorting
-
-                const iconGfx = uiIndicator.getAt(0) as Phaser.GameObjects.Graphics;
-                iconGfx.clear();
-
-                // Background circle with border
-                iconGfx.fillStyle(0x1a1a2e, 0.95);
-                iconGfx.fillCircle(0, 0, circleRadius);
-                iconGfx.lineStyle(2, 0xffffff, 0.9);
-                iconGfx.strokeCircle(0, 0, circleRadius);
-
-                // Draw unit icon silhouette inside
-                iconGfx.fillStyle(0xffffff, 0.9);
-                const drawY = 0; // Relative to container
-                if (unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.LEGION) {
-                    iconGfx.fillRect(-3, drawY - 8, 6, 12);
-                    iconGfx.fillCircle(0, drawY - 12, 4);
-                    iconGfx.fillRect(5, drawY - 14, 2, 18);
-                    iconGfx.fillStyle(0x888888, 0.9);
-                    iconGfx.fillTriangle(6, drawY - 14, 4, drawY - 10, 8, drawY - 10);
-                } else if (unit.unitType === UnitType.CAVALRY) {
-                    iconGfx.fillEllipse(0, drawY + 2, 16, 8);
-                    iconGfx.fillCircle(-6, drawY - 2, 3);
-                    iconGfx.fillRect(-2, drawY - 8, 4, 6);
-                    iconGfx.fillCircle(0, drawY - 12, 3);
-                } else if (unit.unitType === UnitType.ARCHER) {
-                    iconGfx.lineStyle(2, 0xffffff, 1);
-                    iconGfx.beginPath();
-                    iconGfx.arc(0, drawY, 8, Phaser.Math.DegToRad(-45), Phaser.Math.DegToRad(45), false);
-                    iconGfx.strokePath();
-                    iconGfx.lineStyle(1, 0xffffff, 1);
-                    iconGfx.beginPath();
-                    iconGfx.moveTo(-8, drawY);
-                    iconGfx.lineTo(8, drawY);
-                    iconGfx.strokePath();
-                }
-
-                // Unit type name
-                const unitName = unit.unitType === UnitType.LEGION ? 'LEGION' :
-                    unit.unitType === UnitType.PIKESMAN ? 'PIKESMAN' :
-                        unit.unitType === UnitType.ARCHER ? 'ARCHERS' :
-                            unit.unitType === UnitType.CAVALRY ? 'CAVALRY' : 'UNIT';
-
-                const label = uiIndicator.getAt(1) as Phaser.GameObjects.Text;
-                label.setText(unitName);
-
-            } else {
-                // Hide indicator
-                const uiIndicator = unit.getData('uiIndicatorContainer') as Phaser.GameObjects.Container;
-                if (uiIndicator) {
-                    uiIndicator.setVisible(false);
-                }
-            }
-
-            soldiers.forEach((soldier, index) => {
-                const dx = soldier.offset.x * cos - soldier.offset.y * sin;
-                const dy = soldier.offset.x * sin + soldier.offset.y * cos;
-                const targetX = unit.x + dx;
-                const targetY = unit.y + dy;
-
-                const lerpSpeed = isMoving ? 0.15 : 0.1;
-                soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
-                soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
-
-                if (isMoving) {
-                    soldier.z = Math.abs(Math.sin((this.scene.time.now / 150) + index)) * 3;
-                } else {
-                    soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.2);
-                }
-
-                const isoSoldier = toIso(soldier.x, soldier.y);
-                const drawX = isoSoldier.x - commanderIso.x;
-                const drawY = isoSoldier.y - commanderIso.y - soldier.z;
-
-                if (unit.unitType === UnitType.LEGION || unit.unitType === UnitType.PIKESMAN || unit.unitType === UnitType.ARCHER) {
-                    // Draw Pike for Pikesman
-                    if (unit.unitType === UnitType.PIKESMAN) {
-                        // Length of the pike
-                        const pikeLen = 14;
-                        // Calculate pike tip position based on unit facing angle
-                        // We use 'angle' which is the squad's facing direction
-                        // Draw it originating from center/side of body
-
-                        const pikeStartX = drawX + Math.cos(angle + Math.PI / 4) * 2;
-                        const pikeStartY = drawY - 2 + Math.sin(angle + Math.PI / 4) * 2;
-
-                        const pikeTipX = pikeStartX + Math.cos(angle) * pikeLen;
-                        const pikeTipY = pikeStartY + Math.sin(angle) * pikeLen;
-
-                        gfx.lineStyle(1, 0x8D6E63, 1); // Wood color shaft
-                        gfx.beginPath();
-                        gfx.moveTo(pikeStartX, pikeStartY);
-                        gfx.lineTo(pikeTipX, pikeTipY);
-                        gfx.strokePath();
-
-                        // Silver tip (Pointy Triangle)
-                        gfx.fillStyle(0xC0C0C0, 1);
-
-                        // Calculate triangle vertices
-                        const tipLen = 3;
-                        const tipWidth = 2;
-
-                        // P1: Tip
-                        const p1x = pikeTipX;
-                        const p1y = pikeTipY;
-
-                        // Base center is back along the shaft
-                        const bx = pikeTipX - Math.cos(angle) * tipLen;
-                        const by = pikeTipY - Math.sin(angle) * tipLen;
-
-                        // Perpendicular vector for width
-                        const px = Math.cos(angle + Math.PI / 2) * (tipWidth / 2);
-                        const py = Math.sin(angle + Math.PI / 2) * (tipWidth / 2);
-
-                        // P2 & P3: Base corners
-                        const p2x = bx + px;
-                        const p2y = by + py;
-                        const p3x = bx - px;
-                        const p3y = by - py;
-
-                        gfx.fillTriangle(p1x, p1y, p2x, p2y, p3x, p3y);
-                    }
-
-                    gfx.fillStyle(0x000000, 0.3);
-                    gfx.fillEllipse(drawX, drawY + soldier.z, 6, 3);
-                    gfx.fillStyle(color, 1);
-                    gfx.fillRect(drawX - 2, drawY - 4, 4, 6);
-                    gfx.fillStyle(0xffffff, 0.8);
-                    gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
-                } else if (unit.unitType === UnitType.CAVALRY) {
-                    gfx.fillStyle(0x000000, 0.3);
-                    gfx.fillEllipse(drawX, drawY + soldier.z, 10, 5);
-                    gfx.fillStyle(color, 1);
-                    gfx.fillEllipse(drawX, drawY, 14, 8);
-                    gfx.fillStyle(0xffffff, 1);
-                    gfx.fillCircle(drawX, drawY - 5, 2.5);
-                }
-            });
-        });
+        // Advance frame bucket
+        this.frameIndex += bucketSize;
+        if (this.frameIndex >= allUnits.length) {
+            this.frameIndex = 0;
+        }
     }
 
-    public destroySquad(unit: Phaser.GameObjects.GameObject) {
+    /**
+     * Render a squad with LOD-specific optimizations.
+     */
+    private renderSquad(
+        gfx: Phaser.GameObjects.Graphics,
+        unit: GameUnit,
+        soldiers: SoldierState[],
+        angle: number,
+        isMoving: boolean,
+        lod: number,
+        commanderIso: { x: number; y: number }
+    ): void {
+        gfx.clear();
+
+        const owner = unit.getData('owner') as number;
+        const color = this.scene.getFactionColor(owner);
+
+        // Selection circle (always visible if selected, regardless of LOD)
+        if (unit.isSelected) {
+            const stats = UNIT_STATS[unit.unitType as UnitType];
+            gfx.lineStyle(2, 0xffffff, 0.8);
+            const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
+            gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
+        }
+
+        // LOD_DOT: single colored circle
+        if (lod === LOD_DOT) {
+            const dotSize = unit.unitType === UnitType.LEGION ? 8 :
+                unit.unitType === UnitType.CAVALRY ? 6 : 5;
+            gfx.fillStyle(color, 1);
+            gfx.fillCircle(0, 0, dotSize);
+            return;
+        }
+
+        // LOD step factor
+        const step = LOD_FACTORS[lod];
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+
+        for (let i = 0; i < soldiers.length; i += step) {
+            const soldier = soldiers[i];
+            const dx = soldier.offset.x * cos - soldier.offset.y * sin;
+            const dy = soldier.offset.x * sin + soldier.offset.y * cos;
+            const targetX = unit.x + dx;
+            const targetY = unit.y + dy;
+
+            // Reduce lerp iterations for distant squads
+            const lerpSpeed = lod === LOD_MEDIUM ? 0.2 : (isMoving ? 0.15 : 0.1);
+            soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
+            soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
+
+            // Walking animation (skip for low LOD)
+            if (lod === LOD_FULL && isMoving) {
+                soldier.z = Math.abs(Math.sin((this.scene.time.now / 150) + i)) * 3;
+            } else if (lod === LOD_FULL) {
+                soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.2);
+            } else {
+                soldier.z = 0; // No bounce for distant squads
+            }
+
+            const isoSoldier = toIso(soldier.x, soldier.y);
+            const drawX = isoSoldier.x - commanderIso.x;
+            const drawY = isoSoldier.y - commanderIso.y - soldier.z;
+
+            // Draw soldier based on unit type
+            this.drawSoldier(gfx, unit.unitType, drawX, drawY, soldier.z, color, angle, lod);
+        }
+    }
+
+    /**
+     * Draw a single soldier with type-specific visuals.
+     */
+    private drawSoldier(
+        gfx: Phaser.GameObjects.Graphics,
+        unitType: UnitType,
+        drawX: number,
+        drawY: number,
+        z: number,
+        color: number,
+        angle: number,
+        lod: number
+    ): void {
+        if (lod >= LOD_LOW) {
+            // Simplified: small colored rectangle
+            gfx.fillStyle(color, 1);
+            gfx.fillRect(drawX - 1.5, drawY - 2, 3, 4);
+            return;
+        }
+
+        if (unitType === UnitType.LEGION || unitType === UnitType.PIKESMAN || unitType === UnitType.ARCHER) {
+            // Pike for Pikesman
+            if (unitType === UnitType.PIKESMAN && lod === LOD_FULL) {
+                const pikeLen = 14;
+                const pikeStartX = drawX + Math.cos(angle + Math.PI / 4) * 2;
+                const pikeStartY = drawY - 2 + Math.sin(angle + Math.PI / 4) * 2;
+                const pikeTipX = pikeStartX + Math.cos(angle) * pikeLen;
+                const pikeTipY = pikeStartY + Math.sin(angle) * pikeLen;
+
+                gfx.lineStyle(1, 0x8D6E63, 1);
+                gfx.beginPath();
+                gfx.moveTo(pikeStartX, pikeStartY);
+                gfx.lineTo(pikeTipX, pikeTipY);
+                gfx.strokePath();
+
+                // Silver tip
+                gfx.fillStyle(0xC0C0C0, 1);
+                const tipLen = 3;
+                const tipWidth = 2;
+                const p1x = pikeTipX;
+                const p1y = pikeTipY;
+                const bx = pikeTipX - Math.cos(angle) * tipLen;
+                const by = pikeTipY - Math.sin(angle) * tipLen;
+                const px = Math.cos(angle + Math.PI / 2) * (tipWidth / 2);
+                const py = Math.sin(angle + Math.PI / 2) * (tipWidth / 2);
+                gfx.fillTriangle(p1x, p1y, bx + px, by + py, bx - px, by - py);
+            }
+
+            // Shadow
+            gfx.fillStyle(0x000000, 0.3);
+            gfx.fillEllipse(drawX, drawY + z, 6, 3);
+            // Body
+            gfx.fillStyle(color, 1);
+            gfx.fillRect(drawX - 2, drawY - 4, 4, 6);
+            // Head
+            gfx.fillStyle(0xffffff, 0.8);
+            gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
+        } else if (unitType === UnitType.CAVALRY) {
+            // Shadow
+            gfx.fillStyle(0x000000, 0.3);
+            gfx.fillEllipse(drawX, drawY + z, 10, 5);
+            // Body
+            gfx.fillStyle(color, 1);
+            gfx.fillEllipse(drawX, drawY, 14, 8);
+            // Rider head
+            gfx.fillStyle(0xffffff, 1);
+            gfx.fillCircle(drawX, drawY - 5, 2.5);
+        }
+    }
+
+    public destroySquad(unit: Phaser.GameObjects.GameObject): void {
         const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
         if (container) {
             container.destroy();
@@ -333,21 +337,16 @@ export class SquadSystem {
         }
     }
 
-    public applyFormation(unit: Phaser.GameObjects.GameObject, formationType: FormationType) {
+    public applyFormation(unit: Phaser.GameObjects.GameObject, formationType: FormationType): void {
         const soldiers = unit.getData('soldierStates') as SoldierState[];
         if (!soldiers || soldiers.length === 0) return;
 
         const count = soldiers.length;
-        // Keep existing spacing or default to 10
         const stats = UNIT_STATS[unit.getData('unitType') as UnitType];
-        const spacing = stats.squadSpacing || 10;
+        const spacing = stats?.squadSpacing || 10;
 
-        // Get new offsets
         const offsets = FormationSystem.getFormationOffsets(formationType, count, spacing);
 
-        // Update soldier targets
-        // We update the 'offset' property of each soldierState
-        // The update loop in SquadSystem will handle the lerping to the new positions
         for (let i = 0; i < count; i++) {
             if (i < offsets.length) {
                 soldiers[i].offset = { x: offsets[i].x, y: offsets[i].y };

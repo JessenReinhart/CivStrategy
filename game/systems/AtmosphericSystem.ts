@@ -12,6 +12,9 @@ export class AtmosphericSystem {
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;
 
+    // Store user's desired bloom multiplier so adaptive logic doesn't overwrite it
+    private userBloomMultiplier: number = 1.0;
+
     constructor(scene: MainScene) {
         this.scene = scene;
         this.createCloudTexture();
@@ -85,9 +88,8 @@ export class AtmosphericSystem {
     }
 
     public setBloomIntensity(intensity: number) {
-        if (this.bloomEffect) {
-            this.bloomEffect.strength = intensity;
-        }
+        // Store user preference as a multiplier (range ~0.0 to 3.0)
+        this.userBloomMultiplier = intensity;
     }
 
     public update(time: number, delta: number) {
@@ -97,36 +99,23 @@ export class AtmosphericSystem {
         // --- Adaptive Bloom Logic ---
         if (this.bloomEffect) {
             // 1. Zoom Adaptation:
-            // High Zoom (1.5x) -> Focused on units -> Low Bloom (0.2)
-            // Low Zoom (0.5x) -> High view -> Higher Bloom (0.8) for atmosphere
-            // Formula: Lerp between min/max based on zoom factor
-
-            // Normalize zoom: usually between 0.5 (far) and 2.0 (close)
+            // High Zoom (1.5x) -> Focused on units -> Less dynamic range
+            // Low Zoom (0.5x) -> High view -> More dynamic range for atmosphere
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
 
-            // Invert: Zoomed IN (progress 1) = Less Bloom (but not zero)
-            // Range: 0.6 (Clean) to 1.5 (Atmospheric)
+            // Base dynamic target: zoomed-out = more bloom, zoomed-in = less bloom
             const baseStrength = Phaser.Math.Linear(1.5, 0.6, zoomProgress);
 
             // 2. "Breathing" Pulse (Simulate light intensity variance)
-            // Slow sine wave: time * 0.001
-            const pulse = Math.sin(time * 0.002) * 0.05; // +/- 0.05 variation
+            const pulse = Math.sin(time * 0.002) * 0.05;
 
-            // 3. Apply
-            // Smoothly interpolate current strength to target (Adaptive Eye feel)
-            // We use a property to track target to allow for UI overrides if needed, 
-            // but for now, we just drive it directly or blend with UI setting.
+            // 3. Combine dynamic base with user's multiplier
+            // User slider (0.0 to 3.0) acts as a global multiplier on the dynamic target
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.1, 2.0);
+            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 4.0);
 
-            // Let's assume the UI slider sets a "Max Multiplier" or "Global Intensity"
-            // If we don't store the UI value separate, we might overwrite it.
-            // For now, let's treat the dynamic logic as the primary driver, 
-            // scaled by a global factor if we added one (we have setBloomIntensity).
-            // But since setBloomIntensity isn't stored, we'll just drive it here directly.
-
-            const target = Phaser.Math.Clamp(baseStrength + pulse, 0.1, 2.0);
-
-            // Smooth lerp (Eye Adaptation Speed)
-            this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.05);
+            // Smooth lerp (Eye Adaptation Speed) — fast enough to feel responsive
+            this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
         // --- Tilt Shift Logic ---
