@@ -72,6 +72,7 @@ export class MainScene extends Phaser.Scene {
   // Systems
   public pathfinder!: Pathfinder;
   public treeSpatialHash!: SpatialHash;
+  public unitSpatialHash!: SpatialHash;
   public entityFactory!: EntityFactory;
   public economySystem!: EconomySystem;
   public unitSystem!: UnitSystem;
@@ -177,6 +178,7 @@ export class MainScene extends Phaser.Scene {
     }
     this.pathfinder = new Pathfinder();
     this.treeSpatialHash = new SpatialHash(250); // 250px cells (approx 1-2 trees width)
+    this.unitSpatialHash = new SpatialHash(150); // 150px cells for unit queries
     this.entityFactory = new EntityFactory(this);
     this.squadSystem = new SquadSystem(this);
 
@@ -190,6 +192,9 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer.setTileScale(this.groundScale);
 
     this.units = this.add.group({ runChildUpdate: true });
+    // Hook into unit group to maintain spatial hash
+    this.units.on('create', (item: Phaser.GameObjects.GameObject) => this.unitSpatialHash.insert(item));
+    this.units.on('remove', (item: Phaser.GameObjects.GameObject) => this.unitSpatialHash.remove(item));
     this.buildings = this.add.group();
     this.trees = this.add.group();
     this.treeVisuals = this.add.group(); // Visual pool
@@ -236,9 +241,6 @@ export class MainScene extends Phaser.Scene {
     for (let i = 0; i < 5; i++) {
       this.entityFactory.spawnUnit(UnitType.ARCHER, centerX - 60 + (i * 15), centerY + 80, 0);
     }
-
-    // DEBUG: Spawn Enemy Barracks for Target Practice
-    this.entityFactory.spawnBuilding(BuildingType.BARRACKS, centerX + 300, centerY, 1);
 
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
@@ -380,6 +382,9 @@ export class MainScene extends Phaser.Scene {
 
     this.cullingSystem.update(this.gameTime, dt);
 
+    // Update spatial hash for all units (called every frame for moving units)
+    this.updateUnitSpatialHash();
+
     this.villagerSystem.update(this.gameTime, dt);
     this.animalSystem.update(this.gameTime, dt);
     this.unitSystem.update(this.gameTime, dt);
@@ -461,11 +466,23 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Update the unit spatial hash for all moving units.
+   * Called each frame to keep the spatial index current.
+   */
+  updateUnitSpatialHash() {
+    const allUnits = this.units.getChildren();
+    for (let i = 0; i < allUnits.length; i++) {
+      const u = allUnits[i] as Phaser.GameObjects.Image;
+      this.unitSpatialHash.update(u);
+    }
+  }
+
   syncVisuals() {
     this.units.getChildren().forEach((u) => {
-      // Fix: Use any-cast to safely check 'visible' property
       const unit = u as Phaser.GameObjects.Sprite;
-      const visual = (u as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const visual = (u as any).visual;
       if (visual && (visual as Phaser.GameObjects.Components.Visible).visible) {
         const iso = toIso(unit.x, unit.y);
         visual.setPosition(iso.x, iso.y);
@@ -473,7 +490,8 @@ export class MainScene extends Phaser.Scene {
       }
     });
     this.buildings.getChildren().forEach((b) => {
-      const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const visual = (b as any).visual;
       if (visual) {
         const iso = toIso((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
         visual.setDepth(iso.y);

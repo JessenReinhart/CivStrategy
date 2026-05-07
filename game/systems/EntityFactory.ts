@@ -216,7 +216,7 @@ export class EntityFactory {
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
 
-        const gfx = this.scene.add.graphics();
+        const _gfx = this.scene.add.graphics();
 
 
         if (stats.squadSize === 1) {

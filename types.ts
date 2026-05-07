@@ -152,9 +152,8 @@ export interface GameUnit extends Phaser.GameObjects.Image {
   visual?: Phaser.GameObjects.Container;
   lastAttackTime?: number;
   takeDamage?: (amount: number) => void;
-  // Custom data properties that might be accessed via direct property or getData
-  // But we extend Image so standard props are there.
-  // We'll trust the specific props we need.
+  isSelected?: boolean;
+  flowTarget?: { x: number; y: number };
 }
 
 export interface VillagerData {
