@@ -216,8 +216,6 @@ export class EntityFactory {
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
 
-        const _gfx = this.scene.add.graphics();
-
 
         if (stats.squadSize === 1) {
             visual.setData('hpBar', this.createHealthBar(visual, 24, -20));

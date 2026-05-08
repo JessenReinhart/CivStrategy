@@ -82,7 +82,7 @@ export class AtmosphericSystem {
         // Use worldLayer for PostFX if available
         const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-        this.bloomEffect = target.addBloom(0xffffff, 1, 1, 1.2, 1.0);
+        this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.7, 1.0);
         this.tiltShiftEffect = target.addTiltShift(0.1); // Initial blur
         this.vignetteEffect = target.addVignette(0.5, 0.5, 0.8, 0.3); // x, y, radius, strength
     }
@@ -104,7 +104,7 @@ export class AtmosphericSystem {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
 
             // Base dynamic target: zoomed-out = more bloom, zoomed-in = less bloom
-            const baseStrength = Phaser.Math.Linear(1.5, 0.6, zoomProgress);
+            const baseStrength = Phaser.Math.Linear(2.0, 0.8, zoomProgress);
 
             // 2. "Breathing" Pulse (Simulate light intensity variance)
             const pulse = Math.sin(time * 0.002) * 0.05;

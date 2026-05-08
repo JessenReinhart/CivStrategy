@@ -102,6 +102,7 @@ export class Pathfinder {
     // Flow field cache
     private flowFieldCache: Map<string, { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; targetX: number; targetY: number }> = new Map();
 
+
     // Statistics
     public pathsComputed: number = 0;
     public flowFieldsGenerated: number = 0;
