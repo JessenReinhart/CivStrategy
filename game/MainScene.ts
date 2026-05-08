@@ -294,6 +294,17 @@ export class MainScene extends Phaser.Scene {
       this.economySystem.updateStats(); // Update React state
     });
 
+    // Render performance tracking
+    if (this.game.renderer && this.game.renderer.on) {
+      this.game.renderer.on('prerender', () => {
+        this._renderStart = performance.now();
+      });
+      this.game.renderer.on('postrender', () => {
+        const elapsed = performance.now() - (this._renderStart || 0);
+        this.profileTimings['__render'] = (this.profileTimings['__render'] || 0) + elapsed;
+      });
+    }
+
     this.game.events.on('request-set-formation', (type: FormationType) => {
       if (this.unitSystem) {
         this.unitSystem.setFormation(type);
@@ -349,7 +360,23 @@ export class MainScene extends Phaser.Scene {
     this.cameras.main.pan(iso.x, iso.y, 500, 'Power2');
   }
 
+  // Performance profiling accumulators (reset every PROFILING_REPORT_INTERVAL frames)
+  private profileFrameCount: number = 0;
+  private _renderStart: number = 0;
+  private profileTimings: Record<string, number> = {};
+  private static readonly PROFILING_REPORT_INTERVAL = 120; // report every ~2s at 60fps
+
+  private profileStart(_label: string): number {
+    return performance.now();
+  }
+
+  private profileEnd(label: string, startTime: number): void {
+    const elapsed = performance.now() - startTime;
+    this.profileTimings[label] = (this.profileTimings[label] || 0) + elapsed;
+  }
+
   update(time: number, delta: number) {
+    const frameStart = performance.now();
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
 
@@ -365,7 +392,11 @@ export class MainScene extends Phaser.Scene {
       ]);
     }
 
+    let t0: number;
+
+    t0 = this.profileStart('inputManager');
     this.inputManager.update(delta);
+    this.profileEnd('inputManager', t0);
 
     const cam = this.cameras.main;
     const topLeft = cam.getWorldPoint(0, 0);
@@ -380,18 +411,39 @@ export class MainScene extends Phaser.Scene {
 
     this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
 
+    t0 = this.profileStart('cullingSystem');
     this.cullingSystem.update(this.gameTime, dt);
+    this.profileEnd('cullingSystem', t0);
 
     // Update spatial hash for all units (called every frame for moving units)
+    t0 = this.profileStart('updateUnitSpatialHash');
     this.updateUnitSpatialHash();
+    this.profileEnd('updateUnitSpatialHash', t0);
 
+    t0 = this.profileStart('villagerSystem');
     this.villagerSystem.update(this.gameTime, dt);
+    this.profileEnd('villagerSystem', t0);
+
+    t0 = this.profileStart('animalSystem');
     this.animalSystem.update(this.gameTime, dt);
+    this.profileEnd('animalSystem', t0);
+
+    t0 = this.profileStart('unitSystem');
     this.unitSystem.update(this.gameTime, dt);
+    this.profileEnd('unitSystem', t0);
+
+    t0 = this.profileStart('squadSystem');
     this.squadSystem.update(dt);
+    this.profileEnd('squadSystem', t0);
+
+    t0 = this.profileStart('buildingManager');
     this.buildingManager.update();
+    this.profileEnd('buildingManager', t0);
+
     if (!this.aiDisabled) {
+      t0 = this.profileStart('enemyAI');
       this.enemyAI.update(this.gameTime, dt);
+      this.profileEnd('enemyAI', t0);
     }
 
     if (this.infiniteMapSystem) this.infiniteMapSystem.update();
@@ -411,13 +463,45 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.economySystem.assignJobs();
+
+    t0 = this.profileStart('atmosphericSystem');
     this.atmosphericSystem.update(this.gameTime, dt);
+    this.profileEnd('atmosphericSystem', t0);
+
+    t0 = this.profileStart('syncVisuals');
     this.syncVisuals();
+    this.profileEnd('syncVisuals', t0);
 
     // Sync UI camera
     this.uiCamera.scrollX = this.cameras.main.scrollX;
     this.uiCamera.scrollY = this.cameras.main.scrollY;
     this.uiCamera.zoom = this.cameras.main.zoom;
+
+    // --- Performance report ---
+    this.profileFrameCount++;
+    const frameTime = performance.now() - frameStart;
+    this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
+
+    if (this.profileFrameCount >= MainScene.PROFILING_REPORT_INTERVAL) {
+      const fps = this.game.loop.actualFps.toFixed(1);
+      const unitCount = this.units.getLength();
+      const reports: string[] = [`[PERF] ${unitCount} units @ ${fps} FPS (avg ${this.profileFrameCount} frames):`];
+      const sorted = Object.entries(this.profileTimings)
+        .filter(([k]) => k !== '_totalFrame')
+        .sort(([, a], [, b]) => b - a);
+      for (const [label, total] of sorted) {
+        const avgMs = (total / this.profileFrameCount).toFixed(2);
+        const pct = ((total / this.profileTimings['_totalFrame']) * 100).toFixed(1);
+        reports.push(`  ${label}: ${avgMs}ms/frame (${pct}%)`);
+      }
+      const avgFrame = (this.profileTimings['_totalFrame'] / this.profileFrameCount).toFixed(2);
+      reports.push(`  TOTAL FRAME: ${avgFrame}ms`);
+      console.warn(reports.join('\n'));
+
+      // Reset
+      this.profileFrameCount = 0;
+      this.profileTimings = {};
+    }
   }
 
 
@@ -467,19 +551,42 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Update the unit spatial hash for all moving units.
+   * Update the unit spatial hash for moving units only.
    * Called each frame to keep the spatial index current.
+   * Stationary units (velocity near zero) skip the update since their cell hasn't changed.
    */
   updateUnitSpatialHash() {
     const allUnits = this.units.getChildren();
     for (let i = 0; i < allUnits.length; i++) {
-      const u = allUnits[i] as Phaser.GameObjects.Image;
+      const u = allUnits[i] as Phaser.GameObjects.Image & { body?: Phaser.Physics.Arcade.Body };
+      // Skip stationary units - their spatial cell hasn't changed
+      if (u.body && u.body.velocity.length() < 1) continue;
       this.unitSpatialHash.update(u);
     }
   }
 
   syncVisuals() {
-    this.units.getChildren().forEach((u) => {
+    // Buildings: update visual depth only
+    const buildingChildren = this.buildings.getChildren();
+    for (let i = 0; i < buildingChildren.length; i++) {
+      const b = buildingChildren[i];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const visual = (b as any).visual;
+      if (visual) {
+        const iso = toIso((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
+        visual.setDepth(iso.y);
+      }
+    }
+
+    // Units: only sync non-squad units (villagers, animals).
+    // Combat units with squads are positioned by SquadSystem.update().
+    const unitChildren = this.units.getChildren();
+    for (let i = 0; i < unitChildren.length; i++) {
+      const u = unitChildren[i];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const squadContainer = (u as any).getData('squadContainer');
+      if (squadContainer) continue; // Handled by SquadSystem
+
       const unit = u as Phaser.GameObjects.Sprite;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const visual = (u as any).visual;
@@ -488,14 +595,6 @@ export class MainScene extends Phaser.Scene {
         visual.setPosition(iso.x, iso.y);
         visual.setDepth(iso.y);
       }
-    });
-    this.buildings.getChildren().forEach((b) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const visual = (b as any).visual;
-      if (visual) {
-        const iso = toIso((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
-        visual.setDepth(iso.y);
-      }
-    });
+    }
   }
 }

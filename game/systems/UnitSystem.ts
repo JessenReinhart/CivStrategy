@@ -21,8 +21,8 @@ const _SCAN_INTERVAL_IDLE = 1000;     // ms between scans for idle units
 const _PATH_RECALC_INTERVAL = 2000;   // ms between path recalculations
 const SEPARATION_INTERVAL = 3;       // frames between separation checks
 const STALE_PATH_LIFETIME = 5000;    // ms before a path is considered stale
-const FLOW_FIELD_THRESHOLD = 5;     // min units to trigger flow field instead of individual paths
-const FLOW_STEER_INTERVAL = 400;    // ms between flow direction updates per unit
+const FLOW_FIELD_THRESHOLD = 12;     // min units to trigger flow field instead of individual paths
+const FLOW_STEER_INTERVAL = 80;    // ms between flow direction updates per unit
 
 export class UnitSystem {
     private scene: MainScene;
@@ -324,7 +324,7 @@ export class UnitSystem {
     /**
      * Steer unit using cached flow field (O(1) per unit per steer interval).
      */
-    private moveAlongFlowField(unit: GameUnit, time: number): void {
+    private moveAlongFlowField(unit: GameUnit, _time: number): void {
         if (!unit.flowTarget) return;
 
         const flowField = unit.getData('_flowField') as { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number } | undefined;
@@ -343,8 +343,8 @@ export class UnitSystem {
         }
 
         const lastSteer = unit.getData('_lastFlowSteer') as number || 0;
-        if (time - lastSteer < FLOW_STEER_INTERVAL) return;
-        unit.setData('_lastFlowSteer', time);
+        if (this.scene.time.now - lastSteer < FLOW_STEER_INTERVAL) return;
+        unit.setData('_lastFlowSteer', this.scene.time.now);
 
         const dir = this.scene.pathfinder.getFlowDirection(flowField, unit.x, unit.y);
 
@@ -499,11 +499,11 @@ export class UnitSystem {
     }
 
     // ─── Target Scanning (SpatialHash optimized) ──────────────────────────
-    private scanForTargets(unit: GameUnit, time: number): void {
+    private scanForTargets(unit: GameUnit, _time: number): void {
         // Throttle: only scan periodically (~every 500ms)
         const lastScan = unit.getData('_lastScan') as number || 0;
-        if (time - lastScan < SCAN_INTERVAL_COMBAT) return;
-        unit.setData('_lastScan', time);
+        if (this.scene.time.now - lastScan < SCAN_INTERVAL_COMBAT) return;
+        unit.setData('_lastScan', this.scene.time.now);
 
         const isCombatUnit = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType);
         if (!isCombatUnit) return;
@@ -654,8 +654,8 @@ export class UnitSystem {
             } else {
                 // Long-range chase: recalculate path periodically
                 const lastRecalc = unit.getData('_lastPathRecalc') as number || 0;
-                if (!unit.path || unit.path.length === 0 || (time - lastRecalc > _PATH_RECALC_INTERVAL)) {
-                    unit.setData('_lastPathRecalc', time);
+                if (!unit.path || unit.path.length === 0 || (this.scene.time.now - lastRecalc > _PATH_RECALC_INTERVAL)) {
+                    unit.setData('_lastPathRecalc', this.scene.time.now);
                     const path = this.scene.pathfinder.findPath(
                         new Phaser.Math.Vector2(unit.x, unit.y),
                         new Phaser.Math.Vector2(target.x, target.y)

@@ -130,6 +130,14 @@ export class SquadSystem {
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
+            // Also update the visual container (used for click detection)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const visual = (unit as any).visual as Phaser.GameObjects.Container;
+            if (visual && visual.visible) {
+                visual.setPosition(commanderIso.x, commanderIso.y);
+                visual.setDepth(commanderIso.y);
+            }
+
             // Get formation facing angle
             const body = unit.body as Phaser.Physics.Arcade.Body;
             const stats = UNIT_STATS[unit.unitType as UnitType];
