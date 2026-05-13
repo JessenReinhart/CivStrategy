@@ -202,6 +202,15 @@ export class EntityFactory {
             stance: UnitStance.HOLD, // Default stance (USER REQUESTED CHANGE)
             anchor: { x: x, y: y }         // Default anchor
         });
+
+        // Set combat bonuses for specific unit types
+        if (type === UnitType.AXEMAN) {
+            unit.setData('bonusVsBuilding', 2.0); // 2x damage vs buildings
+        }
+        if (type === UnitType.HOPLITE) {
+            unit.setData('defensiveBonus', 0.15); // 15% damage reduction
+        }
+
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
         this.scene.units.add(unit);
 

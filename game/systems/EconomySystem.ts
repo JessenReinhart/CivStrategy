@@ -297,7 +297,10 @@ export class EconomySystem {
             treatyTimeRemaining: remainingTreaty,
             bloomIntensity: this.scene.bloomIntensity || 1.0,
             currentFormation: this.scene.unitSystem.currentFormation,
-            currentStance: this.scene.unitSystem.currentStance
+            currentStance: this.scene.unitSystem.currentStance,
+            currentAge: this.scene.currentAge,
+            ageProgress: this.scene.ageProgress,
+            nextAge: this.scene.nextAge
         };
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }

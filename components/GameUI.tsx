@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance } from '../types';
-import { BUILDINGS, EVENTS } from '../constants';
+import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age } from '../types';
+import { BUILDINGS, EVENTS, AGE_CONFIGS } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
@@ -9,7 +9,8 @@ import {
     Target, LogOut, Handshake, Clock,
     Menu, FastForward, Flame, Flower,
     X, Shield, Crown,
-    Grid, Minus, Circle, Activity, Triangle, Hand
+    Grid, Minus, Circle, Activity, Triangle, Hand,
+    Zap, Crosshair
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -24,10 +25,15 @@ interface GameUIProps {
     selectedBuildingType: BuildingType | null;
     onDemolishSelected: () => void;
     onFilterSelection?: (type: UnitType) => void;
+    currentAge: Age;
+    ageProgress: number;
+    nextAge: Age | null;
+    onAdvanceAge: () => void;
 }
 
 export const GameUI: React.FC<GameUIProps> = ({
-    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection
+    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection,
+    onAdvanceAge
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
@@ -136,6 +142,29 @@ export const GameUI: React.FC<GameUIProps> = ({
                         icon={<User size={16} className="text-blue-300" />}
                         value={`${stats.population}/${stats.maxPopulation}`}
                     />
+                    <div className="w-px h-8 bg-white/10" />
+                    <div className="flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors" onClick={onAdvanceAge} title="Advance Age">
+                      <Zap size={16} className={
+                        stats.nextAge ? 'text-amber-400 animate-pulse' :
+                        stats.currentAge === Age.CITY_STATE ? 'text-amber-400' :
+                        stats.currentAge === Age.TOWN ? 'text-yellow-400' :
+                        'text-stone-400'
+                      } />
+                      <div className="flex flex-col leading-tight">
+                        <span className="text-[10px] font-bold text-stone-200 uppercase tracking-wide">{stats.currentAge}</span>
+                        {stats.nextAge && stats.ageProgress > 0 && (
+                          <div className="w-12 h-1 bg-stone-700 rounded-full overflow-hidden">
+                            <div className="h-full bg-amber-500 rounded-full transition-all" style={{width: (stats.ageProgress * 100) + '%'}} />
+                          </div>
+                        )}
+                        {!stats.nextAge && stats.currentAge === Age.CITY_STATE && (
+                          <span className="text-[8px] text-amber-400 font-bold">MAX</span>
+                        )}
+                        {!stats.nextAge && stats.currentAge !== Age.CITY_STATE && (
+                          <span className="text-[8px] text-stone-500">Click TC to advance</span>
+                        )}
+                      </div>
+                    </div>
                     <div className="w-px h-8 bg-white/10" />
                     <div className="flex flex-col items-center min-w-[60px]">
                         <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
@@ -379,6 +408,42 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             onClick={() => onSpawnUnit(UnitType.CAVALRY)}
                                             icon={<FastForward size={16} />}
                                         />
+                                        {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.SLINGER) && (
+                                          <TrainButton
+                                            label="Slinger"
+                                            cost={{ food: 40, gold: 20 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.SLINGER)}
+                                            icon={<Crosshair size={16} />}
+                                          />
+                                        )}
+                                        {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.AXEMAN) && (
+                                          <TrainButton
+                                            label="Axeman"
+                                            cost={{ food: 120, gold: 60 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.AXEMAN)}
+                                            icon={<Triangle size={16} />}
+                                          />
+                                        )}
+                                        {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.HOPLITE) && (
+                                          <TrainButton
+                                            label="Hoplite"
+                                            cost={{ food: 200, gold: 150 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.HOPLITE)}
+                                            icon={<Shield size={16} />}
+                                          />
+                                        )}
+                                        {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.CHARIOT) && (
+                                          <TrainButton
+                                            label="Chariot"
+                                            cost={{ food: 250, gold: 200 }}
+                                            stats={stats}
+                                            onClick={() => onSpawnUnit(UnitType.CHARIOT)}
+                                            icon={<span className="text-cyan-400"><FastForward size={16} /></span>}
+                                          />
+                                        )}
                                     </div>
                                 )}
 

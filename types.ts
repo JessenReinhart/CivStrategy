@@ -32,6 +32,12 @@ export enum UnitStance {
   HOLD = 'Hold'              // Stand ground, attack in range only
 }
 
+export enum Age {
+  VILLAGE = 'Village',
+  TOWN = 'Town',
+  CITY_STATE = 'City-State'
+}
+
 export enum ResourceType {
   WOOD = 'Wood',
   FOOD = 'Food',
@@ -51,6 +57,15 @@ export interface ResourceRates {
   foodConsumption: number;
 }
 
+export interface AgeConfig {
+  name: string;
+  cost: BuildingCost;
+  requiredBuildings: { type: BuildingType; count: number }[];
+  unlocksUnits: UnitType[];
+  unlocksBuildings: BuildingType[];
+  advancementTime: number; // ms of game time to research
+}
+
 export interface GameStats {
   population: number;
   maxPopulation: number;
@@ -60,11 +75,14 @@ export interface GameStats {
   rates: ResourceRates;
   taxRate: number;
   mapMode: MapMode;
-  peacefulMode: boolean; // NEW
-  treatyTimeRemaining: number; // NEW (ms)
-  bloomIntensity: number; // Intensity of sunlit bloom effect
-  currentFormation: FormationType; // NEW
-  currentStance: UnitStance; // NEW - Global default for new orders/units
+  peacefulMode: boolean;
+  treatyTimeRemaining: number; // (ms)
+  bloomIntensity: number;
+  currentFormation: FormationType;
+  currentStance: UnitStance;
+  currentAge: Age;
+  ageProgress: number; // 0–1 during advancement research
+  nextAge: Age | null; // target age if advancing, null otherwise
 }
 
 export interface BuildingCost {
@@ -106,7 +124,11 @@ export enum UnitType {
   CAVALRY = 'Cavalry', // Fast, Heavy (Small Squad)
   LEGION = 'Legion', // Massive Infantry (Large Squad)
   ARCHER = 'Archer', // Ranged Unit
-  ANIMAL = 'Animal'
+  ANIMAL = 'Animal',
+  SLINGER = 'Slinger', // Cheap early ranged (Village Age)
+  AXEMAN = 'Axeman', // Anti-building melee (Town Age)
+  HOPLITE = 'Hoplite', // Elite shielded spearman (City-State Age)
+  CHARIOT = 'Chariot' // Elite ranged cavalry (City-State Age)
 }
 
 export enum UnitState {

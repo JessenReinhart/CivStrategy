@@ -1,5 +1,5 @@
 
-import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats, FormationType } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats, FormationType, Age, AgeConfig } from "./types";
 
 export const TILE_SIZE = 32;
 // Default Fallback
@@ -23,13 +23,17 @@ export const FACTION_COLORS = {
 };
 
 // Vision range for units used by the Fog of War system
-export const UNIT_VISION = {
+export const UNIT_VISION: Record<UnitType, number> = {
   [UnitType.VILLAGER]: 150,
   [UnitType.PIKESMAN]: 250,
   [UnitType.ARCHER]: 300,
   [UnitType.CAVALRY]: 350,
   [UnitType.LEGION]: 300,
-  [UnitType.ANIMAL]: 50
+  [UnitType.ANIMAL]: 50,
+  [UnitType.SLINGER]: 280,
+  [UnitType.AXEMAN]: 220,
+  [UnitType.HOPLITE]: 280,
+  [UnitType.CHARIOT]: 380
 };
 
 // Centralized Unit Stats
@@ -57,17 +61,31 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
   [UnitType.ANIMAL]: {
     maxHp: 30, attack: 0, range: 0, attackSpeed: 1000, speed: 40,
     squadSize: 1, squadSpacing: 0, squadColor: 0x795548
+  },
+  [UnitType.SLINGER]: {
+    maxHp: 80, attack: 8, range: 180, attackSpeed: 1100, speed: 100,
+    squadSize: 8, squadSpacing: 9, squadColor: 0xa89984
+  },
+  [UnitType.AXEMAN]: {
+    maxHp: 250, attack: 25, range: 40, attackSpeed: 1400, speed: 85,
+    squadSize: 10, squadSpacing: 8, squadColor: 0xd4a373
+  },
+  [UnitType.HOPLITE]: {
+    maxHp: 600, attack: 22, range: 40, attackSpeed: 1100, speed: 80,
+    squadSize: 20, squadSpacing: 6, squadColor: 0xb8860b
+  },
+  [UnitType.CHARIOT]: {
+    maxHp: 500, attack: 22, range: 180, attackSpeed: 1200, speed: 180,
+    squadSize: 4, squadSpacing: 14, squadColor: 0xd4af37
   }
 };
 
-export const UNIT_SPEED = {
-  [UnitType.VILLAGER]: UNIT_STATS[UnitType.VILLAGER].speed,
-  [UnitType.PIKESMAN]: UNIT_STATS[UnitType.PIKESMAN].speed,
-  [UnitType.ARCHER]: UNIT_STATS[UnitType.ARCHER].speed,
-  [UnitType.CAVALRY]: UNIT_STATS[UnitType.CAVALRY].speed,
-  [UnitType.LEGION]: UNIT_STATS[UnitType.LEGION].speed,
-  [UnitType.ANIMAL]: UNIT_STATS[UnitType.ANIMAL].speed
-};
+// Auto-derived from UNIT_STATS for convenience
+export const UNIT_SPEED: Record<UnitType, number> = {} as Record<UnitType, number>;
+for (const type of Object.values(UnitType)) {
+  const stats = UNIT_STATS[type as UnitType];
+  if (stats) (UNIT_SPEED as Record<string, number>)[type] = stats.speed;
+}
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   [BuildingType.TOWN_CENTER]: {
@@ -158,7 +176,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     width: 72,
     height: 72,
     color: 0xb91c1c,
-    description: 'Allows training of pikesmen, archers and cavalry.',
+    description: 'Trains military units. Unlocks more units as you advance ages.',
     maxHp: 800,
     happinessBonus: -2
   }
@@ -182,8 +200,53 @@ export const EVENTS = {
   SET_GAME_SPEED: 'set-game-speed',
   MINIMAP_CLICK: 'minimap-click',
   DEMOLISH_SELECTED: 'demolish-selected',
-  SET_BLOOM_INTENSITY: 'set-bloom-intensity'
+  SET_BLOOM_INTENSITY: 'set-bloom-intensity',
+  ADVANCE_AGE: 'advance-age',
+  AGE_ADVANCED: 'age-advanced'
 };
+
+// ─── Age Configuration ─────────────────────────────────────────────────────
+export const AGE_CONFIGS: Record<Age, AgeConfig> = {
+  [Age.VILLAGE]: {
+    name: 'Village Age',
+    cost: { wood: 0, food: 0, gold: 0 },
+    requiredBuildings: [],
+    unlocksUnits: [UnitType.VILLAGER, UnitType.SLINGER, UnitType.PIKESMAN],
+    unlocksBuildings: [],
+    advancementTime: 0
+  },
+  [Age.TOWN]: {
+    name: 'Town Age',
+    cost: { wood: 0, food: 600, gold: 400 },
+    requiredBuildings: [{ type: BuildingType.BARRACKS, count: 1 }, { type: BuildingType.HOUSE, count: 1 }],
+    unlocksUnits: [UnitType.ARCHER, UnitType.CAVALRY, UnitType.AXEMAN],
+    unlocksBuildings: [BuildingType.SMALL_PARK],
+    advancementTime: 60000 // 60s of game time
+  },
+  [Age.CITY_STATE]: {
+    name: 'City-State Age',
+    cost: { wood: 0, food: 1200, gold: 800 },
+    requiredBuildings: [{ type: BuildingType.BARRACKS, count: 2 }, { type: BuildingType.HOUSE, count: 3 }],
+    unlocksUnits: [UnitType.LEGION, UnitType.HOPLITE, UnitType.CHARIOT],
+    unlocksBuildings: [],
+    advancementTime: 90000 // 90s of game time
+  }
+};
+
+// Helper: get the next age in the progression
+export function getNextAge(current: Age): Age | null {
+  const progression: Age[] = [Age.VILLAGE, Age.TOWN, Age.CITY_STATE];
+  const idx = progression.indexOf(current);
+  if (idx < 0 || idx >= progression.length - 1) return null;
+  return progression[idx + 1];
+}
+
+// Helper: check if a unit type is unlocked at a given age
+export function isUnitUnlocked(unitType: UnitType, age: Age): boolean {
+  const config = AGE_CONFIGS[age];
+  if (!config) return false;
+  return config.unlocksUnits.includes(unitType);
+}
 
 export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense: number; speed: number }> = {
   [FormationType.BOX]: { attack: 1.0, defense: 0.0, speed: 1.0 },

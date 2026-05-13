@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit } from '../../types';
-import { BUILDINGS } from '../../constants';
+import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit, Age } from '../../types';
+import { BUILDINGS, AGE_CONFIGS, getNextAge } from '../../constants';
 
 /**
  * EnemyAISystem - Optimized for Annihilation-scale games.
@@ -68,6 +68,11 @@ export class EnemyAISystem {
 
     private buildIndex: number = 0;
     private hasSpawnedStartingForest: boolean = false;
+
+    // Age advancement
+    private aiCurrentAge: Age = Age.VILLAGE;
+    private aiAgeProgress: number = 0;
+    private aiIsAdvancing: boolean = false;
 
     // Cached military unit lists (refreshed each tick)
     private myMilitaryCache: GameUnit[] = [];
@@ -146,6 +151,44 @@ export class EnemyAISystem {
         this.resources.wood += 20;
         this.resources.food += 20;
         this.resources.gold += 10;
+
+        // AI Age Advancement
+        if (this.aiCurrentAge !== Age.CITY_STATE && !this.aiIsAdvancing) {
+            const next = getNextAge(this.aiCurrentAge);
+            if (next) {
+                const config = AGE_CONFIGS[next];
+                if (this.resources.food >= config.cost.food && this.resources.gold >= config.cost.gold) {
+                    // Check building requirements
+                    let meetsReqs = true;
+                    for (const req of config.requiredBuildings) {
+                        const owned = this.buildings.filter(
+                            (b) => b && b.scene && b.getData('def')?.type === req.type && b.getData('hp') > 0
+                        ).length;
+                        if (owned < req.count) { meetsReqs = false; break; }
+                    }
+                    if (meetsReqs) {
+                        this.resources.food -= config.cost.food;
+                        this.resources.gold -= config.cost.gold;
+                        this.aiIsAdvancing = true;
+                        this.aiAgeProgress = 0;
+                    }
+                }
+            }
+        }
+
+        // Tick AI age progress
+        if (this.aiIsAdvancing) {
+            const next = getNextAge(this.aiCurrentAge);
+            if (next) {
+                const config = AGE_CONFIGS[next];
+                this.aiAgeProgress += 2000 / config.advancementTime; // 2s tick interval
+                if (this.aiAgeProgress >= 1) {
+                    this.aiCurrentAge = next;
+                    this.aiIsAdvancing = false;
+                    this.aiAgeProgress = 0;
+                }
+            }
+        }
     }
 
     // ─── Building ──────────────────────────────────────────────────────────
@@ -195,6 +238,11 @@ export class EnemyAISystem {
     }
 
     // ─── Recruitment ───────────────────────────────────────────────────────
+    private getAIUnlockedUnits(): UnitType[] {
+        const config = AGE_CONFIGS[this.aiCurrentAge];
+        return config ? [...config.unlocksUnits].filter(u => u !== UnitType.VILLAGER && u !== UnitType.ANIMAL) : [UnitType.PIKESMAN];
+    }
+
     private tickRecruit(): void {
         const hasBarracks = this.buildings.some(b => b && b.scene && (b.getData('def') as BuildingDef)?.type === BuildingType.BARRACKS);
         if (!hasBarracks) return;
@@ -210,7 +258,10 @@ export class EnemyAISystem {
                 const spawnX = this.baseX + Phaser.Math.Between(-50, 50);
                 const spawnY = this.baseY + Phaser.Math.Between(-50, 50);
 
-                const unit = this.scene.entityFactory.spawnUnit(this.unitPreference, spawnX, spawnY, 1);
+                const availableUnits = this.getAIUnlockedUnits();
+                const chosenUnit = availableUnits[Math.floor(Math.random() * availableUnits.length)];
+
+                const unit = this.scene.entityFactory.spawnUnit(chosenUnit, spawnX, spawnY, 1);
                 // Set default stance
                 unit?.setData?.('stance', UnitStance.AGGRESSIVE);
             }
@@ -350,12 +401,6 @@ export class EnemyAISystem {
     }
 
     public getDebugInfo(): string {
-        const armySize = this.myMilitaryCache.length;
-        const target = this.attackTarget
-            ? (this.attackTarget.getData('def')
-                ? (this.attackTarget.getData('def') as BuildingDef).type
-                : 'Unit')
-            : 'None';
-        return `Res: ${this.resources.wood}/${this.resources.food} | Army: ${armySize} | Target: ${target} | State: ${this.buildIndex}/${AI_BLUEPRINT.length}`;
+        return `Age: ${this.aiCurrentAge} | Units: ${this.myMilitaryCache.length} | Resources: W${this.resources.wood} F${this.resources.food} G${this.resources.gold}`;
     }
 }
