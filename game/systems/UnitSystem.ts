@@ -45,16 +45,34 @@ export class UnitSystem {
 
     // ─── Main Update ──────────────────────────────────────────────────────
     public update(time: number, _delta: number): void {
-        // Process pathfinding queue first
-        this.scene.pathfinder.processQueue();
-
-        // Bucket-based unit update: spread across frames
         const allUnits = this.scene.units.getChildren() as GameUnit[];
-        if (allUnits.length === 0) return;
+        const unitCount = allUnits.length;
+        if (unitCount === 0) return;
 
-        const bucketSize = Math.max(1, Math.ceil(allUnits.length / Math.ceil(allUnits.length / this.maxUnitsPerFrame)));
+        // Process pathfinding queue (throttle for large counts)
+        if (unitCount < 1000) {
+            this.scene.pathfinder.processQueue();
+        } else {
+            this.scene.pathfinder.processQueueBudgeted(100); // cap per frame
+        }
+
+        // ─── Mass flow field update (ALL units, every frame) ─────────────
+        // Flow field steering is O(1) per unit (array lookup + setVelocity).
+        // It has a 80ms throttle so the expensive part only fires every 80ms.
+        // Running this pass for every unit each frame eliminates bucket-based
+        // visual stutter — all units' steering updates synchronously.
+        for (let i = 0; i < unitCount; i++) {
+            const unit = allUnits[i];
+            if (unit.flowTarget) {
+                this.moveAlongFlowField(unit, time);
+            }
+        }
+
+        // Adaptive per-frame budget: scale with total units but cap sanity
+        const budget = this.scene.stressTestConfig ? Math.min(600, unitCount) : this.maxUnitsPerFrame;
+        const bucketSize = Math.max(1, Math.ceil(unitCount / Math.ceil(unitCount / budget)));
         const start = this.updateIndex;
-        const end = Math.min(start + bucketSize, allUnits.length);
+        const end = Math.min(start + bucketSize, unitCount);
 
         for (let i = start; i < end; i++) {
             this.updateUnitLogicTimed(allUnits[i], time);
@@ -62,19 +80,25 @@ export class UnitSystem {
 
         // Advance or wrap bucket index
         this.updateIndex += bucketSize;
-        if (this.updateIndex >= allUnits.length) {
+        if (this.updateIndex >= unitCount) {
             this.updateIndex = 0;
         }
 
-        // Separation: run every N frames
+        // Dynamic separation interval: less frequent for dense groups
+        const sepInterval = unitCount > 1000 ? 30 : (unitCount > 500 ? 15 : SEPARATION_INTERVAL);
         this.separationFrame++;
-        if (this.separationFrame >= SEPARATION_INTERVAL) {
+        if (this.separationFrame >= sepInterval) {
             this.separationFrame = 0;
             this.applySeparation();
         }
 
-        // Debug rendering
-        this.drawUnitPaths(time);
+        // Path rendering: only for small groups (<500) or debug mode
+        // Fix 1: Gate drawUnitPaths to prevent O(n) iteration waste
+        if (unitCount < 500 || this.scene.debugMode) {
+            this.drawUnitPaths(time);
+        } else {
+            this.pathGraphics.clear();
+        }
         if (this.scene.debugMode) {
             this.drawDebugLines();
         } else {
@@ -92,6 +116,9 @@ export class UnitSystem {
         // Skip villagers and animals (managed by their own systems)
         if (unit.unitType === UnitType.VILLAGER || unit.unitType === UnitType.ANIMAL) return;
 
+        // Skip flow field units — handled in the synchronous mass pass above
+        if (unit.flowTarget) return;
+
         // Failsafe: peaceful mode forces enemy units to stop
         if (this.scene.peacefulMode === true && unit.getData('owner') !== 0) {
             if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
@@ -104,10 +131,6 @@ export class UnitSystem {
         // Combat state handling
         if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
             this.handleCombatState(unit, time);
-        }
-        // Flow field following (mass movement)
-        else if (unit.flowTarget) {
-            this.moveAlongFlowField(unit, time);
         }
         // Path following
         else if (unit.path && unit.path.length > 0) {
@@ -134,6 +157,12 @@ export class UnitSystem {
         
         if (spatialHash) {
             for (const unit of units) {
+                // Fix 2: Skip separation for units following flow fields.
+                // Flow field crowd steering naturally handles spacing via the combined
+                // flow direction + direct bias blended steering. Separation would fight
+                // the flow field and creates massive O(k×n) overhead for packed armies.
+                if (unit.flowTarget) continue;
+
                 const body = unit.body as Phaser.Physics.Arcade.Body;
                 if (!body || body.velocity.length() < 1) continue;
 
@@ -334,13 +363,25 @@ export class UnitSystem {
         const dy = unit.y - unit.flowTarget.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
+        // Arrived at destination
         if (dist < 8) {
             const body = unit.body as Phaser.Physics.Arcade.Body;
-            if (body) body.setVelocity(0, 0);
+            if (body) {
+                body.setVelocity(0, 0);
+                // Fully disable physics body for stationary units in stress test
+                // This prevents Arcade physics from processing idle bodies (massive saving)
+                if (this.scene.stressTestConfig) {
+                    body.enable = false;
+                }
+            }
             unit.flowTarget = undefined;
             unit.setData('_flowField', undefined);
             return;
         }
+
+        // Re-enable body if it was disabled (unit has started moving again)
+        const body = unit.body as Phaser.Physics.Arcade.Body;
+        if (body && !body.enable) body.enable = true;
 
         const lastSteer = unit.getData('_lastFlowSteer') as number || 0;
         if (this.scene.time.now - lastSteer < FLOW_STEER_INTERVAL) return;
@@ -354,6 +395,7 @@ export class UnitSystem {
         const speed = baseSpeed * multiplier;
 
         if (!dir || (dir.x === 0 && dir.y === 0)) {
+            // Direct steering fallback (no flow direction)
             this.scene.physics.moveTo(unit, unit.flowTarget.x, unit.flowTarget.y, speed);
             return;
         }
@@ -364,7 +406,6 @@ export class UnitSystem {
         const blendY = dir.y * 0.7 + (toTargetLen > 1 ? (-dy / toTargetLen) * 0.3 : 0);
         const blendLen = Math.sqrt(blendX * blendX + blendY * blendY);
 
-        const body = unit.body as Phaser.Physics.Arcade.Body;
         if (body && blendLen > 0.001) {
             body.setVelocity((blendX / blendLen) * speed, (blendY / blendLen) * speed);
         }

@@ -3,12 +3,13 @@ import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
+import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType, UnitStance } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
 const App: React.FC = () => {
-  const [gameState, setGameState] = useState<'menu' | 'playing'>('menu');
+  const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
   const [loadProgress, setLoadProgress] = useState<number>(0);
 
@@ -21,6 +22,7 @@ const App: React.FC = () => {
   const [aiDisabled, setAiDisabled] = useState<boolean>(false);
 
   const [gameInstance, setGameInstance] = useState<Phaser.Game | null>(null);
+  const [stressTestConfig, setStressTestConfig] = useState<{ unitCount: number } | null>(null);
 
   const [stats, setStats] = useState<GameStats>({
     population: 0,
@@ -49,9 +51,24 @@ const App: React.FC = () => {
     setPeacefulMode(peaceful);
     setTreatyLength(treaty);
     setAiDisabled(disableAI);
+    setStressTestConfig(null);
     setIsGameLoading(true);
     setLoadProgress(0);
     setGameState('playing');
+  };
+
+  const handleStressTestStart = (config: { unitCount: number }) => {
+    setFaction(FactionType.ROMANS);
+    setMapMode(MapMode.FIXED);
+    setMapSize(MapSize.LARGE);
+    setFowEnabled(false);
+    setPeacefulMode(true);
+    setTreatyLength(0);
+    setAiDisabled(true);
+    setStressTestConfig(config);
+    setIsGameLoading(true);
+    setLoadProgress(0);
+    setGameState('stress-test');
   };
 
   const handleQuit = () => {
@@ -87,13 +104,19 @@ const App: React.FC = () => {
       // Add a slight artificial delay for smooth transition
       setTimeout(() => setIsGameLoading(false), 500);
     };
+    const stressTestHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      handleStressTestStart(customEvent.detail);
+    };
 
     window.addEventListener('game-load-progress', progressHandler);
     window.addEventListener('game-load-complete', completeHandler);
+    window.addEventListener('start-stress-test', stressTestHandler);
 
     return () => {
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
+      window.removeEventListener('start-stress-test', stressTestHandler);
     };
   }, []);
 
@@ -190,7 +213,7 @@ const App: React.FC = () => {
     <div className="w-full h-screen overflow-hidden bg-black text-white relative select-none">
       {gameState === 'menu' && <MainMenu onStart={handleStart} />}
 
-      {gameState === 'playing' && (
+      {(gameState === 'playing' || gameState === 'stress-test') && (
         <>
           {isGameLoading && <LoadingScreen progress={loadProgress} />}
           <PhaserGame
@@ -201,9 +224,10 @@ const App: React.FC = () => {
             peacefulMode={peacefulMode}
             treatyLength={treatyLength}
             aiDisabled={aiDisabled}
+            stressTestConfig={stressTestConfig}
             onGameReady={setGameInstance}
           />
-          {!isGameLoading && (
+          {!isGameLoading && gameState === 'playing' && (
             <GameUI
               stats={stats}
               onBuild={handleBuild}
@@ -216,6 +240,13 @@ const App: React.FC = () => {
               selectedBuildingType={selectedBuildingType}
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
               onFilterSelection={(type: UnitType) => gameInstance?.events.emit('filter-selection', type)}
+            />
+          )}
+          {!isGameLoading && gameState === 'stress-test' && (
+            <StressTestOverlay
+              unitCount={stressTestConfig?.unitCount || 0}
+              onQuit={handleQuit}
+              gameInstance={gameInstance}
             />
           )}
         </>

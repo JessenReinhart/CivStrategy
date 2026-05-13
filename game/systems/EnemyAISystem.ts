@@ -67,6 +67,7 @@ export class EnemyAISystem {
     private lastAttackTick: number = 0;
 
     private buildIndex: number = 0;
+    private hasSpawnedStartingForest: boolean = false;
 
     // Cached military unit lists (refreshed each tick)
     private myMilitaryCache: GameUnit[] = [];
@@ -181,6 +182,13 @@ export class EnemyAISystem {
 
             const b = this.scene.entityFactory.spawnBuilding(item.type, bx, by, 1);
             this.buildings[index] = b;
+
+            // Spawn guaranteed trees near AI's starting Town Center once
+            if (!this.hasSpawnedStartingForest && item.type === BuildingType.TOWN_CENTER) {
+                this.scene.mapGenerationSystem.spawnStartingForest(this.baseX, this.baseY);
+                this.hasSpawnedStartingForest = true;
+            }
+
             return true;
         }
         return false;

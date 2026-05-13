@@ -3,10 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CivStrategy: Ancient Realms</title>
+    <title>CivStrategy — Ancient Realms</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-      body { margin: 0; overflow: hidden; background-color: #000; }
+      @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@300;400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap');
+
+      :root {
+        --dust-white: #F5F1E8;
+        --parchment: #E6DCC4;
+        --limestone: #C9BFA6;
+        --sandstone: #8C7E66;
+        --shadow: #1A1612;
+        --obsidian: #2E2824;
+        --gold-leaf: #D4AF37;
+        --amber-glow: #FFDF8F;
+        --dust-particle: #B8A88A;
+        --terracotta: #8B5A2B;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #0F0C0A;
+        color: var(--dust-white);
+        font-family: 'Inter', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
       /* Disable selection on game container to prevent UI text selection while dragging */
       #game-container { user-select: none; }
     </style>

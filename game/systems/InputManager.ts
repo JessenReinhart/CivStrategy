@@ -339,7 +339,7 @@ export class InputManager {
         this.emitSelectionChanged();
     }
 
-    private emitSelectionChanged() {
+    public emitSelectionChanged() {
         // Aggregate Counts
         const counts: Record<string, number> = {};
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
