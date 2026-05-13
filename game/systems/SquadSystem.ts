@@ -133,7 +133,9 @@ export class SquadSystem {
         // For 2000+ units, only process 10% per frame (200 is fine)
         // For 500, process 200
         // For 100, process all
-        const budget = this.scene.stressTestConfig ? Math.max(100, Math.min(300, Math.ceil(unitCount * 0.15))) : MAX_SQUADS_PER_FRAME;
+        const budget = this.scene.stressTestConfig
+            ? Math.max(100, Math.min(300, Math.ceil(unitCount * 0.15)))
+            : MAX_SQUADS_PER_FRAME;
         
         // Calculate per-frame budget
         const bucketSize = Math.max(1, Math.ceil(unitCount / Math.ceil(unitCount / budget)));
@@ -232,6 +234,21 @@ export class SquadSystem {
         lod: number,
         commanderIso: { x: number; y: number }
     ): void {
+        const isStress = !!this.scene.stressTestConfig;
+
+        // Stress-mode cache: when squads are stationary, avoid redundant Graphics clears/redraws.
+        // This preserves fidelity (no LOD forcing, no skipped attacks), but reduces Graphics overhead.
+        if (isStress && !isMoving) {
+            const angleKey = Math.round((angle / Math.PI) * 16); // quantize angle
+            const owner = unit.getData('owner') as number;
+            const sig = `${lod}|${angleKey}|${soldiers.length}|${owner}`;
+            const lastSig = unit.getData('stressSquadSig') as string | undefined;
+            if (lastSig === sig) {
+                return;
+            }
+            unit.setData('stressSquadSig', sig);
+        }
+
         gfx.clear();
 
         const owner = unit.getData('owner') as number;

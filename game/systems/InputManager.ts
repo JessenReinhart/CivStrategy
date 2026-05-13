@@ -260,10 +260,12 @@ export class InputManager {
         }
 
         if (isEnemy && targetEntity) {
+        this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
         } else {
             // Standard Move
             const cart = toCartesian(pointer.worldX, pointer.worldY);
+        this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
         }
     }
@@ -286,7 +288,8 @@ export class InputManager {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (unit && (unit as any).getData('owner') === 0 && this.isSelectable(type)) { // Fix: Owner 0 is Player
                 unit.setSelected(true);
-                this.selectedUnits.push(unit);
+            this.scene.proceduralSound.playUIClick();
+            this.scene.proceduralSound.playUIClick();
             }
         } else if (buildingVisual) {
             const b = buildingVisual.getData('building');

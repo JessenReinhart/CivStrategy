@@ -233,6 +233,7 @@ export class BuildingManager {
             // Juice: Dust particles poof
             const iso = toIso(cx, cy);
             this.emitDustParticles(iso.x, iso.y, def.width);
+            this.scene.proceduralSound.playConstruction(cx, cy);
 
             this.scene.resources.wood -= def.cost.wood;
             this.scene.resources.food -= def.cost.food;
@@ -360,6 +361,7 @@ export class BuildingManager {
         // Explosion Effect
         const iso = toIso(logic.x, logic.y);
         this.emitExplosionParticles(iso.x, iso.y, def.width);
+        this.scene.proceduralSound.playDemolition(logic.x, logic.y);
 
         const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (visual) visual.destroy();

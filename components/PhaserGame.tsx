@@ -12,7 +12,7 @@ interface PhaserGameProps {
   peacefulMode: boolean;
   treatyLength: number; // minutes
   aiDisabled: boolean;
-  stressTestConfig: { unitCount: number } | null;
+  stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null;
   onGameReady: (game: Phaser.Game) => void;
 }
 

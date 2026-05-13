@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS } from '../../constants';
+import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
@@ -24,10 +24,61 @@ const STALE_PATH_LIFETIME = 5000;    // ms before a path is considered stale
 const FLOW_FIELD_THRESHOLD = 12;     // min units to trigger flow field instead of individual paths
 const FLOW_STEER_INTERVAL = 80;    // ms between flow direction updates per unit
 
+interface StressEmitter extends Phaser.GameObjects.GameObject {
+    start?: () => void;
+    stop?: () => void;
+    setPosition?: (x: number, y: number) => void;
+    setVisible?: (visible: boolean) => StressEmitter;
+    setDepth?: (depth: number) => StressEmitter;
+}
+
+interface StressProjectile {
+    arrow: Phaser.GameObjects.Rectangle;
+    emitter: StressEmitter;
+
+    originX: number;
+    originY: number;
+
+    // Quadratic bezier points in iso-screen space (2D)
+    p0x: number; p0y: number;
+    p1x: number; p1y: number;
+    p2x: number; p2y: number;
+
+    startAt: number; // ms in simulation time
+    duration: number; // ms
+
+    dmg: number;
+    takeDamage: (amt: number) => void;
+
+    started: boolean;
+    finished: boolean;
+}
+
+interface StressLunge {
+    visual: Phaser.GameObjects.GameObject;
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+
+    startAt: number;
+    duration: number;
+    unitRef: GameUnit;
+}
+
 export class UnitSystem {
     private scene: MainScene;
     private pathGraphics: Phaser.GameObjects.Graphics;
     private debugGraphics: Phaser.GameObjects.Graphics;
+
+    private activeStressProjectiles: StressProjectile[] = [];
+    private activeStressLunges: StressLunge[] = [];
+
+    private arrowPool: Phaser.GameObjects.Rectangle[] = [];
+    private emitterPool: StressEmitter[] = [];
+
+    private projectilePoolMax: number = 600;
+    private lungeDurationMs: number = 100;
 
     public currentFormation: FormationType = FormationType.BOX;
     public currentStance: UnitStance = UnitStance.HOLD;
@@ -48,6 +99,11 @@ export class UnitSystem {
         const allUnits = this.scene.units.getChildren() as GameUnit[];
         const unitCount = allUnits.length;
         if (unitCount === 0) return;
+
+        if (this.scene.stressTestConfig) {
+            this.updateStressProjectiles(time);
+            this.updateStressLunges(time);
+        }
 
         // Process pathfinding queue (throttle for large counts)
         if (unitCount < 1000) {
@@ -75,7 +131,9 @@ export class UnitSystem {
         const end = Math.min(start + bucketSize, unitCount);
 
         for (let i = start; i < end; i++) {
-            this.updateUnitLogicTimed(allUnits[i], time);
+            const unit = allUnits[i];
+            if (!unit) continue;
+            this.updateUnitLogicTimed(unit, time);
         }
 
         // Advance or wrap bucket index
@@ -759,6 +817,8 @@ export class UnitSystem {
 
     // ─── Combat Resolution ─────────────────────────────────────────────────
     private performAttack(unit: GameUnit, target: GameUnit): void {
+        const isStress = !!this.scene.stressTestConfig;
+
         let dmg = unit.getData('attack') as number || 10;
         const formation = unit.getData('formation') as FormationType || FormationType.BOX;
         const attackMult = FORMATION_BONUSES[formation]?.attack || 1.0;
@@ -800,37 +860,305 @@ export class UnitSystem {
                     ? soldiers[i % soldiers.length]
                     : { x: unit.x, y: unit.y };
 
-                this.scene.time.delayedCall(delay, () => {
-                    if (unit.scene && target.scene) {
-                        this.fireProjectile(origin, targetVaried, damagePerArrow);
-                    }
-                });
+                if (isStress) {
+                    this.scheduleProjectile(origin, targetVaried, damagePerArrow, delay);
+                } else {
+                    this.scene.time.delayedCall(delay, () => {
+                        if (unit.scene && target.scene) {
+                            this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
+                            this.fireProjectile(origin, targetVaried, damagePerArrow);
+                        }
+                    });
+                }
             }
         } else {
             // Melee: lunge animation
             const visual = unit.visual;
             if (visual) {
-                const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
-                const ox = visual.x;
-                const oy = visual.y;
-                const lungeX = ox + Math.cos(angle) * 10;
-                const lungeY = oy + Math.sin(angle) * 5;
+                if (isStress) {
+                    this.startLunge(visual, unit, target);
+                } else {
+                    const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
+                    const ox = visual.x;
+                    const oy = visual.y;
+                    const lungeX = ox + Math.cos(angle) * 10;
+                    const lungeY = oy + Math.sin(angle) * 5;
 
-                this.scene.tweens.add({
-                    targets: visual,
-                    x: lungeX, y: lungeY,
-                    duration: 100, yoyo: true,
-                    onComplete: () => {
-                        const iso = toIso(unit.x, unit.y);
-                        visual.setPosition(iso.x, iso.y);
-                    }
-                });
+                    this.scene.tweens.add({
+                        targets: visual,
+                        x: lungeX, y: lungeY,
+                        duration: 100, yoyo: true,
+                        onComplete: () => {
+                            const iso = toIso(unit.x, unit.y);
+                            visual.setPosition(iso.x, iso.y);
+                        }
+                    });
+                }
             }
 
             if (target.takeDamage) {
+                // Check if this is a clash between opposing factions
+                const unitOwner = unit.getData('owner') as number;
+                const targetOwner = target.getData('owner') as number;
+                const isOpposingFactions = unitOwner !== targetOwner && unitOwner >= 0 && targetOwner >= 0;
+
+                if (isOpposingFactions) {
+                    this.scene.events.emit(EVENTS.CLASH_START, { x: target.x, y: target.y });
+                }
+
+                this.scene.proceduralSound.playSwordClash(target.x, target.y);
                 target.takeDamage(dmg);
             }
         }
+    }
+
+    // ─── Stress projectile scheduling / pooling ─────────────────────────────────
+    private scheduleProjectile(
+        origin: { x: number; y: number },
+        target: { x: number; y: number; scene: Phaser.Scene; takeDamage: (amt: number) => void },
+        dmg: number,
+        delayMs: number
+    ): void {
+        const startIso = toIso(origin.x, origin.y);
+        const endIso = toIso(target.x, target.y);
+
+        const midX = (startIso.x + endIso.x) / 2;
+        const midY = (startIso.y + endIso.y) / 2 - 50;
+
+        // Match curve points from the non-pooled fireProjectile()
+        const p0x = startIso.x;
+        const p0y = startIso.y - 15;
+
+        const p1x = midX;
+        const p1y = midY - 50;
+
+        const p2x = endIso.x;
+        const p2y = endIso.y - 10;
+
+        const arrow = this.getPooledArrow(startIso.x, startIso.y - 20);
+        const emitter = this.getPooledEmitter();
+
+        // Start hidden until delay elapses (still pooled to avoid allocations)
+        arrow.setVisible(false);
+        arrow.setActive(false);
+        emitter.setVisible?.(false);
+
+
+        this.activeStressProjectiles.push({
+            arrow,
+            emitter,
+            originX: origin.x,
+            originY: origin.y,
+            p0x, p0y,
+            p1x, p1y,
+            p2x, p2y,
+            startAt: this.scene.gameTime + delayMs,
+            duration: 800,
+            dmg,
+            takeDamage: target.takeDamage,
+            started: false,
+            finished: false
+        });
+
+        // Hard cap to avoid unbounded growth if something goes wrong
+        if (this.activeStressProjectiles.length > this.projectilePoolMax * 2) {
+            // Drop the oldest unfinished projectile (won't affect sim determinism beyond VFX)
+            const dropped = this.activeStressProjectiles.find(p => !p.finished && !p.started);
+            if (dropped) this.recycleStressProjectile(dropped);
+        }
+    }
+
+    private updateStressProjectiles(time: number): void {
+        if (this.activeStressProjectiles.length === 0) return;
+
+        for (let i = this.activeStressProjectiles.length - 1; i >= 0; i--) {
+            const p = this.activeStressProjectiles[i];
+            if (p.finished) {
+                this.activeStressProjectiles.splice(i, 1);
+                continue;
+            }
+
+            if (!p.started) {
+                if (time < p.startAt) continue;
+                p.started = true;
+
+                // Match non-stress behavior: bow release sound triggers when projectile spawns
+                this.scene.proceduralSound.playBowRelease(p.originX, p.originY);
+
+                p.arrow.setVisible(true);
+                p.arrow.setActive(true);
+                p.emitter.setVisible?.(true);
+
+
+                // Place at curve start
+                p.arrow.setPosition(p.p0x, p.p0y);
+
+                if (p.emitter.setPosition) {
+                    p.emitter.setPosition(p.arrow.x, p.arrow.y);
+                }
+
+                if (p.emitter.start) p.emitter.start();
+
+                // Keep depth consistent with non-pooled version
+                p.emitter.setDepth?.(Number.MAX_VALUE - 100);
+                p.arrow.setDepth(p.p0y + 100);
+
+                continue;
+            }
+
+            const elapsed = time - p.startAt;
+            const t = Math.min(1, Math.max(0, elapsed / p.duration));
+
+            const omt = 1 - t;
+
+            const x = omt * omt * p.p0x + 2 * omt * t * p.p1x + t * t * p.p2x;
+            const y = omt * omt * p.p0y + 2 * omt * t * p.p1y + t * t * p.p2y;
+
+            // Tangent for rotation (derivative of quadratic bezier)
+            const dx = 2 * omt * (p.p1x - p.p0x) + 2 * t * (p.p2x - p.p1x);
+            const dy = 2 * omt * (p.p1y - p.p0y) + 2 * t * (p.p2y - p.p1y);
+            const angle = Math.atan2(dy, dx);
+
+            p.arrow.setPosition(x, y);
+            p.arrow.setRotation(angle);
+
+            if (p.emitter.setPosition) {
+                p.emitter.setPosition(x, y);
+            }
+
+            if (t >= 1) {
+                // End
+                p.finished = true;
+                this.recycleStressProjectile(p);
+                p.takeDamage(p.dmg);
+            }
+        }
+    }
+
+    private recycleStressProjectile(p: StressProjectile): void {
+        // Stop emitter and return to pools
+        try {
+            p.emitter.stop?.();
+        } catch {
+            // ignore
+        }
+
+        p.arrow.setVisible(false);
+        p.arrow.setActive(false);
+        p.emitter.setVisible?.(false);
+
+
+        if (this.arrowPool.length < this.projectilePoolMax) this.arrowPool.push(p.arrow);
+        if (this.emitterPool.length < this.projectilePoolMax) this.emitterPool.push(p.emitter);
+    }
+
+    private getPooledArrow(x: number, y: number): Phaser.GameObjects.Rectangle {
+        const arrow = this.arrowPool.pop();
+        if (arrow) {
+            arrow.setPosition(x, y);
+            arrow.setVisible(true);
+            arrow.setActive(true);
+            return arrow;
+        }
+
+        const newArrow = this.scene.add.rectangle(x, y, 10, 1, 0xffffff);
+        if (this.scene.worldLayer) this.scene.worldLayer.add(newArrow);
+        newArrow.setDepth(y + 120);
+        return newArrow;
+    }
+
+    private getPooledEmitter(): StressEmitter {
+        const pooled = this.emitterPool.pop();
+        if (pooled) return pooled;
+
+        const emitter = this.scene.add.particles(0, 0, 'white_flare', {
+            speed: 0,
+            scale: { start: 0.2, end: 0 },
+            alpha: { start: 0.8, end: 0 },
+            lifespan: 500,
+            tint: 0xffffff,
+            blendMode: 'ADD',
+            frequency: 10,
+            emitting: false
+        });
+
+        if (this.scene.worldLayer) this.scene.worldLayer.add(emitter);
+        emitter.setDepth?.(Number.MAX_VALUE - 100);
+        return emitter;
+    }
+
+    // ─── Stress melee lunge (manual animation, no tweens) ─────────────────────
+    private startLunge(visual: Phaser.GameObjects.GameObject, unit: GameUnit, target: GameUnit): void {
+        // If this visual already has a lunge, replace it (avoid stacking).
+        this.activeStressLunges = this.activeStressLunges.filter(l => l.visual !== visual);
+
+        const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
+        const v = visual as unknown as { x: number; y: number };
+        const startX = v.x;
+        const startY = v.y;
+        const endX = startX + Math.cos(angle) * 10;
+        const endY = startY + Math.sin(angle) * 5;
+
+        this.activeStressLunges.push({
+            visual,
+            startX,
+            startY,
+            endX,
+            endY,
+            startAt: this.scene.gameTime,
+            duration: this.lungeDurationMs,
+            unitRef: unit
+        });
+    }
+
+    private updateStressLunges(time: number): void {
+        if (this.activeStressLunges.length === 0) return;
+
+        for (let i = this.activeStressLunges.length - 1; i >= 0; i--) {
+            const l = this.activeStressLunges[i];
+            const visual = l.visual;
+            if (!visual || !visual.scene) {
+                this.activeStressLunges.splice(i, 1);
+                continue;
+            }
+
+            const elapsed = time - l.startAt;
+            const t = elapsed / l.duration;
+
+            if (t >= 1) {
+                const iso = toIso(l.unitRef.x, l.unitRef.y);
+                const v = visual as unknown as { setPosition?: (x: number, y: number) => void };
+                if (v.setPosition) {
+                    v.setPosition(iso.x, iso.y);
+                }
+                this.activeStressLunges.splice(i, 1);
+                continue;
+            }
+
+            const half = 0.5;
+            let k: number;
+            let x: number;
+            let y: number;
+            if (t < half) {
+                k = t / half;
+                x = Phaser.Math.Linear(l.startX, l.endX, k);
+                y = Phaser.Math.Linear(l.startY, l.endY, k);
+            } else {
+                k = (t - half) / half;
+                x = Phaser.Math.Linear(l.endX, l.startX, k);
+                y = Phaser.Math.Linear(l.endY, l.startY, k);
+            }
+
+            const v = visual as unknown as { setPosition?: (x: number, y: number) => void };
+            if (v.setPosition) {
+                v.setPosition(x, y);
+            }
+        }
+    }
+
+    private toCartesianIsoDepth(y: number): number {
+        // Depth convention: y acts like iso y; keep it consistent with other visuals.
+        return y;
     }
 
     // ─── Projectile ────────────────────────────────────────────────────────
