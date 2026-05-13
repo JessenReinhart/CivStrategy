@@ -568,6 +568,20 @@ export class Pathfinder {
         }
     }
 
+    /**
+     * Budgeted queue processing for large unit counts.
+     * Only processes up to `budget` items per call, preserving rest for next frame.
+     */
+    public processQueueBudgeted(budget: number): void {
+        let processed = 0;
+        while (this.requestQueue.length > 0 && processed < budget) {
+            const req = this.requestQueue.shift()!;
+            const path = this.findPath(req.start, req.end);
+            req.callback(path);
+            processed++;
+        }
+    }
+
     // ─── Utility ───────────────────────────────────────────────────────────
     private findNearestUnblockedGrid(gx: number, gy: number): { gx: number; gy: number } | null {
         // Search expanding rings

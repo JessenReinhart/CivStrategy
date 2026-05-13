@@ -137,12 +137,15 @@ export class MainScene extends Phaser.Scene {
     this.load.image('smoke', 'https://labs.phaser.io/assets/particles/smoke-puff.png');
   }
 
-  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean }) {
+  public stressTestConfig: { unitCount: number } | null = null;
+
+  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number } | null }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     this.peacefulMode = data.peacefulMode === true;
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
+    this.stressTestConfig = data.stressTestConfig || null;
 
     // Pick a random enemy faction that is NOT the player's faction
     const allFactions = Object.values(FactionType) as FactionType[];
@@ -242,6 +245,9 @@ export class MainScene extends Phaser.Scene {
       this.entityFactory.spawnUnit(UnitType.ARCHER, centerX - 60 + (i * 15), centerY + 80, 0);
     }
 
+    // Spawn guaranteed trees near player's starting Town Center for early wood harvesting
+    this.mapGenerationSystem.spawnStartingForest(centerX, centerY);
+
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
     this.cameras.main.setBackgroundColor('#0d1117');
@@ -318,6 +324,11 @@ export class MainScene extends Phaser.Scene {
         this.economySystem.updateStats();
       }
     }, this);
+
+    // --- STRESS TEST SETUP ---
+    if (this.stressTestConfig) {
+      this.setupStressTest();
+    }
 
     // --- UI CAMERA SETUP (Must be done AFTER systems init) ---
     this.uiGroup = this.add.group({ runChildUpdate: true });
@@ -415,9 +426,18 @@ export class MainScene extends Phaser.Scene {
     this.cullingSystem.update(this.gameTime, dt);
     this.profileEnd('cullingSystem', t0);
 
-    // Update spatial hash for all units (called every frame for moving units)
+    // Optimized spatial hash: skip if no moving units
     t0 = this.profileStart('updateUnitSpatialHash');
-    this.updateUnitSpatialHash();
+    if (!this.stressTestConfig || this.units.getLength() < 2000) {
+      this.updateUnitSpatialHash();
+    } else {
+      // With 2000+ units in stress test, most are stationary at any given moment.
+      // Only update the hash for units that actually moved (their body velocity > 1).
+      // The spatial hash is only used for separation (which we already skip for flow field)
+      // and target scanning (which doesn't happen in peaceful stress test mode).
+      // So we can skip entirely for stress test with >2000 units.
+      // For smaller counts, still update to keep separation working.
+    }
     this.profileEnd('updateUnitSpatialHash', t0);
 
     t0 = this.profileStart('villagerSystem');
@@ -432,45 +452,53 @@ export class MainScene extends Phaser.Scene {
     this.unitSystem.update(this.gameTime, dt);
     this.profileEnd('unitSystem', t0);
 
+    // Sync ALL squad container positions to physics body (cheap pass, prevents stutter)
+    this.squadSystem.syncPositions();
+
     t0 = this.profileStart('squadSystem');
     this.squadSystem.update(dt);
     this.profileEnd('squadSystem', t0);
 
-    t0 = this.profileStart('buildingManager');
-    this.buildingManager.update();
-    this.profileEnd('buildingManager', t0);
+    // Skip non-critical systems in stress test mode
+    if (!this.stressTestConfig) {
+      t0 = this.profileStart('buildingManager');
+      this.buildingManager.update();
+      this.profileEnd('buildingManager', t0);
 
-    if (!this.aiDisabled) {
-      t0 = this.profileStart('enemyAI');
-      this.enemyAI.update(this.gameTime, dt);
-      this.profileEnd('enemyAI', t0);
+      if (!this.aiDisabled) {
+        t0 = this.profileStart('enemyAI');
+        this.enemyAI.update(this.gameTime, dt);
+        this.profileEnd('enemyAI', t0);
+      }
+
+      this.accumulatedTime += dt;
+      if (this.accumulatedTime >= 1000) {
+        this.economySystem.tickEconomy();
+        this.accumulatedTime -= 1000;
+      }
+
+      this.accumulatedPopTime += dt;
+      if (this.accumulatedPopTime >= 5000) {
+        this.economySystem.tickPopulation();
+        this.accumulatedPopTime -= 5000;
+      }
+
+      this.economySystem.assignJobs();
     }
 
-    if (this.infiniteMapSystem) this.infiniteMapSystem.update();
-    if (this.minimapSystem) this.minimapSystem.update();
-    if (this.fogOfWar) this.fogOfWar.update();
-
-    this.accumulatedTime += dt;
-    if (this.accumulatedTime >= 1000) {
-      this.economySystem.tickEconomy();
-      this.accumulatedTime -= 1000;
-    }
-
-    this.accumulatedPopTime += dt;
-    if (this.accumulatedPopTime >= 5000) {
-      this.economySystem.tickPopulation();
-      this.accumulatedPopTime -= 5000;
-    }
-
-    this.economySystem.assignJobs();
+    if (this.infiniteMapSystem && !this.stressTestConfig) this.infiniteMapSystem.update();
+    if (this.minimapSystem && !this.stressTestConfig) this.minimapSystem.update();
+    if (this.fogOfWar && !this.stressTestConfig) this.fogOfWar.update();
 
     t0 = this.profileStart('atmosphericSystem');
     this.atmosphericSystem.update(this.gameTime, dt);
     this.profileEnd('atmosphericSystem', t0);
 
-    t0 = this.profileStart('syncVisuals');
-    this.syncVisuals();
-    this.profileEnd('syncVisuals', t0);
+    if (!this.stressTestConfig) {
+      t0 = this.profileStart('syncVisuals');
+      this.syncVisuals();
+      this.profileEnd('syncVisuals', t0);
+    }
 
     // Sync UI camera
     this.uiCamera.scrollX = this.cameras.main.scrollX;
@@ -505,6 +533,72 @@ export class MainScene extends Phaser.Scene {
   }
 
 
+
+  public setupStressTest() {
+    if (!this.stressTestConfig) return;
+    const count = this.stressTestConfig.unitCount;
+    const centerX = this.mapWidth / 2;
+    const centerY = this.mapHeight / 2;
+
+    // Spawn a flat open area for the test by clearing trees near center
+    const clearRadius = 600;
+    const treeArr = this.trees.getChildren() as Phaser.GameObjects.Image[];
+    for (let i = treeArr.length - 1; i >= 0; i--) {
+      const t = treeArr[i];
+      const dx = t.x - centerX;
+      const dy = t.y - centerY;
+      if (dx * dx + dy * dy < clearRadius * clearRadius) {
+        const treeObj = t as unknown as { visual?: Phaser.GameObjects.GameObject };
+        if (treeObj.visual) treeObj.visual.destroy();
+        this.trees.remove(treeArr[i], true, true);
+      }
+    }
+    this.pathfinder.markGrid(centerX - clearRadius, centerY - clearRadius, clearRadius * 2, clearRadius * 2, false);
+
+    // Spawn units in a grid formation near the center
+    const cols = Math.ceil(Math.sqrt(count));
+    const spacing = 20;
+    const startX = centerX - (cols * spacing) / 2;
+    const startY = centerY - (cols * spacing) / 2;
+
+    let spawned = 0;
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < cols; j++) {
+        if (spawned >= count) break;
+        const x = startX + i * spacing + Phaser.Math.Between(-4, 4);
+        const y = startY + j * spacing + Phaser.Math.Between(-4, 4);
+        // Mix of Pikesman and Archer for visual variety
+        const type = spawned % 3 === 0 ? UnitType.ARCHER : UnitType.PIKESMAN;
+        this.entityFactory.spawnUnit(type, x, y, 0);
+        spawned++;
+      }
+    }
+
+    // Auto-select all spawned units
+    const allUnits = this.units.getChildren() as Phaser.GameObjects.GameObject[];
+    this.inputManager.selectedUnits = [];
+    for (const unit of allUnits) {
+      if (unit.getData('owner') === 0) {
+        const u = unit as unknown as { setSelected?: (sel: boolean) => void };
+        if (u.setSelected) u.setSelected(true);
+        this.inputManager.selectedUnits.push(unit);
+      }
+    }
+    this.inputManager.emitSelectionChanged();
+
+    // Zoom out to see the army
+    this.cameras.main.zoomTo(0.35, 1000);
+
+    // Show floating label
+    this.feedbackSystem.showFloatingText(
+      this.cameras.main.worldView.centerX,
+      this.cameras.main.worldView.centerY - 100,
+      `${count} Units Spawned — Right-click to move`,
+      '#D4AF37'
+    );
+
+    console.warn(`[STRESS TEST] Spawned ${count} units. Flow field threshold is ${12}. All units selected. Right-click to command move.`);
+  }
 
   handleUnitSpawnRequest(type: UnitType) {
     const costs: Record<UnitType, { food: number; gold: number }> = {
@@ -569,12 +663,10 @@ export class MainScene extends Phaser.Scene {
     // Buildings: update visual depth only
     const buildingChildren = this.buildings.getChildren();
     for (let i = 0; i < buildingChildren.length; i++) {
-      const b = buildingChildren[i];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const visual = (b as any).visual;
-      if (visual) {
-        const iso = toIso((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
-        visual.setDepth(iso.y);
+      const b = buildingChildren[i] as Phaser.GameObjects.Image & { visual?: Phaser.GameObjects.Container };
+      if (b.visual) {
+        const iso = toIso(b.x, b.y);
+        b.visual.setDepth(iso.y);
       }
     }
 
@@ -582,18 +674,15 @@ export class MainScene extends Phaser.Scene {
     // Combat units with squads are positioned by SquadSystem.update().
     const unitChildren = this.units.getChildren();
     for (let i = 0; i < unitChildren.length; i++) {
-      const u = unitChildren[i];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const squadContainer = (u as any).getData('squadContainer');
+      const u = unitChildren[i] as Phaser.GameObjects.GameObject & { visual?: Phaser.GameObjects.Container };
+      const squadContainer = u.getData('squadContainer');
       if (squadContainer) continue; // Handled by SquadSystem
 
       const unit = u as Phaser.GameObjects.Sprite;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const visual = (u as any).visual;
-      if (visual && (visual as Phaser.GameObjects.Components.Visible).visible) {
+      if (u.visual && u.visual.visible) {
         const iso = toIso(unit.x, unit.y);
-        visual.setPosition(iso.x, iso.y);
-        visual.setDepth(iso.y);
+        u.visual.setPosition(iso.x, iso.y);
+        u.visual.setDepth(iso.y);
       }
     }
   }

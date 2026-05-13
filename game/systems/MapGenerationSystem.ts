@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { TILE_SIZE } from '../../constants';
+import { MapMode } from '../../types';
 import { toIso } from '../utils/iso';
 
 export class MapGenerationSystem {
@@ -89,6 +90,32 @@ export class MapGenerationSystem {
                         this.scene.animalSystem.spawnAnimal(ax, ay);
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Spawn a guaranteed cluster of trees near a faction's starting Town Center.
+     * Trees are placed in a ring between innerRadius (80px) and outerRadius (300px)
+     * so they don't overlap building footprints but are within Lumber Camp harvesting range.
+     */
+    public spawnStartingForest(cx: number, cy: number, count: number = 20): void {
+        const innerRadius = 80;   // Avoid overlapping TC and initial buildings
+        const outerRadius = 300;  // Within range of a Lumber Camp (effectRadius 200)
+        const isInfinite = this.scene.mapMode === MapMode.INFINITE;
+        const mapW = this.scene.mapWidth;
+        const mapH = this.scene.mapHeight;
+
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            // Use sqrt distribution to bias toward outer ring (more natural-looking)
+            const dist = innerRadius + Math.sqrt(Math.random()) * (outerRadius - innerRadius);
+            const tx = cx + Math.cos(angle) * dist;
+            const ty = cy + Math.sin(angle) * dist;
+
+            // Bounds check for fixed maps; infinite maps have no bounds
+            if (isInfinite || (tx > 50 && tx < mapW - 50 && ty > 50 && ty < mapH - 50)) {
+                this.scene.entityFactory.spawnTree(tx, ty);
             }
         }
     }

@@ -17,15 +17,15 @@ import { FormationSystem } from './FormationSystem';
  */
 
 // LOD constants based on camera distance
-const LOD_FULL = 0;       // 0-400px: render all soldiers
-const LOD_MEDIUM = 1;     // 400-800px: render half the soldiers
-const LOD_LOW = 2;        // 800-1200px: render 1/4 soldiers
-const LOD_DOT = 3;        // >1200px: single dot
+const LOD_FULL = 0;       // 0-2500px: render all soldiers
+const LOD_MEDIUM = 1;     // 2500-5000px: render half the soldiers
+const LOD_LOW = 2;        // 5000-8000px: render 1/4 soldiers
+const LOD_DOT = 3;        // >8000px: single dot
 
 const LOD_THRESHOLDS: Record<number, number> = {
-    [LOD_FULL]: 400,
-    [LOD_MEDIUM]: 800,
-    [LOD_LOW]: 1200,
+    [LOD_FULL]: 2500,
+    [LOD_MEDIUM]: 5000,
+    [LOD_LOW]: 8000,
 };
 
 // Maximum squads to process per frame (beyond this, skip update)
@@ -92,16 +92,53 @@ export class SquadSystem {
     }
 
     /**
+     * Sync squad container positions for ALL units every frame.
+     * This is the CHEAP pass — just re-positioning containers based on physics body x/y.
+     * Without this, containers hold stale positions from whenever their bucket last ran,
+     * causing visual stutter (physics moves the body every frame, container only snaps
+     * when SquadSystem's render bucket reaches it).
+     */
+    public syncPositions(): void {
+        const allUnits = this.scene.units.getChildren();
+        const unitCount = allUnits.length;
+        for (let i = 0; i < unitCount; i++) {
+            const unit = allUnits[i] as GameUnit;
+            const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
+            if (!container || !container.visible) continue;
+
+            const commanderIso = toIso(unit.x, unit.y);
+            container.setPosition(commanderIso.x, commanderIso.y);
+            container.setDepth(commanderIso.y);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const visual = (unit as any).visual as Phaser.GameObjects.Container;
+            if (visual && visual.visible) {
+                visual.setPosition(commanderIso.x, commanderIso.y);
+                visual.setDepth(commanderIso.y);
+            }
+        }
+    }
+
+    /**
      * Main squad update - batched and LOD-optimized.
+     * Only handles the expensive work: angle transitions, soldier count,
+     * and rendering. Position sync is done in syncPositions() above.
      */
     public update(_dt: number): void {
         const allUnits = this.scene.units.getChildren();
-        if (allUnits.length === 0) return;
+        const unitCount = allUnits.length;
+        if (unitCount === 0) return;
 
+        // Fix 6: Dynamic squad budget - scale based on total unit count
+        // For 2000+ units, only process 10% per frame (200 is fine)
+        // For 500, process 200
+        // For 100, process all
+        const budget = this.scene.stressTestConfig ? Math.max(100, Math.min(300, Math.ceil(unitCount * 0.15))) : MAX_SQUADS_PER_FRAME;
+        
         // Calculate per-frame budget
-        const bucketSize = Math.max(1, Math.ceil(allUnits.length / Math.ceil(allUnits.length / MAX_SQUADS_PER_FRAME)));
+        const bucketSize = Math.max(1, Math.ceil(unitCount / Math.ceil(unitCount / budget)));
         const start = this.frameIndex;
-        const end = Math.min(start + bucketSize, allUnits.length);
+        const end = Math.min(start + bucketSize, unitCount);
 
         const cam = this.scene.cameras.main;
         const camCenter = cam.getWorldPoint(cam.width / 2, cam.height / 2);
@@ -124,19 +161,6 @@ export class SquadSystem {
             if (screenDist > LOD_THRESHOLDS[LOD_LOW]) lod = LOD_DOT;
             else if (screenDist > LOD_THRESHOLDS[LOD_MEDIUM]) lod = LOD_LOW;
             else if (screenDist > LOD_THRESHOLDS[LOD_FULL]) lod = LOD_MEDIUM;
-
-            // Update container position
-            const commanderIso = toIso(unit.x, unit.y);
-            container.setPosition(commanderIso.x, commanderIso.y);
-            container.setDepth(commanderIso.y);
-
-            // Also update the visual container (used for click detection)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const visual = (unit as any).visual as Phaser.GameObjects.Container;
-            if (visual && visual.visible) {
-                visual.setPosition(commanderIso.x, commanderIso.y);
-                visual.setDepth(commanderIso.y);
-            }
 
             // Get formation facing angle
             const body = unit.body as Phaser.Physics.Arcade.Body;
@@ -184,6 +208,7 @@ export class SquadSystem {
             }
 
             // Render based on LOD
+            const commanderIso = toIso(unit.x, unit.y);
             const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
             this.renderSquad(gfx, unit, soldiers, angle, isMoving, lod, commanderIso);
         }
