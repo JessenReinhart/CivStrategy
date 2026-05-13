@@ -202,7 +202,10 @@ export const EVENTS = {
   DEMOLISH_SELECTED: 'demolish-selected',
   SET_BLOOM_INTENSITY: 'set-bloom-intensity',
   ADVANCE_AGE: 'advance-age',
-  AGE_ADVANCED: 'age-advanced'
+  AGE_ADVANCED: 'age-advanced',
+  TOGGLE_SOUND: 'toggle-sound',
+  SET_SOUND_VOLUME: 'set-sound-volume',
+  CLASH_START: 'clash-start',
 };
 
 // ─── Age Configuration ─────────────────────────────────────────────────────

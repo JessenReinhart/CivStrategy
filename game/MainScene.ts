@@ -21,6 +21,9 @@ import { FeedbackSystem } from './systems/FeedbackSystem';
 import { AtmosphericSystem } from './systems/AtmosphericSystem';
 import { VillagerSystem } from './systems/VillagerSystem';
 import { AnimalSystem } from './systems/AnimalSystem';
+import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
+import { ClashSystem } from './systems/ClashSystem';
+
 
 
 export class MainScene extends Phaser.Scene {
@@ -95,6 +98,8 @@ export class MainScene extends Phaser.Scene {
   public atmosphericSystem!: AtmosphericSystem;
   public villagerSystem!: VillagerSystem;
   public animalSystem!: AnimalSystem;
+  public proceduralSound!: ProceduralSoundSystem;
+  public clashSystem!: ClashSystem;
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -143,9 +148,9 @@ export class MainScene extends Phaser.Scene {
     this.load.image('smoke', 'https://labs.phaser.io/assets/particles/smoke-puff.png');
   }
 
-  public stressTestConfig: { unitCount: number } | null = null;
+  public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
 
-  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number } | null }) {
+  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
@@ -230,6 +235,8 @@ export class MainScene extends Phaser.Scene {
     this.atmosphericSystem = new AtmosphericSystem(this);
     this.villagerSystem = new VillagerSystem(this);
     this.animalSystem = new AnimalSystem(this);
+    this.proceduralSound = new ProceduralSoundSystem(this);
+    this.clashSystem = new ClashSystem(this);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
@@ -362,7 +369,9 @@ export class MainScene extends Phaser.Scene {
     this.events.on(EVENTS.ADVANCE_AGE, () => {
       this.startAgeAdvancement();
     });
+    this.proceduralSound.startAmbientWind();
   }
+
 
   private lastTcIndex = -1;
 
@@ -531,6 +540,8 @@ export class MainScene extends Phaser.Scene {
     this.uiCamera.scrollY = this.cameras.main.scrollY;
     this.uiCamera.zoom = this.cameras.main.zoom;
 
+    this.proceduralSound.update();
+
     // --- Performance report ---
     this.profileFrameCount++;
     const frameTime = performance.now() - frameStart;
@@ -562,7 +573,9 @@ export class MainScene extends Phaser.Scene {
 
   public setupStressTest() {
     if (!this.stressTestConfig) return;
-    const count = this.stressTestConfig.unitCount;
+    const config = this.stressTestConfig;
+    const count = config.unitCount;
+    const enableEnemies = config.enableEnemies === true;
     const centerX = this.mapWidth / 2;
     const centerY = this.mapHeight / 2;
 
@@ -581,26 +594,82 @@ export class MainScene extends Phaser.Scene {
     }
     this.pathfinder.markGrid(centerX - clearRadius, centerY - clearRadius, clearRadius * 2, clearRadius * 2, false);
 
-    // Spawn units in a grid formation near the center
-    const cols = Math.ceil(Math.sqrt(count));
+    // Spawn player units in a grid formation near the center-left
+    const playerCount = enableEnemies ? Math.floor(count / 2) : count;
+    const enemyCount = enableEnemies ? count - playerCount : 0;
     const spacing = 20;
-    const startX = centerX - (cols * spacing) / 2;
-    const startY = centerY - (cols * spacing) / 2;
 
+    // Player units (owner=0) on the left side
+    const pCols = Math.ceil(Math.sqrt(playerCount));
+    const pStartX = (centerX - 200) - (pCols * spacing) / 2;
+    const pStartY = centerY - (pCols * spacing) / 2;
     let spawned = 0;
-    for (let i = 0; i < cols; i++) {
-      for (let j = 0; j < cols; j++) {
-        if (spawned >= count) break;
-        const x = startX + i * spacing + Phaser.Math.Between(-4, 4);
-        const y = startY + j * spacing + Phaser.Math.Between(-4, 4);
-        // Mix of Pikesman and Archer for visual variety
-        const type = spawned % 3 === 0 ? UnitType.ARCHER : UnitType.PIKESMAN;
+    for (let i = 0; i < pCols; i++) {
+      for (let j = 0; j < pCols; j++) {
+        if (spawned >= playerCount) break;
+        const x = pStartX + i * spacing + Phaser.Math.Between(-4, 4);
+        const y = pStartY + j * spacing + Phaser.Math.Between(-4, 4);
+        // Mix of unit types for visual variety
+        const type = spawned % 3 === 0 ? UnitType.ARCHER : (spawned % 3 === 1 ? UnitType.PIKESMAN : UnitType.CAVALRY);
         this.entityFactory.spawnUnit(type, x, y, 0);
         spawned++;
       }
     }
 
-    // Auto-select all spawned units
+    // Enemy units (owner=1) on the right side
+    if (enableEnemies) {
+      // Build some basic buildings for the enemy so it looks like a base
+      this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX + 400, centerY - 50, 1);
+      this.entityFactory.spawnBuilding(BuildingType.BARRACKS, centerX + 350, centerY + 80, 1);
+      this.entityFactory.spawnBuilding(BuildingType.HOUSE, centerX + 450, centerY + 50, 1);
+
+      const eCols = Math.ceil(Math.sqrt(enemyCount));
+      const eStartX = (centerX + 200) - (eCols * spacing) / 2;
+      const eStartY = centerY - (eCols * spacing) / 2;
+      let eSpawned = 0;
+      for (let i = 0; i < eCols; i++) {
+        for (let j = 0; j < eCols; j++) {
+          if (eSpawned >= enemyCount) break;
+          const x = eStartX + i * spacing + Phaser.Math.Between(-4, 4);
+          const y = eStartY + j * spacing + Phaser.Math.Between(-4, 4);
+          // Enemies get Pikesman, Legion, and Cavalry for a more intimidating force
+          const type = eSpawned % 4 === 0 ? UnitType.LEGION : (eSpawned % 4 === 1 ? UnitType.CAVALRY : UnitType.PIKESMAN);
+          this.entityFactory.spawnUnit(type, x, y, 1);
+          eSpawned++;
+        }
+      }
+
+      // Auto-command enemy units to attack the player's nearest unit
+      const enemyUnits = this.units.getChildren().filter((u) => u.getData('owner') === 1) as Phaser.GameObjects.GameObject[];
+      const playerUnits = this.units.getChildren().filter((u) => u.getData('owner') === 0) as Phaser.GameObjects.GameObject[];
+      if (enemyUnits.length > 0 && playerUnits.length > 0) {
+        // Find the closest player unit to the center of the enemy blob
+        let closestDist = Number.MAX_VALUE;
+        let closestTarget: Phaser.GameObjects.GameObject | null = null;
+        for (const pu of playerUnits) {
+          const d = Phaser.Math.Distance.Between(
+            (enemyUnits[0] as Phaser.GameObjects.Image).x, (enemyUnits[0] as Phaser.GameObjects.Image).y,
+            (pu as Phaser.GameObjects.Image).x, (pu as Phaser.GameObjects.Image).y
+          );
+          if (d < closestDist) {
+            closestDist = d;
+            closestTarget = pu;
+          }
+        }
+        if (closestTarget) {
+          this.unitSystem.commandAttack(enemyUnits, closestTarget);
+        }
+      }
+
+      this.feedbackSystem.showFloatingText(
+        centerX + 200,
+        centerY - 120,
+        `${enemyCount} ENEMIES SPAWNED!`,
+        '#ef4444'
+      );
+    }
+
+    // Auto-select player units (not enemies)
     const allUnits = this.units.getChildren() as Phaser.GameObjects.GameObject[];
     this.inputManager.selectedUnits = [];
     for (const unit of allUnits) {
@@ -612,15 +681,18 @@ export class MainScene extends Phaser.Scene {
     }
     this.inputManager.emitSelectionChanged();
 
-    // Zoom out to see the army
+    // Zoom out to see the whole battlefield
     this.cameras.main.zoomTo(0.35, 1000);
 
     // Show floating label
+    const labelText = enableEnemies
+      ? `BATTLE ROYALE: ${playerCount} vs ${enemyCount} — Watch them clash!`
+      : `${count} Units Spawned — Right-click to move`;
     this.feedbackSystem.showFloatingText(
       this.cameras.main.worldView.centerX,
       this.cameras.main.worldView.centerY - 100,
-      `${count} Units Spawned — Right-click to move`,
-      '#D4AF37'
+      labelText,
+      enableEnemies ? '#ef4444' : '#D4AF37'
     );
 
     console.warn(`[STRESS TEST] Spawned ${count} units. Flow field threshold is ${12}. All units selected. Right-click to command move.`);
@@ -761,6 +833,7 @@ export class MainScene extends Phaser.Scene {
       (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER
     ) as Phaser.GameObjects.Image | undefined;
     if (tc) {
+      this.proceduralSound.playAgeAdvance(tc.x, tc.y);
       const iso = toIso(tc.x, tc.y);
       this.feedbackSystem.showFloatingText(iso.x, iso.y - 40, 'Researching ' + config.name + '...', '#facc15');
     }
@@ -779,6 +852,7 @@ export class MainScene extends Phaser.Scene {
       (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER
     ) as Phaser.GameObjects.Image | undefined;
     if (tc) {
+      this.proceduralSound.playAgeAdvance(tc.x, tc.y);
       const iso = toIso(tc.x, tc.y);
       this.feedbackSystem.showFloatingText(iso.x, iso.y - 40, config.name + ' reached!', '#4ade80');
     }

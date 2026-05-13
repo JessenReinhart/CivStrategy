@@ -5,7 +5,7 @@ import {
   Shield, Users, Sword, Globe, Infinity as InfinityIcon,
   Eye, Map as MapIcon, Maximize, Handshake, Clock,
   ChevronRight, Star, Sparkles, BookOpen, Armchair, DoorOpen,
-  Activity
+  Activity, Target
 } from 'lucide-react';
 import gsap from 'gsap';
 
@@ -85,6 +85,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   const [treatyLength, setTreatyLength] = useState<number>(10);
   const [aiDisabled, setAiDisabled] = useState<boolean>(false);
   const [stressUnitCount, setStressUnitCount] = useState<number>(500);
+  const [stressEnableEnemies, setStressEnableEnemies] = useState<boolean>(false);
   const [tipIndex, setTipIndex] = useState(0);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
@@ -338,7 +339,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
     const tl = gsap.timeline({
       onComplete: () => {
         // Emit a custom event that App.tsx will intercept to launch stress test mode
-        window.dispatchEvent(new CustomEvent('start-stress-test', { detail: { unitCount: stressUnitCount } }));
+        window.dispatchEvent(new CustomEvent('start-stress-test', {
+          detail: {
+            unitCount: stressUnitCount,
+            enableEnemies: stressEnableEnemies
+          }
+        }));
       }
     });
     tl.to(containerRef.current, {
@@ -346,7 +352,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
       duration: 0.8,
       ease: 'power2.inOut'
     });
-  }, [stressUnitCount]);
+  }, [stressUnitCount, stressEnableEnemies]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   const titleChars = splitTextIntoSpans('CIV STRATEGY');
@@ -1232,15 +1238,36 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
             </div>
 
             <div className="mt-6 flex items-center gap-3 p-3" style={{ background: 'rgba(212,175,55,0.05)', border: '1px solid var(--limestone)' }}>
-              <Activity size={18} style={{ color: 'var(--gold-leaf)' }} />
-              <div>
-                <div className="text-xs font-bold" style={{ color: 'var(--dust-white)' }}>Flow Field Threshold</div>
-                <div className="text-[10px]" style={{ color: 'var(--sandstone)' }}>
-                  Groups of 12+ units automatically use flow fields for O(1) movement.
+                <Activity size={18} style={{ color: 'var(--gold-leaf)' }} />
+                <div>
+                  <div className="text-xs font-bold" style={{ color: 'var(--dust-white)' }}>Flow Field Threshold</div>
+                  <div className="text-[10px]" style={{ color: 'var(--sandstone)' }}>
+                    Groups of 12+ units automatically use flow fields for O(1) movement.
+                  </div>
                 </div>
               </div>
+
+              <div className="mt-6 flex items-center justify-between p-3" style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid var(--limestone)' }}>
+                <div className="flex items-center gap-3">
+                  <Target size={18} style={{ color: 'var(--gold-leaf)' }} />
+                  <div>
+                    <div className="text-xs font-bold" style={{ color: 'var(--dust-white)' }}>Enable Enemies</div>
+                    <div className="text-[10px]" style={{ color: 'var(--sandstone)' }}>
+                      Spawn enemy units to test combat &amp; clash effects.
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStressEnableEnemies(!stressEnableEnemies)}
+                  className={`relative w-14 h-7 rounded-full transition-all duration-300 cursor-pointer border-none outline-none ${stressEnableEnemies ? 'bg-red-500/30 border-red-500' : 'bg-stone-700/50 border-stone-600'}`}
+                  style={{ border: '1px solid' }}
+                >
+                  <div
+                    className={`absolute top-0.5 w-6 h-6 rounded-full transition-all duration-300 shadow-md ${stressEnableEnemies ? 'bg-red-500 left-7' : 'bg-stone-400 left-0.5'}`}
+                  />
+                </button>
+              </div>
             </div>
-          </div>
 
           <div className="flex items-center gap-12">
             <button

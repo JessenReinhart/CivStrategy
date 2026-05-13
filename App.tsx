@@ -8,6 +8,11 @@ import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, Forma
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
+interface StressTestConfig {
+  unitCount: number;
+  enableEnemies?: boolean;
+}
+
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
@@ -22,7 +27,7 @@ const App: React.FC = () => {
   const [aiDisabled, setAiDisabled] = useState<boolean>(false);
 
   const [gameInstance, setGameInstance] = useState<Phaser.Game | null>(null);
-  const [stressTestConfig, setStressTestConfig] = useState<{ unitCount: number } | null>(null);
+  const [stressTestConfig, setStressTestConfig] = useState<StressTestConfig | null>(null);
 
   const [stats, setStats] = useState<GameStats>({
     population: 0,
@@ -60,14 +65,14 @@ const [selectedCount, setSelectedCount] = useState(0);
     setGameState('playing');
   };
 
-  const handleStressTestStart = (config: { unitCount: number }) => {
+  const handleStressTestStart = (config: StressTestConfig) => {
     setFaction(FactionType.ROMANS);
     setMapMode(MapMode.FIXED);
     setMapSize(MapSize.LARGE);
     setFowEnabled(false);
-    setPeacefulMode(true);
+    setPeacefulMode(!config.enableEnemies);
     setTreatyLength(0);
-    setAiDisabled(true);
+    setAiDisabled(false);
     setStressTestConfig(config);
     setIsGameLoading(true);
     setLoadProgress(0);

@@ -291,8 +291,9 @@ export class EntityFactory {
             fill.fillColor = fill.scaleX < 0.3 ? 0xef4444 : 0x22c55e;
         }
         if (hp <= 0) {
-            if (isUnit) { this.scene.squadSystem.destroySquad(entity); if (entity.getData('owner') === 0) this.scene.population--; }
+            if (isUnit) { this.scene.proceduralSound.playDeath((entity as any).x, (entity as any).y, true); this.scene.squadSystem.destroySquad(entity); if (entity.getData('owner') === 0) this.scene.population--; } // eslint-disable-line @typescript-eslint/no-explicit-any
             else {
+                this.scene.proceduralSound.playDemolition((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 const def = entity.getData('def');
                 this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;

@@ -187,6 +187,7 @@ export class EconomySystem {
                             if (!isChopped && !harvestedTrees.has(tree)) {
                                 treesNearby++;
                                 harvestedTrees.add(tree);
+                                this.scene.proceduralSound.playWoodChop(tree.x, tree.y);
                                 if (Math.random() < 0.1) {
                                     this.scene.entityFactory.updateTreeVisual(tree, true);
                                     // if (this.scene.minimapSystem) this.scene.minimapSystem.refreshStaticLayer();
