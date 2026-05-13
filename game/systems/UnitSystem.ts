@@ -764,6 +764,18 @@ export class UnitSystem {
         const attackMult = FORMATION_BONUSES[formation]?.attack || 1.0;
         dmg *= attackMult;
 
+        // Axeman: bonus damage vs buildings
+        const bonusVsBuilding = unit.getData('bonusVsBuilding') as number | undefined;
+        if (bonusVsBuilding && target.getData('def')) {
+            dmg *= bonusVsBuilding;
+        }
+
+        // Hoplite: defensive bonus (stacks multiplicatively with formation defense in handleDamage)
+        const defensiveBonus = target.getData('defensiveBonus') as number | undefined;
+        if (defensiveBonus) {
+            dmg *= (1 - defensiveBonus);
+        }
+
         if (unit.unitType === UnitType.ARCHER) {
             // Ranged volley
             const maxHp = unit.getData('maxHp') as number;

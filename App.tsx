@@ -4,7 +4,7 @@ import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
-import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType, UnitStance } from './types';
+import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType, UnitStance, Age } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
@@ -37,9 +37,12 @@ const App: React.FC = () => {
     treatyTimeRemaining: 0,
     bloomIntensity: 1.0,
     currentFormation: FormationType.BOX,
-    currentStance: UnitStance.AGGRESSIVE
-  });
-  const [selectedCount, setSelectedCount] = useState(0);
+  currentStance: UnitStance.AGGRESSIVE,
+  currentAge: Age.VILLAGE,
+  ageProgress: 0,
+  nextAge: null
+});
+const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
 
@@ -91,7 +94,10 @@ const App: React.FC = () => {
       treatyTimeRemaining: 0,
       bloomIntensity: 1.0,
       currentFormation: FormationType.BOX,
-      currentStance: UnitStance.AGGRESSIVE
+    currentStance: UnitStance.AGGRESSIVE,
+    currentAge: Age.VILLAGE,
+    ageProgress: 0,
+    nextAge: null
     });
   };
 
@@ -142,9 +148,14 @@ const App: React.FC = () => {
       setSelectedBuildingType(type);
     };
 
+    const ageAdvancedHandler = (age: Age) => {
+      setStats(prev => ({ ...prev, currentAge: age, ageProgress: 0, nextAge: null }));
+    };
+
     gameInstance.events.on(EVENTS.UPDATE_STATS, updateHandler);
     gameInstance.events.on(EVENTS.SELECTION_CHANGED, selectionHandler);
     gameInstance.events.on(EVENTS.BUILDING_SELECTED, buildingSelectionHandler);
+    gameInstance.events.on(EVENTS.AGE_ADVANCED, ageAdvancedHandler);
 
     const taxHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -182,6 +193,7 @@ const App: React.FC = () => {
         gameInstance.events.off(EVENTS.UPDATE_STATS, updateHandler);
         gameInstance.events.off(EVENTS.SELECTION_CHANGED, selectionHandler);
         gameInstance.events.off(EVENTS.BUILDING_SELECTED, buildingSelectionHandler);
+        gameInstance.events.off(EVENTS.AGE_ADVANCED, ageAdvancedHandler);
       }
       window.removeEventListener('set-tax-rate-ui', taxHandler);
       window.removeEventListener('center-camera-ui', centerCameraHandler);
@@ -207,6 +219,10 @@ const App: React.FC = () => {
 
   const handleToggleDemolish = (isActive: boolean) => {
     gameInstance?.events.emit(EVENTS.TOGGLE_DEMOLISH, isActive);
+  };
+
+  const handleAdvanceAge = () => {
+    gameInstance?.events.emit(EVENTS.ADVANCE_AGE);
   };
 
   return (
@@ -240,6 +256,10 @@ const App: React.FC = () => {
               selectedBuildingType={selectedBuildingType}
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
               onFilterSelection={(type: UnitType) => gameInstance?.events.emit('filter-selection', type)}
+              currentAge={stats.currentAge}
+              ageProgress={stats.ageProgress}
+              nextAge={stats.nextAge}
+              onAdvanceAge={handleAdvanceAge}
             />
           )}
           {!isGameLoading && gameState === 'stress-test' && (

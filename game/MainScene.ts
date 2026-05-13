@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance } from '../types';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge } from '../constants';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
 import { toIso } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
@@ -39,6 +39,12 @@ export class MainScene extends Phaser.Scene {
   public taxRate: number = 0;
   public bloomIntensity: number = 1.0;
   public isFowEnabled: boolean = true;
+
+  // Age System
+  public currentAge: Age = Age.VILLAGE;
+  public ageProgress: number = 0; // 0–1 during advancement
+  public isAdvancing: boolean = false;
+  public nextAge: Age | null = null;
 
   // Diplomacy
   public peacefulMode: boolean = false;
@@ -167,6 +173,10 @@ export class MainScene extends Phaser.Scene {
     this.taxRate = 0;
     this.gameSpeed = 0.5;
     this.aiDisabled = data.aiDisabled === true;
+    this.currentAge = Age.VILLAGE;
+    this.ageProgress = 0;
+    this.isAdvancing = false;
+    this.nextAge = null;
   }
 
   create() {
@@ -238,11 +248,11 @@ export class MainScene extends Phaser.Scene {
     this.entityFactory.spawnBuilding(BuildingType.BONFIRE, centerX + 80, centerY, 0);
     this.villagerSystem.spawnVillager(centerX + 50, centerY + 50, 0);
     this.villagerSystem.spawnVillager(centerX - 50, centerY + 50, 0);
-    this.entityFactory.spawnUnit(UnitType.CAVALRY, centerX, centerY + 90, 0);
+    this.entityFactory.spawnUnit(UnitType.PIKESMAN, centerX, centerY + 90, 0);
 
-    // Spawn a squad of Archers
-    for (let i = 0; i < 5; i++) {
-      this.entityFactory.spawnUnit(UnitType.ARCHER, centerX - 60 + (i * 15), centerY + 80, 0);
+    // Spawn Slingers (Village Age ranged unit)
+    for (let i = 0; i < 3; i++) {
+      this.entityFactory.spawnUnit(UnitType.SLINGER, centerX - 60 + (i * 15), centerY + 80, 0);
     }
 
     // Spawn guaranteed trees near player's starting Town Center for early wood harvesting
@@ -347,6 +357,11 @@ export class MainScene extends Phaser.Scene {
     this.uiCamera.ignore(this.atmosphericSystem.clouds); // These are now in worldLayer, but safe to keep ignore if they were in main display list
 
     if (this.fogOfWar) { this.uiCamera.ignore(this.fogOfWar.screenRT); }
+
+    // Listen for age advancement requests from React UI
+    this.events.on(EVENTS.ADVANCE_AGE, () => {
+      this.startAgeAdvancement();
+    });
   }
 
   private lastTcIndex = -1;
@@ -484,6 +499,17 @@ export class MainScene extends Phaser.Scene {
       }
 
       this.economySystem.assignJobs();
+
+      // Age advancement progress ticking (player only)
+      if (this.isAdvancing && this.nextAge) {
+        const config = AGE_CONFIGS[this.nextAge];
+        if (config && config.advancementTime > 0) {
+          this.ageProgress += dt / config.advancementTime;
+          if (this.ageProgress >= 1) {
+            this.completeAgeAdvancement();
+          }
+        }
+      }
     }
 
     if (this.infiniteMapSystem && !this.stressTestConfig) this.infiniteMapSystem.update();
@@ -607,10 +633,23 @@ export class MainScene extends Phaser.Scene {
       [UnitType.CAVALRY]: { food: 150, gold: 100 },
       [UnitType.VILLAGER]: { food: 0, gold: 0 },
       [UnitType.LEGION]: { food: 500, gold: 300 },
-      [UnitType.ANIMAL]: { food: 0, gold: 0 }
+      [UnitType.ANIMAL]: { food: 0, gold: 0 },
+      [UnitType.SLINGER]: { food: 40, gold: 20 },
+      [UnitType.AXEMAN]: { food: 120, gold: 60 },
+      [UnitType.HOPLITE]: { food: 200, gold: 150 },
+      [UnitType.CHARIOT]: { food: 250, gold: 200 }
     };
 
     const cost = costs[type];
+
+    // Check if unit is unlocked at current age
+    if (!this.isUnitUnlockedForPlayer(type)) {
+      this.feedbackSystem.showFloatingText(
+        this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY,
+        "Advance to a higher age to train this unit!", "#ff6b6b"
+      );
+      return;
+    }
     if (this.resources.food >= cost.food && this.resources.gold >= cost.gold) {
       // Find selected barracks OR any barracks if nothing selected
       let spawnSource = this.inputManager.selectedBuilding as Phaser.GameObjects.Rectangle;
@@ -670,14 +709,12 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    // Units: only sync non-squad units (villagers, animals).
-    // Combat units with squads are positioned by SquadSystem.update().
+    // Units: only sync non-squad units (villagers, animals)
     const unitChildren = this.units.getChildren();
     for (let i = 0; i < unitChildren.length; i++) {
       const u = unitChildren[i] as Phaser.GameObjects.GameObject & { visual?: Phaser.GameObjects.Container };
       const squadContainer = u.getData('squadContainer');
-      if (squadContainer) continue; // Handled by SquadSystem
-
+      if (squadContainer) continue;
       const unit = u as Phaser.GameObjects.Sprite;
       if (u.visual && u.visual.visible) {
         const iso = toIso(unit.x, unit.y);
@@ -685,5 +722,97 @@ export class MainScene extends Phaser.Scene {
         u.visual.setDepth(iso.y);
       }
     }
+
+    this.events.emit(EVENTS.UPDATE_STATS, this.getGameStats());
+  }
+
+  // --- Age Advancement ---
+
+  public startAgeAdvancement(): void {
+    if (this.isAdvancing) return;
+    const next = getNextAge(this.currentAge);
+    if (!next) return;
+    const config = AGE_CONFIGS[next];
+    if (this.resources.food < config.cost.food || this.resources.gold < config.cost.gold) {
+      this.feedbackSystem.showFloatingText(
+        this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY,
+        'Need ' + config.cost.food + 'F ' + config.cost.gold + 'G to advance!', '#ff6b6b'
+      );
+      return;
+    }
+    for (const req of config.requiredBuildings) {
+      const owned = this.buildings.getChildren().filter(
+        (b) => b.getData('owner') === 0 && b.getData('def')?.type === req.type && b.getData('hp') > 0
+      ).length;
+      if (owned < req.count) {
+        this.feedbackSystem.showFloatingText(
+          this.cameras.main.worldView.centerX, this.cameras.main.worldView.centerY,
+          'Need ' + req.count + 'x ' + req.type + ' to advance!', '#ff6b6b'
+        );
+        return;
+      }
+    }
+    this.resources.food -= config.cost.food;
+    this.resources.gold -= config.cost.gold;
+    this.isAdvancing = true;
+    this.nextAge = next;
+    this.ageProgress = 0;
+    const tc = this.buildings.getChildren().find(
+      (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER
+    ) as Phaser.GameObjects.Image | undefined;
+    if (tc) {
+      const iso = toIso(tc.x, tc.y);
+      this.feedbackSystem.showFloatingText(iso.x, iso.y - 40, 'Researching ' + config.name + '...', '#facc15');
+    }
+  }
+
+  private completeAgeAdvancement(): void {
+    if (!this.nextAge) return;
+    this.currentAge = this.nextAge;
+    this.isAdvancing = false;
+    this.ageProgress = 0;
+    this.nextAge = null;
+    const config = AGE_CONFIGS[this.currentAge];
+    this.events.emit(EVENTS.AGE_ADVANCED, this.currentAge);
+    this.economySystem.updateStats();
+    const tc = this.buildings.getChildren().find(
+      (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER
+    ) as Phaser.GameObjects.Image | undefined;
+    if (tc) {
+      const iso = toIso(tc.x, tc.y);
+      this.feedbackSystem.showFloatingText(iso.x, iso.y - 40, config.name + ' reached!', '#4ade80');
+    }
+  }
+
+  public getAgeUnlockedUnits(): UnitType[] {
+    const config = AGE_CONFIGS[this.currentAge];
+    return config ? [...config.unlocksUnits] : [];
+  }
+
+  public isUnitUnlockedForPlayer(unitType: UnitType): boolean {
+    const config = AGE_CONFIGS[this.currentAge];
+    if (!config) return false;
+    return config.unlocksUnits.includes(unitType);
+  }
+
+  private getGameStats(): GameStats {
+    return {
+      population: this.population,
+      maxPopulation: this.maxPopulation,
+      happiness: this.happiness,
+      happinessChange: 0,
+      resources: { ...this.resources },
+      rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
+      taxRate: this.taxRate,
+      mapMode: this.mapMode,
+      peacefulMode: this.peacefulMode,
+      treatyTimeRemaining: Math.max(0, this.treatyLength - this.gameTime),
+      bloomIntensity: this.bloomIntensity,
+      currentFormation: FormationType.BOX,
+      currentStance: UnitStance.AGGRESSIVE,
+      currentAge: this.currentAge,
+      ageProgress: this.ageProgress,
+      nextAge: this.nextAge
+    };
   }
 }
