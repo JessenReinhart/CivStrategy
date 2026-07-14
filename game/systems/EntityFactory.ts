@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType, UnitStance } from '../../types';
-import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES } from '../../constants';
+import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType, UnitStance, DamageType } from '../../types';
+import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class EntityFactory {
@@ -20,6 +20,7 @@ export class EntityFactory {
         b.setData('owner', owner);
         b.setData('hp', def.maxHp);
         b.setData('maxHp', def.maxHp);
+        b.setData('armor', BUILDING_ARMOR[type] || {});
         this.scene.buildings.add(b);
 
         this.scene.pathfinder.markGrid(x, y, def.width, def.height, true);
@@ -191,12 +192,16 @@ export class EntityFactory {
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
         body.setDrag(800); // Prevent drifting from separation forces
+        const damageProfile = UNIT_DAMAGE[type] || {};
+        const attackTotal = Object.values(DamageType).reduce((s, t) => s + (damageProfile[t] || 0), 0);
         unit.setData({
             owner,
             unitType: type,
             hp: stats.maxHp,
             maxHp: stats.maxHp,
-            attack: stats.attack,
+            attack: attackTotal || stats.attack,
+            damage: damageProfile,
+            armor: UNIT_ARMOR[type] || {},
             range: stats.range,
             attackSpeed: stats.attackSpeed,
             stance: UnitStance.HOLD, // Default stance (USER REQUESTED CHANGE)
@@ -213,6 +218,10 @@ export class EntityFactory {
 
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
         this.scene.units.add(unit);
+        // Units are spawned via group.add() which does NOT emit the 'create' event,
+        // so the MainScene spatial-hash insert hook never fires. Insert directly so
+        // idle/stationary units are targetable by combat scanning.
+        this.scene.unitSpatialHash.insert(unit);
 
         // Increment population for player-owned units
         if (owner === 0) {

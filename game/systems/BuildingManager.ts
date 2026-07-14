@@ -109,7 +109,8 @@ export class BuildingManager {
         this.previewBuilding.setDepth(Number.MAX_VALUE - 100);
 
         const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType);
-        const color = isValid ? 0x00ff00 : 0xff0000;
+        const slopeInfo = this.scene.terrainSystem.getSlopeAt(cx, cy);
+        const color = !isValid ? 0xff0000 : (slopeInfo.slope > 0.1 ? 0xffaa00 : 0x00ff00);
 
         const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
         graphics.clear();
@@ -287,6 +288,12 @@ export class BuildingManager {
             if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) treeOverlap = true;
         });
         if (treeOverlap) return { valid: false, reason: "Tree in way" };
+
+        // Check terrain slope
+        const slopeInfo = this.scene.terrainSystem.getSlopeAt(x, y);
+        if (!slopeInfo.isBuildable) {
+            return { valid: false, reason: "Terrain too steep" };
+        }
 
         return { valid: true };
     }

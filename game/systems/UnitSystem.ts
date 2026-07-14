@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState, FormationType, UnitStance, GameUnit } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS } from '../../constants';
+import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile } from '../../types';
+import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
@@ -804,8 +804,13 @@ export class UnitSystem {
         } else {
             const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
             const formation = unit.getData('formation') as FormationType || FormationType.BOX;
-            const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
-            this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, baseSpeed * multiplier);
+            const formationMultiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
+            
+            // Apply terrain-based movement speed modifier
+            const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
+            const finalSpeed = baseSpeed * formationMultiplier * terrainModifier;
+            
+            this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, finalSpeed);
         }
 
         // Stale path detection: if path is too old, clear it
@@ -819,22 +824,38 @@ export class UnitSystem {
     private performAttack(unit: GameUnit, target: GameUnit): void {
         const isStress = !!this.scene.stressTestConfig;
 
-        let dmg = unit.getData('attack') as number || 10;
+        // Build the attacker's per-type damage profile (fall back to legacy flat attack)
+        let profile: DamageProfile = (unit.getData('damage') as DamageProfile) || {};
+        if (!profile || Object.keys(profile).length === 0) {
+            profile = { [DamageType.HACK]: (unit.getData('attack') as number) || 10 };
+        }
+
         const formation = unit.getData('formation') as FormationType || FormationType.BOX;
         const attackMult = FORMATION_BONUSES[formation]?.attack || 1.0;
-        dmg *= attackMult;
+
+        // Apply terrain-based combat modifiers
+        const combatMods = this.scene.terrainSystem.getCombatModifiers(unit.x, unit.y, target.x, target.y);
+        const heightAttackMult = 1 + combatMods.attackBonus;
 
         // Axeman: bonus damage vs buildings
         const bonusVsBuilding = unit.getData('bonusVsBuilding') as number | undefined;
         if (bonusVsBuilding && target.getData('def')) {
-            dmg *= bonusVsBuilding;
+            profile = scaleDamageProfile(profile, bonusVsBuilding);
         }
 
-        // Hoplite: defensive bonus (stacks multiplicatively with formation defense in handleDamage)
+        // Hoplite: defensive bonus (reduces incoming damage, stacks with per-type armor)
         const defensiveBonus = target.getData('defensiveBonus') as number | undefined;
         if (defensiveBonus) {
-            dmg *= (1 - defensiveBonus);
+            profile = scaleDamageProfile(profile, 1 - defensiveBonus);
         }
+
+        // Formation attack bonus + high-ground attack bonus
+        profile = scaleDamageProfile(profile, attackMult * heightAttackMult);
+
+        // Apply the target's per-type armor via the smooth reduction formula
+        const targetArmor = (target.getData('armor') as ArmorProfile) || {};
+        const effective = computeDamage(profile, targetArmor);
+        const dmg = effective;
 
         if (unit.unitType === UnitType.ARCHER) {
             // Ranged volley
@@ -866,7 +887,10 @@ export class UnitSystem {
                     this.scene.time.delayedCall(delay, () => {
                         if (unit.scene && target.scene) {
                             this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
-                            this.fireProjectile(origin, targetVaried, damagePerArrow);
+                            // Apply terrain-based defense bonus for ranged attacks too
+                            const defMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
+                            const rangedDmg = Math.round(damagePerArrow * (1 - defMods.defenseBonus));
+                            this.fireProjectile(origin, targetVaried, rangedDmg);
                         }
                     });
                 }
@@ -901,13 +925,18 @@ export class UnitSystem {
                 const unitOwner = unit.getData('owner') as number;
                 const targetOwner = target.getData('owner') as number;
                 const isOpposingFactions = unitOwner !== targetOwner && unitOwner >= 0 && targetOwner >= 0;
+                
+                // Apply terrain-based defense bonus for defender
+                const defCombatMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
+                const heightDefenseMult = 1 - defCombatMods.defenseBonus;
+                const finalDmg = Math.round(dmg * heightDefenseMult);
 
                 if (isOpposingFactions) {
                     this.scene.events.emit(EVENTS.CLASH_START, { x: target.x, y: target.y });
                 }
 
                 this.scene.proceduralSound.playSwordClash(target.x, target.y);
-                target.takeDamage(dmg);
+                target.takeDamage(finalDmg);
             }
         }
     }

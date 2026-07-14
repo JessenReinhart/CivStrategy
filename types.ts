@@ -32,6 +32,19 @@ export enum UnitStance {
   HOLD = 'Hold'              // Stand ground, attack in range only
 }
 
+// Per-type damage model (0 A.D.-style Hack / Pierce / Crush)
+export enum DamageType {
+  HACK = 'Hack',     // Slashing melee (swords, axes, spears thrusting)
+  PIERCE = 'Pierce', // Projectiles (arrows, javelins, sling bullets)
+  CRUSH = 'Crush'    // Blunt / siege (clubs, stones, wheels, rams)
+}
+
+// How much damage of each type an attack deals
+export type DamageProfile = Partial<Record<DamageType, number>>;
+
+// How much armor an entity has against each damage type
+export type ArmorProfile = Partial<Record<DamageType, number>>;
+
 export enum Age {
   VILLAGE = 'Village',
   TOWN = 'Town',
@@ -197,4 +210,15 @@ export interface AnimalData {
   state: UnitState;
   visual?: Phaser.GameObjects.Container;
   wanderDest?: Phaser.Math.Vector2;
+}
+
+export interface TerrainModifiers {
+  movementSpeed: number;  // 0.7 (uphill) to 1.3 (downhill)
+  attackBonus: number;    // +10% on high ground
+  defenseBonus: number;   // +5% on high ground
+}
+
+export interface SlopeInfo {
+  slope: number;          // 0.0 (flat) to 1.0+ (steep)
+  isBuildable: boolean;   // false if slope > MAX_BUILDABLE_SLOPE
 }

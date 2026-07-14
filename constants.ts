@@ -1,5 +1,5 @@
 
-import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats, FormationType, Age, AgeConfig } from "./types";
+import { BuildingDef, BuildingType, FactionType, UnitType, MapSize, UnitStats, FormationType, Age, AgeConfig, DamageType, DamageProfile, ArmorProfile } from "./types";
 
 export const TILE_SIZE = 32;
 // Default Fallback
@@ -85,6 +85,75 @@ export const UNIT_SPEED: Record<UnitType, number> = {} as Record<UnitType, numbe
 for (const type of Object.values(UnitType)) {
   const stats = UNIT_STATS[type as UnitType];
   if (stats) (UNIT_SPEED as Record<string, number>)[type] = stats.speed;
+}
+
+// ─── Damage Types & Armor (Hack / Pierce / Crush) ────────────────────────────
+// Smooth per-type reduction, 0 A.D.-style:  reducedFraction = K / (armor + K)
+//   armor 0  -> 0% reduction,   armor 10 -> 50%,   armor 30 -> 75%,   armor 50 -> 83%
+export const ARMOR_REDUCTION_K = 10;
+
+// Each unit's damage split by type. Values sum to the legacy flat `attack` so
+// overall combat power is preserved, while enabling rock-paper-scissors counters.
+export const UNIT_DAMAGE: Record<UnitType, DamageProfile> = {
+  [UnitType.VILLAGER]:  { [DamageType.HACK]: 3 },
+  [UnitType.PIKESMAN]:  { [DamageType.PIERCE]: 15 },
+  [UnitType.CAVALRY]:   { [DamageType.HACK]: 20 },
+  [UnitType.LEGION]:    { [DamageType.HACK]: 10 },
+  [UnitType.ARCHER]:    { [DamageType.PIERCE]: 12 },
+  [UnitType.SLINGER]:   { [DamageType.CRUSH]: 8 },
+  [UnitType.AXEMAN]:    { [DamageType.HACK]: 25 },
+  [UnitType.HOPLITE]:   { [DamageType.PIERCE]: 22 },
+  [UnitType.CHARIOT]:   { [DamageType.PIERCE]: 22 },
+  [UnitType.ANIMAL]:    {}
+};
+
+// Per-type armor. Infantry soak Hack (shields), archers are squishy, and
+// BUILDINGS are deliberately weak to Crush so siege has a clear role.
+export const UNIT_ARMOR: Record<UnitType, ArmorProfile> = {
+  [UnitType.VILLAGER]:  { [DamageType.HACK]: 0, [DamageType.PIERCE]: 0, [DamageType.CRUSH]: 0 },
+  [UnitType.PIKESMAN]:  { [DamageType.HACK]: 6, [DamageType.PIERCE]: 1, [DamageType.CRUSH]: 2 },
+  [UnitType.CAVALRY]:   { [DamageType.HACK]: 3, [DamageType.PIERCE]: 3, [DamageType.CRUSH]: 1 },
+  [UnitType.LEGION]:    { [DamageType.HACK]: 8, [DamageType.PIERCE]: 2, [DamageType.CRUSH]: 4 },
+  [UnitType.ARCHER]:    { [DamageType.HACK]: 1, [DamageType.PIERCE]: 1, [DamageType.CRUSH]: 0 },
+  [UnitType.SLINGER]:   { [DamageType.HACK]: 1, [DamageType.PIERCE]: 1, [DamageType.CRUSH]: 0 },
+  [UnitType.AXEMAN]:    { [DamageType.HACK]: 4, [DamageType.PIERCE]: 2, [DamageType.CRUSH]: 2 },
+  [UnitType.HOPLITE]:   { [DamageType.HACK]: 10, [DamageType.PIERCE]: 2, [DamageType.CRUSH]: 3 },
+  [UnitType.CHARIOT]:   { [DamageType.HACK]: 2, [DamageType.PIERCE]: 4, [DamageType.CRUSH]: 1 },
+  [UnitType.ANIMAL]:    { [DamageType.HACK]: 0, [DamageType.PIERCE]: 0, [DamageType.CRUSH]: 0 }
+};
+
+// Buildings resist Hack/Pierce (walls, stone) but are vulnerable to Crush (siege).
+export const BUILDING_ARMOR: Record<BuildingType, ArmorProfile> = {
+  [BuildingType.TOWN_CENTER]:  { [DamageType.HACK]: 12, [DamageType.PIERCE]: 12, [DamageType.CRUSH]: 2 },
+  [BuildingType.BONFIRE]:      { [DamageType.HACK]: 2, [DamageType.PIERCE]: 2, [DamageType.CRUSH]: 1 },
+  [BuildingType.HOUSE]:        { [DamageType.HACK]: 4, [DamageType.PIERCE]: 4, [DamageType.CRUSH]: 1 },
+  [BuildingType.FARM]:         { [DamageType.HACK]: 3, [DamageType.PIERCE]: 3, [DamageType.CRUSH]: 1 },
+  [BuildingType.LUMBER_CAMP]:  { [DamageType.HACK]: 4, [DamageType.PIERCE]: 4, [DamageType.CRUSH]: 1 },
+  [BuildingType.HUNTERS_LODGE]:{ [DamageType.HACK]: 3, [DamageType.PIERCE]: 3, [DamageType.CRUSH]: 1 },
+  [BuildingType.SMALL_PARK]:   { [DamageType.HACK]: 1, [DamageType.PIERCE]: 1, [DamageType.CRUSH]: 0 },
+  [BuildingType.BARRACKS]:     { [DamageType.HACK]: 10, [DamageType.PIERCE]: 10, [DamageType.CRUSH]: 2 }
+};
+
+// Scale every component of a damage profile by `mult`.
+export function scaleDamageProfile(profile: DamageProfile, mult: number): DamageProfile {
+  const out: DamageProfile = {};
+  for (const t of Object.values(DamageType)) {
+    const v = profile[t];
+    if (v && v > 0) out[t] = v * mult;
+  }
+  return out;
+}
+
+// Apply the smooth per-type armor reduction and return the final flat damage.
+export function computeDamage(damage: DamageProfile, armor: ArmorProfile): number {
+  let total = 0;
+  for (const t of Object.values(DamageType)) {
+    const d = damage[t] ?? 0;
+    if (d <= 0) continue;
+    const a = armor[t] ?? 0;
+    total += d * (ARMOR_REDUCTION_K / (a + ARMOR_REDUCTION_K));
+  }
+  return total;
 }
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
@@ -257,4 +326,32 @@ export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense:
   [FormationType.CIRCLE]: { attack: 1.0, defense: 0.25, speed: 0.7 },   // +25% Def, -30% Speed
   [FormationType.SKIRMISH]: { attack: 1.0, defense: 0.15, speed: 1.1 }, // +15% Def (Dodge), +10% Speed
   [FormationType.WEDGE]: { attack: 1.1, defense: 0.0, speed: 1.2 }      // +10% Dmg, +20% Speed
+};
+
+// Terrain System Configuration
+export const TERRAIN_CONFIG = {
+  CELL_SIZE: 32,
+  MIN_HEIGHT: 0.0,
+  MAX_HEIGHT: 1.0,
+  MAX_BUILDABLE_SLOPE: 0.15,  // Buildings can't be placed on slopes > 15%
+  
+  // Movement modifiers
+  DOWNHILL_SPEED_BONUS: 1.3,   // 30% faster downhill
+  UPHILL_SPEED_PENALTY: 0.7,   // 30% slower uphill
+  SLOPE_THRESHOLD: 0.05,       // Minimum slope to trigger modifier
+  
+  // Combat modifiers
+  HIGH_GROUND_ATTACK_BONUS: 0.10,   // +10% attack from high ground
+  HIGH_GROUND_DEFENSE_BONUS: 0.05,  // +5% defense on high ground
+  HEIGHT_DIFF_THRESHOLD: 0.1,       // Minimum height diff for bonuses
+  
+  // Visual
+  VALLEY_TINT: 0.7,      // Darken valleys to 70% brightness
+  PEAK_TINT: 1.2,        // Lighten peaks to 120% brightness
+  
+  // Generation
+  BASE_SCALE: 0.008,
+  DETAIL_SCALE: 0.03,
+  BASE_AMPLITUDE: 1.0,
+  DETAIL_AMPLITUDE: 0.3
 };

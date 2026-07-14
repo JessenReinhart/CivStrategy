@@ -3,6 +3,22 @@ import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit, Age } from '../../types';
 import { BUILDINGS, AGE_CONFIGS, getNextAge } from '../../constants';
 
+// Units that count as "military" for AI coordination. Villagers/Animals are not.
+const MILITARY_UNIT_TYPES: ReadonlySet<UnitType> = new Set<UnitType>([
+  UnitType.PIKESMAN,
+  UnitType.CAVALRY,
+  UnitType.LEGION,
+  UnitType.ARCHER,
+  UnitType.SLINGER,
+  UnitType.AXEMAN,
+  UnitType.HOPLITE,
+  UnitType.CHARIOT,
+]);
+
+function isMilitaryUnit(unitType: UnitType | undefined): boolean {
+  return unitType !== undefined && MILITARY_UNIT_TYPES.has(unitType);
+}
+
 /**
  * EnemyAISystem - Optimized for Annihilation-scale games.
  * 
@@ -132,10 +148,9 @@ export class EnemyAISystem {
 
         for (const u of allUnits) {
             const owner = u.getData('owner') as number;
-            const typeDef = u.getData('def') as { isMilitary?: boolean } | undefined;
-            const isMilitary = typeDef?.isMilitary || false;
+            const unitType = (u.getData('unitType') || (u as GameUnit).unitType) as UnitType | undefined;
 
-            if (!isMilitary) continue;
+            if (!isMilitaryUnit(unitType)) continue;
             if (u.getData('hp') <= 0) continue;
 
             if (owner === 1) {

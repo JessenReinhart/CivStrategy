@@ -23,8 +23,7 @@ import { VillagerSystem } from './systems/VillagerSystem';
 import { AnimalSystem } from './systems/AnimalSystem';
 import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
 import { ClashSystem } from './systems/ClashSystem';
-
-
+import { TerrainSystem } from './systems/TerrainSystem';
 
 export class MainScene extends Phaser.Scene {
 
@@ -100,6 +99,7 @@ export class MainScene extends Phaser.Scene {
   public animalSystem!: AnimalSystem;
   public proceduralSound!: ProceduralSoundSystem;
   public clashSystem!: ClashSystem;
+  public terrainSystem!: TerrainSystem;
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -237,6 +237,11 @@ export class MainScene extends Phaser.Scene {
     this.animalSystem = new AnimalSystem(this);
     this.proceduralSound = new ProceduralSoundSystem(this);
     this.clashSystem = new ClashSystem(this);
+    
+    // Initialize Terrain System
+    this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight);
+    this.terrainSystem.generateHeightMap();
+    this.terrainSystem.applyVisualTinting();
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
