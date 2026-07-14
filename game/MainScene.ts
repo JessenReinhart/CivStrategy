@@ -370,6 +370,13 @@ export class MainScene extends Phaser.Scene {
       this.startAgeAdvancement();
     });
     this.proceduralSound.startAmbientWind();
+
+    // Lifecycle teardown: close the AudioContext and detach the clash listener
+    // on scene shutdown so neither leaks across scene restarts (P2a / P3b).
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+        this.proceduralSound.destroy();
+        this.clashSystem.destroy();
+    });
   }
 
 
