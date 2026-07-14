@@ -28,4 +28,11 @@ export class ClashSystem {
     update(): void {
         // No per-frame logic needed
     }
+
+    /**
+     * Remove the CLASH_START listener so it cannot leak across scene restarts.
+     */
+    public destroy(): void {
+        this.scene.events.off(EVENTS.CLASH_START);
+    }
 }

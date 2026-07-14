@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 
@@ -7,6 +6,12 @@ import { toIso } from '../utils/iso';
  *
  * All sounds are synthesized at runtime. No audio files are loaded.
  * Designed for a gritty, atmospheric pre-medieval aesthetic.
+ *
+ * Node graph contract: every effect builds `source → [filter] → gain`
+ * (the envelope `gain` is the chain tail). Scheduling (`start`/`stop` +
+ * `activeSources` eviction) is separated from connection. The chain tail
+ * is wired to output via `applyPan`, which is the SOLE connection to
+ * `masterGain` — no raw source/oscillator ever connects directly to it.
  */
 export class ProceduralSoundSystem {
     private scene: MainScene;
@@ -41,7 +46,9 @@ export class ProceduralSoundSystem {
         if (this._muted) return null;
         if (!this.ctx) {
             try {
-                const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                const AudioCtx =
+                    window.AudioContext ||
+                    (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
                 if (!AudioCtx) return null;
                 this.ctx = new AudioCtx();
                 this.masterGain = this.ctx.createGain();
@@ -94,17 +101,21 @@ export class ProceduralSoundSystem {
     }
 
     /**
-     * Clean up finished source nodes to prevent memory leaks.
+     * Trim and evict finished source nodes to prevent memory leaks and to
+     * enforce the MAX_CONCURRENT cap.
      */
     private cleanupFinishedSources(): void {
-        // Trim source list if over MAX_CONCURRENT - AudioBufferSourceNode
-        // auto-disconnects after stop(), so simple length limiting is sufficient.
         while (this.activeSources.length > this.MAX_CONCURRENT) {
             this.activeSources.shift();
         }
     }
 
-    private playSource(source: AudioBufferSourceNode, outputNode: AudioNode, duration: number): void {
+    /**
+     * Schedule a source node: evict the oldest if at capacity, then start/stop
+     * it and track it in `activeSources`. This does NOT connect the node to
+     * anything — connection is the caller's responsibility (via `applyPan`).
+     */
+    private scheduleSource(source: AudioBufferSourceNode | OscillatorNode, duration: number): void {
         this.cleanupFinishedSources();
 
         if (this.activeSources.length >= this.MAX_CONCURRENT) {
@@ -112,15 +123,16 @@ export class ProceduralSoundSystem {
             try { oldest?.stop(); } catch { /* already stopped */ }
         }
 
-        source.connect(outputNode);
         const startTime = this.ctx!.currentTime;
         source.start(startTime);
         source.stop(startTime + duration + 0.1);
-        this.activeSources.push(source);
+        this.activeSources.push(source as AudioBufferSourceNode);
     }
 
     /**
      * Create a filtered noise burst with configurable envelope.
+     * Builds `source → filter → gain` and returns the envelope `gain` (the
+     * chain tail) for the caller to route through `applyPan`.
      */
     private noiseBurst(
         filterType: BiquadFilterType,
@@ -130,7 +142,7 @@ export class ProceduralSoundSystem {
         decaySec: number,
         volume: number,
         buffer: AudioBuffer | null = null
-    ): AudioBufferSourceNode {
+    ): GainNode {
         const ctx = this.ctx!;
         const source = ctx.createBufferSource();
         source.buffer = buffer || this.noiseBufferMedium!;
@@ -149,12 +161,13 @@ export class ProceduralSoundSystem {
         source.connect(filter);
         filter.connect(gain);
 
-        this.playSource(source, this.masterGain!, attackSec + decaySec + 0.05);
-        return source;
+        this.scheduleSource(source, attackSec + decaySec + 0.05);
+        return gain;
     }
 
     /**
      * Create an oscillator-based tone with envelope.
+     * Builds `osc → gain` and returns the envelope `gain` (the chain tail).
      */
     private tone(
         type: OscillatorType,
@@ -163,7 +176,7 @@ export class ProceduralSoundSystem {
         decaySec: number,
         volume: number,
         detune: number = 0
-    ): AudioBufferSourceNode {
+    ): GainNode {
         const ctx = this.ctx!;
         const osc = ctx.createOscillator();
         osc.type = type;
@@ -177,8 +190,9 @@ export class ProceduralSoundSystem {
         gain.gain.exponentialRampToValueAtTime(0.001, now + attackSec + decaySec);
 
         osc.connect(gain);
-        this.playSource(osc as any, this.masterGain!, attackSec + decaySec + 0.05);
-        return osc as any;
+
+        this.scheduleSource(osc, attackSec + decaySec + 0.05);
+        return gain;
     }
 
     /**
@@ -212,7 +226,8 @@ export class ProceduralSoundSystem {
     }
 
     /**
-     * Apply stereo panning to a gain node.
+     * Apply stereo panning to the chain's tail node (the envelope `gain`).
+     * This is the SOLE connection to `masterGain` — no separate centered path.
      */
     private applyPan(pan: number, gainNode: GainNode): void {
         const ctx = this.ctx!;
@@ -231,6 +246,13 @@ export class ProceduralSoundSystem {
     // ═══════════════════════════════════════════════════════════════════════════
     // PUBLIC SOUND EFFECTS
     // ═══════════════════════════════════════════════════════════════════════════
+    //
+    // peacefulMode (combat-only suppression) — INTENTIONAL product behavior:
+    // In peaceful mode only COMBAT sounds (sword/bow/death/demolition) are
+    // suppressed. Non-combat gameplay and UI/ambience sounds — placement,
+    // construction, wood chop, UI click, command ack, age advance — remain
+    // audible so the world still feels alive. Do NOT extend the guard to those
+    // methods; that asymmetry is by design, not a bug.
 
     /**
      * Melee sword/shield clash — metallic ring + noise body.
@@ -248,10 +270,10 @@ export class ProceduralSoundSystem {
         const source3 = this.noiseBurst('highpass', 3000, 1, 0.002, 0.04, volume * 0.3);
         const osc = this.tone('triangle', 600, 0.01, 0.15, volume * 0.2, -100);
 
-        this.applyPan(pan, source1 as any);
-        this.applyPan(pan, source2 as any);
-        this.applyPan(pan, source3 as any);
-        this.applyPan(pan, osc as any);
+        this.applyPan(pan, source1);
+        this.applyPan(pan, source2);
+        this.applyPan(pan, source3);
+        this.applyPan(pan, osc);
     }
 
     /**
@@ -269,9 +291,9 @@ export class ProceduralSoundSystem {
         const string = this.tone('triangle', 280, 0.005, 0.18, volume * 0.6);
         const body = this.tone('sine', 140, 0.01, 0.25, volume * 0.2);
 
-        this.applyPan(pan, snap as any);
-        this.applyPan(pan, string as any);
-        this.applyPan(pan, body as any);
+        this.applyPan(pan, snap);
+        this.applyPan(pan, string);
+        this.applyPan(pan, body);
     }
 
     /**
@@ -298,11 +320,11 @@ export class ProceduralSoundSystem {
         oscGain.gain.setValueAtTime(finalVol * 0.3, ctx2.currentTime);
         oscGain.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.6);
         osc.connect(oscGain);
-        this.playSource(osc as any, this.masterGain!, 0.7);
+        this.scheduleSource(osc, 0.7);
 
-        this.applyPan(pan, rumble as any);
-        this.applyPan(pan, exhale as any);
-        this.applyPan(pan, oscGain as any);
+        this.applyPan(pan, rumble);
+        this.applyPan(pan, exhale);
+        this.applyPan(pan, oscGain);
     }
 
     /**
@@ -320,9 +342,9 @@ export class ProceduralSoundSystem {
         const earth = this.noiseBurst('lowpass', Math.min(filterFreq, 200), 1, 0.02, 0.4, volume * 0.6);
         const stone = this.noiseBurst('bandpass', Math.min(filterFreq, 1500), 2, 0.005, 0.1, volume * 0.3);
 
-        this.applyPan(pan, thud as any);
-        this.applyPan(pan, earth as any);
-        this.applyPan(pan, stone as any);
+        this.applyPan(pan, thud);
+        this.applyPan(pan, earth);
+        this.applyPan(pan, stone);
     }
 
     /**
@@ -347,11 +369,12 @@ export class ProceduralSoundSystem {
             g.gain.exponentialRampToValueAtTime(volume, t + 0.01);
             g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
             thud.connect(g);
-            this.playSource(thud as any, this.masterGain!, 0.15);
+            this.scheduleSource(thud, 0.15);
+            this.applyPan(pan, g);
         }
 
         const creak = this.noiseBurst('bandpass', Math.min(filterFreq, 800), 3, 0.02, 0.15, volume * 0.4);
-        this.applyPan(pan, creak as any);
+        this.applyPan(pan, creak);
     }
 
     /**
@@ -380,16 +403,15 @@ export class ProceduralSoundSystem {
             g.gain.exponentialRampToValueAtTime(0.001, t + 0.5 + i * 0.1);
             burst.connect(filter);
             filter.connect(g);
-            burst.start(t);
-            burst.stop(t + 0.6 + i * 0.1);
-            this.activeSources.push(burst);
+            this.applyPan(pan, g);
+            this.scheduleSource(burst, 0.6 + i * 0.1);
         }
 
         const grind = this.noiseBurst('bandpass', 300, 4, 0.05, 0.4, volume * 0.3);
-        this.applyPan(pan, grind as any);
+        this.applyPan(pan, grind);
 
         const thud = this.tone('sine', 45, 0.02, 0.6, volume * 0.5);
-        this.applyPan(pan, thud as any);
+        this.applyPan(pan, thud);
     }
 
     /**
@@ -421,13 +443,14 @@ export class ProceduralSoundSystem {
         g.gain.exponentialRampToValueAtTime(volume * 0.5, ctx2.currentTime + 0.01);
         g.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.2);
         osc.connect(g);
-        this.playSource(osc as any, this.masterGain!, 0.25);
-        this.playSource(lfo as any, this.masterGain!, 0.25);
+        this.scheduleSource(osc, 0.25);
+        this.scheduleSource(lfo, 0.25);
+        this.applyPan(pan, g);
 
         const crack = this.noiseBurst('highpass', 2000, 1, 0.002, 0.08, volume * 0.3);
 
-        this.applyPan(pan, impact as any);
-        this.applyPan(pan, crack as any);
+        this.applyPan(pan, impact);
+        this.applyPan(pan, crack);
     }
 
     /**
@@ -439,8 +462,11 @@ export class ProceduralSoundSystem {
 
         const volume = 0.08;
 
-        const _tick = this.noiseBurst('highpass', 3000, 1, 0.001, 0.02, volume);
-        const _click = this.tone('sine', 1200, 0.002, 0.03, volume * 0.5);
+        const tick = this.noiseBurst('highpass', 3000, 1, 0.001, 0.02, volume);
+        const click = this.tone('sine', 1200, 0.002, 0.03, volume * 0.5);
+
+        this.applyPan(0, tick);
+        this.applyPan(0, click);
     }
 
     /**
@@ -464,9 +490,9 @@ export class ProceduralSoundSystem {
         g.gain.exponentialRampToValueAtTime(volume, ctx2.currentTime + 0.01);
         g.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.12);
         osc.connect(g);
-        this.playSource(osc as any, this.masterGain!, 0.15);
+        this.scheduleSource(osc, 0.15);
 
-        this.applyPan(pan, g as any);
+        this.applyPan(pan, g);
     }
 
     /**
@@ -498,7 +524,7 @@ export class ProceduralSoundSystem {
         g1.gain.exponentialRampToValueAtTime(0.001, now + 3.0);
         osc1.connect(filter1);
         filter1.connect(g1);
-        this.playSource(osc1 as any, this.masterGain!, 3.2);
+        this.scheduleSource(osc1, 3.2);
 
         const osc2 = ctx2.createOscillator();
         osc2.type = 'sawtooth';
@@ -510,7 +536,7 @@ export class ProceduralSoundSystem {
         g2.gain.setValueAtTime(volume * 0.25, now + 1.5);
         g2.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
         osc2.connect(g2);
-        this.playSource(osc2 as any, this.masterGain!, 2.7);
+        this.scheduleSource(osc2, 2.7);
 
         const rumble = ctx2.createOscillator();
         rumble.type = 'sine';
@@ -520,17 +546,21 @@ export class ProceduralSoundSystem {
         rg.gain.exponentialRampToValueAtTime(volume * 0.6, now + 0.3);
         rg.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
         rumble.connect(rg);
-        this.playSource(rumble as any, this.masterGain!, 2.2);
+        this.scheduleSource(rumble, 2.2);
 
-        this.applyPan(pan, g1 as any);
-        this.applyPan(pan, g2 as any);
-        this.applyPan(pan, rg as any);
+        this.applyPan(pan, g1);
+        this.applyPan(pan, g2);
+        this.applyPan(pan, rg);
     }
 
     /**
      * Start continuous ambient wind loop.
      */
     public startAmbientWind(): void {
+        // Stop any existing wind loop first so restart / setMuted(false)
+        // cannot stack windNode + windLfo loops (P2b).
+        this.stopAmbientWind();
+
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
 
