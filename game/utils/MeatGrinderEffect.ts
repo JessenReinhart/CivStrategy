@@ -8,6 +8,7 @@ import { toIso } from './iso';
 
 const CLASH_COOLDOWN_MS = 400;
 let _lastClashAt = 0;
+let _bloomPulseActive = false;
 
 export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: number): void {
     // Cooldown — only one clash per 400ms to prevent effect stacking
@@ -44,14 +45,19 @@ export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: 
         scene.time.delayedCall(900, () => dust.destroy());
     }
 
-    // 3. Subtle bloom pulse — very brief, barely noticeable
+    // 3. Subtle bloom pulse — very brief, barely noticeable.
+    // Driven through the atmospheric system (the only path that affects
+    // on-screen bloom). We restore to the LIVE user bloom value at expiry so a
+    // bloom-slider change during the pulse is not clobbered by a stale baseline,
+    // and guard with a single active pulse so overlapping clashes don't stack.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyScene = scene as any;
-    if (anyScene.atmosphericSystem) {
-        const original = anyScene.bloomIntensity;
-        anyScene.bloomIntensity = Math.min(2.0, original + 0.3);
+    if (anyScene.atmosphericSystem && !_bloomPulseActive) {
+        _bloomPulseActive = true;
+        anyScene.atmosphericSystem.setBloomIntensity(Math.min(2.0, anyScene.bloomIntensity + 0.3));
         scene.time.delayedCall(600, () => {
-            anyScene.bloomIntensity = original;
+            _bloomPulseActive = false;
+            anyScene.atmosphericSystem.setBloomIntensity(anyScene.bloomIntensity);
         });
     }
 
