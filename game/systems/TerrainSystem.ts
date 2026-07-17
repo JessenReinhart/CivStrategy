@@ -172,29 +172,40 @@ export class TerrainSystem {
     const w = this.gridWidth;
     const h = this.gridHeight;
 
-    for (let gy = 0; gy < h; gy++) {
-      for (let gx = 0; gx < w; gx++) {
-        const height = this.heightGrid[gy * w + gx];
-        const wx = gx * cellSize;
-        const wy = gy * cellSize;
+      for (let gy = 0; gy < h; gy++) {
+        for (let gx = 0; gx < w; gx++) {
+          const height = this.heightGrid[gy * w + gx];
+          const wx = gx * cellSize;
+          const wy = gy * cellSize;
 
-        // Map height to brightness tint
-        const brightness = TERRAIN_CONFIG.VALLEY_TINT + height * (TERRAIN_CONFIG.PEAK_TINT - TERRAIN_CONFIG.VALLEY_TINT);
+          // Map height to brightness tint
+          const brightness = TERRAIN_CONFIG.VALLEY_TINT + height * (TERRAIN_CONFIG.PEAK_TINT - TERRAIN_CONFIG.VALLEY_TINT);
 
-        // Convert to RGB multiplier
-        const r = Math.min(255, Math.floor(128 * brightness));
-        const g = Math.min(255, Math.floor(160 * brightness));
-        const b = Math.min(255, Math.floor(80 * brightness));
+          // Convert to RGB multiplier
+          const r = Math.min(255, Math.floor(128 * brightness));
+          const g = Math.min(255, Math.floor(160 * brightness));
+          const b = Math.min(255, Math.floor(80 * brightness));
 
-        // Draw a filled ellipse for each cell in iso space
-        const { x: isoX, y: isoY } = toIso(wx + cellSize / 2, wy + cellSize / 2);
-        const alpha = 0.15 + height * 0.2; // More opacity for higher ground
-        const color = Phaser.Display.Color.GetColor(r, g, b);
+          // Draw a contiguous iso-quad per cell. Each cell's world-space square
+          // maps to a diamond in iso space; adjacent cells share exact corner
+          // points so the tint tiles seamlessly (no discrete ellipse/rect shapes).
+          const c0 = toIso(wx, wy);
+          const c1 = toIso(wx + cellSize, wy);
+          const c2 = toIso(wx + cellSize, wy + cellSize);
+          const c3 = toIso(wx, wy + cellSize);
+          const alpha = 0.15 + height * 0.2; // More opacity for higher ground
+          const color = Phaser.Display.Color.GetColor(r, g, b);
 
-        this.visualGraphics.fillStyle(color, alpha);
-        this.visualGraphics.fillEllipse(isoX, isoY, cellSize * 1.5, cellSize * 0.75);
+          this.visualGraphics.fillStyle(color, alpha);
+          this.visualGraphics.beginPath();
+          this.visualGraphics.moveTo(c0.x, c0.y);
+          this.visualGraphics.lineTo(c1.x, c1.y);
+          this.visualGraphics.lineTo(c2.x, c2.y);
+          this.visualGraphics.lineTo(c3.x, c3.y);
+          this.visualGraphics.closePath();
+          this.visualGraphics.fillPath();
+        }
       }
-    }
   }
 
 
