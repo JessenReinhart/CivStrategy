@@ -1,5 +1,15 @@
 
 import Phaser from 'phaser';
+import groundImg from '../assets/textures/ground.jpg';
+import fieldImg from '../assets/textures/field.png';
+import lumberImg from '../assets/textures/lumber.png';
+import townhallImg from '../assets/textures/townhall.png';
+import flareImg from '../assets/textures/flare.png';
+import treeImg from '../assets/textures/tree.png';
+import stumpImg from '../assets/textures/stump.png';
+import houseImg from '../assets/textures/house.png';
+import lodgeImg from '../assets/textures/lodge.png';
+import smokeImg from '../assets/textures/smoke.png';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
 import { toIso } from './utils/iso';
@@ -136,16 +146,16 @@ export class MainScene extends Phaser.Scene {
       window.dispatchEvent(new CustomEvent('game-load-complete'));
     });
 
-    this.load.image('ground', 'https://i.imgur.com/4P6C0Q3.jpeg');
-    this.load.image('lumber', 'https://i.imgur.com/SyKc69J.png');
-    this.load.image('townhall', 'https://i.imgur.com/kMBtb9W.png');
-    this.load.image('field', 'https://i.imgur.com/uPjycje.png');
-    this.load.image('flare', 'https://labs.phaser.io/assets/particles/flare.png');
-    this.load.image('tree', 'https://i.imgur.com/tYIgx0v.png');
-    this.load.image('stump', 'https://i.imgur.com/bEjOzbv.png');
-    this.load.image('house', 'https://i.imgur.com/Ix1nDUv.png');
-    this.load.image('lodge', 'https://i.ibb.co.com/4nGGymPZ/hunterslodge.png');
-    this.load.image('smoke', 'https://labs.phaser.io/assets/particles/smoke-puff.png');
+    this.load.image('ground', groundImg);
+    this.load.image('lumber', lumberImg);
+    this.load.image('townhall', townhallImg);
+    this.load.image('field', fieldImg);
+    this.load.image('flare', flareImg);
+    this.load.image('tree', treeImg);
+    this.load.image('stump', stumpImg);
+    this.load.image('house', houseImg);
+    this.load.image('lodge', lodgeImg);
+    this.load.image('smoke', smokeImg);
   }
 
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
