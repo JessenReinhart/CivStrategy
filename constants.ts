@@ -345,17 +345,21 @@ export const TERRAIN_CONFIG = {
   HIGH_GROUND_DEFENSE_BONUS: 0.05,  // +5% defense on high ground
   HEIGHT_DIFF_THRESHOLD: 0.1,       // Minimum height diff for bonuses
   
-  // Visual — terrain relief tint (low alpha + height-tracked hue so it reads as
+  // Visual ï¿½ terrain relief tint (low alpha + height-tracked hue so it reads as
   // elevation/relief, not a flat green overlay). Valley = cool shadow, peak = warm light.
   VALLEY_COLOR: { r: 70, g: 92, b: 78 },   // shaded lowland (muted cool green)
   PEAK_COLOR:   { r: 196, g: 182, b: 140 }, // sunlit highland (warm tan)
   TINT_ALPHA_MIN: 0.05,   // barely-there shade at valley
   TINT_ALPHA_MAX: 0.14,   // subtle shade at peak
-  SLOPE_TINT: 0.5,        // how strongly slope lightens/darkens a cell
+  SLOPE_TINT: 0.5,       // how strongly slope lightens/darkens a cell
   
-  // Generation
-  BASE_SCALE: 0.008,
-  DETAIL_SCALE: 0.03,
-  BASE_AMPLITUDE: 1.0,
-  DETAIL_AMPLITUDE: 0.3
-};
+  // Water layer (FIXED map only): cells with height < WATER_LEVEL get an
+  // animated water surface; shoreline follows the heightmap, not a flat rect.
+  WATER_LEVEL: 0.30,   // 0.38 was too high (Perlin clusters ~0.4-0.6) -> no visible water
+  
+   // Generation
+   BASE_SCALE: 0.008,
+   DETAIL_SCALE: 0.03,
+   BASE_AMPLITUDE: 1.0,
+   DETAIL_AMPLITUDE: 0.3
+ };

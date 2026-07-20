@@ -10,7 +10,8 @@ import stumpImg from '../assets/textures/stump.png';
 import houseImg from '../assets/textures/house.png';
 import lodgeImg from '../assets/textures/lodge.png';
 import smokeImg from '../assets/textures/smoke.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge } from '../constants';
+import waterShaderSrc from '../assets/shaders/water.frag?raw';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, TERRAIN_CONFIG } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
 import { toIso } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
@@ -110,6 +111,9 @@ export class MainScene extends Phaser.Scene {
   public proceduralSound!: ProceduralSoundSystem;
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
+  // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
+  private waterShader: Phaser.GameObjects.Shader | null = null;
+  private waterTimeLogged: boolean = false; // one-time iTime log guard
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -156,6 +160,10 @@ export class MainScene extends Phaser.Scene {
     this.load.image('house', houseImg);
     this.load.image('lodge', lodgeImg);
     this.load.image('smoke', smokeImg);
+
+    // Register the water surface fragment shader (raw-imported so it bundles in
+    // the production build). Wrap in BaseShader so it resolves via add.shader().
+    this.cache.shader.add('waterShader', new Phaser.Display.BaseShader('waterShader', waterShaderSrc));
   }
 
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
@@ -163,6 +171,7 @@ export class MainScene extends Phaser.Scene {
   init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
+
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     this.peacefulMode = data.peacefulMode === true;
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
@@ -255,6 +264,63 @@ export class MainScene extends Phaser.Scene {
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
+      // ── Water layer (FIXED map only) ─────────────────────────────────────
+      // Heightmask: 1px-per-grid-cell grayscale (round(height*255)) so the
+      // shader can sample terrain height by normalized uv and discard land.
+      const dim = this.terrainSystem.getGridDimensions();
+      const grid = this.terrainSystem.getHeightMapData();
+      // eslint-disable-next-line no-console
+      console.log('[Water] grid:', dim.width + 'x' + dim.height, '| map:', this.mapWidth + 'x' + this.mapHeight, '| WATER_LEVEL:', TERRAIN_CONFIG.WATER_LEVEL);
+
+      const mask = this.add.renderTexture(0, 0, dim.width, dim.height);
+      const maskGfx = this.make.graphics({ x: 0, y: 0 });
+      let minV = Infinity, maxV = -Infinity, below = 0;
+      for (let gy = 0; gy < dim.height; gy++) {
+        for (let gx = 0; gx < dim.width; gx++) {
+          const hgt = grid[gy * dim.width + gx];
+          const v = Math.round(hgt * 255);
+          if (hgt < minV) minV = hgt;
+          if (hgt > maxV) maxV = hgt;
+          if (hgt < TERRAIN_CONFIG.WATER_LEVEL) below++;
+          maskGfx.fillStyle(Phaser.Display.Color.GetColor(v, v, v), 1);
+          maskGfx.fillRect(gx, gy, 1, 1);
+        }
+      }
+      mask.draw(maskGfx);
+      maskGfx.destroy();
+      // eslint-disable-next-line no-console
+      console.log('[Water] mask drawn | height range:', minV.toFixed(3), '..', maxV.toFixed(3),
+        '| cells<WATER_LEVEL:', below, '/', grid.length, '(', (100 * below / grid.length).toFixed(1), '%)');
+
+      // eslint-disable-next-line no-console
+      console.log('[Water] maskTex BEFORE saveTexture:', this.textures.exists('waterHeightMask') ? 'exists' : 'absent');
+      mask.saveTexture('waterHeightMask'); // key must exist before shader binds it
+      // eslint-disable-next-line no-console
+      console.log('[Water] maskTex AFTER saveTexture:', this.textures.exists('waterHeightMask') ? 'exists' : 'MISSING');
+      mask.destroy(); // texture key persists in the Texture Manager
+      // eslint-disable-next-line no-console
+      console.log('[Water] maskTex AFTER mask.destroy():', this.textures.exists('waterHeightMask') ? 'exists (persists)' : 'MISSING (destroyed!)');
+
+      try {
+        const water = this.add.shader(
+          'waterShader', 0, 0, this.mapWidth, this.mapHeight, ['waterHeightMask']
+        );
+        water.setOrigin(0, 0); // span (0,0)..(mapWidth,mapHeight) over the map
+        water.setDepth(-9000); // above terrain tint (-10000), below entities
+        water.setUniform('waterLevel.value', TERRAIN_CONFIG.WATER_LEVEL);
+        // iTime is updated each frame in update(); iResolution removed (frag uses quad-local outTexCoord)
+        this.waterShader = water;
+        // eslint-disable-next-line no-console
+        console.log('[Water] shader CREATED | size:', this.mapWidth + 'x' + this.mapHeight,
+          '| depth:', water.depth, '| iChannel0 bound to: waterHeightMask');
+      } catch (err) {
+        // A shader compile/runtime error must NOT abort create() — entity
+        // spawns (town center, villagers, forests) run next and must not break.
+        console.error('[Water] ❌ shader FAILED to init; water layer disabled.', err);
+        this.waterShader = null;
+      }
+      if (!this.waterShader) console.warn('[Water] ⚠️ waterShader is NULL — no water will render. See error above.');
+      this.waterTimeLogged = false; // for one-time iTime confirmation in update()
       this.mapGenerationSystem.createEnvironment();
       this.mapGenerationSystem.generateFertileZones();
       this.mapGenerationSystem.generateForestsAndAnimals();
@@ -436,6 +502,15 @@ export class MainScene extends Phaser.Scene {
     const frameStart = performance.now();
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
+    // Animate the water surface.
+    if (this.waterShader) {
+      this.waterShader.setUniform('iTime.value', time * 0.001);
+      if (!this.waterTimeLogged) {
+        // eslint-disable-next-line no-console
+        console.log('[Water] iTime driving animation | first iTime=', (time * 0.001).toFixed(2), 's');
+        this.waterTimeLogged = true;
+      }
+    }
 
     if (this.debugMode) {
       // const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
