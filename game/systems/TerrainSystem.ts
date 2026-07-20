@@ -171,41 +171,55 @@ export class TerrainSystem {
     const cellSize = TERRAIN_CONFIG.CELL_SIZE;
     const w = this.gridWidth;
     const h = this.gridHeight;
+    const { VALLEY_COLOR: vc, PEAK_COLOR: pc, TINT_ALPHA_MIN: aMin, TINT_ALPHA_MAX: aMax, SLOPE_TINT: slopeK } = TERRAIN_CONFIG;
 
-      for (let gy = 0; gy < h; gy++) {
-        for (let gx = 0; gx < w; gx++) {
-          const height = this.heightGrid[gy * w + gx];
-          const wx = gx * cellSize;
-          const wy = gy * cellSize;
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        const idx = gy * w + gx;
+        const height = this.heightGrid[idx];
+        const wx = gx * cellSize;
+        const wy = gy * cellSize;
 
-          // Map height to brightness tint
-          const brightness = TERRAIN_CONFIG.VALLEY_TINT + height * (TERRAIN_CONFIG.PEAK_TINT - TERRAIN_CONFIG.VALLEY_TINT);
+        // Height -> [0,1] elevation factor
+        const t = (height - TERRAIN_CONFIG.MIN_HEIGHT) / (TERRAIN_CONFIG.MAX_HEIGHT - TERRAIN_CONFIG.MIN_HEIGHT);
 
-          // Convert to RGB multiplier
-          const r = Math.min(255, Math.floor(128 * brightness));
-          const g = Math.min(255, Math.floor(160 * brightness));
-          const b = Math.min(255, Math.floor(80 * brightness));
+        // Base hue tracks elevation: cool shadowed lowland -> warm sunlit highland
+        let r = vc.r + (pc.r - vc.r) * t;
+        let g = vc.g + (pc.g - vc.g) * t;
+        let b = vc.b + (pc.b - vc.b) * t;
 
-          // Draw a contiguous iso-quad per cell. Each cell's world-space square
-          // maps to a diamond in iso space; adjacent cells share exact corner
-          // points so the tint tiles seamlessly (no discrete ellipse/rect shapes).
-          const c0 = toIso(wx, wy);
-          const c1 = toIso(wx + cellSize, wy);
-          const c2 = toIso(wx + cellSize, wy + cellSize);
-          const c3 = toIso(wx, wy + cellSize);
-          const alpha = 0.15 + height * 0.2; // More opacity for higher ground
-          const color = Phaser.Display.Color.GetColor(r, g, b);
+        // Slope shading: a cell higher than its neighbours reads as lit/convex;
+        // lower reads as shaded. Gives 3D relief instead of a flat green sheet.
+        const n = (
+          (gx > 0 ? this.heightGrid[idx - 1] : height) +
+          (gx < w - 1 ? this.heightGrid[idx + 1] : height) +
+          (gy > 0 ? this.heightGrid[idx - w] : height) +
+          (gy < h - 1 ? this.heightGrid[idx + w] : height)
+        ) * 0.25;
+        const shade = Math.max(0.6, Math.min(1.4, 1 + (height - n) * slopeK));
+        r = Math.min(255, Math.floor(r * shade));
+        g = Math.min(255, Math.floor(g * shade));
+        b = Math.min(255, Math.floor(b * shade));
 
-          this.visualGraphics.fillStyle(color, alpha);
-          this.visualGraphics.beginPath();
-          this.visualGraphics.moveTo(c0.x, c0.y);
-          this.visualGraphics.lineTo(c1.x, c1.y);
-          this.visualGraphics.lineTo(c2.x, c2.y);
-          this.visualGraphics.lineTo(c3.x, c3.y);
-          this.visualGraphics.closePath();
-          this.visualGraphics.fillPath();
-        }
+        // Contiguous iso-quad per cell; adjacent cells share exact corners so the
+        // tint tiles seamlessly (no discrete ellipse/rect shapes).
+        const c0 = toIso(wx, wy);
+        const c1 = toIso(wx + cellSize, wy);
+        const c2 = toIso(wx + cellSize, wy + cellSize);
+        const c3 = toIso(wx, wy + cellSize);
+        const alpha = aMin + (aMax - aMin) * t; // subtle, height-weighted shade
+        const color = Phaser.Display.Color.GetColor(r, g, b);
+
+        this.visualGraphics.fillStyle(color, alpha);
+        this.visualGraphics.beginPath();
+        this.visualGraphics.moveTo(c0.x, c0.y);
+        this.visualGraphics.lineTo(c1.x, c1.y);
+        this.visualGraphics.lineTo(c2.x, c2.y);
+        this.visualGraphics.lineTo(c3.x, c3.y);
+        this.visualGraphics.closePath();
+        this.visualGraphics.fillPath();
       }
+    }
   }
 
 
