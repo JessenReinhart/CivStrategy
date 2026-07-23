@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
-import { BUILDINGS, EVENTS, TILE_SIZE } from '../../constants';
+import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
 
 export class BuildingManager {
@@ -293,6 +293,23 @@ export class BuildingManager {
         const slopeInfo = this.scene.terrainSystem.getSlopeAt(x, y);
         if (!slopeInfo.isBuildable) {
             return { valid: false, reason: "Terrain too steep" };
+        }
+
+        // Reject water (center + footprint corners)
+        const waterLevel = TERRAIN_CONFIG.WATER_LEVEL;
+        const hw = def.width / 2;
+        const hh = def.height / 2;
+        const samplePts: [number, number][] = [
+            [x, y],
+            [x - hw, y - hh],
+            [x + hw, y - hh],
+            [x - hw, y + hh],
+            [x + hw, y + hh],
+        ];
+        for (const [sx, sy] of samplePts) {
+            if (this.scene.terrainSystem.getHeightAt(sx, sy) < waterLevel) {
+                return { valid: false, reason: "Cannot build on water" };
+            }
         }
 
         return { valid: true };

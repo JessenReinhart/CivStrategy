@@ -167,6 +167,7 @@ export class TerrainSystem {
 
     this.visualGraphics = this.scene.add.graphics();
     this.visualGraphics.setDepth(-10000); // Below trees, above ground layer
+    if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualGraphics);
 
     const cellSize = TERRAIN_CONFIG.CELL_SIZE;
     const w = this.gridWidth;

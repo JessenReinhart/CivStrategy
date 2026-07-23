@@ -10,7 +10,6 @@ import stumpImg from '../assets/textures/stump.png';
 import houseImg from '../assets/textures/house.png';
 import lodgeImg from '../assets/textures/lodge.png';
 import smokeImg from '../assets/textures/smoke.png';
-import waterShaderSrc from '../assets/shaders/water.frag?raw';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, TERRAIN_CONFIG } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
 import { toIso } from './utils/iso';
@@ -112,8 +111,11 @@ export class MainScene extends Phaser.Scene {
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
-  private waterShader: Phaser.GameObjects.Shader | null = null;
-  private waterTimeLogged: boolean = false; // one-time iTime log guard
+  private waterGraphics: Phaser.GameObjects.Graphics | null = null;
+  private waterTimeLogged: boolean = false; // one-time wave log guard
+  private waterAnimFrame: number = 0;
+  /** Prebuilt iso water polygons (marching-squares shoreline, not solid tiles). */
+  private waterPolys: { pts: { x: number; y: number }[]; depth: number; shore: boolean }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -160,10 +162,6 @@ export class MainScene extends Phaser.Scene {
     this.load.image('house', houseImg);
     this.load.image('lodge', lodgeImg);
     this.load.image('smoke', smokeImg);
-
-    // Register the water surface fragment shader (raw-imported so it bundles in
-    // the production build). Wrap in BaseShader so it resolves via add.shader().
-    this.cache.shader.add('waterShader', new Phaser.Display.BaseShader('waterShader', waterShaderSrc));
   }
 
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
@@ -265,62 +263,117 @@ export class MainScene extends Phaser.Scene {
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
       // ── Water layer (FIXED map only) ─────────────────────────────────────
-      // Heightmask: 1px-per-grid-cell grayscale (round(height*255)) so the
-      // shader can sample terrain height by normalized uv and discard land.
+      // Iso world: shore clipped with marching-squares so edges follow height,
+      // not solid 32px diamonds (Minecraft look).
       const dim = this.terrainSystem.getGridDimensions();
       const grid = this.terrainSystem.getHeightMapData();
-      // eslint-disable-next-line no-console
-      console.log('[Water] grid:', dim.width + 'x' + dim.height, '| map:', this.mapWidth + 'x' + this.mapHeight, '| WATER_LEVEL:', TERRAIN_CONFIG.WATER_LEVEL);
+      const cellSize = dim.cellSize;
+      const level = TERRAIN_CONFIG.WATER_LEVEL;
+      this.waterPolys = [];
+      let minV = Infinity, maxV = -Infinity;
+      for (let i = 0; i < grid.length; i++) {
+        const h = grid[i];
+        if (h < minV) minV = h;
+        if (h > maxV) maxV = h;
+      }
 
-      const mask = this.add.renderTexture(0, 0, dim.width, dim.height);
-      const maskGfx = this.make.graphics({ x: 0, y: 0 });
-      let minV = Infinity, maxV = -Infinity, below = 0;
+      const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
+      const edgeIso = (
+        ax: number, ay: number, ha: number,
+        bx: number, by: number, hb: number
+      ) => {
+        const t = (level - ha) / (hb - ha);
+        return toIso(ax + (bx - ax) * t, ay + (by - ay) * t);
+      };
+
       for (let gy = 0; gy < dim.height; gy++) {
         for (let gx = 0; gx < dim.width; gx++) {
-          const hgt = grid[gy * dim.width + gx];
-          const v = Math.round(hgt * 255);
-          if (hgt < minV) minV = hgt;
-          if (hgt > maxV) maxV = hgt;
-          if (hgt < TERRAIN_CONFIG.WATER_LEVEL) below++;
-          maskGfx.fillStyle(Phaser.Display.Color.GetColor(v, v, v), 1);
-          maskGfx.fillRect(gx, gy, 1, 1);
+          const wx = gx * cellSize;
+          const wy = gy * cellSize;
+          // Corners NW, NE, SE, SW (world cartesian)
+          const h0 = sample(wx, wy);
+          const h1 = sample(wx + cellSize, wy);
+          const h2 = sample(wx + cellSize, wy + cellSize);
+          const h3 = sample(wx, wy + cellSize);
+          const m0 = h0 < level ? 1 : 0;
+          const m1 = h1 < level ? 1 : 0;
+          const m2 = h2 < level ? 1 : 0;
+          const m3 = h3 < level ? 1 : 0;
+          const mask = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
+          if (mask === 0) continue;
+
+          const c0 = toIso(wx, wy);
+          const c1 = toIso(wx + cellSize, wy);
+          const c2 = toIso(wx + cellSize, wy + cellSize);
+          const c3 = toIso(wx, wy + cellSize);
+          // Edge crossings only when adjacent corners disagree
+          const e0 = () => edgeIso(wx, wy, h0, wx + cellSize, wy, h1);
+          const e1 = () => edgeIso(wx + cellSize, wy, h1, wx + cellSize, wy + cellSize, h2);
+          const e2 = () => edgeIso(wx + cellSize, wy + cellSize, h2, wx, wy + cellSize, h3);
+          const e3 = () => edgeIso(wx, wy + cellSize, h3, wx, wy, h0);
+
+          let depthSum = 0;
+          let wetCount = 0;
+          for (const h of [h0, h1, h2, h3]) {
+            if (h < level) {
+              depthSum += (level - h) / level;
+              wetCount++;
+            }
+          }
+          const depth = Math.min(1, depthSum / Math.max(1, wetCount));
+
+          // Saddle cases (5, 10): two tris — one fillPath would self-cross.
+          if (mask === 5) {
+            this.waterPolys.push({ pts: [c0, e0(), e3()], depth, shore: true });
+            this.waterPolys.push({ pts: [c2, e1(), e2()], depth, shore: true });
+            continue;
+          }
+          if (mask === 10) {
+            this.waterPolys.push({ pts: [c1, e0(), e1()], depth, shore: true });
+            this.waterPolys.push({ pts: [c3, e2(), e3()], depth, shore: true });
+            continue;
+          }
+
+          let pts: { x: number; y: number }[];
+          switch (mask) {
+            case 1:  pts = [c0, e0(), e3()]; break;
+            case 2:  pts = [c1, e1(), e0()]; break;
+            case 3:  pts = [c0, c1, e1(), e3()]; break;
+            case 4:  pts = [c2, e2(), e1()]; break;
+            case 6:  pts = [c1, c2, e2(), e0()]; break;
+            case 7:  pts = [c0, c1, c2, e2(), e3()]; break;
+            case 8:  pts = [c3, e3(), e2()]; break;
+            case 9:  pts = [c0, e0(), e2(), c3]; break;
+            case 11: pts = [c0, c1, e1(), e2(), c3]; break;
+            case 12: pts = [c2, c3, e3(), e1()]; break;
+            case 13: pts = [c0, e0(), e1(), c2, c3]; break;
+            case 14: pts = [c1, c2, c3, e3(), e0()]; break;
+            default: pts = [c0, c1, c2, c3]; break; // 15
+          }
+
+          this.waterPolys.push({ pts, depth, shore: mask !== 15 });
         }
       }
-      mask.draw(maskGfx);
-      maskGfx.destroy();
-      // eslint-disable-next-line no-console
-      console.log('[Water] mask drawn | height range:', minV.toFixed(3), '..', maxV.toFixed(3),
-        '| cells<WATER_LEVEL:', below, '/', grid.length, '(', (100 * below / grid.length).toFixed(1), '%)');
 
+      this.waterGraphics = this.add.graphics();
+      this.waterGraphics.setDepth(-9000); // above terrain tint (-10000), below entities
+      this.worldLayer.add(this.waterGraphics); // uiCamera ignores worldLayer — prevent dual-draw over units
+      this.drawWater(0);
       // eslint-disable-next-line no-console
-      console.log('[Water] maskTex BEFORE saveTexture:', this.textures.exists('waterHeightMask') ? 'exists' : 'absent');
-      mask.saveTexture('waterHeightMask'); // key must exist before shader binds it
-      // eslint-disable-next-line no-console
-      console.log('[Water] maskTex AFTER saveTexture:', this.textures.exists('waterHeightMask') ? 'exists' : 'MISSING');
-      mask.destroy(); // texture key persists in the Texture Manager
-      // eslint-disable-next-line no-console
-      console.log('[Water] maskTex AFTER mask.destroy():', this.textures.exists('waterHeightMask') ? 'exists (persists)' : 'MISSING (destroyed!)');
-
-      try {
-        const water = this.add.shader(
-          'waterShader', 0, 0, this.mapWidth, this.mapHeight, ['waterHeightMask']
-        );
-        water.setOrigin(0, 0); // span (0,0)..(mapWidth,mapHeight) over the map
-        water.setDepth(-9000); // above terrain tint (-10000), below entities
-        water.setUniform('waterLevel.value', TERRAIN_CONFIG.WATER_LEVEL);
-        // iTime is updated each frame in update(); iResolution removed (frag uses quad-local outTexCoord)
-        this.waterShader = water;
-        // eslint-disable-next-line no-console
-        console.log('[Water] shader CREATED | size:', this.mapWidth + 'x' + this.mapHeight,
-          '| depth:', water.depth, '| iChannel0 bound to: waterHeightMask');
-      } catch (err) {
-        // A shader compile/runtime error must NOT abort create() — entity
-        // spawns (town center, villagers, forests) run next and must not break.
-        console.error('[Water] ❌ shader FAILED to init; water layer disabled.', err);
-        this.waterShader = null;
-      }
-      if (!this.waterShader) console.warn('[Water] ⚠️ waterShader is NULL — no water will render. See error above.');
-      this.waterTimeLogged = false; // for one-time iTime confirmation in update()
+      console.log(
+        '[Water] MS polys:', this.waterPolys.length, '/', grid.length,
+        '(', (100 * this.waterPolys.length / grid.length).toFixed(1), '%)',
+        '| height range:', minV.toFixed(3), '..', maxV.toFixed(3),
+        '| WATER_LEVEL:', level,
+        '| depth:', this.waterGraphics.depth
+      );
+      // Permanent water impassable mask (dual-layer; demolish won't open water)
+      this.pathfinder.applyWaterMask(
+        (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
+        level
+      );
+      this.waterTimeLogged = false;
+      this.waterAnimFrame = 0;
       this.mapGenerationSystem.createEnvironment();
       this.mapGenerationSystem.generateFertileZones();
       this.mapGenerationSystem.generateForestsAndAnimals();
@@ -489,6 +542,55 @@ export class MainScene extends Phaser.Scene {
   private profileTimings: Record<string, number> = {};
   private static readonly PROFILING_REPORT_INTERVAL = 120; // report every ~2s at 60fps
 
+  /** Redraw water polys. Phase-driven color only — geometry is static MS shoreline. */
+  private drawWater(phase: number): void {
+    const g = this.waterGraphics;
+    if (!g || this.waterPolys.length === 0) return;
+    g.clear();
+    // Shallow teal → deep navy
+    const shallow = { r: 51, g: 140, b: 179 };  // #3399B3
+    const deep = { r: 5, g: 48, b: 107 };        // #05306B
+    for (let i = 0; i < this.waterPolys.length; i++) {
+      const poly = this.waterPolys[i];
+      const pts = poly.pts;
+      if (pts.length < 3) continue;
+      const px = pts[0].x;
+      const py = pts[0].y;
+      // Multi-frequency wave: large swell + shorter ripples + diagonal chop.
+      // Interior cells share lower amp so mid-lake doesn't read as tile grid.
+      const amp = poly.shore ? 1 : 0.35;
+      const w1 = Math.sin(phase * 1.5 + px * 0.035 + py * 0.028);
+      const w2 = Math.sin(phase * 2.3 + px * 0.07 - py * 0.05);
+      const w3 = Math.sin(phase * 0.9 + (px + py) * 0.018);
+      const wave = 0.90 + amp * (0.08 * w1 + 0.03 * w2 + 0.02 * w3);
+      const t = poly.depth;
+      const glint = poly.shore
+        ? Math.max(0, w1 + w2 * 0.5) * 0.12 * (1 - t * 0.5)
+        : 0;
+      const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave + glint * 40));
+      const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave + glint * 50));
+      const b = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave + glint * 30));
+      // Shore more translucent; deep more opaque
+      const alpha = (poly.shore ? 0.58 : 0.74) + 0.18 * t;
+      g.fillStyle(Phaser.Display.Color.GetColor(r, gg, b), alpha);
+      g.beginPath();
+      g.moveTo(pts[0].x, pts[0].y);
+      for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
+      g.closePath();
+      g.fillPath();
+      // Soft foam only on clipped shoreline polys
+      if (poly.shore) {
+        const foamA = 0.18 + 0.18 * Math.max(0, w2);
+        g.lineStyle(1.25, 0xc8e8f0, foamA);
+        g.beginPath();
+        g.moveTo(pts[0].x, pts[0].y);
+        for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
+        g.closePath();
+        g.strokePath();
+      }
+    }
+  }
+
   private profileStart(_label: string): number {
     return performance.now();
   }
@@ -502,12 +604,15 @@ export class MainScene extends Phaser.Scene {
     const frameStart = performance.now();
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
-    // Animate the water surface.
-    if (this.waterShader) {
-      this.waterShader.setUniform('iTime.value', time * 0.001);
+    // Animate water color (geometry is static). Throttle redraws.
+    if (this.waterGraphics && this.waterPolys.length > 0) {
+      this.waterAnimFrame++;
+      if (this.waterAnimFrame % 3 === 0) {
+        this.drawWater(time * 0.001);
+      }
       if (!this.waterTimeLogged) {
         // eslint-disable-next-line no-console
-        console.log('[Water] iTime driving animation | first iTime=', (time * 0.001).toFixed(2), 's');
+        console.log('[Water] animating', this.waterPolys.length, 'MS polys');
         this.waterTimeLogged = true;
       }
     }

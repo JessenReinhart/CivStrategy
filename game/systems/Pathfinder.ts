@@ -75,8 +75,10 @@ interface PathRequest {
 }
 
 export class Pathfinder {
-    // Blocked cells (1D bit array for fast lookup)
+    // Building-blocked cells (1D bit array; toggled by markGrid only)
     private blocked: Uint8Array;
+    // Permanent terrain water mask — never cleared by markGrid(false)
+    private waterBlocked: Uint8Array;
     private gridCols: number;
     private gridRows: number;
 
@@ -113,6 +115,7 @@ export class Pathfinder {
         const total = this.gridCols * this.gridRows;
         
         this.blocked = new Uint8Array(total);
+        this.waterBlocked = new Uint8Array(total);
         this.costs = new Uint8Array(total);
         this.costs.fill(1); // All cells walkable by default
         
@@ -160,12 +163,25 @@ export class Pathfinder {
         // Invalidate flow field cache when grid changes
         this.flowFieldCache.clear();
     }
-
+    /** True if building or water blocks this world position. */
     public isBlocked(x: number, y: number): boolean {
         const gx = this.gridX(x);
         const gy = this.gridY(y);
         if (!this.isValid(gx, gy)) return true;
-        return this.blocked[this.idx(gx, gy)] === 1;
+        return this.isCellBlocked(this.idx(gx, gy));
+    }
+
+    /** Apply permanent water mask from height samples at pathfinder cell centers. */
+    public applyWaterMask(getHeight: (wx: number, wy: number) => number, waterLevel: number): void {
+        for (let gy = 0; gy < this.gridRows; gy++) {
+            for (let gx = 0; gx < this.gridCols; gx++) {
+                const wx = gx * CELL + CELL / 2;
+                const wy = gy * CELL + CELL / 2;
+                const i = this.idx(gx, gy);
+                this.waterBlocked[i] = getHeight(wx, wy) < waterLevel ? 1 : 0;
+            }
+        }
+        this.flowFieldCache.clear();
     }
 
     // ─── JPS Pathfinding (Jump Point Search) ──────────────────────────────
@@ -185,8 +201,8 @@ export class Pathfinder {
             return [new Phaser.Math.Vector2(end.x, end.y)];
         }
 
-        // If end is blocked, find nearest unblocked
-        if (this.blocked[this.idx(ex, ey)] === 1) {
+        // If end is blocked (building or water), find nearest unblocked
+        if (this.isCellBlocked(this.idx(ex, ey))) {
             const nearest = this.findNearestUnblockedGrid(ex, ey);
             if (!nearest) return [new Phaser.Math.Vector2(start.x, start.y)];
             return this.findPath(start, new Phaser.Math.Vector2(
@@ -195,8 +211,8 @@ export class Pathfinder {
             ));
         }
 
-        // If start is blocked, find nearest unblocked
-        if (this.blocked[this.idx(sx, sy)] === 1) {
+        // If start is blocked (building or water), find nearest unblocked
+        if (this.isCellBlocked(this.idx(sx, sy))) {
             const nearest = this.findNearestUnblockedGrid(sx, sy);
             if (!nearest) return [new Phaser.Math.Vector2(start.x, start.y)];
             // Use nearest as start
@@ -211,8 +227,8 @@ export class Pathfinder {
         const path = this.jps(sx, sy, ex, ey);
         
         if (!path || path.length === 0) {
-            // Fallback: direct path
-            return [new Phaser.Math.Vector2(end.x, end.y)];
+            // No route (e.g. water barrier) — stay put, never straight-line through blocked cells
+            return [new Phaser.Math.Vector2(start.x, start.y)];
         }
 
         this.pathsComputed++;
@@ -306,7 +322,7 @@ export class Pathfinder {
             for (let d = 0; d < 8; d++) {
                 const nx = gx + Pathfinder.DX[d];
                 const ny = gy + Pathfinder.DY[d];
-                if (this.isValid(nx, ny) && this.blocked[this.idx(nx, ny)] === 0) {
+                if (this.isValid(nx, ny) && !this.isCellBlocked(this.idx(nx, ny))) {
                     neighbors.push([nx, ny]);
                 }
             }
@@ -405,9 +421,13 @@ export class Pathfinder {
         return null;
     }
 
+    private isCellBlocked(i: number): boolean {
+        return this.blocked[i] === 1 || this.waterBlocked[i] === 1;
+    }
+
     private isWalkable(gx: number, gy: number): boolean {
         if (!this.isValid(gx, gy)) return false;
-        return this.blocked[this.idx(gx, gy)] === 0;
+        return !this.isCellBlocked(this.idx(gx, gy));
     }
 
     private reconstructPath(endIdx: number, version: number): { gx: number; gy: number }[] {
@@ -447,7 +467,7 @@ export class Pathfinder {
         const queue: number[] = [];
         const targetIdx = this.idx(tgx, tgy);
         
-        if (this.blocked[targetIdx] !== 1) {
+        if (!this.isCellBlocked(targetIdx)) {
             integration[targetIdx] = 0;
             dirX[targetIdx] = 0;
             dirY[targetIdx] = 0;
@@ -516,7 +536,7 @@ export class Pathfinder {
         if (!this.isValid(gx, gy)) return null;
         
         const idx = this.idx(gx, gy);
-        if (this.blocked[idx] === 1) return null;
+        if (this.isCellBlocked(idx)) return null;
 
         const dx = flowField.dirX[idx];
         const dy = flowField.dirY[idx];

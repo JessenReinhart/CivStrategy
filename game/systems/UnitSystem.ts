@@ -316,7 +316,8 @@ export class UnitSystem {
                 : new Phaser.Math.Vector2(unit.x, unit.y);
 
             const path = this.scene.pathfinder.findPath(startPos, unitTarget);
-            if (path) {
+            // Stay-put ([start] only) means no route — do not assign fake path
+            if (path && path.length > 1) {
                 if (queue && unit.path) {
                     unit.path = unit.path.concat(path);
                 } else {
@@ -453,8 +454,8 @@ export class UnitSystem {
         const speed = baseSpeed * multiplier;
 
         if (!dir || (dir.x === 0 && dir.y === 0)) {
-            // Direct steering fallback (no flow direction)
-            this.scene.physics.moveTo(unit, unit.flowTarget.x, unit.flowTarget.y, speed);
+            // No flow (on water/blocked or field hole) — stop; never straight-line through water
+            if (body) body.setVelocity(0, 0);
             return;
         }
 
@@ -745,33 +746,30 @@ export class UnitSystem {
         } else {
             unit.state = UnitState.CHASING;
 
-            // Proximity chase: direct movement for close targets
-            if (dist < 200) {
-                unit.path = null;
-                const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
-                this.scene.physics.moveTo(unit, target.x, target.y, speed);
-            } else {
-                // Long-range chase: recalculate path periodically
-                const lastRecalc = unit.getData('_lastPathRecalc') as number || 0;
-                if (!unit.path || unit.path.length === 0 || (this.scene.time.now - lastRecalc > _PATH_RECALC_INTERVAL)) {
-                    unit.setData('_lastPathRecalc', this.scene.time.now);
-                    const path = this.scene.pathfinder.findPath(
-                        new Phaser.Math.Vector2(unit.x, unit.y),
-                        new Phaser.Math.Vector2(target.x, target.y)
-                    );
-                    if (path) {
-                        unit.path = path;
-                        unit.pathStep = 0;
-                        unit.pathCreatedAt = time;
-                    }
-                }
-
-                if (unit.path && unit.path.length > 0) {
-                    this.moveAlongPath(unit);
+            // Always pathfind; never physics.moveTo straight through water/buildings
+            const lastRecalc = unit.getData('_lastPathRecalc') as number || 0;
+            const recalcMs = dist < 200 ? 150 : _PATH_RECALC_INTERVAL;
+            if (!unit.path || unit.path.length === 0 || (this.scene.time.now - lastRecalc > recalcMs)) {
+                unit.setData('_lastPathRecalc', this.scene.time.now);
+                const path = this.scene.pathfinder.findPath(
+                    new Phaser.Math.Vector2(unit.x, unit.y),
+                    new Phaser.Math.Vector2(target.x, target.y)
+                );
+                // Stay-put path is [start] only — treat as no path
+                if (path && path.length > 1) {
+                    unit.path = path;
+                    unit.pathStep = 0;
+                    unit.pathCreatedAt = time;
                 } else {
-                    const speed = UNIT_SPEED[unit.unitType as UnitType] || 100;
-                    this.scene.physics.moveTo(unit, target.x, target.y, speed);
+                    unit.path = null;
+                    body.setVelocity(0, 0);
                 }
+            }
+
+            if (unit.path && unit.path.length > 0) {
+                this.moveAlongPath(unit);
+            } else {
+                body.setVelocity(0, 0);
             }
         }
     }
