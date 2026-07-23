@@ -459,10 +459,20 @@ export class UnitSystem {
             return;
         }
 
-        // Blend flow direction (70%) + direct bias (30%)
+        // Blend flow (70%) + direct bias (30%); zero bias if it points into blocked/water
         const toTargetLen = dist;
-        const blendX = dir.x * 0.7 + (toTargetLen > 1 ? (-dx / toTargetLen) * 0.3 : 0);
-        const blendY = dir.y * 0.7 + (toTargetLen > 1 ? (-dy / toTargetLen) * 0.3 : 0);
+        let biasX = 0;
+        let biasY = 0;
+        if (toTargetLen > 1) {
+            biasX = -dx / toTargetLen;
+            biasY = -dy / toTargetLen;
+            if (this.scene.pathfinder.isBlocked(unit.x + biasX * 24, unit.y + biasY * 24)) {
+                biasX = 0;
+                biasY = 0;
+            }
+        }
+        const blendX = dir.x * 0.7 + biasX * 0.3;
+        const blendY = dir.y * 0.7 + biasY * 0.3;
         const blendLen = Math.sqrt(blendX * blendX + blendY * blendY);
 
         if (body && blendLen > 0.001) {
@@ -482,7 +492,8 @@ export class UnitSystem {
                 : new Phaser.Math.Vector2(unit.x, unit.y);
 
             const startPath = this.scene.pathfinder.findPath(startPos, pathPoints[0]);
-            if (startPath) {
+            // Stay-put ([start] only) means no route — seed with current pos only
+            if (startPath && startPath.length > 1) {
                 fullPath = startPath;
             } else {
                 fullPath = [new Phaser.Math.Vector2(startPos.x, startPos.y)];
@@ -490,7 +501,7 @@ export class UnitSystem {
 
             for (let i = 0; i < pathPoints.length - 1; i++) {
                 const segment = this.scene.pathfinder.findPath(pathPoints[i], pathPoints[i + 1]);
-                if (segment && segment.length > 0) {
+                if (segment && segment.length > 1) {
                     const lastPoint = fullPath[fullPath.length - 1];
                     const startIdx = (lastPoint && Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, segment[0].x, segment[0].y) < 2) ? 1 : 0;
                     for (let j = startIdx; j < segment.length; j++) {
@@ -714,7 +725,7 @@ export class UnitSystem {
                         new Phaser.Math.Vector2(unit.x, unit.y),
                         new Phaser.Math.Vector2(anchor.x, anchor.y)
                     );
-                    if (path) {
+                    if (path && path.length > 1) {
                         unit.path = path;
                         unit.pathStep = 0;
                         unit.pathCreatedAt = time;

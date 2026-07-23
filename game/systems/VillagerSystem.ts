@@ -118,7 +118,7 @@ export class VillagerSystem {
             new Phaser.Math.Vector2(b.x, b.y)
         );
 
-        if (path) {
+        if (path && path.length > 1) {
             villager.path = path;
             villager.pathStep = 0;
         }
@@ -165,7 +165,7 @@ export class VillagerSystem {
             new Phaser.Math.Vector2(rallyX, rallyY)
         );
 
-        if (path) {
+        if (path && path.length > 1) {
             villager.path = path;
             villager.pathStep = 0;
         }
