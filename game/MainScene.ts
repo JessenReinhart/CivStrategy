@@ -550,23 +550,27 @@ export class MainScene extends Phaser.Scene {
     // Shallow teal → deep navy
     const shallow = { r: 51, g: 140, b: 179 };  // #3399B3
     const deep = { r: 5, g: 48, b: 107 };        // #05306B
+    // One global swell for the whole lake — no per-poly spatial sample
+    // (pts[0] wave made mask-15 quads flash as giant tiles).
+    const globalSwell = 0.97 + 0.03 * Math.sin(phase * 0.7);
     for (let i = 0; i < this.waterPolys.length; i++) {
       const poly = this.waterPolys[i];
       const pts = poly.pts;
       if (pts.length < 3) continue;
-      const px = pts[0].x;
-      const py = pts[0].y;
-      // Multi-frequency wave: large swell + shorter ripples + diagonal chop.
-      // Interior cells share lower amp so mid-lake doesn't read as tile grid.
-      const amp = poly.shore ? 1 : 0.35;
-      const w1 = Math.sin(phase * 1.5 + px * 0.035 + py * 0.028);
-      const w2 = Math.sin(phase * 2.3 + px * 0.07 - py * 0.05);
-      const w3 = Math.sin(phase * 0.9 + (px + py) * 0.018);
-      const wave = 0.90 + amp * (0.08 * w1 + 0.03 * w2 + 0.02 * w3);
       const t = poly.depth;
-      const glint = poly.shore
-        ? Math.max(0, w1 + w2 * 0.5) * 0.12 * (1 - t * 0.5)
-        : 0;
+      let wave = globalSwell;
+      let glint = 0;
+      let w2 = 0;
+      if (poly.shore) {
+        // Spatial wave only on clipped shoreline polys (small, edge-local)
+        const px = pts[0].x;
+        const py = pts[0].y;
+        const w1 = Math.sin(phase * 1.5 + px * 0.035 + py * 0.028);
+        w2 = Math.sin(phase * 2.3 + px * 0.07 - py * 0.05);
+        const w3 = Math.sin(phase * 0.9 + (px + py) * 0.018);
+        wave = 0.92 + 0.08 * w1 + 0.03 * w2 + 0.02 * w3;
+        glint = Math.max(0, w1 + w2 * 0.5) * 0.12 * (1 - t * 0.5);
+      }
       const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave + glint * 40));
       const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave + glint * 50));
       const b = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave + glint * 30));
