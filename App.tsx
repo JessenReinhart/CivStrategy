@@ -122,12 +122,12 @@ const [selectedCount, setSelectedCount] = useState(0);
 
     window.addEventListener('game-load-progress', progressHandler);
     window.addEventListener('game-load-complete', completeHandler);
-    window.addEventListener('start-stress-test', stressTestHandler);
+    window.addEventListener('stressTestStart', stressTestHandler);
 
     return () => {
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
-      window.removeEventListener('start-stress-test', stressTestHandler);
+      window.removeEventListener('stressTestStart', stressTestHandler);
     };
   }, []);
 
