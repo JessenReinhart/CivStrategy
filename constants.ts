@@ -330,7 +330,7 @@ export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense:
 
 // Terrain System Configuration
 export const TERRAIN_CONFIG = {
-  CELL_SIZE: 32,
+  CELL_SIZE: 8,
   MIN_HEIGHT: 0.0,
   MAX_HEIGHT: 1.0,
   MAX_BUILDABLE_SLOPE: 0.15,  // Buildings can't be placed on slopes > 15%
@@ -353,13 +353,20 @@ export const TERRAIN_CONFIG = {
   TINT_ALPHA_MAX: 0.14,   // subtle shade at peak
   SLOPE_TINT: 0.5,       // how strongly slope lightens/darkens a cell
   
-  // Water layer (FIXED map only): cells with height < WATER_LEVEL get an
-  // animated water surface; shoreline follows the heightmap, not a flat rect.
-  WATER_LEVEL: 0.30,   // 0.38 was too high (Perlin clusters ~0.4-0.6) -> no visible water
-  
-   // Generation
-   BASE_SCALE: 0.008,
+  // Water layer: cells with height < WATER_LEVEL get animated water surface.
+  // Shoreline follows the heightmap via marching squares, not flat rects.
+  // Raised from 0.30 to 0.38 + macro octave added to TerrainSystem so water
+  // forms connected bodies (lakes, ponds, rivers, coastal sea) instead of
+  // isolated puddles.
+  WATER_LEVEL: 0.38,
+
+   // Generation — multi-octave noise
+   BASE_SCALE: 0.004,         // was 0.008 — broader terrain features (wider valleys)
    DETAIL_SCALE: 0.03,
    BASE_AMPLITUDE: 1.0,
-   DETAIL_AMPLITUDE: 0.3
+   DETAIL_AMPLITUDE: 0.3,
+   // Macro-scale continental basin. At ~1 cycle per map width, creates a
+   // broad depth gradient — one side becomes a sea, the other elevated land.
+   MACRO_SCALE: 0.0015,
+   MACRO_AMPLITUDE: 0.25
  };

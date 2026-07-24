@@ -27,6 +27,8 @@ export class TerrainSystem {
     const h = this.gridHeight;
     const baseScale = TERRAIN_CONFIG.BASE_SCALE;
     const detailScale = TERRAIN_CONFIG.DETAIL_SCALE;
+    const macroScale = TERRAIN_CONFIG.MACRO_SCALE;
+    const macroAmp = TERRAIN_CONFIG.MACRO_AMPLITUDE;
 
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
@@ -34,12 +36,14 @@ export class TerrainSystem {
         const wx = gx * TERRAIN_CONFIG.CELL_SIZE + TERRAIN_CONFIG.CELL_SIZE / 2;
         const wy = gy * TERRAIN_CONFIG.CELL_SIZE + TERRAIN_CONFIG.CELL_SIZE / 2;
 
-        // Multi-octave Perlin noise
+        // Three-octave noise: macro (continental basins) + base (hills/valleys) + detail (roughness)
+        const macro = this.noise.perlin2(wx * macroScale, wy * macroScale) * macroAmp;
         const base = this.noise.perlin2(wx * baseScale, wy * baseScale);
-        const detail = this.noise.perlin2(wx * detailScale, wy * detailScale) * 0.3;
+        const detail = this.noise.perlin2(wx * detailScale, wy * detailScale) * TERRAIN_CONFIG.DETAIL_AMPLITUDE;
 
-        // Combine, shift from [-1,1] to [0,1]
-        let height = (base + detail) * 0.5 + 0.5;
+        // Combine, shift from [-1,1] to [0,1]; clamp at extremes preserves
+        // flat seabed on the continental-shelf side and flat peaks on the high side.
+        let height = (macro + base + detail) * 0.5 + 0.5;
         height = Phaser.Math.Clamp(height, 0, 1);
 
         this.heightGrid[gy * w + gx] = height;
@@ -117,7 +121,7 @@ export class TerrainSystem {
     // Directional check: sample height ahead vs behind
     // Use interpolated height for smooth transitions
     const h = this.getHeightInterpolated(wx, wy);
-    const hForward = this.getHeightInterpolated(wx + 8, wy + 8);
+    const hForward = this.getHeightInterpolated(wx + TERRAIN_CONFIG.CELL_SIZE * 0.5, wy + TERRAIN_CONFIG.CELL_SIZE * 0.5);
 
     const diffForward = hForward - h;
 

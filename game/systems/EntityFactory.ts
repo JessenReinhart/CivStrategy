@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType, UnitStance, DamageType } from '../../types';
-import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR } from '../../constants';
+import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG } from '../../constants';
 import { toIso } from '../utils/iso';
 
 export class EntityFactory {
@@ -318,6 +318,8 @@ export class EntityFactory {
 
     public spawnTree(x: number, y: number) {
         // Optimization: Use single Image instead of Container + 2 Images
+        // Don't spawn trees in water
+        if (this.scene.terrainSystem.getHeightAt(x, y) < TERRAIN_CONFIG.WATER_LEVEL) return;
         // VIRTUALIZATON: Do NOT create visual here. Store data for pool.
         const treeBase = this.scene.add.circle(x, y, 6, 0x000000, 0);
         treeBase.setVisible(false); // Invisible, logic only
