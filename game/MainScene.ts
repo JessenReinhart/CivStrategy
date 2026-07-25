@@ -10,6 +10,7 @@ import stumpImg from '../assets/textures/stump.png';
 import houseImg from '../assets/textures/house.png';
 import lodgeImg from '../assets/textures/lodge.png';
 import smokeImg from '../assets/textures/smoke.png';
+import waterFoamImg from '../assets/textures/water-foam.jpg';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, TERRAIN_CONFIG } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
 import { toIso } from './utils/iso';
@@ -161,6 +162,7 @@ export class MainScene extends Phaser.Scene {
     this.load.image('house', houseImg);
     this.load.image('lodge', lodgeImg);
     this.load.image('smoke', smokeImg);
+    this.load.image('waterFoam', waterFoamImg);
   }
 
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
@@ -328,36 +330,17 @@ export class MainScene extends Phaser.Scene {
       this.waterDepthSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0);
       this.waterDepthSprite.setDepth(-9000);
       this.worldLayer.add(this.waterDepthSprite);
-
-      // Procedural tiling wave texture (seamless sine ripples)
-      const TW = 128;
-      const waveCvs = document.createElement('canvas');
-      waveCvs.width = TW; waveCvs.height = TW;
-      const wCtx = waveCvs.getContext('2d')!;
-      const wData = wCtx.createImageData(TW, TW);
-      for (let wy = 0; wy < TW; wy++) {
-        for (let wx = 0; wx < TW; wx++) {
-          const i = (wy * TW + wx) * 4;
-          const v1 = Math.sin(wx * Math.PI / 8) * Math.sin(wy * Math.PI / 6);
-          const v2 = Math.sin((wx + wy) * Math.PI / 10);
-          const v3 = Math.sin(wx * Math.PI / 4) * Math.sin(wy * Math.PI / 3) * 0.5;
-          const v = (v1 + v2 + v3) / 2.5;
-          wData.data[i] = wData.data[i + 1] = wData.data[i + 2] = Math.floor((v + 1) * 0.5 * 255);
-          wData.data[i + 3] = 55;
-        }
-      }
-      wCtx.putImageData(wData, 0, 0);
-      if (this.textures.exists('_waterWave')) this.textures.remove('_waterWave');
-      this.textures.addCanvas('_waterWave', waveCvs);
-      this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, '_waterWave').setOrigin(0);
+      // Sea foam texture: tileScale y*0.5 matches iso ground compress (toIso y = (x+y)*0.5)
+      this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, 'waterFoam').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
-      this.waterWaveSprite.setAlpha(0.45);
+      this.waterWaveSprite.setAlpha(0.4);
+      // Scale so one 750px tile ≈ ~3 world cells in iso; y half for perspective
+      this.waterWaveSprite.setTileScale(0.35, 0.175);
       this.worldLayer.add(this.waterWaveSprite);
 
-      // BitmapMask from depth alpha — wave only over water, not whole AABB
+      // BitmapMask from depth alpha — foam only over water, not whole AABB
       const maskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
       this.waterWaveSprite.setMask(maskSprite.createBitmapMask());
-
       // Permanent water impassable mask (dual-layer; demolish won't open water)
       this.pathfinder.applyWaterMask(
         (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
@@ -550,10 +533,10 @@ export class MainScene extends Phaser.Scene {
     this.gameTime += dt;
     // Scroll wave texture for animated water surface
     if (this.waterWaveSprite) {
-      this.waterWaveSprite.tilePositionX += dt * 0.3;
-      this.waterWaveSprite.tilePositionY += dt * 0.12;
+      // Slow surface drift; ~2:1 X:Y follows iso plane
+      this.waterWaveSprite.tilePositionX += dt * 0.05;
+      this.waterWaveSprite.tilePositionY += dt * 0.025;
     }
-
     if (this.debugMode) {
       // const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
       this.debugText.setText([
