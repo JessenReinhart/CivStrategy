@@ -111,16 +111,12 @@ export class MainScene extends Phaser.Scene {
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
-  private waterGraphics: Phaser.GameObjects.Graphics | null = null;
-  private waterTimeLogged: boolean = false; // one-time wave log guard
+  private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
+  private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
+  private waterMaskGraphics: Phaser.GameObjects.Graphics | null = null;
+  private waterMask: Phaser.Display.Masks.GeometryMask | null = null;
+  private waterMaskBounds: Phaser.Geom.Rectangle | null = null;
   private waterAnimFrame: number = 0;
-  /** Prebuilt iso water polygons (marching-squares shoreline, not solid tiles). */
-  private waterPolys: { pts: { x: number; y: number }[]; depth: number; shore: boolean; minX: number; minY: number; maxX: number; maxY: number }[] = [];
-  /** Pre-computed sine lookup table (256 entries, one full cycle). */
-  private readonly sinLUT = new Float32Array(256);
-  /** Depth-band buckets for batched water rendering (20 bands, 0-19). */
-  private static readonly NUM_BANDS = 20;
-  private waterBands: { polys: { pts: { x: number; y: number }[]; depth: number; shore: boolean; minX: number; minY: number; maxX: number; maxY: number }[]; band: number }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -274,24 +270,18 @@ export class MainScene extends Phaser.Scene {
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
-      // ── Water layer (FIXED map only) ─────────────────────────────────────
-      // Iso world: shore clipped with marching-squares so edges follow height,
-      // not solid 32px diamonds (Minecraft look).
+      // ── Water layer: depth canvas + scrolling wave texture ──────────────
       const dim = this.terrainSystem.getGridDimensions();
       const grid = this.terrainSystem.getHeightMapData();
       const cellSize = dim.cellSize;
       const level = TERRAIN_CONFIG.WATER_LEVEL;
-      this.waterPolys = [];
-      // Pre-compute sine lookup for drawWater performance (avoids Math.sin per-poly)
-      const TWO_PI = Math.PI * 2;
-      for (let i = 0; i < 256; i++) this.sinLUT[i] = Math.sin(i * TWO_PI / 256);
-      let minV = Infinity, maxV = -Infinity;
-      for (let i = 0; i < grid.length; i++) {
-        const h = grid[i];
-        if (h < minV) minV = h;
-        if (h > maxV) maxV = h;
-      }
+      const shallowR = 51, shallowG = 140, shallowB = 179;
+      const deepR = 5, deepG = 48, deepB = 107;
 
+      // Collect water cells + marching-squares outline for geometry mask
+      let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
+      const waterCells: { gx: number; gy: number; depth: number }[] = [];
+      const maskPoints: { x: number; y: number }[] = [];
       const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
       const edgeIso = (
         ax: number, ay: number, ha: number,
@@ -300,12 +290,10 @@ export class MainScene extends Phaser.Scene {
         const t = (level - ha) / (hb - ha);
         return toIso(ax + (bx - ax) * t, ay + (by - ay) * t);
       };
-
       for (let gy = 0; gy < dim.height; gy++) {
         for (let gx = 0; gx < dim.width; gx++) {
           const wx = gx * cellSize;
           const wy = gy * cellSize;
-          // Corners NW, NE, SE, SW (world cartesian)
           const h0 = sample(wx, wy);
           const h1 = sample(wx + cellSize, wy);
           const h2 = sample(wx + cellSize, wy + cellSize);
@@ -314,98 +302,99 @@ export class MainScene extends Phaser.Scene {
           const m1 = h1 < level ? 1 : 0;
           const m2 = h2 < level ? 1 : 0;
           const m3 = h3 < level ? 1 : 0;
-          const mask = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
-          if (mask === 0) continue;
-
+          const mk = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
+          if (mk === 0) continue;
+          const avgH = (h0 + h1 + h2 + h3) / 4;
+          const depth = Math.min(1, (level - avgH) / level);
+          const iso = toIso(wx + cellSize / 2, wy + cellSize / 2);
+          waterCells.push({ gx, gy, depth });
+          if (iso.x < wMinX) wMinX = iso.x; if (iso.x > wMaxX) wMaxX = iso.x;
+          if (iso.y < wMinY) wMinY = iso.y; if (iso.y > wMaxY) wMaxY = iso.y;
+          // Marching-squares outline segments for geometry mask
           const c0 = toIso(wx, wy);
           const c1 = toIso(wx + cellSize, wy);
           const c2 = toIso(wx + cellSize, wy + cellSize);
           const c3 = toIso(wx, wy + cellSize);
-          // Edge crossings only when adjacent corners disagree
-          const e0 = () => edgeIso(wx, wy, h0, wx + cellSize, wy, h1);
-          const e1 = () => edgeIso(wx + cellSize, wy, h1, wx + cellSize, wy + cellSize, h2);
-          const e2 = () => edgeIso(wx + cellSize, wy + cellSize, h2, wx, wy + cellSize, h3);
-          const e3 = () => edgeIso(wx, wy + cellSize, h3, wx, wy, h0);
-
-          let depthSum = 0;
-          let wetCount = 0;
-          for (const h of [h0, h1, h2, h3]) {
-            if (h < level) {
-              depthSum += (level - h) / level;
-              wetCount++;
-            }
-          }
-          const depth = Math.min(1, depthSum / Math.max(1, wetCount));
-
-          // Saddle cases (5, 10): two tris — one fillPath would self-cross.
-          if (mask === 5) {
-            this.waterPolys.push({ pts: [c0, e0(), e3()], depth, shore: true });
-            this.waterPolys.push({ pts: [c2, e1(), e2()], depth, shore: true });
-            continue;
-          }
-          if (mask === 10) {
-            this.waterPolys.push({ pts: [c1, e0(), e1()], depth, shore: true });
-            this.waterPolys.push({ pts: [c3, e2(), e3()], depth, shore: true });
-            continue;
-          }
-
-          let pts: { x: number; y: number }[];
-          switch (mask) {
-            case 1:  pts = [c0, e0(), e3()]; break;
-            case 2:  pts = [c1, e1(), e0()]; break;
-            case 3:  pts = [c0, c1, e1(), e3()]; break;
-            case 4:  pts = [c2, e2(), e1()]; break;
-            case 6:  pts = [c1, c2, e2(), e0()]; break;
-            case 7:  pts = [c0, c1, c2, e2(), e3()]; break;
-            case 8:  pts = [c3, e3(), e2()]; break;
-            case 9:  pts = [c0, e0(), e2(), c3]; break;
-            case 11: pts = [c0, c1, e1(), e2(), c3]; break;
-            case 12: pts = [c2, c3, e3(), e1()]; break;
-            case 13: pts = [c0, e0(), e1(), c2, c3]; break;
-            case 14: pts = [c1, c2, c3, e3(), e0()]; break;
-            default: pts = [c0, c1, c2, c3]; break; // 15
-          }
-
-          { // Compute AABB for viewport culling
-            let bx0 = pts[0].x, by0 = pts[0].y, bx1 = bx0, by1 = by0;
-            for (let k = 1; k < pts.length; k++) {
-              if (pts[k].x < bx0) bx0 = pts[k].x; else if (pts[k].x > bx1) bx1 = pts[k].x;
-              if (pts[k].y < by0) by0 = pts[k].y; else if (pts[k].y > by1) by1 = pts[k].y;
-            }
-            this.waterPolys.push({ pts, depth, shore: mask !== 15, minX: bx0, minY: by0, maxX: bx1, maxY: by1 });
-          }
+          const e0 = edgeIso(wx, wy, h0, wx + cellSize, wy, h1);
+          const e1 = edgeIso(wx + cellSize, wy, h1, wx + cellSize, wy + cellSize, h2);
+          const e2 = edgeIso(wx + cellSize, wy + cellSize, h2, wx, wy + cellSize, h3);
+          const e3 = edgeIso(wx, wy + cellSize, h3, wx, wy, h0);
+          const push = (a: {x:number;y:number}, b: {x:number;y:number}) => { maskPoints.push(a, b); };
+          if (mk === 1 || mk === 14) push(c0, mk === 1 ? e0 : e3);
+          if (mk === 2 || mk === 13) push(c1, mk === 2 ? e1 : e0);
+          if (mk === 4 || mk === 11) push(c2, mk === 4 ? e2 : e1);
+          if (mk === 8 || mk === 7) push(c3, mk === 8 ? e3 : e2);
+          if (mk === 3) push(e3, e1); if (mk === 12) push(e1, e3);
+          if (mk === 6) push(e0, e2); if (mk === 9) push(e2, e0);
+          if (mk === 5) { push(c0, e0); push(e3, c2); push(c2, e1); push(e2, c0); }
+          if (mk === 10) { push(c1, e1); push(e0, c3); push(c3, e2); push(e3, c1); }
         }
       }
-      // Pre-sort polys into depth-band buckets for batched rendering
-      const NB = MainScene.NUM_BANDS;
-      this.waterBands = Array.from({ length: NB }, (_, i) => ({ polys: [] as typeof this.waterPolys, band: i }));
-      for (const p of this.waterPolys) {
-        const b = Math.min(NB - 1, Math.floor(p.depth * NB));
-        this.waterBands[b].polys.push(p);
+      this.waterMaskBounds = new Phaser.Geom.Rectangle(
+        wMinX - 1, wMinY - 1, Math.ceil(wMaxX - wMinX) + 2, Math.ceil(wMaxY - wMinY) + 2
+      );
+      const wb = this.waterMaskBounds;
+      // Render depth gradient to offscreen canvas (drawn once)
+      const depthCvs = document.createElement('canvas');
+      depthCvs.width = Math.ceil(wb.width);
+      depthCvs.height = Math.ceil(wb.height);
+      const dCtx = depthCvs.getContext('2d')!;
+      for (const wc of waterCells) {
+        const px = Math.floor(wc.gx * cellSize * 0.5 - wb.x);
+        const py = Math.floor(wc.gy * cellSize - wb.y);
+        const t = wc.depth;
+        const r = Math.floor(shallowR + (deepR - shallowR) * t);
+        const gg = Math.floor(shallowG + (deepG - shallowG) * t);
+        const b = Math.floor(shallowB + (deepB - shallowB) * t);
+        dCtx.fillStyle = `rgba(${r},${gg},${b},${0.58 + 0.34 * t})`;
+        dCtx.fillRect(px, py, 4, 4);
       }
-
-      this.waterGraphics = this.add.graphics();
-      this.waterGraphics.setDepth(-9000); // above terrain tint (-10000), below entities
-      this.worldLayer.add(this.waterGraphics); // uiCamera ignores worldLayer — prevent dual-draw over units
-      this.drawWater(0);
+      if (this.textures.exists('_waterDepth')) this.textures.remove('_waterDepth');
+      this.textures.addCanvas('_waterDepth', depthCvs);
+      this.waterDepthSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0);
+      this.waterDepthSprite.setDepth(-9000);
+      this.worldLayer.add(this.waterDepthSprite);
+      // Procedural tiling wave texture (overlapping sine waves, seamless)
+      const TW = 128;
+      const waveCvs = document.createElement('canvas');
+      waveCvs.width = TW; waveCvs.height = TW;
+      const wCtx = waveCvs.getContext('2d')!;
+      const wData = wCtx.createImageData(TW, TW);
+      for (let wy = 0; wy < TW; wy++) {
+        for (let wx = 0; wx < TW; wx++) {
+          const i = (wy * TW + wx) * 4;
+          const v1 = Math.sin(wx * Math.PI / 8) * Math.sin(wy * Math.PI / 6);
+          const v2 = Math.sin((wx + wy) * Math.PI / 10);
+          const v3 = Math.sin(wx * Math.PI / 4) * Math.sin(wy * Math.PI / 3) * 0.5;
+          const v = (v1 + v2 + v3) / 2.5;
+          wData.data[i] = wData.data[i + 1] = wData.data[i + 2] = Math.floor((v + 1) * 0.5 * 255);
+          wData.data[i + 3] = 40;
+        }
+      }
+      wCtx.putImageData(wData, 0, 0);
+      if (this.textures.exists('_waterWave')) this.textures.remove('_waterWave');
+      this.textures.addCanvas('_waterWave', waveCvs);
+      this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, '_waterWave').setOrigin(0);
+      this.waterWaveSprite.setDepth(-8999);
+      this.worldLayer.add(this.waterWaveSprite);
+      // Geometry mask from marching-squares outline — clips depth + wave to water shape
+      this.waterMaskGraphics = this.add.graphics();
+      this.waterMaskGraphics.fillStyle(0xffffff);
+      this.waterMaskGraphics.beginPath();
+      for (let i = 0; i < maskPoints.length; i += 2) {
+        const a = maskPoints[i], b = maskPoints[i + 1];
+        this.waterMaskGraphics.moveTo(a.x, a.y);
+        this.waterMaskGraphics.lineTo(b.x, b.y);
+      }
+      this.waterMaskGraphics.closePath();
+      this.waterMaskGraphics.fillPath();
+      this.waterMask = this.waterMaskGraphics.createGeometryMask();
+      this.waterMaskGraphics.setVisible(false);
+      this.waterDepthSprite.setMask(this.waterMask);
+      this.waterWaveSprite.setMask(this.waterMask);
       // eslint-disable-next-line no-console
-      console.log(
-        '[Water] MS polys:', this.waterPolys.length, '/', grid.length,
-        '(', (100 * this.waterPolys.length / grid.length).toFixed(1), '%)',
-        '| height range:', minV.toFixed(3), '..', maxV.toFixed(3),
-        '| WATER_LEVEL:', level,
-        '| depth:', this.waterGraphics.depth
-      );
-      // Permanent water impassable mask (dual-layer; demolish won't open water)
-      this.pathfinder.applyWaterMask(
-        (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
-        level
-      );
-      this.waterTimeLogged = false;
+      console.log('[Water] depth canvas + wave texture, cells:', waterCells.length, '/', grid.length);
       this.waterAnimFrame = 0;
-      this.mapGenerationSystem.createEnvironment();
-      this.mapGenerationSystem.generateFertileZones();
-      this.mapGenerationSystem.generateForestsAndAnimals();
     } else {
       this.physics.world.setBounds(-100000, -100000, 200000, 200000);
       this.infiniteMapSystem = new InfiniteMapSystem(this);
@@ -571,89 +560,6 @@ export class MainScene extends Phaser.Scene {
   private profileTimings: Record<string, number> = {};
   private static readonly PROFILING_REPORT_INTERVAL = 120; // report every ~2s at 60fps
 
-  /** Redraw water polys. Depth-band batched — ~20 draw calls instead of ~25K. */
-  private drawWater(phase: number): void {
-    const g = this.waterGraphics;
-    if (!g || this.waterPolys.length === 0) return;
-    g.clear();
-    // Shallow teal → deep navy
-    const shallow = { r: 51, g: 140, b: 179 };  // #3399B3
-    const deep = { r: 5, g: 48, b: 107 };        // #05306B
-    // One global swell for the whole lake — no per-poly spatial sample
-    const globalSwell = 0.97 + 0.03 * this.lookupSin(phase * 0.7);
-    // Viewport culling — compute ONCE using worldView (handles zoom correctly)
-    const wv = this.cameras.main.worldView;
-    const vx = wv.x;
-    const vy = wv.y;
-    const vRight = wv.x + wv.width;
-    const vBottom = wv.y + wv.height;
-    const PAD = 100;
-    const NB = MainScene.NUM_BANDS;
-
-    // Phase 1: batched depth-band fills — one fillStyle + one fillPath per band
-    for (let b = 0; b < NB; b++) {
-      const band = this.waterBands[b];
-      if (!band || band.polys.length === 0) continue;
-      const t = (b + 0.5) / NB; // midpoint depth for this band
-      const wave = globalSwell;
-      const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave));
-      const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave));
-      const bv = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave));
-      const alpha = 0.66 + 0.18 * t;
-      g.fillStyle(Phaser.Display.Color.GetColor(r, gg, bv), alpha);
-      g.beginPath();
-      let hasVisible = false;
-      const polys = band.polys;
-      for (let i = 0; i < polys.length; i++) {
-        const poly = polys[i];
-        // Viewport culling — skip polys entirely outside camera view
-        if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
-            poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
-        const pts = poly.pts;
-        if (pts.length < 3) continue;
-        g.moveTo(pts[0].x, pts[0].y);
-        for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
-        hasVisible = true;
-      }
-      if (hasVisible) {
-        g.closePath();
-        g.fillPath();
-      }
-    }
-
-    // Phase 2: batched foam strokes — one lineStyle + one strokePath for all shore polys
-    const foamPad = 50;
-    g.lineStyle(1.25, 0xc8e8f0, 0.22);
-    g.beginPath();
-    let hasFoam = false;
-    const allPolys = this.waterPolys;
-    for (let i = 0; i < allPolys.length; i++) {
-      const poly = allPolys[i];
-      if (!poly.shore) continue;
-      // Viewport culling
-      if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
-          poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
-      // Skip polys near viewport edge (same foamPad culling as before)
-      if (poly.maxX - foamPad < vx || poly.minX + foamPad > vRight ||
-          poly.maxY - foamPad < vy || poly.minY + foamPad > vBottom) continue;
-      const pts = poly.pts;
-      if (pts.length < 3) continue;
-      g.moveTo(pts[0].x, pts[0].y);
-      for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
-      hasFoam = true;
-    }
-    if (hasFoam) {
-      g.closePath();
-      g.strokePath();
-    }
-  }
-
-  /** Fast sine via pre-computed LUT. Angle can be any value. */
-  private lookupSin(angle: number): number {
-    const TWO_PI = Math.PI * 2;
-    const idx = (((angle % TWO_PI) + TWO_PI) % TWO_PI) * (256 / TWO_PI);
-    return this.sinLUT[idx | 0];
-  }
 
   private profileStart(_label: string): number {
     return performance.now();
@@ -668,17 +574,10 @@ export class MainScene extends Phaser.Scene {
     const frameStart = performance.now();
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
-    // Animate water color (geometry is static). Throttle redraws.
-    if (this.waterGraphics && this.waterPolys.length > 0) {
-      this.waterAnimFrame++;
-      if (this.waterAnimFrame % 6 === 0) {
-        this.drawWater(time * 0.001);
-      }
-      if (!this.waterTimeLogged) {
-        // eslint-disable-next-line no-console
-        console.log('[Water] animating', this.waterPolys.length, 'MS polys');
-        this.waterTimeLogged = true;
-      }
+    // Scroll wave texture for animated water surface
+    if (this.waterWaveSprite) {
+      this.waterWaveSprite.tilePositionX += dt * 0.3;
+      this.waterWaveSprite.tilePositionY += dt * 0.12;
     }
 
     if (this.debugMode) {
