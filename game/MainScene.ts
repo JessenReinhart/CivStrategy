@@ -276,9 +276,11 @@ export class MainScene extends Phaser.Scene {
       const shallowR = 51, shallowG = 140, shallowB = 179;
       const deepR = 5, deepG = 48, deepB = 107;
 
-      // Collect water cells + marching-squares outline for geometry mask
+      // Collect wet cells with iso centers + AABB (include diamond corners)
       let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
-      const waterCells: { gx: number; gy: number; depth: number }[] = [];
+      const waterCells: { depth: number; ix: number; iy: number }[] = [];
+      const halfX = cellSize;      // iso diamond half-width for cellSize
+      const halfY = cellSize / 2;  // iso diamond half-height
       for (let gy = 0; gy < dim.height; gy++) {
         for (let gx = 0; gx < dim.width; gx++) {
           const h = grid[gy * dim.width + gx];
@@ -286,37 +288,48 @@ export class MainScene extends Phaser.Scene {
           const wx = gx * cellSize + cellSize / 2;
           const wy = gy * cellSize + cellSize / 2;
           const iso = toIso(wx, wy);
-          const depth = Math.min(1, (level - h) / level);
-          waterCells.push({ gx, gy, depth, ix: iso.x, iy: iso.y });
-          if (iso.x < wMinX) wMinX = iso.x; if (iso.x > wMaxX) wMaxX = iso.x;
-          if (iso.y < wMinY) wMinY = iso.y; if (iso.y > wMaxY) wMaxY = iso.y;
+          const depth = Math.min(1, Math.max(0, (level - h) / level));
+          waterCells.push({ depth, ix: iso.x, iy: iso.y });
+          if (iso.x - halfX < wMinX) wMinX = iso.x - halfX;
+          if (iso.x + halfX > wMaxX) wMaxX = iso.x + halfX;
+          if (iso.y - halfY < wMinY) wMinY = iso.y - halfY;
+          if (iso.y + halfY > wMaxY) wMaxY = iso.y + halfY;
         }
       }
+
       this.waterMaskBounds = new Phaser.Geom.Rectangle(
         wMinX - 1, wMinY - 1, Math.ceil(wMaxX - wMinX) + 2, Math.ceil(wMaxY - wMinY) + 2
       );
       const wb = this.waterMaskBounds;
-      // Render depth gradient to offscreen canvas (drawn once)
+
+      // Depth canvas: continuous iso diamonds (not axis-aligned squares)
       const depthCvs = document.createElement('canvas');
-      depthCvs.width = Math.ceil(wb.width);
-      depthCvs.height = Math.ceil(wb.height);
+      depthCvs.width = Math.max(1, Math.ceil(wb.width));
+      depthCvs.height = Math.max(1, Math.ceil(wb.height));
       const dCtx = depthCvs.getContext('2d')!;
       for (const wc of waterCells) {
-        const px = Math.floor(wc.ix - wb.x);
-        const py = Math.floor(wc.iy - wb.y);
+        const cx = wc.ix - wb.x;
+        const cy = wc.iy - wb.y;
         const t = wc.depth;
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
         const b = Math.floor(shallowB + (deepB - shallowB) * t);
-        dCtx.fillStyle = `rgba(${r},${gg},${b},${0.58 + 0.34 * t})`;
-        dCtx.fillRect(px, py, 4, 4);
+        dCtx.fillStyle = `rgba(${r},${gg},${b},${0.62 + 0.30 * t})`;
+        dCtx.beginPath();
+        dCtx.moveTo(cx, cy - halfY);
+        dCtx.lineTo(cx + halfX, cy);
+        dCtx.lineTo(cx, cy + halfY);
+        dCtx.lineTo(cx - halfX, cy);
+        dCtx.closePath();
+        dCtx.fill();
       }
       if (this.textures.exists('_waterDepth')) this.textures.remove('_waterDepth');
       this.textures.addCanvas('_waterDepth', depthCvs);
       this.waterDepthSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0);
       this.waterDepthSprite.setDepth(-9000);
       this.worldLayer.add(this.waterDepthSprite);
-      // Procedural tiling wave texture (overlapping sine waves, seamless)
+
+      // Procedural tiling wave texture (seamless sine ripples)
       const TW = 128;
       const waveCvs = document.createElement('canvas');
       waveCvs.width = TW; waveCvs.height = TW;
@@ -330,7 +343,7 @@ export class MainScene extends Phaser.Scene {
           const v3 = Math.sin(wx * Math.PI / 4) * Math.sin(wy * Math.PI / 3) * 0.5;
           const v = (v1 + v2 + v3) / 2.5;
           wData.data[i] = wData.data[i + 1] = wData.data[i + 2] = Math.floor((v + 1) * 0.5 * 255);
-          wData.data[i + 3] = 40;
+          wData.data[i + 3] = 55;
         }
       }
       wCtx.putImageData(wData, 0, 0);
@@ -338,10 +351,24 @@ export class MainScene extends Phaser.Scene {
       this.textures.addCanvas('_waterWave', waveCvs);
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, '_waterWave').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
+      this.waterWaveSprite.setAlpha(0.45);
       this.worldLayer.add(this.waterWaveSprite);
-      // eslint-disable-next-line no-console
-      console.log('[Water] depth canvas + wave texture, cells:', waterCells.length, '/', grid.length);
+
+      // BitmapMask from depth alpha — wave only over water, not whole AABB
+      const maskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
+      this.waterWaveSprite.setMask(maskSprite.createBitmapMask());
+
+      // Permanent water impassable mask (dual-layer; demolish won't open water)
+      this.pathfinder.applyWaterMask(
+        (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
+        level
+      );
       this.waterAnimFrame = 0;
+      this.mapGenerationSystem.createEnvironment();
+      this.mapGenerationSystem.generateFertileZones();
+      this.mapGenerationSystem.generateForestsAndAnimals();
+      // eslint-disable-next-line no-console
+      console.log('[Water] depth diamonds + masked wave, cells:', waterCells.length, '/', grid.length);
     } else {
       this.physics.world.setBounds(-100000, -100000, 200000, 200000);
       this.infiniteMapSystem = new InfiniteMapSystem(this);
