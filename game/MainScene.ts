@@ -289,7 +289,7 @@ export class MainScene extends Phaser.Scene {
       };
 
       // Marching-squares polys in iso world space + depth
-      type WaterPoly = { pts: { x: number; y: number }[]; depth: number };
+      type WaterPoly = { pts: { x: number; y: number }[]; depth: number; shore: boolean };
       const waterPolys: WaterPoly[] = [];
       let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
       const expand = (pts: { x: number; y: number }[]) => {
@@ -332,12 +332,12 @@ export class MainScene extends Phaser.Scene {
           // Saddle cases: two separate tris (self-crossing if merged)
           if (mask === 5) {
             const a = [c0, e0(), e3()]; const b = [c2, e1(), e2()];
-            waterPolys.push({ pts: a, depth }); waterPolys.push({ pts: b, depth });
+            waterPolys.push({ pts: a, depth, shore: true }); waterPolys.push({ pts: b, depth, shore: true });
             expand(a); expand(b); continue;
           }
           if (mask === 10) {
             const a = [c1, e0(), e1()]; const b = [c3, e2(), e3()];
-            waterPolys.push({ pts: a, depth }); waterPolys.push({ pts: b, depth });
+            waterPolys.push({ pts: a, depth, shore: true }); waterPolys.push({ pts: b, depth, shore: true });
             expand(a); expand(b); continue;
           }
 
@@ -357,7 +357,7 @@ export class MainScene extends Phaser.Scene {
             case 14: pts = [c1, c2, c3, e3(), e0()]; break;
             default: pts = [c0, c1, c2, c3]; break; // 15 full cell
           }
-          waterPolys.push({ pts, depth });
+          waterPolys.push({ pts, depth, shore: mask !== 15 });
           expand(pts);
         }
       }
@@ -387,8 +387,8 @@ export class MainScene extends Phaser.Scene {
 
       for (const poly of waterPolys) {
         const t = poly.depth;
-        // Depth drives color only — body stays solid so lakes don't ghost
-        const alpha = 0.82 + 0.14 * t;
+        // Interior solid; only edge MS polys get mid alpha for soft ground→water
+        const alpha = poly.shore ? (0.55 + 0.30 * t) : (0.88 + 0.10 * t);
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
         const b = Math.floor(shallowB + (deepB - shallowB) * t);
