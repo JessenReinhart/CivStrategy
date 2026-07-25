@@ -224,7 +224,7 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
     this.groundLayer.setOrigin(0, 0);
     this.groundLayer.setDepth(-20000);
-    this.groundLayer.setTint(0xf0f4e8); // slight warm lift so grass reads brighter
+    this.groundLayer.setTint(0xffffff); // full bright grass plate
     this.worldLayer.add(this.groundLayer);
     this.groundLayer.setTileScale(this.groundScale);
 
@@ -276,8 +276,8 @@ export class MainScene extends Phaser.Scene {
       const grid = this.terrainSystem.getHeightMapData();
       const cellSize = dim.cellSize;
       const level = TERRAIN_CONFIG.WATER_LEVEL;
-      const shallowR = 72, shallowG = 168, shallowB = 205;
-      const deepR = 18, deepG = 72, deepB = 130;
+      const shallowR = 96, shallowG = 190, shallowB = 220;
+      const deepR = 32, deepG = 96, deepB = 155;
       const BLUR_PAD = 4; // room for soft edge blur
 
       const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
@@ -465,7 +465,7 @@ export class MainScene extends Phaser.Scene {
 
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
-    this.cameras.main.setBackgroundColor('#1a2330');
+    this.cameras.main.setBackgroundColor('#2a3648');
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key; };

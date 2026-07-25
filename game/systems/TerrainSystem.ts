@@ -220,19 +220,18 @@ export class TerrainSystem {
           (gy > 0 ? this.heightGrid[idx - w] : height) +
           (gy < h - 1 ? this.heightGrid[idx + w] : height)
         ) * 0.25;
-        const shade = Math.max(0.65, Math.min(1.45, 1 + (height - n) * slopeK));
-        // +12% lift → brighter overall without crushing slope contrast
-        r = Math.min(255, Math.floor(r * shade * 1.12));
-        g = Math.min(255, Math.floor(g * shade * 1.12));
-        b = Math.min(255, Math.floor(b * shade * 1.08));
+        const shade = Math.max(0.75, Math.min(1.5, 1 + (height - n) * slopeK));
+        // +28% lift so relief stays readable on a bright ground plate
+        r = Math.min(255, Math.floor(r * shade * 1.28));
+        g = Math.min(255, Math.floor(g * shade * 1.28));
+        b = Math.min(255, Math.floor(b * shade * 1.18));
 
-        // Slightly stronger alpha than raw config so relief is visible on bright ground
-        const alpha = (aMin + (aMax - aMin) * t) * 1.35;
+        const alpha = (aMin + (aMax - aMin) * t) * 1.15;
         const c0 = toIso(wx, wy);
         const c1 = toIso(wx + cellSize, wy);
         const c2 = toIso(wx + cellSize, wy + cellSize);
         const c3 = toIso(wx, wy + cellSize);
-        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.28, alpha)})`;
+        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.22, alpha)})`;
         ctx.beginPath();
         ctx.moveTo(c0.x - ox, c0.y - oy);
         ctx.lineTo(c1.x - ox, c1.y - oy);

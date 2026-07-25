@@ -18,7 +18,7 @@ export class MapGenerationSystem {
         const p4 = toIso(0, this.scene.mapHeight);
 
         const border = this.scene.add.graphics();
-        border.lineStyle(8, 0x000000, 0.4);
+        border.lineStyle(8, 0x000000, 0.25);
         border.beginPath();
         border.moveTo(p1.x, p1.y);
         border.lineTo(p2.x, p2.y);
@@ -29,7 +29,7 @@ export class MapGenerationSystem {
         border.setDepth(-19000);
 
         const grid = this.scene.add.graphics();
-        grid.lineStyle(2, 0x000000, 0.15);
+        grid.lineStyle(1, 0x000000, 0.08);
         const gridSpacing = TILE_SIZE * 4;
         for (let x = 0; x <= this.scene.mapWidth; x += gridSpacing) {
             const start = toIso(x, 0);
@@ -57,7 +57,7 @@ export class MapGenerationSystem {
             const iso = toIso(x, y);
             const graphics = this.scene.add.graphics();
             graphics.setDepth(-9500);
-            graphics.fillStyle(0x3e2723, 0.2);
+            graphics.fillStyle(0x5d4037, 0.12);
             graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
         }
     }

@@ -55,7 +55,7 @@ export class AtmosphericSystem {
             const cloud = this.scene.add.sprite(x, y, this.cloudTextureKey);
             if (this.scene.worldLayer) this.scene.worldLayer.add(cloud);
             cloud.setDepth(15000 + i); // Stagger depth slightly so they layer
-            cloud.setAlpha(Phaser.Math.FloatBetween(0.05, 0.125));
+            cloud.setAlpha(Phaser.Math.FloatBetween(0.03, 0.07)); // light puffs only
             cloud.setScale(Phaser.Math.FloatBetween(4.0, 8.0)); // Big puffy clouds
 
             // Random rotation for variety
@@ -79,14 +79,14 @@ export class AtmosphericSystem {
     }
 
     private setupBloom() {
-      // Keep bloom + light vignette + mild tiltShift. Cap tilt blur so quality
-      // returns without the old 60ms ren cost (was blur→2.5 every frame).
+      // Bloom is glow, not exposure. Mild defaults so UI bloom ~100% looks right.
+      // Brightness comes from ground/terrain/clear color — not cranking this.
       const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.65, 0.85);
-      this.tiltShiftEffect = target.addTiltShift(0.08);
-      // Weaker vignette → brighter map edges
-      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.9, 0.12);
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.55, 0.7);
+      this.tiltShiftEffect = target.addTiltShift(0.06);
+      // Near-zero vignette — was darkening edges and forcing bloom crank
+      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.95, 0.04);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -100,10 +100,10 @@ export class AtmosphericSystem {
 
         if (this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-            // Brighter mid-range bloom than bare-min pass; still below pre-perf extremes
-            const baseStrength = Phaser.Math.Linear(1.4, 0.55, zoomProgress);
-            const pulse = Math.sin(time * 0.002) * 0.04;
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.15, 1.6);
+            // Modest base so 1.0 multiplier ≈ normal daylight look
+            const baseStrength = Phaser.Math.Linear(1.0, 0.4, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.03;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.1, 1.3);
             const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.5);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
@@ -111,8 +111,7 @@ export class AtmosphericSystem {
         if (this.tiltShiftEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
             const eased = Math.sqrt(zoomProgress);
-            // Cap blur at 1.0 (was 2.5) — diorama hint without full-screen mush
-            const targetBlur = Phaser.Math.Linear(0.06, 1.0, eased);
+            const targetBlur = Phaser.Math.Linear(0.04, 0.7, eased);
             this.tiltShiftEffect.blur = Phaser.Math.Linear(this.tiltShiftEffect.blur, targetBlur, 0.1);
         }
 
