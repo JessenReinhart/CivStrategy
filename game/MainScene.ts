@@ -118,6 +118,9 @@ export class MainScene extends Phaser.Scene {
   private waterPolys: { pts: { x: number; y: number }[]; depth: number; shore: boolean; minX: number; minY: number; maxX: number; maxY: number }[] = [];
   /** Pre-computed sine lookup table (256 entries, one full cycle). */
   private readonly sinLUT = new Float32Array(256);
+  /** Depth-band buckets for batched water rendering (20 bands, 0-19). */
+  private static readonly NUM_BANDS = 20;
+  private waterBands: { polys: { pts: { x: number; y: number }[]; depth: number; shore: boolean; minX: number; minY: number; maxX: number; maxY: number }[]; band: number }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -366,6 +369,13 @@ export class MainScene extends Phaser.Scene {
           }
         }
       }
+      // Pre-sort polys into depth-band buckets for batched rendering
+      const NB = MainScene.NUM_BANDS;
+      this.waterBands = Array.from({ length: NB }, (_, i) => ({ polys: [] as typeof this.waterPolys, band: i }));
+      for (const p of this.waterPolys) {
+        const b = Math.min(NB - 1, Math.floor(p.depth * NB));
+        this.waterBands[b].polys.push(p);
+      }
 
       this.waterGraphics = this.add.graphics();
       this.waterGraphics.setDepth(-9000); // above terrain tint (-10000), below entities
@@ -554,7 +564,7 @@ export class MainScene extends Phaser.Scene {
   private profileTimings: Record<string, number> = {};
   private static readonly PROFILING_REPORT_INTERVAL = 120; // report every ~2s at 60fps
 
-  /** Redraw water polys. Phase-driven color only — geometry is static MS shoreline. */
+  /** Redraw water polys. Depth-band batched — ~20 draw calls instead of ~25K. */
   private drawWater(phase: number): void {
     const g = this.waterGraphics;
     if (!g || this.waterPolys.length === 0) return;
@@ -564,61 +574,70 @@ export class MainScene extends Phaser.Scene {
     const deep = { r: 5, g: 48, b: 107 };        // #05306B
     // One global swell for the whole lake — no per-poly spatial sample
     const globalSwell = 0.97 + 0.03 * this.lookupSin(phase * 0.7);
-    // Viewport culling — compute ONCE before loop using worldView (handles zoom correctly)
+    // Viewport culling — compute ONCE using worldView (handles zoom correctly)
     const wv = this.cameras.main.worldView;
     const vx = wv.x;
     const vy = wv.y;
     const vRight = wv.x + wv.width;
     const vBottom = wv.y + wv.height;
     const PAD = 100;
+    const NB = MainScene.NUM_BANDS;
+
+    // Phase 1: batched depth-band fills — one fillStyle + one fillPath per band
+    for (let b = 0; b < NB; b++) {
+      const band = this.waterBands[b];
+      if (!band || band.polys.length === 0) continue;
+      const t = (b + 0.5) / NB; // midpoint depth for this band
+      const wave = globalSwell;
+      const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave));
+      const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave));
+      const bv = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave));
+      const alpha = 0.66 + 0.18 * t;
+      g.fillStyle(Phaser.Display.Color.GetColor(r, gg, bv), alpha);
+      g.beginPath();
+      let hasVisible = false;
+      const polys = band.polys;
+      for (let i = 0; i < polys.length; i++) {
+        const poly = polys[i];
+        // Viewport culling — skip polys entirely outside camera view
+        if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
+            poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
+        const pts = poly.pts;
+        if (pts.length < 3) continue;
+        g.moveTo(pts[0].x, pts[0].y);
+        for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
+        hasVisible = true;
+      }
+      if (hasVisible) {
+        g.closePath();
+        g.fillPath();
+      }
+    }
+
+    // Phase 2: batched foam strokes — one lineStyle + one strokePath for all shore polys
     const foamPad = 50;
-    const polys = this.waterPolys;
-    for (let i = 0; i < polys.length; i++) {
-      const poly = polys[i];
-      // Viewport culling — skip polys entirely outside camera view
+    g.lineStyle(1.25, 0xc8e8f0, 0.22);
+    g.beginPath();
+    let hasFoam = false;
+    const allPolys = this.waterPolys;
+    for (let i = 0; i < allPolys.length; i++) {
+      const poly = allPolys[i];
+      if (!poly.shore) continue;
+      // Viewport culling
       if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
           poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
+      // Skip polys near viewport edge (same foamPad culling as before)
+      if (poly.maxX - foamPad < vx || poly.minX + foamPad > vRight ||
+          poly.maxY - foamPad < vy || poly.minY + foamPad > vBottom) continue;
       const pts = poly.pts;
       if (pts.length < 3) continue;
-      const t = poly.depth;
-      let wave = globalSwell;
-      let glint = 0;
-      let w2 = 0;
-      if (poly.shore) {
-        // Spatial wave only on clipped shoreline polys (small, edge-local)
-        const px = pts[0].x;
-        const py = pts[0].y;
-        const w1 = this.lookupSin(phase * 1.5 + px * 0.035 + py * 0.028);
-        w2 = this.lookupSin(phase * 2.3 + px * 0.07 - py * 0.05);
-        const w3 = this.lookupSin(phase * 0.9 + (px + py) * 0.018);
-        wave = 0.92 + 0.08 * w1 + 0.03 * w2 + 0.02 * w3;
-        glint = Math.max(0, w1 + w2 * 0.5) * 0.12 * (1 - t * 0.5);
-      }
-      const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave + glint * 40));
-      const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave + glint * 50));
-      const b = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave + glint * 30));
-      // Shore more translucent; deep more opaque
-      const alpha = (poly.shore ? 0.58 : 0.74) + 0.18 * t;
-      g.fillStyle(Phaser.Display.Color.GetColor(r, gg, b), alpha);
-      g.beginPath();
       g.moveTo(pts[0].x, pts[0].y);
       for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
+      hasFoam = true;
+    }
+    if (hasFoam) {
       g.closePath();
-      g.fillPath();
-      // Soft foam on clipped shoreline polys — skip for edge polys to save draw calls
-      if (poly.shore) {
-        const nearEdge = poly.maxX - foamPad < vx || poly.minX + foamPad > vRight ||
-                         poly.maxY - foamPad < vy || poly.minY + foamPad > vBottom;
-        if (!nearEdge) {
-          const foamA = 0.18 + 0.18 * Math.max(0, w2);
-          g.lineStyle(1.25, 0xc8e8f0, foamA);
-          g.beginPath();
-          g.moveTo(pts[0].x, pts[0].y);
-          for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
-          g.closePath();
-          g.strokePath();
-        }
-      }
+      g.strokePath();
     }
   }
 
