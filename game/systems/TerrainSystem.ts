@@ -12,7 +12,7 @@ export class TerrainSystem {
   private gridWidth: number;
   private gridHeight: number;
   private noise: Noise;
-  private visualGraphics!: Phaser.GameObjects.Graphics;
+  private visualSprite: Phaser.GameObjects.Sprite | null = null;
 
   constructor(scene: MainScene, mapWidth: number, mapHeight: number) {
     this.scene = scene;
@@ -164,37 +164,60 @@ export class TerrainSystem {
   }
 
   applyVisualTinting(): void {
-    // Draw terrain height as colored ground overlay
-    if (this.visualGraphics) {
-      this.visualGraphics.destroy();
+    // Bake height tint once into a single canvas sprite.
+    // Old path: one Graphics fillPath per cell (~65K draw cmds every frame via worldLayer PostFX).
+    if (this.visualSprite) {
+      this.visualSprite.destroy();
+      this.visualSprite = null;
     }
-
-    this.visualGraphics = this.scene.add.graphics();
-    this.visualGraphics.setDepth(-10000); // Below trees, above ground layer
-    if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualGraphics);
+    if (this.scene.textures.exists('_terrainTint')) {
+      this.scene.textures.remove('_terrainTint');
+    }
 
     const cellSize = TERRAIN_CONFIG.CELL_SIZE;
     const w = this.gridWidth;
     const h = this.gridHeight;
+    const halfX = cellSize;
+    const halfY = cellSize / 2;
     const { VALLEY_COLOR: vc, PEAK_COLOR: pc, TINT_ALPHA_MIN: aMin, TINT_ALPHA_MAX: aMax, SLOPE_TINT: slopeK } = TERRAIN_CONFIG;
+
+    // World AABB of all iso cell diamonds
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        const wx = gx * cellSize + cellSize / 2;
+        const wy = gy * cellSize + cellSize / 2;
+        const iso = toIso(wx, wy);
+        if (iso.x - halfX < minX) minX = iso.x - halfX;
+        if (iso.x + halfX > maxX) maxX = iso.x + halfX;
+        if (iso.y - halfY < minY) minY = iso.y - halfY;
+        if (iso.y + halfY > maxY) maxY = iso.y + halfY;
+      }
+    }
+    const pad = 2;
+    const ox = minX - pad;
+    const oy = minY - pad;
+    const tw = Math.max(1, Math.ceil(maxX - minX) + pad * 2);
+    const th = Math.max(1, Math.ceil(maxY - minY) + pad * 2);
+
+    const cvs = document.createElement('canvas');
+    cvs.width = tw;
+    cvs.height = th;
+    const ctx = cvs.getContext('2d')!;
 
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const idx = gy * w + gx;
         const height = this.heightGrid[idx];
-        const wx = gx * cellSize;
-        const wy = gy * cellSize;
+        const wx = gx * cellSize + cellSize / 2;
+        const wy = gy * cellSize + cellSize / 2;
+        const iso = toIso(wx, wy);
 
-        // Height -> [0,1] elevation factor
         const t = (height - TERRAIN_CONFIG.MIN_HEIGHT) / (TERRAIN_CONFIG.MAX_HEIGHT - TERRAIN_CONFIG.MIN_HEIGHT);
-
-        // Base hue tracks elevation: cool shadowed lowland -> warm sunlit highland
         let r = vc.r + (pc.r - vc.r) * t;
         let g = vc.g + (pc.g - vc.g) * t;
         let b = vc.b + (pc.b - vc.b) * t;
 
-        // Slope shading: a cell higher than its neighbours reads as lit/convex;
-        // lower reads as shaded. Gives 3D relief instead of a flat green sheet.
         const n = (
           (gx > 0 ? this.heightGrid[idx - 1] : height) +
           (gx < w - 1 ? this.heightGrid[idx + 1] : height) +
@@ -206,25 +229,25 @@ export class TerrainSystem {
         g = Math.min(255, Math.floor(g * shade));
         b = Math.min(255, Math.floor(b * shade));
 
-        // Contiguous iso-quad per cell; adjacent cells share exact corners so the
-        // tint tiles seamlessly (no discrete ellipse/rect shapes).
-        const c0 = toIso(wx, wy);
-        const c1 = toIso(wx + cellSize, wy);
-        const c2 = toIso(wx + cellSize, wy + cellSize);
-        const c3 = toIso(wx, wy + cellSize);
-        const alpha = aMin + (aMax - aMin) * t; // subtle, height-weighted shade
-        const color = Phaser.Display.Color.GetColor(r, g, b);
-
-        this.visualGraphics.fillStyle(color, alpha);
-        this.visualGraphics.beginPath();
-        this.visualGraphics.moveTo(c0.x, c0.y);
-        this.visualGraphics.lineTo(c1.x, c1.y);
-        this.visualGraphics.lineTo(c2.x, c2.y);
-        this.visualGraphics.lineTo(c3.x, c3.y);
-        this.visualGraphics.closePath();
-        this.visualGraphics.fillPath();
+        const alpha = aMin + (aMax - aMin) * t;
+        const cx = iso.x - ox;
+        const cy = iso.y - oy;
+        // Iso diamond matches cell footprint (same as water cells)
+        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy - halfY);
+        ctx.lineTo(cx + halfX, cy);
+        ctx.lineTo(cx, cy + halfY);
+        ctx.lineTo(cx - halfX, cy);
+        ctx.closePath();
+        ctx.fill();
       }
     }
+
+    this.scene.textures.addCanvas('_terrainTint', cvs);
+    this.visualSprite = this.scene.add.sprite(ox, oy, '_terrainTint').setOrigin(0);
+    this.visualSprite.setDepth(-10000);
+    if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualSprite);
   }
 
 
@@ -268,8 +291,12 @@ export class TerrainSystem {
   }
 
   destroy(): void {
-    if (this.visualGraphics) {
-      this.visualGraphics.destroy();
+    if (this.visualSprite) {
+      this.visualSprite.destroy();
+      this.visualSprite = null;
+    }
+    if (this.scene.textures.exists('_terrainTint')) {
+      this.scene.textures.remove('_terrainTint');
     }
   }
 }

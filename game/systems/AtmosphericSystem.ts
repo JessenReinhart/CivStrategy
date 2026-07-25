@@ -7,8 +7,7 @@ export class AtmosphericSystem {
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
     private bloomEffect!: Phaser.FX.Bloom;
-    private tiltShiftEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    private vignetteEffect!: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    private vignetteEffect!: Phaser.FX.Vignette;
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;
 
@@ -79,12 +78,13 @@ export class AtmosphericSystem {
     }
 
     private setupBloom() {
-        // Use worldLayer for PostFX if available
-        const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
+      // PostFX on worldLayer is the dominant __render cost (full-screen multipass).
+      // Keep bloom + light vignette; drop tiltShift (extra full-screen blur every frame).
+      const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-        this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.7, 1.0);
-        this.tiltShiftEffect = target.addTiltShift(0.1); // Initial blur
-        this.vignetteEffect = target.addVignette(0.5, 0.5, 0.8, 0.3); // x, y, radius, strength
+      // Milder defaults: quality steps 1→ fewer samples; strength capped later in update
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.5, 0.6);
+      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.85, 0.2);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -96,43 +96,18 @@ export class AtmosphericSystem {
         const cam = this.scene.cameras.main;
         const viewRect = cam.worldView;
 
-        // --- Adaptive Bloom Logic ---
+        // --- Adaptive Bloom Logic (cheaper targets than before) ---
         if (this.bloomEffect) {
-            // 1. Zoom Adaptation:
-            // High Zoom (1.5x) -> Focused on units -> Less dynamic range
-            // Low Zoom (0.5x) -> High view -> More dynamic range for atmosphere
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-
-            // Base dynamic target: zoomed-out = more bloom, zoomed-in = less bloom
-            const baseStrength = Phaser.Math.Linear(2.0, 0.8, zoomProgress);
-
-            // 2. "Breathing" Pulse (Simulate light intensity variance)
-            const pulse = Math.sin(time * 0.002) * 0.05;
-
-            // 3. Combine dynamic base with user's multiplier
-            // User slider (0.0 to 3.0) acts as a global multiplier on the dynamic target
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.1, 2.0);
-            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 4.0);
-
-            // Smooth lerp (Eye Adaptation Speed) — fast enough to feel responsive
+            // Zoomed-out: mild bloom; zoomed-in: almost none
+            const baseStrength = Phaser.Math.Linear(1.1, 0.35, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.03;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.05, 1.2);
+            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
-        // --- Tilt Shift Logic ---
-        if (this.tiltShiftEffect) {
-            // Zoom Adaptation:
-            // High Zoom (1.5x) -> Close up -> Strong Depth of Field -> High Blur
-            // Low Zoom (0.5x) -> Far away -> Clearer view -> Low Blur
-            const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-
-            // Blur strength range: 0.1 (Far) to 2.5 (Close)
-            // Blur strength range: 0.1 (Far) to 2.5 (Close)
-            // Use sqrt to ramp up blur quickly as we zoom in, so mid-zoom still feels "diaroma-like"
-            const easedProgress = Math.sqrt(zoomProgress);
-            const targetBlur = Phaser.Math.Linear(0.1, 2.5, easedProgress);
-
-            this.tiltShiftEffect.blur = Phaser.Math.Linear(this.tiltShiftEffect.blur, targetBlur, 0.1);
-        }
+        // tiltShift removed — was a full-screen blur every frame for diorama DOF
 
         // --- Cloud Logic ---
         // Expand wrap bounds well beyond the camera view to avoid popping
