@@ -111,9 +111,7 @@ export class MainScene extends Phaser.Scene {
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
-  private waterRT: Phaser.GameObjects.RenderTexture | null = null;
-    private _waterGfx: Phaser.GameObjects.Graphics | null = null;
-    private _waterRTOx = 0; private _waterRTOy = 0; // RT top-left world origin
+  private waterGraphics: Phaser.GameObjects.Graphics | null = null;
   private waterTimeLogged: boolean = false; // one-time wave log guard
   private waterAnimFrame: number = 0;
   /** Prebuilt iso water polygons (marching-squares shoreline, not solid tiles). */
@@ -369,23 +367,9 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      // Compute global AABB for RT placement
-            let globalMinX = Infinity, globalMinY = Infinity, globalMaxX = -Infinity, globalMaxY = -Infinity;
-            for (const p of this.waterPolys) {
-              if (p.minX < globalMinX) globalMinX = p.minX;
-              if (p.minY < globalMinY) globalMinY = p.minY;
-              if (p.maxX > globalMaxX) globalMaxX = p.maxX;
-              if (p.maxY > globalMaxY) globalMaxY = p.maxY;
-            }
-            const rtW = Math.ceil(globalMaxX - globalMinX) + 2;
-            const rtH = Math.ceil(globalMaxY - globalMinY) + 2;
-            this.waterRT = this.add.renderTexture(globalMinX - 1, globalMinY - 1, rtW, rtH);
-            this._waterRTOx = globalMinX - 1;
-            this._waterRTOy = globalMinY - 1;
-            this.waterRT.setDepth(-9000);
-            this.worldLayer.add(this.waterRT);
-      this._waterGfx = this.add.graphics();
-      this._waterGfx.setVisible(false); // hidden — geometry builder only
+      this.waterGraphics = this.add.graphics();
+      this.waterGraphics.setDepth(-9000); // above terrain tint (-10000), below entities
+      this.worldLayer.add(this.waterGraphics); // uiCamera ignores worldLayer — prevent dual-draw over units
       this.drawWater(0);
       // eslint-disable-next-line no-console
       console.log(
@@ -393,7 +377,7 @@ export class MainScene extends Phaser.Scene {
         '(', (100 * this.waterPolys.length / grid.length).toFixed(1), '%)',
         '| height range:', minV.toFixed(3), '..', maxV.toFixed(3),
         '| WATER_LEVEL:', level,
-        '| depth:', 
+        '| depth:', this.waterGraphics.depth
       );
       // Permanent water impassable mask (dual-layer; demolish won't open water)
       this.pathfinder.applyWaterMask(
@@ -572,13 +556,15 @@ export class MainScene extends Phaser.Scene {
 
   /** Redraw water polys. Phase-driven color only — geometry is static MS shoreline. */
   private drawWater(phase: number): void {
-    const g = this._waterGfx;
+    const g = this.waterGraphics;
     if (!g || this.waterPolys.length === 0) return;
     g.clear();
-    g.setPosition(-this._waterRTOx, -this._waterRTOy);
-    const shallow = { r: 51, g: 140, b: 179 };
-    const deep = { r: 5, g: 48, b: 107 };
+    // Shallow teal → deep navy
+    const shallow = { r: 51, g: 140, b: 179 };  // #3399B3
+    const deep = { r: 5, g: 48, b: 107 };        // #05306B
+    // One global swell for the whole lake — no per-poly spatial sample
     const globalSwell = 0.97 + 0.03 * this.lookupSin(phase * 0.7);
+    // Viewport culling — compute ONCE before loop using worldView (handles zoom correctly)
     const wv = this.cameras.main.worldView;
     const vx = wv.x;
     const vy = wv.y;
@@ -589,6 +575,7 @@ export class MainScene extends Phaser.Scene {
     const polys = this.waterPolys;
     for (let i = 0; i < polys.length; i++) {
       const poly = polys[i];
+      // Viewport culling — skip polys entirely outside camera view
       if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
           poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
       const pts = poly.pts;
@@ -598,6 +585,7 @@ export class MainScene extends Phaser.Scene {
       let glint = 0;
       let w2 = 0;
       if (poly.shore) {
+        // Spatial wave only on clipped shoreline polys (small, edge-local)
         const px = pts[0].x;
         const py = pts[0].y;
         const w1 = this.lookupSin(phase * 1.5 + px * 0.035 + py * 0.028);
@@ -609,6 +597,7 @@ export class MainScene extends Phaser.Scene {
       const r = Math.min(255, Math.floor((shallow.r + (deep.r - shallow.r) * t) * wave + glint * 40));
       const gg = Math.min(255, Math.floor((shallow.g + (deep.g - shallow.g) * t) * wave + glint * 50));
       const b = Math.min(255, Math.floor((shallow.b + (deep.b - shallow.b) * t) * wave + glint * 30));
+      // Shore more translucent; deep more opaque
       const alpha = (poly.shore ? 0.58 : 0.74) + 0.18 * t;
       g.fillStyle(Phaser.Display.Color.GetColor(r, gg, b), alpha);
       g.beginPath();
@@ -616,6 +605,7 @@ export class MainScene extends Phaser.Scene {
       for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
       g.closePath();
       g.fillPath();
+      // Soft foam on clipped shoreline polys — skip for edge polys to save draw calls
       if (poly.shore) {
         const nearEdge = poly.maxX - foamPad < vx || poly.minX + foamPad > vRight ||
                          poly.maxY - foamPad < vy || poly.minY + foamPad > vBottom;
@@ -630,9 +620,6 @@ export class MainScene extends Phaser.Scene {
         }
       }
     }
-    // Blit geometry to RenderTexture — single texture draw between updates
-    this.waterRT!.clear();
-    this.waterRT!.draw(g);
   }
 
   /** Fast sine via pre-computed LUT. Angle can be any value. */
@@ -656,7 +643,7 @@ export class MainScene extends Phaser.Scene {
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
     // Animate water color (geometry is static). Throttle redraws.
-    if (this.waterRT && this.waterPolys.length > 0) {
+    if (this.waterGraphics && this.waterPolys.length > 0) {
       this.waterAnimFrame++;
       if (this.waterAnimFrame % 6 === 0) {
         this.drawWater(time * 0.001);
