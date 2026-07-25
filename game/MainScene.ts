@@ -115,7 +115,9 @@ export class MainScene extends Phaser.Scene {
   private waterTimeLogged: boolean = false; // one-time wave log guard
   private waterAnimFrame: number = 0;
   /** Prebuilt iso water polygons (marching-squares shoreline, not solid tiles). */
-  private waterPolys: { pts: { x: number; y: number }[]; depth: number; shore: boolean }[] = [];
+  private waterPolys: { pts: { x: number; y: number }[]; depth: number; shore: boolean; minX: number; minY: number; maxX: number; maxY: number }[] = [];
+  /** Pre-computed sine lookup table (256 entries, one full cycle). */
+  private readonly sinLUT = new Float32Array(256);
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -270,6 +272,9 @@ export class MainScene extends Phaser.Scene {
       const cellSize = dim.cellSize;
       const level = TERRAIN_CONFIG.WATER_LEVEL;
       this.waterPolys = [];
+      // Pre-compute sine lookup for drawWater performance (avoids Math.sin per-poly)
+      const TWO_PI = Math.PI * 2;
+      for (let i = 0; i < 256; i++) this.sinLUT[i] = Math.sin(i * TWO_PI / 256);
       let minV = Infinity, maxV = -Infinity;
       for (let i = 0; i < grid.length; i++) {
         const h = grid[i];
@@ -351,7 +356,14 @@ export class MainScene extends Phaser.Scene {
             default: pts = [c0, c1, c2, c3]; break; // 15
           }
 
-          this.waterPolys.push({ pts, depth, shore: mask !== 15 });
+          { // Compute AABB for viewport culling
+            let bx0 = pts[0].x, by0 = pts[0].y, bx1 = bx0, by1 = by0;
+            for (let k = 1; k < pts.length; k++) {
+              if (pts[k].x < bx0) bx0 = pts[k].x; else if (pts[k].x > bx1) bx1 = pts[k].x;
+              if (pts[k].y < by0) by0 = pts[k].y; else if (pts[k].y > by1) by1 = pts[k].y;
+            }
+            this.waterPolys.push({ pts, depth, shore: mask !== 15, minX: bx0, minY: by0, maxX: bx1, maxY: by1 });
+          }
         }
       }
 
@@ -551,10 +563,21 @@ export class MainScene extends Phaser.Scene {
     const shallow = { r: 51, g: 140, b: 179 };  // #3399B3
     const deep = { r: 5, g: 48, b: 107 };        // #05306B
     // One global swell for the whole lake — no per-poly spatial sample
-    // (pts[0] wave made mask-15 quads flash as giant tiles).
-    const globalSwell = 0.97 + 0.03 * Math.sin(phase * 0.7);
-    for (let i = 0; i < this.waterPolys.length; i++) {
-      const poly = this.waterPolys[i];
+    const globalSwell = 0.97 + 0.03 * this.lookupSin(phase * 0.7);
+    // Viewport culling — compute ONCE before loop using worldView (handles zoom correctly)
+    const wv = this.cameras.main.worldView;
+    const vx = wv.x;
+    const vy = wv.y;
+    const vRight = wv.x + wv.width;
+    const vBottom = wv.y + wv.height;
+    const PAD = 100;
+    const foamPad = 50;
+    const polys = this.waterPolys;
+    for (let i = 0; i < polys.length; i++) {
+      const poly = polys[i];
+      // Viewport culling — skip polys entirely outside camera view
+      if (poly.maxX < vx - PAD || poly.minX > vRight + PAD ||
+          poly.maxY < vy - PAD || poly.minY > vBottom + PAD) continue;
       const pts = poly.pts;
       if (pts.length < 3) continue;
       const t = poly.depth;
@@ -565,9 +588,9 @@ export class MainScene extends Phaser.Scene {
         // Spatial wave only on clipped shoreline polys (small, edge-local)
         const px = pts[0].x;
         const py = pts[0].y;
-        const w1 = Math.sin(phase * 1.5 + px * 0.035 + py * 0.028);
-        w2 = Math.sin(phase * 2.3 + px * 0.07 - py * 0.05);
-        const w3 = Math.sin(phase * 0.9 + (px + py) * 0.018);
+        const w1 = this.lookupSin(phase * 1.5 + px * 0.035 + py * 0.028);
+        w2 = this.lookupSin(phase * 2.3 + px * 0.07 - py * 0.05);
+        const w3 = this.lookupSin(phase * 0.9 + (px + py) * 0.018);
         wave = 0.92 + 0.08 * w1 + 0.03 * w2 + 0.02 * w3;
         glint = Math.max(0, w1 + w2 * 0.5) * 0.12 * (1 - t * 0.5);
       }
@@ -582,17 +605,28 @@ export class MainScene extends Phaser.Scene {
       for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
       g.closePath();
       g.fillPath();
-      // Soft foam only on clipped shoreline polys
+      // Soft foam on clipped shoreline polys — skip for edge polys to save draw calls
       if (poly.shore) {
-        const foamA = 0.18 + 0.18 * Math.max(0, w2);
-        g.lineStyle(1.25, 0xc8e8f0, foamA);
-        g.beginPath();
-        g.moveTo(pts[0].x, pts[0].y);
-        for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
-        g.closePath();
-        g.strokePath();
+        const nearEdge = poly.maxX - foamPad < vx || poly.minX + foamPad > vRight ||
+                         poly.maxY - foamPad < vy || poly.minY + foamPad > vBottom;
+        if (!nearEdge) {
+          const foamA = 0.18 + 0.18 * Math.max(0, w2);
+          g.lineStyle(1.25, 0xc8e8f0, foamA);
+          g.beginPath();
+          g.moveTo(pts[0].x, pts[0].y);
+          for (let p = 1; p < pts.length; p++) g.lineTo(pts[p].x, pts[p].y);
+          g.closePath();
+          g.strokePath();
+        }
       }
     }
+  }
+
+  /** Fast sine via pre-computed LUT. Angle can be any value. */
+  private lookupSin(angle: number): number {
+    const TWO_PI = Math.PI * 2;
+    const idx = (((angle % TWO_PI) + TWO_PI) % TWO_PI) * (256 / TWO_PI);
+    return this.sinLUT[idx | 0];
   }
 
   private profileStart(_label: string): number {
@@ -611,7 +645,7 @@ export class MainScene extends Phaser.Scene {
     // Animate water color (geometry is static). Throttle redraws.
     if (this.waterGraphics && this.waterPolys.length > 0) {
       this.waterAnimFrame++;
-      if (this.waterAnimFrame % 3 === 0) {
+      if (this.waterAnimFrame % 6 === 0) {
         this.drawWater(time * 0.001);
       }
       if (!this.waterTimeLogged) {
