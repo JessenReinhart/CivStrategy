@@ -112,7 +112,8 @@ export class MainScene extends Phaser.Scene {
   public terrainSystem!: TerrainSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterRT: Phaser.GameObjects.RenderTexture | null = null;
-  private _waterGfx: Phaser.GameObjects.Graphics | null = null;
+    private _waterGfx: Phaser.GameObjects.Graphics | null = null;
+    private _waterRTOx = 0; private _waterRTOy = 0; // RT top-left world origin
   private waterTimeLogged: boolean = false; // one-time wave log guard
   private waterAnimFrame: number = 0;
   /** Prebuilt iso water polygons (marching-squares shoreline, not solid tiles). */
@@ -379,6 +380,8 @@ export class MainScene extends Phaser.Scene {
             const rtW = Math.ceil(globalMaxX - globalMinX) + 2;
             const rtH = Math.ceil(globalMaxY - globalMinY) + 2;
             this.waterRT = this.add.renderTexture(globalMinX - 1, globalMinY - 1, rtW, rtH);
+            this._waterRTOx = globalMinX - 1;
+            this._waterRTOy = globalMinY - 1;
             this.waterRT.setDepth(-9000);
             this.worldLayer.add(this.waterRT);
       this._waterGfx = this.add.graphics();
@@ -572,6 +575,7 @@ export class MainScene extends Phaser.Scene {
     const g = this._waterGfx;
     if (!g || this.waterPolys.length === 0) return;
     g.clear();
+    g.setPosition(-this._waterRTOx, -this._waterRTOy);
     const shallow = { r: 51, g: 140, b: 179 };
     const deep = { r: 5, g: 48, b: 107 };
     const globalSwell = 0.97 + 0.03 * this.lookupSin(phase * 0.7);
