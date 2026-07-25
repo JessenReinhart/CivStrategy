@@ -307,7 +307,7 @@ export class MainScene extends Phaser.Scene {
           const avgH = (h0 + h1 + h2 + h3) / 4;
           const depth = Math.min(1, (level - avgH) / level);
           const iso = toIso(wx + cellSize / 2, wy + cellSize / 2);
-          waterCells.push({ gx, gy, depth });
+          waterCells.push({ gx, gy, depth, ix: iso.x, iy: iso.y });
           if (iso.x < wMinX) wMinX = iso.x; if (iso.x > wMaxX) wMaxX = iso.x;
           if (iso.y < wMinY) wMinY = iso.y; if (iso.y > wMaxY) wMaxY = iso.y;
           // Marching-squares outline segments for geometry mask
@@ -340,8 +340,8 @@ export class MainScene extends Phaser.Scene {
       depthCvs.height = Math.ceil(wb.height);
       const dCtx = depthCvs.getContext('2d')!;
       for (const wc of waterCells) {
-        const px = Math.floor(wc.gx * cellSize * 0.5 - wb.x);
-        const py = Math.floor(wc.gy * cellSize - wb.y);
+        const px = Math.floor(wc.ix - wb.x);
+        const py = Math.floor(wc.iy - wb.y);
         const t = wc.depth;
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
