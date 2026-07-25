@@ -164,8 +164,7 @@ export class TerrainSystem {
   }
 
   applyVisualTinting(): void {
-    // Bake height tint once into a single canvas sprite.
-    // Old path: one Graphics fillPath per cell (~65K draw cmds every frame via worldLayer PostFX).
+    // Bake height tint once into a single canvas sprite (1 draw vs ~65K Graphics cmds).
     if (this.visualSprite) {
       this.visualSprite.destroy();
       this.visualSprite = null;
@@ -177,22 +176,19 @@ export class TerrainSystem {
     const cellSize = TERRAIN_CONFIG.CELL_SIZE;
     const w = this.gridWidth;
     const h = this.gridHeight;
-    const halfX = cellSize;
-    const halfY = cellSize / 2;
     const { VALLEY_COLOR: vc, PEAK_COLOR: pc, TINT_ALPHA_MIN: aMin, TINT_ALPHA_MAX: aMax, SLOPE_TINT: slopeK } = TERRAIN_CONFIG;
 
-    // World AABB of all iso cell diamonds
+    // Exact iso corner AABB of map (shared corners → seamless quads)
+    const cornerPts = [
+      toIso(0, 0),
+      toIso(w * cellSize, 0),
+      toIso(w * cellSize, h * cellSize),
+      toIso(0, h * cellSize),
+    ];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (let gy = 0; gy < h; gy++) {
-      for (let gx = 0; gx < w; gx++) {
-        const wx = gx * cellSize + cellSize / 2;
-        const wy = gy * cellSize + cellSize / 2;
-        const iso = toIso(wx, wy);
-        if (iso.x - halfX < minX) minX = iso.x - halfX;
-        if (iso.x + halfX > maxX) maxX = iso.x + halfX;
-        if (iso.y - halfY < minY) minY = iso.y - halfY;
-        if (iso.y + halfY > maxY) maxY = iso.y + halfY;
-      }
+    for (const p of cornerPts) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
     }
     const pad = 2;
     const ox = minX - pad;
@@ -209,10 +205,10 @@ export class TerrainSystem {
       for (let gx = 0; gx < w; gx++) {
         const idx = gy * w + gx;
         const height = this.heightGrid[idx];
-        const wx = gx * cellSize + cellSize / 2;
-        const wy = gy * cellSize + cellSize / 2;
-        const iso = toIso(wx, wy);
+        const wx = gx * cellSize;
+        const wy = gy * cellSize;
 
+        // Brighter lift on base hue so relief reads without muddying grass
         const t = (height - TERRAIN_CONFIG.MIN_HEIGHT) / (TERRAIN_CONFIG.MAX_HEIGHT - TERRAIN_CONFIG.MIN_HEIGHT);
         let r = vc.r + (pc.r - vc.r) * t;
         let g = vc.g + (pc.g - vc.g) * t;
@@ -224,21 +220,24 @@ export class TerrainSystem {
           (gy > 0 ? this.heightGrid[idx - w] : height) +
           (gy < h - 1 ? this.heightGrid[idx + w] : height)
         ) * 0.25;
-        const shade = Math.max(0.6, Math.min(1.4, 1 + (height - n) * slopeK));
-        r = Math.min(255, Math.floor(r * shade));
-        g = Math.min(255, Math.floor(g * shade));
-        b = Math.min(255, Math.floor(b * shade));
+        const shade = Math.max(0.65, Math.min(1.45, 1 + (height - n) * slopeK));
+        // +12% lift → brighter overall without crushing slope contrast
+        r = Math.min(255, Math.floor(r * shade * 1.12));
+        g = Math.min(255, Math.floor(g * shade * 1.12));
+        b = Math.min(255, Math.floor(b * shade * 1.08));
 
-        const alpha = aMin + (aMax - aMin) * t;
-        const cx = iso.x - ox;
-        const cy = iso.y - oy;
-        // Iso diamond matches cell footprint (same as water cells)
-        ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+        // Slightly stronger alpha than raw config so relief is visible on bright ground
+        const alpha = (aMin + (aMax - aMin) * t) * 1.35;
+        const c0 = toIso(wx, wy);
+        const c1 = toIso(wx + cellSize, wy);
+        const c2 = toIso(wx + cellSize, wy + cellSize);
+        const c3 = toIso(wx, wy + cellSize);
+        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.28, alpha)})`;
         ctx.beginPath();
-        ctx.moveTo(cx, cy - halfY);
-        ctx.lineTo(cx + halfX, cy);
-        ctx.lineTo(cx, cy + halfY);
-        ctx.lineTo(cx - halfX, cy);
+        ctx.moveTo(c0.x - ox, c0.y - oy);
+        ctx.lineTo(c1.x - ox, c1.y - oy);
+        ctx.lineTo(c2.x - ox, c2.y - oy);
+        ctx.lineTo(c3.x - ox, c3.y - oy);
         ctx.closePath();
         ctx.fill();
       }

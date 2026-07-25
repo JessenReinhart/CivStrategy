@@ -7,6 +7,7 @@ export class AtmosphericSystem {
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
     private bloomEffect!: Phaser.FX.Bloom;
+    private tiltShiftEffect: Phaser.FX.TiltShift | null = null;
     private vignetteEffect!: Phaser.FX.Vignette;
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;
@@ -78,13 +79,14 @@ export class AtmosphericSystem {
     }
 
     private setupBloom() {
-      // PostFX on worldLayer is the dominant __render cost (full-screen multipass).
-      // Keep bloom + light vignette; drop tiltShift (extra full-screen blur every frame).
+      // Keep bloom + light vignette + mild tiltShift. Cap tilt blur so quality
+      // returns without the old 60ms ren cost (was blur→2.5 every frame).
       const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-      // Milder defaults: quality steps 1→ fewer samples; strength capped later in update
-      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.5, 0.6);
-      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.85, 0.2);
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.65, 0.85);
+      this.tiltShiftEffect = target.addTiltShift(0.08);
+      // Weaker vignette → brighter map edges
+      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.9, 0.12);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -96,18 +98,24 @@ export class AtmosphericSystem {
         const cam = this.scene.cameras.main;
         const viewRect = cam.worldView;
 
-        // --- Adaptive Bloom Logic (cheaper targets than before) ---
         if (this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-            // Zoomed-out: mild bloom; zoomed-in: almost none
-            const baseStrength = Phaser.Math.Linear(1.1, 0.35, zoomProgress);
-            const pulse = Math.sin(time * 0.002) * 0.03;
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.05, 1.2);
-            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
+            // Brighter mid-range bloom than bare-min pass; still below pre-perf extremes
+            const baseStrength = Phaser.Math.Linear(1.4, 0.55, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.04;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.15, 1.6);
+            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.5);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
-        // tiltShift removed — was a full-screen blur every frame for diorama DOF
+        if (this.tiltShiftEffect) {
+            const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
+            const eased = Math.sqrt(zoomProgress);
+            // Cap blur at 1.0 (was 2.5) — diorama hint without full-screen mush
+            const targetBlur = Phaser.Math.Linear(0.06, 1.0, eased);
+            this.tiltShiftEffect.blur = Phaser.Math.Linear(this.tiltShiftEffect.blur, targetBlur, 0.1);
+        }
+
 
         // --- Cloud Logic ---
         // Expand wrap bounds well beyond the camera view to avoid popping
