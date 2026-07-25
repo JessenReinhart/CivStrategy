@@ -1,18 +1,37 @@
 import { defineConfig, Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
-/** Dev-only plugin: relays game FPS from browser → terminal via HMR WebSocket. */
+/** Dev-only plugin: relays game FPS + profile hogs browser → terminal via HMR. */
 function fpsTerminalLogger(): Plugin {
   return {
     name: 'fps-terminal-logger',
     configureServer(server) {
-      server.ws.on('game:fps', (data: { fps: number; units: number; frameMs: number }) => {
-        const { fps, units, frameMs } = data;
+      type Hog = { name: string; ms: number; pct: number };
+      type FpsPayload = {
+        fps: number;
+        units: number;
+        frameMs: number;
+        updateMs: number;
+        renderMs: number;
+        hogs?: Hog[];
+      };
+      server.ws.on('game:fps', (data: FpsPayload) => {
+        const { fps, units, frameMs, updateMs, renderMs, hogs } = data;
         const color = fps >= 55 ? '\x1b[32m' : fps >= 30 ? '\x1b[33m' : '\x1b[31m';
+        const dim = '\x1b[2m';
         const reset = '\x1b[0m';
-        process.stdout.write(
-          `\r${color}[FPS] ${fps.toFixed(1)} | ${units} units | ${frameMs.toFixed(1)}ms/frame${reset}   `
-        );
+        const hogStr = (hogs && hogs.length > 0)
+          ? hogs
+              .slice(0, 5)
+              .map((h) => `${h.name} ${h.ms.toFixed(1)}ms`)
+              .join(' · ')
+          : '…profiling';
+        // Clear line + write rich one-liner (pads so leftover chars don't linger)
+        const line =
+          `${color}[FPS] ${fps.toFixed(1)} | ${frameMs.toFixed(1)}ms/frame` +
+          `${reset}${dim} (upd ${updateMs.toFixed(1)} + ren ${renderMs.toFixed(1)})` +
+          `${reset} | ${units}u | ${color}hogs: ${hogStr}${reset}`;
+        process.stdout.write(`\r\x1b[K${line}   `);
       });
     },
   };

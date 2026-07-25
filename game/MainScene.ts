@@ -756,36 +756,57 @@ export class MainScene extends Phaser.Scene {
     this.profileFrameCount++;
     const frameTime = performance.now() - frameStart;
     this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
-    
-        // Dev-only: send FPS to terminal via Vite HMR WebSocket (every ~0.5s)
-        if (this.profileFrameCount % 30 === 0) {
-          try {
-            // @ts-expect-error — import.meta.hot is only available in Vite dev mode
-            import.meta.hot?.send('game:fps', {
-              fps: this.game.loop.actualFps,
-              units: this.units.getLength(),
-              frameMs: frameTime,
-            });
-          } catch { /* not in dev mode */ }
-        }
+
+    // Dev-only: terminal FPS + ranked hogs via Vite HMR (every ~0.5s / 30 frames)
+    if (this.profileFrameCount % 30 === 0) {
+      const n = Math.max(1, this.profileFrameCount);
+      const avgUpdate = (this.profileTimings['_totalFrame'] || 0) / n;
+      const avgRender = (this.profileTimings['__render'] || 0) / n;
+      // Wall frame ≈ update + render (render is outside update(); both accumulate)
+      const avgFrame = avgUpdate + avgRender;
+      const hogs = Object.entries(this.profileTimings)
+        .filter(([k]) => k !== '_totalFrame')
+        .map(([name, total]) => {
+          const ms = total / n;
+          return { name, ms, pct: avgFrame > 0 ? (ms / avgFrame) * 100 : 0 };
+        })
+        .sort((a, b) => b.ms - a.ms)
+        .slice(0, 6);
+      try {
+        // @ts-expect-error — import.meta.hot only in Vite dev
+        import.meta.hot?.send('game:fps', {
+          fps: this.game.loop.actualFps,
+          units: this.units.getLength(),
+          frameMs: avgFrame,
+          updateMs: avgUpdate,
+          renderMs: avgRender,
+          hogs,
+        });
+      } catch { /* not in dev mode */ }
+    }
 
     if (this.profileFrameCount >= MainScene.PROFILING_REPORT_INTERVAL) {
       const fps = this.game.loop.actualFps.toFixed(1);
       const unitCount = this.units.getLength();
-      const reports: string[] = [`[PERF] ${unitCount} units @ ${fps} FPS (avg ${this.profileFrameCount} frames):`];
+      const n = this.profileFrameCount;
+      const avgUpdate = (this.profileTimings['_totalFrame'] || 0) / n;
+      const avgRender = (this.profileTimings['__render'] || 0) / n;
+      const avgFrame = avgUpdate + avgRender;
+      const reports: string[] = [
+        `[PERF] ${unitCount} units @ ${fps} FPS | ${avgFrame.toFixed(1)}ms/frame ` +
+        `(upd ${avgUpdate.toFixed(1)} + ren ${avgRender.toFixed(1)}) over ${n} frames:`,
+      ];
       const sorted = Object.entries(this.profileTimings)
         .filter(([k]) => k !== '_totalFrame')
         .sort(([, a], [, b]) => b - a);
       for (const [label, total] of sorted) {
-        const avgMs = (total / this.profileFrameCount).toFixed(2);
-        const pct = ((total / this.profileTimings['_totalFrame']) * 100).toFixed(1);
-        reports.push(`  ${label}: ${avgMs}ms/frame (${pct}%)`);
+        const avgMs = total / n;
+        const pct = avgFrame > 0 ? ((avgMs / avgFrame) * 100).toFixed(1) : '0.0';
+        reports.push(`  ${label}: ${avgMs.toFixed(2)}ms/frame (${pct}%)`);
       }
-      const avgFrame = (this.profileTimings['_totalFrame'] / this.profileFrameCount).toFixed(2);
-      reports.push(`  TOTAL FRAME: ${avgFrame}ms`);
+      reports.push(`  TOTAL (upd+ren): ${avgFrame.toFixed(2)}ms`);
       console.warn(reports.join('\n'));
 
-      // Reset
       this.profileFrameCount = 0;
       this.profileTimings = {};
     }
