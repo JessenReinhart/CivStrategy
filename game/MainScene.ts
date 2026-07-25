@@ -379,7 +379,7 @@ export class MainScene extends Phaser.Scene {
       );
       const wb = this.waterMaskBounds;
 
-      // Depth canvas: MS shoreline polys + soft shore alpha + edge blur
+      // Depth canvas: solid MS body + thin soft rim (not whole-body fade)
       const depthCvs = document.createElement('canvas');
       depthCvs.width = Math.max(1, Math.ceil(wb.width));
       depthCvs.height = Math.max(1, Math.ceil(wb.height));
@@ -387,10 +387,8 @@ export class MainScene extends Phaser.Scene {
 
       for (const poly of waterPolys) {
         const t = poly.depth;
-        // Smooth ground→water: shallow almost transparent, deep solid
-        // smoothstep-ish curve so shoreline fades instead of hard cut
-        const s = t * t * (3 - 2 * t);
-        const alpha = 0.12 + 0.78 * s;
+        // Depth drives color only — body stays solid so lakes don't ghost
+        const alpha = 0.82 + 0.14 * t;
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
         const b = Math.floor(shallowB + (deepB - shallowB) * t);
@@ -405,12 +403,12 @@ export class MainScene extends Phaser.Scene {
         dCtx.fill();
       }
 
-      // Soften jagged MS edges: slight blur + re-sample
+      // 1px blur = thin AA rim at shoreline only (not whole-body washout)
       const softCvs = document.createElement('canvas');
       softCvs.width = depthCvs.width;
       softCvs.height = depthCvs.height;
       const sCtx = softCvs.getContext('2d')!;
-      sCtx.filter = 'blur(2px)';
+      sCtx.filter = 'blur(1px)';
       sCtx.drawImage(depthCvs, 0, 0);
       sCtx.filter = 'none';
 
