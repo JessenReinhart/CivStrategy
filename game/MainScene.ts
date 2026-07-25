@@ -270,78 +270,167 @@ export class MainScene extends Phaser.Scene {
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
-      // ── Water layer: depth canvas + scrolling wave texture ──────────────
+      // ── Water layer: smooth MS shoreline + foam texture ────────────────
       const dim = this.terrainSystem.getGridDimensions();
       const grid = this.terrainSystem.getHeightMapData();
       const cellSize = dim.cellSize;
       const level = TERRAIN_CONFIG.WATER_LEVEL;
       const shallowR = 51, shallowG = 140, shallowB = 179;
       const deepR = 5, deepG = 48, deepB = 107;
+      const BLUR_PAD = 4; // room for soft edge blur
 
-      // Collect wet cells with iso centers + AABB (include diamond corners)
+      const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
+      const edgePt = (
+        ax: number, ay: number, ha: number,
+        bx: number, by: number, hb: number
+      ) => {
+        const t = (level - ha) / (hb - ha || 1e-6);
+        return toIso(ax + (bx - ax) * t, ay + (by - ay) * t);
+      };
+
+      // Marching-squares polys in iso world space + depth
+      type WaterPoly = { pts: { x: number; y: number }[]; depth: number };
+      const waterPolys: WaterPoly[] = [];
       let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
-      const waterCells: { depth: number; ix: number; iy: number }[] = [];
-      const halfX = cellSize;      // iso diamond half-width for cellSize
-      const halfY = cellSize / 2;  // iso diamond half-height
+      const expand = (pts: { x: number; y: number }[]) => {
+        for (const p of pts) {
+          if (p.x < wMinX) wMinX = p.x; if (p.x > wMaxX) wMaxX = p.x;
+          if (p.y < wMinY) wMinY = p.y; if (p.y > wMaxY) wMaxY = p.y;
+        }
+      };
+
       for (let gy = 0; gy < dim.height; gy++) {
         for (let gx = 0; gx < dim.width; gx++) {
-          const h = grid[gy * dim.width + gx];
-          if (h >= level) continue;
-          const wx = gx * cellSize + cellSize / 2;
-          const wy = gy * cellSize + cellSize / 2;
-          const iso = toIso(wx, wy);
-          const depth = Math.min(1, Math.max(0, (level - h) / level));
-          waterCells.push({ depth, ix: iso.x, iy: iso.y });
-          if (iso.x - halfX < wMinX) wMinX = iso.x - halfX;
-          if (iso.x + halfX > wMaxX) wMaxX = iso.x + halfX;
-          if (iso.y - halfY < wMinY) wMinY = iso.y - halfY;
-          if (iso.y + halfY > wMaxY) wMaxY = iso.y + halfY;
+          const wx = gx * cellSize;
+          const wy = gy * cellSize;
+          const h0 = sample(wx, wy);
+          const h1 = sample(wx + cellSize, wy);
+          const h2 = sample(wx + cellSize, wy + cellSize);
+          const h3 = sample(wx, wy + cellSize);
+          const m0 = h0 < level ? 1 : 0;
+          const m1 = h1 < level ? 1 : 0;
+          const m2 = h2 < level ? 1 : 0;
+          const m3 = h3 < level ? 1 : 0;
+          const mask = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
+          if (mask === 0) continue;
+
+          const c0 = toIso(wx, wy);
+          const c1 = toIso(wx + cellSize, wy);
+          const c2 = toIso(wx + cellSize, wy + cellSize);
+          const c3 = toIso(wx, wy + cellSize);
+          const e0 = () => edgePt(wx, wy, h0, wx + cellSize, wy, h1);
+          const e1 = () => edgePt(wx + cellSize, wy, h1, wx + cellSize, wy + cellSize, h2);
+          const e2 = () => edgePt(wx + cellSize, wy + cellSize, h2, wx, wy + cellSize, h3);
+          const e3 = () => edgePt(wx, wy + cellSize, h3, wx, wy, h0);
+
+          let depthSum = 0, wetCount = 0;
+          for (const h of [h0, h1, h2, h3]) {
+            if (h < level) { depthSum += (level - h) / level; wetCount++; }
+          }
+          const depth = Math.min(1, depthSum / Math.max(1, wetCount));
+
+          // Saddle cases: two separate tris (self-crossing if merged)
+          if (mask === 5) {
+            const a = [c0, e0(), e3()]; const b = [c2, e1(), e2()];
+            waterPolys.push({ pts: a, depth }); waterPolys.push({ pts: b, depth });
+            expand(a); expand(b); continue;
+          }
+          if (mask === 10) {
+            const a = [c1, e0(), e1()]; const b = [c3, e2(), e3()];
+            waterPolys.push({ pts: a, depth }); waterPolys.push({ pts: b, depth });
+            expand(a); expand(b); continue;
+          }
+
+          let pts: { x: number; y: number }[];
+          switch (mask) {
+            case 1:  pts = [c0, e0(), e3()]; break;
+            case 2:  pts = [c1, e1(), e0()]; break;
+            case 3:  pts = [c0, c1, e1(), e3()]; break;
+            case 4:  pts = [c2, e2(), e1()]; break;
+            case 6:  pts = [c1, c2, e2(), e0()]; break;
+            case 7:  pts = [c0, c1, c2, e2(), e3()]; break;
+            case 8:  pts = [c3, e3(), e2()]; break;
+            case 9:  pts = [c0, e0(), e2(), c3]; break;
+            case 11: pts = [c0, c1, e1(), e2(), c3]; break;
+            case 12: pts = [c2, c3, e3(), e1()]; break;
+            case 13: pts = [c0, e0(), e1(), c2, c3]; break;
+            case 14: pts = [c1, c2, c3, e3(), e0()]; break;
+            default: pts = [c0, c1, c2, c3]; break; // 15 full cell
+          }
+          waterPolys.push({ pts, depth });
+          expand(pts);
         }
       }
 
+      if (waterPolys.length === 0) {
+        // No water on this map — still run map gen
+        this.pathfinder.applyWaterMask(
+          (wx, wy) => this.terrainSystem.getHeightAt(wx, wy), level
+        );
+        this.waterAnimFrame = 0;
+        this.mapGenerationSystem.createEnvironment();
+        this.mapGenerationSystem.generateFertileZones();
+        this.mapGenerationSystem.generateForestsAndAnimals();
+      } else {
       this.waterMaskBounds = new Phaser.Geom.Rectangle(
-        wMinX - 1, wMinY - 1, Math.ceil(wMaxX - wMinX) + 2, Math.ceil(wMaxY - wMinY) + 2
+        wMinX - BLUR_PAD, wMinY - BLUR_PAD,
+        Math.ceil(wMaxX - wMinX) + BLUR_PAD * 2,
+        Math.ceil(wMaxY - wMinY) + BLUR_PAD * 2
       );
       const wb = this.waterMaskBounds;
 
-      // Depth canvas: continuous iso diamonds (not axis-aligned squares)
+      // Depth canvas: MS shoreline polys + soft shore alpha + edge blur
       const depthCvs = document.createElement('canvas');
       depthCvs.width = Math.max(1, Math.ceil(wb.width));
       depthCvs.height = Math.max(1, Math.ceil(wb.height));
       const dCtx = depthCvs.getContext('2d')!;
-      for (const wc of waterCells) {
-        const cx = wc.ix - wb.x;
-        const cy = wc.iy - wb.y;
-        const t = wc.depth;
+
+      for (const poly of waterPolys) {
+        const t = poly.depth;
+        // Smooth ground→water: shallow almost transparent, deep solid
+        // smoothstep-ish curve so shoreline fades instead of hard cut
+        const s = t * t * (3 - 2 * t);
+        const alpha = 0.12 + 0.78 * s;
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
         const b = Math.floor(shallowB + (deepB - shallowB) * t);
-        dCtx.fillStyle = `rgba(${r},${gg},${b},${0.62 + 0.30 * t})`;
+        dCtx.fillStyle = `rgba(${r},${gg},${b},${alpha})`;
         dCtx.beginPath();
-        dCtx.moveTo(cx, cy - halfY);
-        dCtx.lineTo(cx + halfX, cy);
-        dCtx.lineTo(cx, cy + halfY);
-        dCtx.lineTo(cx - halfX, cy);
+        const p0 = poly.pts[0];
+        dCtx.moveTo(p0.x - wb.x, p0.y - wb.y);
+        for (let i = 1; i < poly.pts.length; i++) {
+          dCtx.lineTo(poly.pts[i].x - wb.x, poly.pts[i].y - wb.y);
+        }
         dCtx.closePath();
         dCtx.fill();
       }
+
+      // Soften jagged MS edges: slight blur + re-sample
+      const softCvs = document.createElement('canvas');
+      softCvs.width = depthCvs.width;
+      softCvs.height = depthCvs.height;
+      const sCtx = softCvs.getContext('2d')!;
+      sCtx.filter = 'blur(2px)';
+      sCtx.drawImage(depthCvs, 0, 0);
+      sCtx.filter = 'none';
+
       if (this.textures.exists('_waterDepth')) this.textures.remove('_waterDepth');
-      this.textures.addCanvas('_waterDepth', depthCvs);
+      this.textures.addCanvas('_waterDepth', softCvs);
       this.waterDepthSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0);
       this.waterDepthSprite.setDepth(-9000);
       this.worldLayer.add(this.waterDepthSprite);
-      // Sea foam texture: tileScale y*0.5 matches iso ground compress (toIso y = (x+y)*0.5)
+
+      // Sea foam texture: tileScale y*0.5 matches iso ground compress
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, 'waterFoam').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
       this.waterWaveSprite.setAlpha(0.4);
-      // Scale so one 750px tile ≈ ~3 world cells in iso; y half for perspective
       this.waterWaveSprite.setTileScale(0.35, 0.175);
       this.worldLayer.add(this.waterWaveSprite);
 
-      // BitmapMask from depth alpha — foam only over water, not whole AABB
+      // BitmapMask from soft depth alpha — foam follows smooth shoreline
       const maskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
       this.waterWaveSprite.setMask(maskSprite.createBitmapMask());
-      // Permanent water impassable mask (dual-layer; demolish won't open water)
+
       this.pathfinder.applyWaterMask(
         (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
         level
@@ -351,7 +440,8 @@ export class MainScene extends Phaser.Scene {
       this.mapGenerationSystem.generateFertileZones();
       this.mapGenerationSystem.generateForestsAndAnimals();
       // eslint-disable-next-line no-console
-      console.log('[Water] depth diamonds + masked wave, cells:', waterCells.length, '/', grid.length);
+      console.log('[Water] smooth MS polys + soft shore:', waterPolys.length, '/', grid.length);
+      } // end waterPolys.length > 0
     } else {
       this.physics.world.setBounds(-100000, -100000, 200000, 200000);
       this.infiniteMapSystem = new InfiniteMapSystem(this);
