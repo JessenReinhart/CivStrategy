@@ -240,6 +240,32 @@ export class TerrainSystem {
       cellSize: TERRAIN_CONFIG.CELL_SIZE
     };
   }
+  /**
+   * Raise all height-grid cells within `radius` world-pixels of (wx, wy)
+   * to at least `minHeight`. Call after generateHeightMap() to guarantee
+   * dry land at spawn points / bases.
+   */
+  flattenAroundWorld(wx: number, wy: number, radius: number, minHeight: number): void {
+    const cellSize = TERRAIN_CONFIG.CELL_SIZE;
+    const gx0 = Math.max(0, Math.floor((wx - radius) / cellSize));
+    const gy0 = Math.max(0, Math.floor((wy - radius) / cellSize));
+    const gx1 = Math.min(this.gridWidth - 1, Math.ceil((wx + radius) / cellSize));
+    const gy1 = Math.min(this.gridHeight - 1, Math.ceil((wy + radius) / cellSize));
+    const r2 = radius * radius;
+    for (let gy = gy0; gy <= gy1; gy++) {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        const cx = gx * cellSize + cellSize / 2;
+        const cy = gy * cellSize + cellSize / 2;
+        const dx = cx - wx;
+        const dy = cy - wy;
+        if (dx * dx + dy * dy > r2) continue;
+        const idx = gy * this.gridWidth + gx;
+        if (this.heightGrid[idx] < minHeight) {
+          this.heightGrid[idx] = minHeight;
+        }
+      }
+    }
+  }
 
   destroy(): void {
     if (this.visualGraphics) {

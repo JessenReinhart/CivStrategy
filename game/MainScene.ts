@@ -263,6 +263,13 @@ export class MainScene extends Phaser.Scene {
     // Initialize Terrain System
     this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight);
     this.terrainSystem.generateHeightMap();
+    // Guarantee dry land at faction spawn points — raise terrain above water
+    const spawnSafeRadius = 150;
+    const spawnMinHeight = TERRAIN_CONFIG.WATER_LEVEL + 0.05;
+    const cx = this.mapWidth / 2;
+    const cy = this.mapHeight / 2;
+    this.terrainSystem.flattenAroundWorld(cx, cy, spawnSafeRadius, spawnMinHeight);
+    this.terrainSystem.flattenAroundWorld(cx + 400, cy - 50, spawnSafeRadius, spawnMinHeight);
     this.terrainSystem.applyVisualTinting();
 
     if (this.mapMode === MapMode.FIXED) {
