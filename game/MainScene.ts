@@ -786,6 +786,18 @@ export class MainScene extends Phaser.Scene {
     this.profileFrameCount++;
     const frameTime = performance.now() - frameStart;
     this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
+    
+        // Dev-only: send FPS to terminal via Vite HMR WebSocket (every ~0.5s)
+        if (this.profileFrameCount % 30 === 0) {
+          try {
+            // @ts-expect-error — import.meta.hot is only available in Vite dev mode
+            import.meta.hot?.send('game:fps', {
+              fps: this.game.loop.actualFps,
+              units: this.units.getLength(),
+              frameMs: frameTime,
+            });
+          } catch { /* not in dev mode */ }
+        }
 
     if (this.profileFrameCount >= MainScene.PROFILING_REPORT_INTERVAL) {
       const fps = this.game.loop.actualFps.toFixed(1);
