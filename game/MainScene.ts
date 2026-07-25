@@ -113,8 +113,6 @@ export class MainScene extends Phaser.Scene {
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
-  private waterMaskGraphics: Phaser.GameObjects.Graphics | null = null;
-  private waterMask: Phaser.Display.Masks.GeometryMask | null = null;
   private waterMaskBounds: Phaser.Geom.Rectangle | null = null;
   private waterAnimFrame: number = 0;
 
@@ -281,53 +279,17 @@ export class MainScene extends Phaser.Scene {
       // Collect water cells + marching-squares outline for geometry mask
       let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
       const waterCells: { gx: number; gy: number; depth: number }[] = [];
-      const maskPoints: { x: number; y: number }[] = [];
-      const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
-      const edgeIso = (
-        ax: number, ay: number, ha: number,
-        bx: number, by: number, hb: number
-      ) => {
-        const t = (level - ha) / (hb - ha);
-        return toIso(ax + (bx - ax) * t, ay + (by - ay) * t);
-      };
       for (let gy = 0; gy < dim.height; gy++) {
         for (let gx = 0; gx < dim.width; gx++) {
-          const wx = gx * cellSize;
-          const wy = gy * cellSize;
-          const h0 = sample(wx, wy);
-          const h1 = sample(wx + cellSize, wy);
-          const h2 = sample(wx + cellSize, wy + cellSize);
-          const h3 = sample(wx, wy + cellSize);
-          const m0 = h0 < level ? 1 : 0;
-          const m1 = h1 < level ? 1 : 0;
-          const m2 = h2 < level ? 1 : 0;
-          const m3 = h3 < level ? 1 : 0;
-          const mk = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
-          if (mk === 0) continue;
-          const avgH = (h0 + h1 + h2 + h3) / 4;
-          const depth = Math.min(1, (level - avgH) / level);
-          const iso = toIso(wx + cellSize / 2, wy + cellSize / 2);
+          const h = grid[gy * dim.width + gx];
+          if (h >= level) continue;
+          const wx = gx * cellSize + cellSize / 2;
+          const wy = gy * cellSize + cellSize / 2;
+          const iso = toIso(wx, wy);
+          const depth = Math.min(1, (level - h) / level);
           waterCells.push({ gx, gy, depth, ix: iso.x, iy: iso.y });
           if (iso.x < wMinX) wMinX = iso.x; if (iso.x > wMaxX) wMaxX = iso.x;
           if (iso.y < wMinY) wMinY = iso.y; if (iso.y > wMaxY) wMaxY = iso.y;
-          // Marching-squares outline segments for geometry mask
-          const c0 = toIso(wx, wy);
-          const c1 = toIso(wx + cellSize, wy);
-          const c2 = toIso(wx + cellSize, wy + cellSize);
-          const c3 = toIso(wx, wy + cellSize);
-          const e0 = edgeIso(wx, wy, h0, wx + cellSize, wy, h1);
-          const e1 = edgeIso(wx + cellSize, wy, h1, wx + cellSize, wy + cellSize, h2);
-          const e2 = edgeIso(wx + cellSize, wy + cellSize, h2, wx, wy + cellSize, h3);
-          const e3 = edgeIso(wx, wy + cellSize, h3, wx, wy, h0);
-          const push = (a: {x:number;y:number}, b: {x:number;y:number}) => { maskPoints.push(a, b); };
-          if (mk === 1 || mk === 14) push(c0, mk === 1 ? e0 : e3);
-          if (mk === 2 || mk === 13) push(c1, mk === 2 ? e1 : e0);
-          if (mk === 4 || mk === 11) push(c2, mk === 4 ? e2 : e1);
-          if (mk === 8 || mk === 7) push(c3, mk === 8 ? e3 : e2);
-          if (mk === 3) push(e3, e1); if (mk === 12) push(e1, e3);
-          if (mk === 6) push(e0, e2); if (mk === 9) push(e2, e0);
-          if (mk === 5) { push(c0, e0); push(e3, c2); push(c2, e1); push(e2, c0); }
-          if (mk === 10) { push(c1, e1); push(e0, c3); push(c3, e2); push(e3, c1); }
         }
       }
       this.waterMaskBounds = new Phaser.Geom.Rectangle(
@@ -377,21 +339,6 @@ export class MainScene extends Phaser.Scene {
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, '_waterWave').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
       this.worldLayer.add(this.waterWaveSprite);
-      // Geometry mask from marching-squares outline — clips depth + wave to water shape
-      this.waterMaskGraphics = this.add.graphics();
-      this.waterMaskGraphics.fillStyle(0xffffff);
-      this.waterMaskGraphics.beginPath();
-      for (let i = 0; i < maskPoints.length; i += 2) {
-        const a = maskPoints[i], b = maskPoints[i + 1];
-        this.waterMaskGraphics.moveTo(a.x, a.y);
-        this.waterMaskGraphics.lineTo(b.x, b.y);
-      }
-      this.waterMaskGraphics.closePath();
-      this.waterMaskGraphics.fillPath();
-      this.waterMask = this.waterMaskGraphics.createGeometryMask();
-      this.waterMaskGraphics.setVisible(false);
-      this.waterDepthSprite.setMask(this.waterMask);
-      this.waterWaveSprite.setMask(this.waterMask);
       // eslint-disable-next-line no-console
       console.log('[Water] depth canvas + wave texture, cells:', waterCells.length, '/', grid.length);
       this.waterAnimFrame = 0;
