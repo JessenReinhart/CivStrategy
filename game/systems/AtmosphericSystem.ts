@@ -55,7 +55,7 @@ export class AtmosphericSystem {
             const cloud = this.scene.add.sprite(x, y, this.cloudTextureKey);
             if (this.scene.worldLayer) this.scene.worldLayer.add(cloud);
             cloud.setDepth(15000 + i); // Stagger depth slightly so they layer
-            cloud.setAlpha(Phaser.Math.FloatBetween(0.1, 0.25));
+            cloud.setAlpha(Phaser.Math.FloatBetween(0.05, 0.125));
             cloud.setScale(Phaser.Math.FloatBetween(4.0, 8.0)); // Big puffy clouds
 
             // Random rotation for variety
