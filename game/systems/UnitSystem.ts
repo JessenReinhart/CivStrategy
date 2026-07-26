@@ -4,6 +4,12 @@ import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, D
 import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile } from '../../constants';
 import { toIso } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
+import {
+  findResumePathStep,
+  shouldRepathChase,
+  stalePathAction,
+  pathEndNearTarget,
+} from '../utils/combatPath';
 
 /**
  * UnitSystem - Optimized for Annihilation-scale (thousands+ units).
@@ -595,6 +601,8 @@ export class UnitSystem {
                 unit.flowTarget = undefined;
                 unit.setData('_flowField', undefined);
                 unit.setData('explicitTarget', true);
+                unit.setData('_lastPathRecalc', 0);
+                unit.setData('_chaseTargetPos', undefined);
                 (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
             }
         }
@@ -757,30 +765,56 @@ export class UnitSystem {
         } else {
             unit.state = UnitState.CHASING;
 
-            // Always pathfind; never physics.moveTo straight through water/buildings
-            const lastRecalc = unit.getData('_lastPathRecalc') as number || 0;
-            const recalcMs = dist < 200 ? 150 : _PATH_RECALC_INTERVAL;
-            if (!unit.path || unit.path.length === 0 || (this.scene.time.now - lastRecalc > recalcMs)) {
-                unit.setData('_lastPathRecalc', this.scene.time.now);
-                const path = this.scene.pathfinder.findPath(
-                    new Phaser.Math.Vector2(unit.x, unit.y),
-                    new Phaser.Math.Vector2(target.x, target.y)
-                );
-                // Stay-put path is [start] only — treat as no path
-                if (path && path.length > 1) {
-                    unit.path = path;
-                    unit.pathStep = 0;
-                    unit.pathCreatedAt = time;
-                } else {
-                    unit.path = null;
-                    body.setVelocity(0, 0);
-                }
+            // Stable chase path: repath only when needed; never reset pathStep to 0
+            // (that walked units back to the start cell → back-and-forth thrash).
+            const nowMs = this.scene.time.now;
+            const lastRecalc = (unit.getData('_lastPathRecalc') as number) || 0;
+            const lastTarget = unit.getData('_chaseTargetPos') as { x: number; y: number } | undefined;
+            const targetMoved = lastTarget
+              ? Math.hypot(target.x - lastTarget.x, target.y - lastTarget.y)
+              : Number.POSITIVE_INFINITY;
+
+            const needRepath = shouldRepathChase({
+              path: unit.path,
+              pathStep: unit.pathStep ?? 0,
+              timeSinceRecalc: nowMs - lastRecalc,
+              targetMoved: Number.isFinite(targetMoved) ? targetMoved : 9999,
+              distToTarget: dist,
+              range,
+            });
+
+            // Also repath if existing path no longer ends near the target
+            const endStale = !!(
+              unit.path
+              && unit.path.length > 1
+              && !pathEndNearTarget(unit.path, target.x, target.y)
+              && (nowMs - lastRecalc) >= 450
+            );
+
+            if (needRepath || endStale) {
+              unit.setData('_lastPathRecalc', nowMs);
+              unit.setData('_chaseTargetPos', { x: target.x, y: target.y });
+              const path = this.scene.pathfinder.findPath(
+                new Phaser.Math.Vector2(unit.x, unit.y),
+                new Phaser.Math.Vector2(target.x, target.y),
+              );
+              if (path && path.length > 1) {
+                unit.path = path;
+                unit.pathStep = findResumePathStep(path, unit.x, unit.y);
+                unit.pathCreatedAt = time;
+              } else if (!unit.path || unit.path.length <= 1) {
+                unit.path = null;
+                body.setVelocity(0, 0);
+              }
+              // If repath failed but old path exists, keep following it
+            } else if (!lastTarget) {
+              unit.setData('_chaseTargetPos', { x: target.x, y: target.y });
             }
 
             if (unit.path && unit.path.length > 0) {
-                this.moveAlongPath(unit);
+              this.moveAlongPath(unit);
             } else {
-                body.setVelocity(0, 0);
+              body.setVelocity(0, 0);
             }
         }
     }
@@ -822,10 +856,21 @@ export class UnitSystem {
             this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, finalSpeed);
         }
 
-        // Stale path detection: if path is too old, clear it
-        if (unit.pathCreatedAt && this.scene.gameTime - unit.pathCreatedAt > STALE_PATH_LIFETIME) {
-            unit.path = null;
-            unit.state = UnitState.IDLE;
+        // Stale path: mid-chase clear+repath next tick (stay CHASING).
+        // Non-combat still drops to IDLE so idle scan can take over.
+        if (unit.pathCreatedAt && unit.path) {
+            const age = this.scene.gameTime - unit.pathCreatedAt;
+            const inCombat =
+              unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING;
+            const action = stalePathAction(age, STALE_PATH_LIFETIME, inCombat);
+            if (action === 'clear_repath') {
+                unit.path = null;
+                // force repath on next combat tick
+                unit.setData('_lastPathRecalc', 0);
+            } else if (action === 'clear_idle') {
+                unit.path = null;
+                unit.state = UnitState.IDLE;
+            }
         }
     }
 
