@@ -79,14 +79,13 @@ export class AtmosphericSystem {
     }
 
     private setupBloom() {
-      // Bloom is glow, not exposure. Mild defaults so UI bloom ~100% looks right.
-      // Brightness comes from ground/terrain/clear color — not cranking this.
+      // Low bloom + no tiltShift — both grey midtones / kill contrast.
+      // Color punch lives in ground/terrain/water, not PostFX.
       const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.55, 0.7);
-      this.tiltShiftEffect = target.addTiltShift(0.06);
-      // Near-zero vignette — was darkening edges and forcing bloom crank
-      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.95, 0.04);
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.4, 0.5);
+      this.tiltShiftEffect = null; // drop DOF blur — greys edges
+      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.98, 0.03);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -100,19 +99,12 @@ export class AtmosphericSystem {
 
         if (this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-            // Modest base so 1.0 multiplier ≈ normal daylight look
-            const baseStrength = Phaser.Math.Linear(1.0, 0.4, zoomProgress);
-            const pulse = Math.sin(time * 0.002) * 0.03;
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.1, 1.3);
-            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.5);
+            // Mild glow only — high bloom was washing the map to grey
+            const baseStrength = Phaser.Math.Linear(0.55, 0.2, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.02;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.05, 0.8);
+            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
-        }
-
-        if (this.tiltShiftEffect) {
-            const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
-            const eased = Math.sqrt(zoomProgress);
-            const targetBlur = Phaser.Math.Linear(0.04, 0.7, eased);
-            this.tiltShiftEffect.blur = Phaser.Math.Linear(this.tiltShiftEffect.blur, targetBlur, 0.1);
         }
 
 

@@ -208,7 +208,7 @@ export class TerrainSystem {
         const wx = gx * cellSize;
         const wy = gy * cellSize;
 
-        // Brighter lift on base hue so relief reads without muddying grass
+        // Saturated height + slope shading for contrast (avoid grey mud)
         const t = (height - TERRAIN_CONFIG.MIN_HEIGHT) / (TERRAIN_CONFIG.MAX_HEIGHT - TERRAIN_CONFIG.MIN_HEIGHT);
         let r = vc.r + (pc.r - vc.r) * t;
         let g = vc.g + (pc.g - vc.g) * t;
@@ -220,18 +220,18 @@ export class TerrainSystem {
           (gy > 0 ? this.heightGrid[idx - w] : height) +
           (gy < h - 1 ? this.heightGrid[idx + w] : height)
         ) * 0.25;
-        const shade = Math.max(0.75, Math.min(1.5, 1 + (height - n) * slopeK));
-        // +28% lift so relief stays readable on a bright ground plate
-        r = Math.min(255, Math.floor(r * shade * 1.28));
-        g = Math.min(255, Math.floor(g * shade * 1.28));
-        b = Math.min(255, Math.floor(b * shade * 1.18));
+        // Wider shade range → clearer relief, less flat grey
+        const shade = Math.max(0.55, Math.min(1.65, 1 + (height - n) * slopeK));
+        r = Math.min(255, Math.floor(r * shade * 1.15));
+        g = Math.min(255, Math.floor(g * shade * 1.18));
+        b = Math.min(255, Math.floor(b * shade * 1.05));
 
-        const alpha = (aMin + (aMax - aMin) * t) * 1.15;
+        const alpha = aMin + (aMax - aMin) * t;
         const c0 = toIso(wx, wy);
         const c1 = toIso(wx + cellSize, wy);
         const c2 = toIso(wx + cellSize, wy + cellSize);
         const c3 = toIso(wx, wy + cellSize);
-        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.22, alpha)})`;
+        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.32, alpha)})`;
         ctx.beginPath();
         ctx.moveTo(c0.x - ox, c0.y - oy);
         ctx.lineTo(c1.x - ox, c1.y - oy);

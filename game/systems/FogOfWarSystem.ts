@@ -68,8 +68,8 @@ export class FogOfWarSystem {
         if (!this.screenRT || !this.isVisible) return;
 
         this.screenRT.clear();
-        // Soft unexplored (not pure black) — full black forced bloom crank to "see"
-        this.screenRT.fill(0x0a1218, 0.78);
+        // Soft navy unexplored — keep FOW readable without crushing midtones
+        this.screenRT.fill(0x0c1820, 0.72);
 
         const cam = this.scene.cameras.main;
         const zoom = cam.zoom;

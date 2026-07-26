@@ -224,7 +224,8 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
     this.groundLayer.setOrigin(0, 0);
     this.groundLayer.setDepth(-20000);
-    this.groundLayer.setTint(0xffffff); // full bright grass plate
+    // Green multiply on brown ground tex → grass, not grey dirt
+    this.groundLayer.setTint(0xb4e070);
     this.worldLayer.add(this.groundLayer);
     this.groundLayer.setTileScale(this.groundScale);
 
@@ -276,8 +277,9 @@ export class MainScene extends Phaser.Scene {
       const grid = this.terrainSystem.getHeightMapData();
       const cellSize = dim.cellSize;
       const level = TERRAIN_CONFIG.WATER_LEVEL;
-      const shallowR = 96, shallowG = 190, shallowB = 220;
-      const deepR = 32, deepG = 96, deepB = 155;
+      // Punchy teal → deep blue (high sat so water pops vs grass)
+      const shallowR = 40, shallowG = 175, shallowB = 210;
+      const deepR = 12, deepG = 70, deepB = 145;
       const BLUR_PAD = 4; // room for soft edge blur
 
       const sample = (wx: number, wy: number) => this.terrainSystem.getHeightInterpolated(wx, wy);
@@ -389,7 +391,7 @@ export class MainScene extends Phaser.Scene {
       for (const poly of waterPolys) {
         const t = poly.depth;
         // Interior solid; only edge MS polys get mid alpha for soft ground→water
-        const alpha = poly.shore ? (0.55 + 0.30 * t) : (0.88 + 0.10 * t);
+        const alpha = poly.shore ? (0.65 + 0.25 * t) : (0.92 + 0.08 * t);
         const r = Math.floor(shallowR + (deepR - shallowR) * t);
         const gg = Math.floor(shallowG + (deepG - shallowG) * t);
         const b = Math.floor(shallowB + (deepB - shallowB) * t);
@@ -422,7 +424,7 @@ export class MainScene extends Phaser.Scene {
       // Sea foam texture: tileScale y*0.5 matches iso ground compress
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, 'waterFoam').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
-      this.waterWaveSprite.setAlpha(0.4);
+      this.waterWaveSprite.setAlpha(0.28); // less foam wash → color shows
       this.waterWaveSprite.setTileScale(0.35, 0.175);
       this.worldLayer.add(this.waterWaveSprite);
 
@@ -465,7 +467,7 @@ export class MainScene extends Phaser.Scene {
 
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
-    this.cameras.main.setBackgroundColor('#2a3648');
+    this.cameras.main.setBackgroundColor('#3a4d5c');
 
     this.cursors = this.input.keyboard!.createCursorKeys();
     this.wasd = this.input.keyboard!.addKeys('W,A,S,D') as { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key; };
