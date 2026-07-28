@@ -353,6 +353,21 @@ export const TERRAIN_CONFIG = {
     { color: { r: 107, g: 95, b: 67 }, minHeight: 0.72, label: 'scrub' },           // highland
     { color: { r: 130, g: 124, b: 115 }, minHeight: 0.86, label: 'stone' },         // peak
   ],
+  // Directional slope lighting (N·L). Baked as multiply — overlay alpha was invisible on photo textures.
+  // Light from NW/high — typical iso sun; normalized in bake.
+  LIGHT_DIR_X: -0.65,
+  LIGHT_DIR_Y: -0.4,
+  LIGHT_DIR_Z: 0.65,
+  LIGHT_AMBIENT: 0.35,
+  LIGHT_DIFFUSE: 0.75,
+  // Perlin slopes ~0.01–0.04 / cell after *0.5 map — need big gain to tilt normals.
+  NORMAL_STRENGTH: 48,
+  // Extra darken/lighten from absolute height (valleys vs peaks) even on flat plateaus.
+  HEIGHT_SHADE: 0.35,
+  // Pixels of screen-Y lift per unit height above sea level. Reads as elevation.
+  // Discrete bands (how many ≈ LIFT / 2) give AoE-style step cliffs.
+  HEIGHT_LIFT: 120,
+  // Legacy ridge multiplier (unused; kept for any external refs)
   SLOPE_TINT: 0.7,
 
   // Each terrain cell gets one full repeat, "1 tile = 1 texture".

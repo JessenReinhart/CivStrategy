@@ -4,7 +4,7 @@ import { MainScene } from '../MainScene';
 import { Noise } from '../utils/Noise';
 import { TERRAIN_CONFIG } from '../../constants';
 import { TerrainModifiers, SlopeInfo } from '../../types';
-import { toIso } from '../utils/iso';
+import { toIso, toIsoElev } from '../utils/iso';
 
 export class TerrainSystem {
   private scene: MainScene;
@@ -173,7 +173,12 @@ export class TerrainSystem {
     if (this.visualSprite) { this.visualSprite.destroy(); this.visualSprite = null; }
     if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
 
-    const { CELL_SIZE: CS, BIOMES, BIOME_DITHER, SLOPE_TINT, TEX_PERIOD } = TERRAIN_CONFIG;
+    const {
+      CELL_SIZE: CS, BIOMES, BIOME_DITHER, TEX_PERIOD,
+      LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z,
+      LIGHT_AMBIENT, LIGHT_DIFFUSE, NORMAL_STRENGTH, HEIGHT_SHADE,
+      WATER_LEVEL,
+    } = TERRAIN_CONFIG;
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
@@ -216,10 +221,19 @@ export class TerrainSystem {
       return 0;
     };
 
-    // Iso AABB
+    // Find max height for AABB expansion (elevation lifts upward = extends minY)
+    let maxGridHeight = 0;
+    for (let i = 0; i < w * h; i++) {
+      const hgt = this.heightGrid[i];
+      if (hgt > maxGridHeight) maxGridHeight = hgt;
+    }
+    const maxLift = Math.max(0, maxGridHeight - WATER_LEVEL) * TERRAIN_CONFIG.HEIGHT_LIFT;
+
+    // Iso AABB — expand upward for elevation lift
     const cornerPts = [toIso(0, 0), toIso(w * CS, 0), toIso(w * CS, h * CS), toIso(0, h * CS)];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of cornerPts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+    minY -= maxLift; // peaks rise upward in screen space
     const ox = minX, oy = minY;
     const tw = Math.ceil(maxX - minX), th = Math.ceil(maxY - minY);
 
@@ -227,6 +241,11 @@ export class TerrainSystem {
     cvs.width = tw;
     cvs.height = th;
     const ctx = cvs.getContext('2d')!;
+    // Normalize light once; N·L in world-grid X/Y (not iso).
+    const llen = Math.hypot(LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z) || 1;
+    const lx = LIGHT_DIR_X / llen;
+    const ly = LIGHT_DIR_Y / llen;
+    const lz = LIGHT_DIR_Z / llen;
 
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
@@ -237,42 +256,95 @@ export class TerrainSystem {
         const biomeIdx = getBiomeIndex(height, dither);
         const pat = patterns[biomeIdx];
 
-        // Iso diamond vertices, dilated 0.5px outward per edge to close antialias gaps
-        const c0 = toIso(wx, wy);
-        const c1 = toIso(wx + CS, wy);
-        const c2 = toIso(wx + CS, wy + CS);
-        const c3 = toIso(wx, wy + CS);
+        // Iso diamond with elevation lift
+        const c0 = toIsoElev(wx, wy, height);
+        const c1 = toIsoElev(wx + CS, wy, height);
+        const c2 = toIsoElev(wx + CS, wy + CS, height);
+        const c3 = toIsoElev(wx, wy + CS, height);
 
-        ctx.beginPath();
-        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
-        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
-        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
-        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
-        ctx.closePath();
+        const path = () => {
+          ctx.beginPath();
+          ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
+          ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
+          ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
+          ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
+          ctx.closePath();
+        };
 
+        path();
         ctx.fillStyle = pat ?? '#3c3c32';
         ctx.fill();
 
-        // Slope shade overlay
-        const avg = (
-          (gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height) +
-          (gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height) +
-          (gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height) +
-          (gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height)
-        ) * 0.25;
-        const shade = Math.max(0.55, Math.min(1.65, 1 + (height - avg) * SLOPE_TINT));
-        if (shade >= 0.97 && shade <= 1.03) continue;
+        // Central-diff normal from unitless height 0–1
+        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
+        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
+        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
+        const nz = 1;
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + nz * lz) / nlen);
 
-        ctx.beginPath();
-        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
-        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
-        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
-        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
-        ctx.closePath();
+        // Absolute Lambertian (not delta-from-flat) — every cell gets shade.
+        let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
+        // Height term: below water dark, peaks slightly lifted
+        const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
+        lit *= 1 + (hTerm - 0.35) * HEIGHT_SHADE;
+        lit = Math.max(0.22, Math.min(1.15, lit));
 
-        const a = Math.abs(shade - 1) * (shade < 1 ? 0.5 : 0.35);
-        ctx.fillStyle = shade < 1 ? `rgba(0,0,0,${a.toFixed(3)})` : `rgba(255,255,255,${a.toFixed(3)})`;
+        // Multiply into texture (source-over black α was invisible on photo tiles)
+        const s = Math.round(Math.min(255, lit * 255));
+        path();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
+
+        // Soft warm lift on sun-facing faces only
+        if (ndotl > 0.55 && lit > 0.85) {
+          const ha = Math.min(0.28, (ndotl - 0.55) * 0.35);
+          path();
+          ctx.globalCompositeOperation = 'soft-light';
+          ctx.fillStyle = `rgba(255,236,180,${ha.toFixed(3)})`;
+          ctx.fill();
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+
+        // ── Cliff face side-walls ──────────────────────────────────────
+        // Dark shadow polygons where east/south neighbor is lower
+        const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+
+        if (eastH < height - 0.01) {
+          const diff = height - eastH;
+          const cliffAlpha = Math.min(0.55, 0.18 + diff * 1.5);
+          const ec0 = toIsoElev(wx + CS, wy, eastH);
+          const ec3 = toIsoElev(wx + CS, wy + CS, eastH);
+          ctx.beginPath();
+          ctx.moveTo(c1.x - ox, c1.y - oy);
+          ctx.lineTo(c2.x - ox, c2.y - oy);
+          ctx.lineTo(ec3.x - ox, ec3.y - oy);
+          ctx.lineTo(ec0.x - ox, ec0.y - oy);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(0,0,0,${cliffAlpha.toFixed(3)})`;
+          ctx.fill();
+        }
+
+        if (southH < height - 0.01) {
+          const diff = height - southH;
+          const cliffAlpha = Math.min(0.55, 0.18 + diff * 1.5);
+          const sc0 = toIsoElev(wx, wy + CS, southH);
+          const sc1 = toIsoElev(wx + CS, wy + CS, southH);
+          ctx.beginPath();
+          ctx.moveTo(c3.x - ox, c3.y - oy);
+          ctx.lineTo(c2.x - ox, c2.y - oy);
+          ctx.lineTo(sc1.x - ox, sc1.y - oy);
+          ctx.lineTo(sc0.x - ox, sc0.y - oy);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(0,0,0,${cliffAlpha.toFixed(3)})`;
+          ctx.fill();
+        }
       }
     }
 

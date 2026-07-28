@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FormationType, UnitStance, DamageType } from '../../types';
 import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG } from '../../constants';
-import { toIso } from '../utils/iso';
+import { toIso, toIsoElev } from '../utils/iso';
 
 export class EntityFactory {
     private scene: MainScene;
@@ -85,7 +85,7 @@ export class EntityFactory {
         const hpBar = this.createHealthBar(visual, def.width, -def.height * 0.8 - 35);
         visual.setData('hpBar', hpBar);
 
-        const iso = toIso(x, y);
+        const iso = toIsoElev(x, y, this.scene.terrainSystem.getHeightAt(x, y));
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
 
         // --- VACANT / NO RES ICONS (UI Camera Only) ---

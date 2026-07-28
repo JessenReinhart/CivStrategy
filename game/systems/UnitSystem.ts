@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile } from '../../types';
 import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile } from '../../constants';
-import { toIso } from '../utils/iso';
+import { toIso, toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 import {
   findResumePathStep,
@@ -1209,7 +1209,7 @@ export class UnitSystem {
             const t = elapsed / l.duration;
 
             if (t >= 1) {
-                const iso = toIso(l.unitRef.x, l.unitRef.y);
+                const iso = toIsoElev(l.unitRef.x, l.unitRef.y, this.scene.terrainSystem.getHeightAt(l.unitRef.x, l.unitRef.y));
                 const v = visual as unknown as { setPosition?: (x: number, y: number) => void };
                 if (v.setPosition) {
                     v.setPosition(iso.x, iso.y);
@@ -1237,11 +1237,6 @@ export class UnitSystem {
                 v.setPosition(x, y);
             }
         }
-    }
-
-    private toCartesianIsoDepth(y: number): number {
-        // Depth convention: y acts like iso y; keep it consistent with other visuals.
-        return y;
     }
 
     // ─── Projectile ────────────────────────────────────────────────────────
