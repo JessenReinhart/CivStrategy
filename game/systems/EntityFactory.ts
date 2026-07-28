@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, UnitState, BuildingDef, FactionType, FormationType, UnitStance, DamageType } from '../../types';
+import { BuildingType, UnitType, UnitState, BuildingDef, FormationType, UnitStance, DamageType } from '../../types';
 import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG } from '../../constants';
 import { toIso } from '../utils/iso';
 
@@ -52,14 +52,12 @@ export class EntityFactory {
             return true;
         };
 
-        if (type === BuildingType.FARM) { if (setupSprite('field', 2.0, 0.5)) spriteUsed = true; }
-        else if (type === BuildingType.HOUSE) { if (setupSprite('house', 2.5, 0.85)) spriteUsed = true; }
-        else if (type === BuildingType.HUNTERS_LODGE) { if (setupSprite('lodge', 2.5, 0.75)) spriteUsed = true; }
-
-        if (!spriteUsed && owner === 0 && this.scene.faction === FactionType.ROMANS) {
-            if (type === BuildingType.TOWN_CENTER) { if (setupSprite('townhall', 1.5, 0.75)) spriteUsed = true; }
-            else if (type === BuildingType.LUMBER_CAMP) { if (setupSprite('lumber', 2.6, 0.75)) spriteUsed = true; }
-        }
+        if (type === BuildingType.FARM) { if (setupSprite('field', 1.3, 0.5)) spriteUsed = true; }
+        if (type === BuildingType.HOUSE) { if (setupSprite('house', 1.6, 0.85)) spriteUsed = true; }
+        if (type === BuildingType.HUNTERS_LODGE) { if (setupSprite('lodge', 1.6, 0.75)) spriteUsed = true; }
+        if (type === BuildingType.TOWN_CENTER) { if (setupSprite('townhall', 1.2, 0.75)) spriteUsed = true; }
+        if (type === BuildingType.BARRACKS) { if (setupSprite('barracks', 1.5, 0.75)) spriteUsed = true; }
+        if (type === BuildingType.LUMBER_CAMP) { if (setupSprite('lumber', 1.7, 0.75)) spriteUsed = true; }
 
         if (!spriteUsed) {
             if (type === BuildingType.BONFIRE) {

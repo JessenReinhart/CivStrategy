@@ -163,38 +163,65 @@ export class TerrainSystem {
     };
   }
 
-  applyVisualTinting(): void {
-    // Bake height tint once into a single canvas sprite (1 draw vs ~65K Graphics cmds).
-    if (this.visualSprite) {
-      this.visualSprite.destroy();
-      this.visualSprite = null;
-    }
-    if (this.scene.textures.exists('_terrainTint')) {
-      this.scene.textures.remove('_terrainTint');
-    }
+  private hash11(seed: number): number {
+    // simple deterministic hash from integer seed → [0,1)
+    seed = (seed * 16807) % 2147483647;
+    return (seed & 0x7fffffff) / 2147483647;
+  }
 
-    const cellSize = TERRAIN_CONFIG.CELL_SIZE;
+  applyVisualTinting(): void {
+    if (this.visualSprite) { this.visualSprite.destroy(); this.visualSprite = null; }
+    if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
+
+    const { CELL_SIZE: CS, BIOMES, BIOME_DITHER, SLOPE_TINT, TEX_PERIOD } = TERRAIN_CONFIG;
     const w = this.gridWidth;
     const h = this.gridHeight;
-    const { VALLEY_COLOR: vc, PEAK_COLOR: pc, TINT_ALPHA_MIN: aMin, TINT_ALPHA_MAX: aMax, SLOPE_TINT: slopeK } = TERRAIN_CONFIG;
+    const src = this.scene.textures;
+    // Period = how many world px one seamless tile covers. Keep << viewport so
+    // createPattern actually repeats on screen (768 looked like a single zoomed photo).
+    const period = Math.max(32, TEX_PERIOD ?? 256);
 
-    // Exact iso corner AABB of map (shared corners → seamless quads)
-    const cornerPts = [
-      toIso(0, 0),
-      toIso(w * cellSize, 0),
-      toIso(w * cellSize, h * cellSize),
-      toIso(0, h * cellSize),
-    ];
+    const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
+    const patterns: (CanvasPattern | null)[] = BIOMES.map((b, i) => {
+      if (i === 0) return null;
+      const key = textureKeys[i - 1];
+      if (!src.exists(key)) return null;
+      const img = src.get(key).getSourceImage() as HTMLImageElement;
+      if (!img) return null;
+      const sw = img.naturalWidth || img.width || period;
+      const sh = img.naturalHeight || img.height || period;
+      const c = document.createElement('canvas');
+      c.width = period;
+      c.height = period;
+      const cctx = c.getContext('2d')!;
+      cctx.imageSmoothingEnabled = true;
+      cctx.imageSmoothingQuality = 'high';
+      // Scale source into period canvas — pattern unit size = period, not raw 512.
+      cctx.drawImage(img, 0, 0, sw, sh, 0, 0, period, period);
+      return cctx.createPattern(c, 'repeat')!;
+    });
+
+    // Dither: pick biome at height boundaries
+    const getBiomeIndex = (height: number, dither: number): number => {
+      for (let i = 0; i < BIOMES.length - 1; i++) {
+        const lo = BIOMES[i].minHeight;
+        const tLo = lo - BIOME_DITHER;
+        const tHi = lo + BIOME_DITHER;
+        if (height >= tLo && height < tHi) {
+          return dither < (height - tLo) / (tHi - tLo) ? i : i + 1;
+        }
+      }
+      if (height < BIOMES[1].minHeight) return 0;
+      for (let i = BIOMES.length - 1; i >= 0; i--) if (height >= BIOMES[i].minHeight) return i;
+      return 0;
+    };
+
+    // Iso AABB
+    const cornerPts = [toIso(0, 0), toIso(w * CS, 0), toIso(w * CS, h * CS), toIso(0, h * CS)];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of cornerPts) {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    }
-    const pad = 2;
-    const ox = minX - pad;
-    const oy = minY - pad;
-    const tw = Math.max(1, Math.ceil(maxX - minX) + pad * 2);
-    const th = Math.max(1, Math.ceil(maxY - minY) + pad * 2);
+    for (const p of cornerPts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+    const ox = minX, oy = minY;
+    const tw = Math.ceil(maxX - minX), th = Math.ceil(maxY - minY);
 
     const cvs = document.createElement('canvas');
     cvs.width = tw;
@@ -203,41 +230,48 @@ export class TerrainSystem {
 
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
-        const idx = gy * w + gx;
-        const height = this.heightGrid[idx];
-        const wx = gx * cellSize;
-        const wy = gy * cellSize;
+        const height = this.heightGrid[gy * w + gx];
+        const wx = gx * CS;
+        const wy = gy * CS;
+        const dither = this.hash11(gx * 7919 + gy * 6271);
+        const biomeIdx = getBiomeIndex(height, dither);
+        const pat = patterns[biomeIdx];
 
-        // Saturated height + slope shading for contrast (avoid grey mud)
-        const t = (height - TERRAIN_CONFIG.MIN_HEIGHT) / (TERRAIN_CONFIG.MAX_HEIGHT - TERRAIN_CONFIG.MIN_HEIGHT);
-        let r = vc.r + (pc.r - vc.r) * t;
-        let g = vc.g + (pc.g - vc.g) * t;
-        let b = vc.b + (pc.b - vc.b) * t;
-
-        const n = (
-          (gx > 0 ? this.heightGrid[idx - 1] : height) +
-          (gx < w - 1 ? this.heightGrid[idx + 1] : height) +
-          (gy > 0 ? this.heightGrid[idx - w] : height) +
-          (gy < h - 1 ? this.heightGrid[idx + w] : height)
-        ) * 0.25;
-        // Wider shade range → clearer relief, less flat grey
-        const shade = Math.max(0.55, Math.min(1.65, 1 + (height - n) * slopeK));
-        r = Math.min(255, Math.floor(r * shade * 1.15));
-        g = Math.min(255, Math.floor(g * shade * 1.18));
-        b = Math.min(255, Math.floor(b * shade * 1.05));
-
-        const alpha = aMin + (aMax - aMin) * t;
+        // Iso diamond vertices, dilated 0.5px outward per edge to close antialias gaps
         const c0 = toIso(wx, wy);
-        const c1 = toIso(wx + cellSize, wy);
-        const c2 = toIso(wx + cellSize, wy + cellSize);
-        const c3 = toIso(wx, wy + cellSize);
-        ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(0.32, alpha)})`;
+        const c1 = toIso(wx + CS, wy);
+        const c2 = toIso(wx + CS, wy + CS);
+        const c3 = toIso(wx, wy + CS);
+
         ctx.beginPath();
-        ctx.moveTo(c0.x - ox, c0.y - oy);
-        ctx.lineTo(c1.x - ox, c1.y - oy);
-        ctx.lineTo(c2.x - ox, c2.y - oy);
-        ctx.lineTo(c3.x - ox, c3.y - oy);
+        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
+        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
+        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
+        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
         ctx.closePath();
+
+        ctx.fillStyle = pat ?? '#3c3c32';
+        ctx.fill();
+
+        // Slope shade overlay
+        const avg = (
+          (gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height) +
+          (gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height) +
+          (gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height) +
+          (gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height)
+        ) * 0.25;
+        const shade = Math.max(0.55, Math.min(1.65, 1 + (height - avg) * SLOPE_TINT));
+        if (shade >= 0.97 && shade <= 1.03) continue;
+
+        ctx.beginPath();
+        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
+        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
+        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
+        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
+        ctx.closePath();
+
+        const a = Math.abs(shade - 1) * (shade < 1 ? 0.5 : 0.35);
+        ctx.fillStyle = shade < 1 ? `rgba(0,0,0,${a.toFixed(3)})` : `rgba(255,255,255,${a.toFixed(3)})`;
         ctx.fill();
       }
     }

@@ -330,7 +330,7 @@ export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense:
 
 // Terrain System Configuration
 export const TERRAIN_CONFIG = {
-  CELL_SIZE: 8,
+  CELL_SIZE: 16,
   MIN_HEIGHT: 0.0,
   MAX_HEIGHT: 1.0,
   MAX_BUILDABLE_SLOPE: 0.15,  // Buildings can't be placed on slopes > 15%
@@ -343,29 +343,38 @@ export const TERRAIN_CONFIG = {
   // Combat modifiers
   HIGH_GROUND_ATTACK_BONUS: 0.10,   // +10% attack from high ground
   HIGH_GROUND_DEFENSE_BONUS: 0.05,  // +5% defense on high ground
-  HEIGHT_DIFF_THRESHOLD: 0.1,       // Minimum height diff for bonuses
-  
-  // Visual — saturated relief so grass/peaks punch (not grey wash).
-  VALLEY_COLOR: { r: 62, g: 148, b: 58 },   // deep grass green
-  PEAK_COLOR:   { r: 236, g: 198, b: 96 },   // warm sunlit gold
-  TINT_ALPHA_MIN: 0.10,
-  TINT_ALPHA_MAX: 0.22,
+  // Visual — biome-based terrain tiles
+  // Each biome: { color, minHeight, label }
+  BIOMES: [
+    { color: { r: 60, g: 60, b: 50 }, minHeight: -Infinity, label: 'deep' },       // below water, unused
+    { color: { r: 194, g: 178, b: 128 }, minHeight: 0.38, label: 'sand' },          // shore
+    { color: { r: 62, g: 148, b: 58 }, minHeight: 0.44, label: 'grass' },           // lowland
+    { color: { r: 45, g: 122, b: 42 }, minHeight: 0.58, label: 'forest' },          // mid
+    { color: { r: 107, g: 95, b: 67 }, minHeight: 0.72, label: 'scrub' },           // highland
+    { color: { r: 130, g: 124, b: 115 }, minHeight: 0.86, label: 'stone' },         // peak
+  ],
   SLOPE_TINT: 0.7,
-  
-  // Water layer: cells with height < WATER_LEVEL get animated water surface.
-  // Shoreline follows the heightmap via marching squares, not flat rects.
-  // Raised from 0.30 to 0.38 + macro octave added to TerrainSystem so water
-  // forms connected bodies (lakes, ponds, rivers, coastal sea) instead of
-  // isolated puddles.
-  WATER_LEVEL: 0.38,
 
-   // Generation — multi-octave noise
-   BASE_SCALE: 0.004,         // was 0.008 — broader terrain features (wider valleys)
-   DETAIL_SCALE: 0.03,
-   BASE_AMPLITUDE: 1.0,
-   DETAIL_AMPLITUDE: 0.3,
-   // Macro-scale continental basin. At ~1 cycle per map width, creates a
-   // broad depth gradient — one side becomes a sea, the other elevated land.
-   MACRO_SCALE: 0.0015,
-   MACRO_AMPLITUDE: 0.25
+  // Each terrain cell gets one full repeat, "1 tile = 1 texture".
+  TEX_PERIOD: 16,
+
+  BIOME_VARIANCE: 12,         // per-cell random color variance (±)
+  BIOME_DITHER: 0.04,         // noise radius for dithering biome boundaries
+
+  // Water layer: cells with height < WATER_LEVEL get animated water surface.
+   // Shoreline follows the heightmap via marching squares, not flat rects.
+   // Raised from 0.30 to 0.38 + macro octave added to TerrainSystem so water
+   // forms connected bodies (lakes, ponds, rivers, coastal sea) instead of
+   // isolated puddles.
+   WATER_LEVEL: 0.38,
+
+  // Generation — multi-octave noise (world coords; lower scale = larger features)
+  // Feature wavelength ≈ 2π / scale. Medium map 2048: base ~ half-map ridges, macro ~ full map sea.
+  BASE_SCALE: 0.0018,        // was 0.004 — wider valleys / mountain ranges
+  DETAIL_SCALE: 0.012,       // was 0.03 — coarser roughness, less freckle
+  BASE_AMPLITUDE: 1.0,
+  DETAIL_AMPLITUDE: 0.18,    // was 0.3 — less high-freq chop so macro/base dominate
+  // Macro continental basin — ~1–1.5 cycles across 2048 map → big sea + highlands
+  MACRO_SCALE: 0.0007,       // was 0.0015
+  MACRO_AMPLITUDE: 0.38      // was 0.25 — stronger sea / continent contrast
  };
