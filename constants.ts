@@ -363,10 +363,10 @@ export const TERRAIN_CONFIG = {
   // Perlin slopes ~0.01–0.04 / cell after *0.5 map — need big gain to tilt normals.
   NORMAL_STRENGTH: 48,
   // Extra darken/lighten from absolute height (valleys vs peaks) even on flat plateaus.
-  HEIGHT_SHADE: 0.35,
   // Pixels of screen-Y lift per unit height above sea level. Reads as elevation.
-  // Discrete bands (how many ≈ LIFT / 2) give AoE-style step cliffs.
-  HEIGHT_LIFT: 120,
+  // With HEIGHT_EXPONENT 0.5: mid grass (0.50) → 0.70 scrub gives ~64px lift,
+  // peaks (0.95) give ~114px. Bump to 200 for dramatic visual cliffs.
+  HEIGHT_LIFT: 200,
   // Legacy ridge multiplier (unused; kept for any external refs)
   SLOPE_TINT: 0.7,
 
@@ -391,5 +391,12 @@ export const TERRAIN_CONFIG = {
   DETAIL_AMPLITUDE: 0.18,    // was 0.3 — less high-freq chop so macro/base dominate
   // Macro continental basin — ~1–1.5 cycles across 2048 map → big sea + highlands
   MACRO_SCALE: 0.0007,       // was 0.0015
-  MACRO_AMPLITUDE: 0.38      // was 0.25 — stronger sea / continent contrast
+  MACRO_AMPLITUDE: 0.38,      // was 0.25 — stronger sea / continent contrast
+
+  // Post-process power stretch: remap above-water heights so mid-range values
+  // push up toward peaks, giving mountains and visible elevation variety
+  // instead of everything clustering in the 0.4-0.6 band.
+  // Typical values: 0.5 (aggressive) - 0.7 (moderate) - 1.0 (no stretch)
+  // With 0.5: height 0.50 (grass) → 0.70 (scrub),    0.60 (forest) → 0.80 (stone approach)
+  HEIGHT_EXPONENT: 0.5,       // valleys stay low, mid values push to scrub/stone
  };

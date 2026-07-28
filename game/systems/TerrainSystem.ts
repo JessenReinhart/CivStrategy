@@ -41,12 +41,19 @@ export class TerrainSystem {
         const base = this.noise.perlin2(wx * baseScale, wy * baseScale);
         const detail = this.noise.perlin2(wx * detailScale, wy * detailScale) * TERRAIN_CONFIG.DETAIL_AMPLITUDE;
 
-        // Combine, shift from [-1,1] to [0,1]; clamp at extremes preserves
-        // flat seabed on the continental-shelf side and flat peaks on the high side.
         let height = (macro + base + detail) * 0.5 + 0.5;
         height = Phaser.Math.Clamp(height, 0, 1);
 
-        this.heightGrid[gy * w + gx] = height;
+        // Power stretch: push above-water heights toward peaks so more cells hit
+        // scrub/stone biomes instead of everything clustering in grass/forest.
+        const waterLevel = TERRAIN_CONFIG.WATER_LEVEL;
+        const exp = TERRAIN_CONFIG.HEIGHT_EXPONENT;
+        if (height > waterLevel && exp < 1.0) {
+          const t = (height - waterLevel) / (1 - waterLevel);
+          const stretched = t ** exp;
+          height = waterLevel + stretched * (1 - waterLevel);
+        }
+
       }
     }
   }
