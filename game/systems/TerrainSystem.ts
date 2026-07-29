@@ -212,8 +212,8 @@ export class TerrainSystem {
       return cctx.createPattern(c, 'repeat')!;
     });
 
-    // (getBiomeIndex removed — terrain uses marching-squares contours instead)
-
+    // Find max height for AABB expansion (elevation lifts upward = extends minY)
+    let maxGridHeight = 0;
     for (let i = 0; i < w * h; i++) {
       const hgt = this.heightGrid[i];
       if (hgt > maxGridHeight) maxGridHeight = hgt;
@@ -256,10 +256,10 @@ export class TerrainSystem {
 
     // Biome thresholds in ascending order (sand → grass → forest → scrub → stone)
     // Draw lowest first so higher biomes paint on top.
+    const biomes = BIOMES;
     for (let bi = 1; bi < biomes.length; bi++) {
+      const level = biomes[bi].minHeight;
       const pat = patterns[bi];
-      // Skip water biome (index 0) and anything below it
-      if (bi === 0) continue;
       if (!pat) continue;
 
       // Expand AABB for each poly
