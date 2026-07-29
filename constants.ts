@@ -360,9 +360,9 @@ export const TERRAIN_CONFIG = {
   LIGHT_DIR_Z: 0.65,
   LIGHT_AMBIENT: 0.35,
   LIGHT_DIFFUSE: 0.75,
-  // Perlin slopes ~0.01–0.04 / cell after *0.5 map — need big gain to tilt normals.
   NORMAL_STRENGTH: 48,
   // Extra darken/lighten from absolute height (valleys vs peaks) even on flat plateaus.
+  HEIGHT_SHADE: 0.28,
   // Pixels of screen-Y lift per unit height above sea level. Reads as elevation.
   // With HEIGHT_EXPONENT 0.5: mid grass (0.50) → 0.70 scrub gives ~64px lift,
   // peaks (0.95) give ~114px. Bump to 200 for dramatic visual cliffs.
@@ -370,11 +370,13 @@ export const TERRAIN_CONFIG = {
   // Legacy ridge multiplier (unused; kept for any external refs)
   SLOPE_TINT: 0.7,
 
-  // Each terrain cell gets one full repeat, "1 tile = 1 texture".
-  TEX_PERIOD: 16,
+  // Pattern tile size in world px. Larger = continuous tile across many cells (less Minecraft).
+  // 16 = 1 cell = 1 tile (blocky). 128 tiles smoothly over ~8 cells.
+  TEX_PERIOD: 128,
 
   BIOME_VARIANCE: 12,         // per-cell random color variance (±)
-  BIOME_DITHER: 0.04,         // noise radius for dithering biome boundaries
+  // Soft-blend half-width around biome thresholds (smoothstep). Wider = less Minecraft.
+  BIOME_DITHER: 0.12,
 
   // Water layer: cells with height < WATER_LEVEL get animated water surface.
    // Shoreline follows the heightmap via marching squares, not flat rects.

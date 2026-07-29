@@ -191,17 +191,16 @@ export class TerrainSystem {
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
-    const period = Math.max(32, TEX_PERIOD ?? 256);
+    // Larger period = continuous texture across cells (no 1-cell minecraft tiles).
+    const period = Math.max(64, TEX_PERIOD ?? 128);
     const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
 
-    // Prefer Phaser source image; fall back to solid biome color so canvas never goes blank.
     const patterns: (CanvasPattern | string | null)[] = BIOMES.map((b, i) => {
       if (i === 0) return null;
       const fallback = `rgb(${b.color.r},${b.color.g},${b.color.b})`;
       const key = textureKeys[i - 1];
       if (!src.exists(key)) return fallback;
       const tex = src.get(key);
-      // Phaser 3: Texture.getSourceImage() is the correct API; .image may be undefined on some builds.
       const img = (typeof (tex as { getSourceImage?: () => CanvasImageSource }).getSourceImage === 'function'
         ? (tex as { getSourceImage: () => CanvasImageSource }).getSourceImage()
         : (tex as { image?: CanvasImageSource }).image) as HTMLImageElement | HTMLCanvasElement | undefined;
@@ -218,18 +217,62 @@ export class TerrainSystem {
       return cctx.createPattern(c, 'repeat') ?? fallback;
     });
 
-    const getBiomeIndex = (height: number, dither: number): number => {
-      for (let i = 0; i < BIOMES.length - 1; i++) {
-        const lo = BIOMES[i].minHeight;
-        const tLo = lo - BIOME_DITHER;
-        const tHi = lo + BIOME_DITHER;
-        if (height >= tLo && height < tHi) {
-          return dither < (height - tLo) / (tHi - tLo) ? i : i + 1;
-        }
+    const solid = (i: number) => {
+      const bi = Math.max(1, Math.min(BIOMES.length - 1, i));
+      const c = BIOMES[bi].color;
+      return `rgb(${c.r},${c.g},${c.b})`;
+    };
+
+    // Continuous soft blend between adjacent biomes (smoothstep across threshold).
+    // Returns lower index a, upper index b, t in [0,1] (0 = fully a, 1 = fully b).
+    const getBiomeBlend = (height: number): { a: number; b: number; t: number } => {
+      let idx = 0;
+      for (let i = BIOMES.length - 1; i >= 0; i--) {
+        if (height >= BIOMES[i].minHeight) { idx = i; break; }
       }
-      if (height < BIOMES[1].minHeight) return 0;
-      for (let i = BIOMES.length - 1; i >= 0; i--) if (height >= BIOMES[i].minHeight) return i;
-      return 0;
+      if (idx <= 0) return { a: 0, b: 0, t: 0 };
+      if (idx >= BIOMES.length - 1) {
+        // Near last threshold from below?
+        const cur = BIOMES[idx].minHeight;
+        const prev = BIOMES[idx - 1].minHeight;
+        const gap = Math.max(1e-6, cur - (Number.isFinite(prev) ? prev : WATER_LEVEL));
+        const half = Math.min(BIOME_DITHER, gap * 0.45);
+        const tLo = cur - half;
+        const tHi = cur + half;
+        if (height >= tLo && height < tHi) {
+          const raw = (height - tLo) / (tHi - tLo);
+          const t = raw * raw * (3 - 2 * raw);
+          return { a: idx - 1, b: idx, t };
+        }
+        return { a: idx, b: idx, t: 0 };
+      }
+
+      // Blend toward next higher biome around its minHeight
+      const next = BIOMES[idx + 1].minHeight;
+      const gapUp = Math.max(1e-6, next - BIOMES[idx].minHeight);
+      const halfUp = Math.min(BIOME_DITHER, gapUp * 0.45);
+      const upLo = next - halfUp;
+      const upHi = next + halfUp;
+      if (height >= upLo && height < upHi) {
+        const raw = (height - upLo) / (upHi - upLo);
+        const t = raw * raw * (3 - 2 * raw);
+        return { a: idx, b: idx + 1, t };
+      }
+
+      // Blend from previous lower biome around current minHeight
+      const cur = BIOMES[idx].minHeight;
+      const prevH = BIOMES[idx - 1].minHeight;
+      const gapDn = Math.max(1e-6, cur - (Number.isFinite(prevH) ? prevH : WATER_LEVEL));
+      const halfDn = Math.min(BIOME_DITHER, gapDn * 0.45);
+      const dnLo = cur - halfDn;
+      const dnHi = cur + halfDn;
+      if (height >= dnLo && height < dnHi) {
+        const raw = (height - dnLo) / (dnHi - dnLo);
+        const t = raw * raw * (3 - 2 * raw);
+        return { a: idx - 1, b: idx, t };
+      }
+
+      return { a: idx, b: idx, t: 0 };
     };
 
     let maxGridHeight = 0;
@@ -259,8 +302,7 @@ export class TerrainSystem {
     const ly = LIGHT_DIR_Y / llen;
     const lz = LIGHT_DIR_Z / llen;
 
-    // Per-cell diamonds with bilinear corner heights (shared edges → smooth surface).
-    // Biome from cell center height — multi-biome, no stacked-MS wash.
+    // Per-cell diamonds with bilinear corner heights + soft biome alpha blend.
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const height = this.heightGrid[gy * w + gx];
@@ -273,10 +315,11 @@ export class TerrainSystem {
         const h2 = this.getHeightInterpolated(wx + CS, wy + CS);
         const h3 = this.getHeightInterpolated(wx, wy + CS);
 
-        const dither = this.hash11(gx * 7919 + gy * 6271);
-        const biomeIdx = getBiomeIndex(height, dither);
-        const bi = Math.max(1, biomeIdx);
-        const pat = patterns[biomeIdx] ?? `rgb(${BIOMES[bi].color.r},${BIOMES[bi].color.g},${BIOMES[bi].color.b})`;
+        const { a, b, t } = getBiomeBlend(height);
+        const baseIdx = Math.max(1, a);
+        const topIdx = Math.max(1, b);
+        const patA = patterns[baseIdx] ?? solid(baseIdx);
+        const patB = patterns[topIdx] ?? solid(topIdx);
 
         const c0 = toIsoElev(wx, wy, h0);
         const c1 = toIsoElev(wx + CS, wy, h1);
@@ -292,9 +335,20 @@ export class TerrainSystem {
           ctx.closePath();
         };
 
+        // Base biome full opacity
         path();
-        ctx.fillStyle = pat as string | CanvasPattern;
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = patA as string | CanvasPattern;
         ctx.fill();
+
+        // Soft overlay of next biome across transition band
+        if (t > 0.001 && topIdx !== baseIdx) {
+          path();
+          ctx.globalAlpha = t;
+          ctx.fillStyle = patB as string | CanvasPattern;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
 
         const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
         const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
@@ -308,7 +362,7 @@ export class TerrainSystem {
 
         let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
         const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
-        lit *= 1 + (hTerm - 0.35) * HEIGHT_SHADE;
+        lit *= 1 + (hTerm - 0.35) * (HEIGHT_SHADE ?? 0.28);
         lit = Math.max(0.22, Math.min(1.15, lit));
 
         const s = Math.round(Math.min(255, lit * 255));
@@ -326,6 +380,7 @@ export class TerrainSystem {
         }
 
         ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
 
         const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
