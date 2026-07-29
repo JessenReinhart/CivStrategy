@@ -435,33 +435,30 @@ export class TerrainSystem {
           ctx.fill();
           if (sealColor) {
             ctx.strokeStyle = sealColor;
-            ctx.lineWidth = 1.15;
+            ctx.lineWidth = 0.6;
             ctx.lineJoin = 'round';
-            ctx.globalAlpha = Math.min(1, alpha);
+            ctx.globalAlpha = Math.min(0.25, alpha * 0.25);
             ctx.stroke();
           }
-          ctx.globalAlpha = 1;
         };
 
         fillSeal(patA as string | CanvasPattern, 1, solid(baseIdx));
 
         if (t > 0.001 && topIdx !== baseIdx) {
-          fillSeal(patB as string | CanvasPattern, t, solid(topIdx));
+          fillSeal(patB as string | CanvasPattern, t);
         }
 
         if (rockT > 0.02) {
-          fillSeal(stonePat as string | CanvasPattern, rockT, solid(STONE_IDX));
+          fillSeal(stonePat as string | CanvasPattern, rockT);
         }
-
         const lit = litSmooth[gy * w + gx];
         const s = Math.round(Math.min(255, lit * 255));
-        path();
-        ctx.globalCompositeOperation = 'multiply';
         ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
-        // Seal multiply pass too (prevents bright crack lines).
+        // Subtle stroke for multiply pass
         ctx.strokeStyle = `rgb(${s},${s},${s})`;
-        ctx.lineWidth = 1.0;
+        ctx.lineWidth = 0.6;
+        ctx.globalAlpha = 0.15;
         ctx.stroke();
 
         const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
