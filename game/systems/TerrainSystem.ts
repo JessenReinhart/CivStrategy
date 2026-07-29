@@ -254,13 +254,9 @@ export class TerrainSystem {
       return toIsoElev(ax + (bx - ax) * t, ay + (by - ay) * t, level);
     };
 
-    // Biome thresholds in descending order (stone → scrub → forest → grass → sand)
-    // Index 5=stone, 4=scrub, 3=forest, 2=grass, 1=sand
-    const biomes = BIOMES;
-    // For each biome from highest to lowest, draw its contour
-    // Biome i is land above BIOMES[i].minHeight
-    for (let bi = biomes.length - 1; bi >= 1; bi--) {
-      const level = biomes[bi].minHeight;
+    // Biome thresholds in ascending order (sand → grass → forest → scrub → stone)
+    // Draw lowest first so higher biomes paint on top.
+    for (let bi = 1; bi < biomes.length; bi++) {
       const pat = patterns[bi];
       // Skip water biome (index 0) and anything below it
       if (bi === 0) continue;
