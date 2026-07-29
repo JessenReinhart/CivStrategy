@@ -19,7 +19,7 @@ import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, TERRAIN_CONFIG } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
-import { toIso } from './utils/iso';
+import { toIso, toIsoElev } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -1034,7 +1034,8 @@ export class MainScene extends Phaser.Scene {
     for (let i = 0; i < buildingChildren.length; i++) {
       const b = buildingChildren[i] as Phaser.GameObjects.Image & { visual?: Phaser.GameObjects.Container };
       if (b.visual) {
-        const iso = toIso(b.x, b.y);
+        const h = this.terrainSystem.getHeightAt(b.x, b.y);
+        const iso = toIsoElev(b.x, b.y, h);
         b.visual.setDepth(iso.y);
       }
     }
@@ -1047,7 +1048,8 @@ export class MainScene extends Phaser.Scene {
       if (squadContainer) continue;
       const unit = u as Phaser.GameObjects.Sprite;
       if (u.visual && u.visual.visible) {
-        const iso = toIso(unit.x, unit.y);
+        const h = this.terrainSystem.getHeightAt(unit.x, unit.y);
+        const iso = toIsoElev(unit.x, unit.y, h);
         u.visual.setPosition(iso.x, iso.y);
         u.visual.setDepth(iso.y);
       }

@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG } from '../../constants';
-import { toIso, toCartesian } from '../utils/iso';
+import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
 export class BuildingManager {
     private scene: MainScene;
@@ -104,7 +104,7 @@ export class BuildingManager {
         const cx = gx + def.width / 2;
         const cy = gy + def.height / 2;
 
-        const iso = toIso(cx, cy);
+        const iso = toIsoElev(cx, cy, this.scene.terrainSystem.getHeightAt(cx, cy));
         this.previewBuilding.setPosition(iso.x, iso.y);
         this.previewBuilding.setDepth(Number.MAX_VALUE - 100);
 

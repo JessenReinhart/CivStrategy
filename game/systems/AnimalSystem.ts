@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { AnimalData, UnitState } from '../../types';
-import { toIso } from '../utils/iso';
+import { toIsoElev } from '../utils/iso';
 import { MAP_WIDTH, MAP_HEIGHT } from '../../constants';
 
 export class AnimalSystem {
@@ -31,7 +31,7 @@ export class AnimalSystem {
 
         if (!this.scene.worldLayer) this.scene.add.existing(visual);
 
-        const iso = toIso(x, y);
+        const iso = toIsoElev(x, y, this.scene.terrainSystem.getHeightAt(x, y));
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
 
         // Enable interaction for selection/hover (optional, but good for consistency)
@@ -90,7 +90,7 @@ export class AnimalSystem {
                 animal.y += dy;
 
                 if (animal.visual) {
-                    const iso = toIso(animal.x, animal.y);
+                    const iso = toIsoElev(animal.x, animal.y, this.scene.terrainSystem.getHeightAt(animal.x, animal.y));
                     animal.visual.setPosition(iso.x, iso.y);
                     animal.visual.setDepth(iso.y);
                 }

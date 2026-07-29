@@ -4,7 +4,7 @@ import { MainScene } from '../MainScene';
 import { Noise } from '../utils/Noise';
 import { TERRAIN_CONFIG } from '../../constants';
 import { TerrainModifiers, SlopeInfo } from '../../types';
-import { toIso } from '../utils/iso';
+import { toIso, toIsoElev } from '../utils/iso';
 
 export class TerrainSystem {
   private scene: MainScene;
@@ -41,12 +41,21 @@ export class TerrainSystem {
         const base = this.noise.perlin2(wx * baseScale, wy * baseScale);
         const detail = this.noise.perlin2(wx * detailScale, wy * detailScale) * TERRAIN_CONFIG.DETAIL_AMPLITUDE;
 
-        // Combine, shift from [-1,1] to [0,1]; clamp at extremes preserves
-        // flat seabed on the continental-shelf side and flat peaks on the high side.
         let height = (macro + base + detail) * 0.5 + 0.5;
         height = Phaser.Math.Clamp(height, 0, 1);
 
+        // Power stretch: push above-water heights toward peaks so more cells hit
+        // scrub/stone biomes instead of everything clustering in grass/forest.
+        const waterLevel = TERRAIN_CONFIG.WATER_LEVEL;
+        const exp = TERRAIN_CONFIG.HEIGHT_EXPONENT;
+        if (height > waterLevel && exp < 1.0) {
+          const t = (height - waterLevel) / (1 - waterLevel);
+          const stretched = t ** exp;
+          height = waterLevel + stretched * (1 - waterLevel);
+        }
+
         this.heightGrid[gy * w + gx] = height;
+
       }
     }
   }
@@ -173,116 +182,362 @@ export class TerrainSystem {
     if (this.visualSprite) { this.visualSprite.destroy(); this.visualSprite = null; }
     if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
 
-    const { CELL_SIZE: CS, BIOMES, BIOME_DITHER, SLOPE_TINT, TEX_PERIOD } = TERRAIN_CONFIG;
+    const {
+      CELL_SIZE: CS, BIOMES, BIOME_DITHER, TEX_PERIOD,
+      LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z,
+      LIGHT_AMBIENT, LIGHT_DIFFUSE, NORMAL_STRENGTH, HEIGHT_SHADE,
+      WATER_LEVEL,
+      CLIFF_SLOPE_START, CLIFF_SLOPE_FULL, CLIFF_FACE_MIN_DROP,
+    } = TERRAIN_CONFIG;
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
-    // Period = how many world px one seamless tile covers. Keep << viewport so
-    // createPattern actually repeats on screen (768 looked like a single zoomed photo).
-    const period = Math.max(32, TEX_PERIOD ?? 256);
-
+    const period = Math.max(64, TEX_PERIOD ?? 128);
     const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
-    const patterns: (CanvasPattern | null)[] = BIOMES.map((b, i) => {
+    const STONE_IDX = BIOMES.length - 1;
+
+    const patterns: (CanvasPattern | string | null)[] = BIOMES.map((b, i) => {
       if (i === 0) return null;
+      const fallback = `rgb(${b.color.r},${b.color.g},${b.color.b})`;
       const key = textureKeys[i - 1];
-      if (!src.exists(key)) return null;
-      const img = src.get(key).getSourceImage() as HTMLImageElement;
-      if (!img) return null;
-      const sw = img.naturalWidth || img.width || period;
-      const sh = img.naturalHeight || img.height || period;
+      if (!src.exists(key)) return fallback;
+      const tex = src.get(key);
+      const img = (typeof (tex as { getSourceImage?: () => CanvasImageSource }).getSourceImage === 'function'
+        ? (tex as { getSourceImage: () => CanvasImageSource }).getSourceImage()
+        : (tex as { image?: CanvasImageSource }).image) as HTMLImageElement | HTMLCanvasElement | undefined;
+      if (!img) return fallback;
+      const sw = ('naturalWidth' in img ? (img as HTMLImageElement).naturalWidth : 0) || img.width || period;
+      const sh = ('naturalHeight' in img ? (img as HTMLImageElement).naturalHeight : 0) || img.height || period;
       const c = document.createElement('canvas');
       c.width = period;
       c.height = period;
       const cctx = c.getContext('2d')!;
       cctx.imageSmoothingEnabled = true;
       cctx.imageSmoothingQuality = 'high';
-      // Scale source into period canvas — pattern unit size = period, not raw 512.
       cctx.drawImage(img, 0, 0, sw, sh, 0, 0, period, period);
-      return cctx.createPattern(c, 'repeat')!;
+      return cctx.createPattern(c, 'repeat') ?? fallback;
     });
 
-    // Dither: pick biome at height boundaries
-    const getBiomeIndex = (height: number, dither: number): number => {
-      for (let i = 0; i < BIOMES.length - 1; i++) {
-        const lo = BIOMES[i].minHeight;
-        const tLo = lo - BIOME_DITHER;
-        const tHi = lo + BIOME_DITHER;
-        if (height >= tLo && height < tHi) {
-          return dither < (height - tLo) / (tHi - tLo) ? i : i + 1;
-        }
-      }
-      if (height < BIOMES[1].minHeight) return 0;
-      for (let i = BIOMES.length - 1; i >= 0; i--) if (height >= BIOMES[i].minHeight) return i;
-      return 0;
+    const solid = (i: number) => {
+      const bi = Math.max(1, Math.min(BIOMES.length - 1, i));
+      const c = BIOMES[bi].color;
+      return `rgb(${c.r},${c.g},${c.b})`;
     };
 
-    // Iso AABB
+    const stonePat = patterns[STONE_IDX] ?? solid(STONE_IDX);
+
+    const getBiomeBlend = (height: number): { a: number; b: number; t: number } => {
+      let idx = 0;
+      for (let i = BIOMES.length - 1; i >= 0; i--) {
+        if (height >= BIOMES[i].minHeight) { idx = i; break; }
+      }
+      if (idx <= 0) return { a: 0, b: 0, t: 0 };
+      if (idx >= BIOMES.length - 1) {
+        const cur = BIOMES[idx].minHeight;
+        const prev = BIOMES[idx - 1].minHeight;
+        const gap = Math.max(1e-6, cur - (Number.isFinite(prev) ? prev : WATER_LEVEL));
+        const half = Math.min(BIOME_DITHER, gap * 0.45);
+        const tLo = cur - half;
+        const tHi = cur + half;
+        if (height >= tLo && height < tHi) {
+          const raw = (height - tLo) / (tHi - tLo);
+          const t = raw * raw * (3 - 2 * raw);
+          return { a: idx - 1, b: idx, t };
+        }
+        return { a: idx, b: idx, t: 0 };
+      }
+
+      const next = BIOMES[idx + 1].minHeight;
+      const gapUp = Math.max(1e-6, next - BIOMES[idx].minHeight);
+      const halfUp = Math.min(BIOME_DITHER, gapUp * 0.45);
+      const upLo = next - halfUp;
+      const upHi = next + halfUp;
+      if (height >= upLo && height < upHi) {
+        const raw = (height - upLo) / (upHi - upLo);
+        const t = raw * raw * (3 - 2 * raw);
+        return { a: idx, b: idx + 1, t };
+      }
+
+      const cur = BIOMES[idx].minHeight;
+      const prevH = BIOMES[idx - 1].minHeight;
+      const gapDn = Math.max(1e-6, cur - (Number.isFinite(prevH) ? prevH : WATER_LEVEL));
+      const halfDn = Math.min(BIOME_DITHER, gapDn * 0.45);
+      const dnLo = cur - halfDn;
+      const dnHi = cur + halfDn;
+      if (height >= dnLo && height < dnHi) {
+        const raw = (height - dnLo) / (dnHi - dnLo);
+        const t = raw * raw * (3 - 2 * raw);
+        return { a: idx - 1, b: idx, t };
+      }
+
+      return { a: idx, b: idx, t: 0 };
+    };
+
+    const rockFromSlope = (slope: number): number => {
+      const lo = CLIFF_SLOPE_START ?? 0.18;
+      const hi = CLIFF_SLOPE_FULL ?? 0.38;
+      if (slope <= lo) return 0;
+      if (slope >= hi) return 1;
+      const raw = (slope - lo) / Math.max(1e-6, hi - lo);
+      return raw * raw * (3 - 2 * raw);
+    };
+
+    // Shared corner height field (w+1)×(h+1) — every diamond edge uses identical verts → no height seams.
+    const cw = w + 1;
+    const ch = h + 1;
+    const cornerH = new Float32Array(cw * ch);
+    for (let cy = 0; cy < ch; cy++) {
+      for (let cx = 0; cx < cw; cx++) {
+        cornerH[cy * cw + cx] = this.getHeightInterpolated(cx * CS, cy * CS);
+      }
+    }
+
+    let maxGridHeight = 0;
+    for (let i = 0; i < w * h; i++) {
+      const hgt = this.heightGrid[i];
+      if (hgt > maxGridHeight) maxGridHeight = hgt;
+    }
+    // Corners can be slightly above grid max after interp edges — pad AABB.
+    for (let i = 0; i < cornerH.length; i++) {
+      if (cornerH[i] > maxGridHeight) maxGridHeight = cornerH[i];
+    }
+    const maxLift = Math.max(0, maxGridHeight - WATER_LEVEL) * TERRAIN_CONFIG.HEIGHT_LIFT;
+
     const cornerPts = [toIso(0, 0), toIso(w * CS, 0), toIso(w * CS, h * CS), toIso(0, h * CS)];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const p of cornerPts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
+    for (const p of cornerPts) {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    }
+    minY -= maxLift;
     const ox = minX, oy = minY;
-    const tw = Math.ceil(maxX - minX), th = Math.ceil(maxY - minY);
+    const tw = Math.ceil(maxX - minX) + 2;
+    const th = Math.ceil(maxY - minY) + 2;
 
     const cvs = document.createElement('canvas');
     cvs.width = tw;
     cvs.height = th;
     const ctx = cvs.getContext('2d')!;
+    // Slight overscan so AA fringes aren't clipped.
+    ctx.translate(1, 1);
 
+    const llen = Math.hypot(LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z) || 1;
+    const lx = LIGHT_DIR_X / llen;
+    const ly = LIGHT_DIR_Y / llen;
+    const lz = LIGHT_DIR_Z / llen;
+
+    const faceMin = CLIFF_FACE_MIN_DROP ?? 0.10;
+
+    // Precompute smoothed lighting per cell (3×3) so adjacent diamonds don't form a dark grid.
+    const litGrid = new Float32Array(w * h);
+    const rockGrid = new Float32Array(w * h);
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const height = this.heightGrid[gy * w + gx];
+        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
+        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
+        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        const dx = Math.max(Math.abs(hR - height), Math.abs(height - hL));
+        const dy = Math.max(Math.abs(hD - height), Math.abs(height - hU));
+        const slope = Math.hypot(dx, dy);
+        rockGrid[gy * w + gx] = rockFromSlope(slope);
+
+        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
+        const nz = 1;
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + nz * lz) / nlen);
+        let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
+        const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
+        lit *= 1 + (hTerm - 0.35) * (HEIGHT_SHADE ?? 0.28);
+        lit *= 1 - rockGrid[gy * w + gx] * 0.18;
+        litGrid[gy * w + gx] = Math.max(0.2, Math.min(1.12, lit));
+      }
+    }
+    // Box-blur lighting once to kill hard cell boundaries.
+    const litSmooth = new Float32Array(w * h);
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        let sum = 0, n = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const x = gx + ox, y = gy + oy;
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            sum += litGrid[y * w + x];
+            n++;
+          }
+        }
+        litSmooth[gy * w + gx] = sum / n;
+      }
+    }
+
+    // Land cells: draw if center OR any corner is above water (seals shoreline holes).
+    const isLandish = (gx: number, gy: number): boolean => {
+      const height = this.heightGrid[gy * w + gx];
+      if (height >= WATER_LEVEL - 0.01) return true;
+      const i = gy * cw + gx;
+      return (
+        cornerH[i] >= WATER_LEVEL ||
+        cornerH[i + 1] >= WATER_LEVEL ||
+        cornerH[i + cw] >= WATER_LEVEL ||
+        cornerH[i + cw + 1] >= WATER_LEVEL
+      );
+    };
+
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        if (!isLandish(gx, gy)) continue;
+
+        const height = this.heightGrid[gy * w + gx];
         const wx = gx * CS;
         const wy = gy * CS;
-        const dither = this.hash11(gx * 7919 + gy * 6271);
-        const biomeIdx = getBiomeIndex(height, dither);
-        const pat = patterns[biomeIdx];
 
-        // Iso diamond vertices, dilated 0.5px outward per edge to close antialias gaps
-        const c0 = toIso(wx, wy);
-        const c1 = toIso(wx + CS, wy);
-        const c2 = toIso(wx + CS, wy + CS);
-        const c3 = toIso(wx, wy + CS);
+        // Shared corner heights — identical verts on shared edges.
+        const h0 = cornerH[gy * cw + gx];
+        const h1 = cornerH[gy * cw + gx + 1];
+        const h2 = cornerH[(gy + 1) * cw + gx + 1];
+        const h3 = cornerH[(gy + 1) * cw + gx];
 
-        ctx.beginPath();
-        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
-        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
-        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
-        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
-        ctx.closePath();
+        // Lift underwater corners to water plane so shore quads seal against the lake.
+        const e0 = h0 < WATER_LEVEL ? WATER_LEVEL : h0;
+        const e1 = h1 < WATER_LEVEL ? WATER_LEVEL : h1;
+        const e2 = h2 < WATER_LEVEL ? WATER_LEVEL : h2;
+        const e3 = h3 < WATER_LEVEL ? WATER_LEVEL : h3;
 
-        ctx.fillStyle = pat ?? '#3c3c32';
+        const rockT = rockGrid[gy * w + gx];
+        const sampleH = Math.max(height, WATER_LEVEL);
+        const { a, b, t } = getBiomeBlend(sampleH);
+        const baseIdx = Math.max(1, a);
+        const topIdx = Math.max(1, b);
+        const patA = patterns[baseIdx] ?? solid(baseIdx);
+        const patB = patterns[topIdx] ?? solid(topIdx);
+
+        const c0 = toIsoElev(wx, wy, e0);
+        const c1 = toIsoElev(wx + CS, wy, e1);
+        const c2 = toIsoElev(wx + CS, wy + CS, e2);
+        const c3 = toIsoElev(wx, wy + CS, e3);
+
+        const path = () => {
+          ctx.beginPath();
+          ctx.moveTo(c0.x - ox, c0.y - oy);
+          ctx.lineTo(c1.x - ox, c1.y - oy);
+          ctx.lineTo(c2.x - ox, c2.y - oy);
+          ctx.lineTo(c3.x - ox, c3.y - oy);
+          ctx.closePath();
+        };
+
+        // Fill + hairline stroke seals canvas AA cracks between shared edges.
+        const fillSeal = (style: string | CanvasPattern, alpha = 1, sealColor?: string) => {
+          path();
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = style;
+          ctx.fill();
+          if (sealColor) {
+            ctx.strokeStyle = sealColor;
+            ctx.lineWidth = 0.6;
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = Math.min(0.25, alpha * 0.25);
+            ctx.stroke();
+          }
+        };
+
+        fillSeal(patA as string | CanvasPattern, 1, solid(baseIdx));
+
+        if (t > 0.001 && topIdx !== baseIdx) {
+          fillSeal(patB as string | CanvasPattern, t);
+        }
+
+        if (rockT > 0.02) {
+          fillSeal(stonePat as string | CanvasPattern, rockT);
+        }
+        const lit = litSmooth[gy * w + gx];
+        const s = Math.round(Math.min(255, lit * 255));
+        path();
+        ctx.globalCompositeOperation = 'multiply';
+        ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
+        // Subtle stroke for multiply pass
+        ctx.strokeStyle = `rgb(${s},${s},${s})`;
+        ctx.lineWidth = 0.6;
+        ctx.globalAlpha = 0.15;
+        ctx.stroke();
 
-        // Slope shade overlay
-        const avg = (
-          (gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height) +
-          (gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height) +
-          (gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height) +
-          (gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height)
-        ) * 0.25;
-        const shade = Math.max(0.55, Math.min(1.65, 1 + (height - avg) * SLOPE_TINT));
-        if (shade >= 0.97 && shade <= 1.03) continue;
+        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
+        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
+        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
+        const nlen = Math.hypot(nx, ny, 1) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + 1 * lz) / nlen);
 
-        ctx.beginPath();
-        ctx.moveTo(c0.x - ox, c0.y - 0.5 - oy);
-        ctx.lineTo(c1.x + 0.5 - ox, c1.y - oy);
-        ctx.lineTo(c2.x - ox, c2.y + 0.5 - oy);
-        ctx.lineTo(c3.x - 0.5 - ox, c3.y - oy);
-        ctx.closePath();
+        if (ndotl > 0.55 && lit > 0.85 && rockT < 0.35) {
+          const ha = Math.min(0.22, (ndotl - 0.55) * 0.3);
+          path();
+          ctx.globalCompositeOperation = 'soft-light';
+          ctx.fillStyle = `rgba(255,236,180,${ha.toFixed(3)})`;
+          ctx.fill();
+        }
 
-        const a = Math.abs(shade - 1) * (shade < 1 ? 0.5 : 0.35);
-        ctx.fillStyle = shade < 1 ? `rgba(0,0,0,${a.toFixed(3)})` : `rgba(255,255,255,${a.toFixed(3)})`;
-        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+
+        // True cliff faces only — large neighbor drop. Small slopes used to paint crack lines.
+        const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+
+        if (eastH < height - faceMin) {
+          const diff = height - eastH;
+          const cliffAlpha = Math.min(0.65, 0.25 + diff * 1.2);
+          // Bottom edge uses east cell's shared corners on the east edge.
+          const botN = toIsoElev(wx + CS, wy, Math.max(eastH, WATER_LEVEL));
+          const botS = toIsoElev(wx + CS, wy + CS, Math.max(eastH, WATER_LEVEL));
+          const face = () => {
+            ctx.beginPath();
+            ctx.moveTo(c1.x - ox, c1.y - oy);
+            ctx.lineTo(c2.x - ox, c2.y - oy);
+            ctx.lineTo(botS.x - ox, botS.y - oy);
+            ctx.lineTo(botN.x - ox, botN.y - oy);
+            ctx.closePath();
+          };
+          face();
+          ctx.fillStyle = stonePat as string | CanvasPattern;
+          ctx.fill();
+          face();
+          ctx.fillStyle = `rgba(24,20,16,${cliffAlpha.toFixed(3)})`;
+          ctx.fill();
+        }
+
+        if (southH < height - faceMin) {
+          const diff = height - southH;
+          const cliffAlpha = Math.min(0.65, 0.25 + diff * 1.2);
+          const botW = toIsoElev(wx, wy + CS, Math.max(southH, WATER_LEVEL));
+          const botE = toIsoElev(wx + CS, wy + CS, Math.max(southH, WATER_LEVEL));
+          const face = () => {
+            ctx.beginPath();
+            ctx.moveTo(c3.x - ox, c3.y - oy);
+            ctx.lineTo(c2.x - ox, c2.y - oy);
+            ctx.lineTo(botE.x - ox, botE.y - oy);
+            ctx.lineTo(botW.x - ox, botW.y - oy);
+            ctx.closePath();
+          };
+          face();
+          ctx.fillStyle = stonePat as string | CanvasPattern;
+          ctx.fill();
+          face();
+          ctx.fillStyle = `rgba(24,20,16,${cliffAlpha.toFixed(3)})`;
+          ctx.fill();
+        }
       }
     }
 
     this.scene.textures.addCanvas('_terrainTint', cvs);
-    this.visualSprite = this.scene.add.sprite(ox, oy, '_terrainTint').setOrigin(0);
+    // Compensate the 1px translate used for AA overscan.
+    this.visualSprite = this.scene.add.sprite(ox - 1, oy - 1, '_terrainTint').setOrigin(0);
     this.visualSprite.setDepth(-10000);
     if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualSprite);
   }
-
-
 
   getHeightMapData(): Float32Array {
     return this.heightGrid;
@@ -322,6 +577,40 @@ export class TerrainSystem {
     }
   }
 
+
+  /**
+   * Return the biome label at a world coordinate, matching the baked terrain tint.
+   * Uses the same dither logic as applyVisualTinting so trees match what the player sees.
+   */
+  getBiomeAt(wx: number, wy: number): string {
+    const h = this.getHeightAt(wx, wy);
+    const CS = TERRAIN_CONFIG.CELL_SIZE;
+    const gx = Math.floor(wx / CS);
+    const gy = Math.floor(wy / CS);
+
+    // Steep hillsides count as stone so trees/spawners skip cliffs.
+    const slope = this.getSlopeAt(wx, wy).slope;
+    const lo = TERRAIN_CONFIG.CLIFF_SLOPE_START ?? 0.12;
+    const hi = TERRAIN_CONFIG.CLIFF_SLOPE_FULL ?? 0.28;
+    if (slope >= (lo + hi) * 0.5) return 'stone';
+
+    // Soft-blend match: pick dominant biome from height (same thresholds as bake).
+    let idx = 0;
+    for (let i = TERRAIN_CONFIG.BIOMES.length - 1; i >= 0; i--) {
+      if (h >= TERRAIN_CONFIG.BIOMES[i].minHeight) { idx = i; break; }
+    }
+    // In transition band, bias toward higher biome when past midpoint (dither kept for variety).
+    const dither = this.hash11(gx * 7919 + gy * 6271);
+    if (idx < TERRAIN_CONFIG.BIOMES.length - 1) {
+      const next = TERRAIN_CONFIG.BIOMES[idx + 1].minHeight;
+      const half = Math.min(TERRAIN_CONFIG.BIOME_DITHER, Math.max(1e-6, next - TERRAIN_CONFIG.BIOMES[idx].minHeight) * 0.45);
+      if (h >= next - half && h < next + half) {
+        const raw = (h - (next - half)) / (2 * half);
+        if (dither < raw) idx = idx + 1;
+      }
+    }
+    return TERRAIN_CONFIG.BIOMES[idx]?.label ?? 'grass';
+  }
   destroy(): void {
     if (this.visualSprite) {
       this.visualSprite.destroy();

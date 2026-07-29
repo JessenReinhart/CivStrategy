@@ -76,7 +76,7 @@ export class MapGenerationSystem {
                 const ty = fy + Math.sin(angle) * dist;
                 if (Phaser.Math.Distance.Between(tx, ty, this.scene.mapWidth / 2, this.scene.mapHeight / 2) > 250) {
                     if (tx > 50 && tx < this.scene.mapWidth - 50 && ty > 50 && ty < this.scene.mapHeight - 50) {
-                        this.scene.entityFactory.spawnTree(tx, ty);
+                        this._trySpawnTreeAt(tx, ty);
                     }
                 }
             }
@@ -91,6 +91,25 @@ export class MapGenerationSystem {
                     }
                 }
             }
+        }
+    }
+
+    /** Density multiplier per biome for tree spawning. */
+    private static readonly TREE_DENSITY: Record<string, number> = {
+        deep: 0,    // water — no trees
+        sand: 0,    // shore — no trees
+        grass: 0.15,// sparse
+        forest: 1.0,// dense
+        scrub: 0.7, // thick
+        stone: 0,   // bare rock — no trees
+    };
+
+    /** Check biome at (tx,ty) and spawn tree only if the RNG passes density threshold. */
+    private _trySpawnTreeAt(tx: number, ty: number): void {
+        const biome = this.scene.terrainSystem.getBiomeAt(tx, ty);
+        const density = MapGenerationSystem.TREE_DENSITY[biome] ?? 0;
+        if (density > 0 && Math.random() < density) {
+            this.scene.entityFactory.spawnTree(tx, ty);
         }
     }
 
@@ -115,7 +134,7 @@ export class MapGenerationSystem {
 
             // Bounds check for fixed maps; infinite maps have no bounds
             if (isInfinite || (tx > 50 && tx < mapW - 50 && ty > 50 && ty < mapH - 50)) {
-                this.scene.entityFactory.spawnTree(tx, ty);
+                this._trySpawnTreeAt(tx, ty);
             }
         }
     }

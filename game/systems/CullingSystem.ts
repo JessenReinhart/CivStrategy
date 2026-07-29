@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { toIso, toCartesian } from '../utils/iso';
+import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
 /** Tree logic entity with optional pooled visual (set by this system). */
 type TreeEntity = Phaser.GameObjects.Image & {
@@ -224,7 +224,7 @@ export class CullingSystem {
         if (this.scene.worldLayer) this.scene.worldLayer.add(visual);
       }
 
-      const iso = toIso(tree.x, tree.y);
+      const iso = toIsoElev(tree.x, tree.y, this.scene.terrainSystem.getHeightAt(tree.x, tree.y));
       visual.setPosition(iso.x, iso.y);
       visual.setDepth(iso.y);
       visual.setTexture(tree.getData('visualTexture') || 'tree');

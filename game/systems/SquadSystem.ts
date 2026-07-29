@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, FormationType, UnitState, GameUnit } from '../../types';
 import { UNIT_STATS } from '../../constants';
-import { toIso } from '../utils/iso';
+import { toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
 /**
@@ -106,7 +106,8 @@ export class SquadSystem {
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container || !container.visible) continue;
 
-            const commanderIso = toIso(unit.x, unit.y);
+            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
+            const commanderIso = toIsoElev(unit.x, unit.y, h);
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
@@ -209,8 +210,8 @@ export class SquadSystem {
                 }
             }
 
-            // Render based on LOD
-            const commanderIso = toIso(unit.x, unit.y);
+            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
+            const commanderIso = toIsoElev(unit.x, unit.y, h);
             const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
             this.renderSquad(gfx, unit, soldiers, angle, isMoving, lod, commanderIso);
         }
@@ -296,8 +297,7 @@ export class SquadSystem {
             } else {
                 soldier.z = 0; // No bounce for distant squads
             }
-
-            const isoSoldier = toIso(soldier.x, soldier.y);
+            const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
             const drawX = isoSoldier.x - commanderIso.x;
             const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 

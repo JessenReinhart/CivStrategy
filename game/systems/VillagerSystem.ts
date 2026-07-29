@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitState, VillagerData } from '../../types';
 import { UNIT_SPEED } from '../../constants';
-import { toIso } from '../utils/iso';
+import { toIsoElev } from '../utils/iso';
 
 export class VillagerSystem {
     private scene: MainScene;
@@ -35,7 +35,7 @@ export class VillagerSystem {
         if (!this.scene.worldLayer) this.scene.add.existing(visual);
 
         // Position visual
-        const iso = toIso(x, y);
+        const iso = toIsoElev(x, y, this.scene.terrainSystem.getHeightAt(x, y));
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
 
         // Create villager data
@@ -100,7 +100,7 @@ export class VillagerSystem {
 
                 // Update visual position
                 if (villager.visual) {
-                    const iso = toIso(villager.x, villager.y);
+                    const iso = toIsoElev(villager.x, villager.y, this.scene.terrainSystem.getHeightAt(villager.x, villager.y));
                     villager.visual.setPosition(iso.x, iso.y);
                     villager.visual.setDepth(iso.y);
                 }

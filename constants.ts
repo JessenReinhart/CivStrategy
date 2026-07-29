@@ -353,13 +353,36 @@ export const TERRAIN_CONFIG = {
     { color: { r: 107, g: 95, b: 67 }, minHeight: 0.72, label: 'scrub' },           // highland
     { color: { r: 130, g: 124, b: 115 }, minHeight: 0.86, label: 'stone' },         // peak
   ],
+  // Directional slope lighting (N·L). Baked as multiply — overlay alpha was invisible on photo textures.
+  // Light from NW/high — typical iso sun; normalized in bake.
+  LIGHT_DIR_X: -0.65,
+  LIGHT_DIR_Y: -0.4,
+  LIGHT_DIR_Z: 0.65,
+  LIGHT_AMBIENT: 0.35,
+  LIGHT_DIFFUSE: 0.75,
+  NORMAL_STRENGTH: 48,
+  // Extra darken/lighten from absolute height (valleys vs peaks) even on flat plateaus.
+  HEIGHT_SHADE: 0.28,
+  // Pixels of screen-Y lift per unit height above sea level. Reads as elevation.
+  // With HEIGHT_EXPONENT 0.5: mid grass (0.50) → 0.70 scrub gives ~64px lift,
+  // peaks (0.95) give ~114px. Bump to 200 for dramatic visual cliffs.
+  HEIGHT_LIFT: 200,
+  // Legacy ridge multiplier (unused; kept for any external refs)
   SLOPE_TINT: 0.7,
+  // Steep hillsides turn rocky. Slope = sqrt(dx²+dy²) of height/cell (see getSlopeAt).
+  // Soft rock starts past gentle hills; full stone only on sheer faces.
+  CLIFF_SLOPE_START: 0.18,
+  CLIFF_SLOPE_FULL: 0.38,
+  // Min neighbor drop before rock cliff face. Low values paint dark cracks on every slope.
+  CLIFF_FACE_MIN_DROP: 0.10,
 
-  // Each terrain cell gets one full repeat, "1 tile = 1 texture".
-  TEX_PERIOD: 16,
+  // Pattern tile size in world px. Larger = continuous tile across many cells (less Minecraft).
+  // 16 = 1 cell = 1 tile (blocky). 128 tiles smoothly over ~8 cells.
+  TEX_PERIOD: 128,
 
   BIOME_VARIANCE: 12,         // per-cell random color variance (±)
-  BIOME_DITHER: 0.04,         // noise radius for dithering biome boundaries
+  // Soft-blend half-width around biome thresholds (smoothstep). Wider = less Minecraft.
+  BIOME_DITHER: 0.12,
 
   // Water layer: cells with height < WATER_LEVEL get animated water surface.
    // Shoreline follows the heightmap via marching squares, not flat rects.
@@ -376,5 +399,12 @@ export const TERRAIN_CONFIG = {
   DETAIL_AMPLITUDE: 0.18,    // was 0.3 — less high-freq chop so macro/base dominate
   // Macro continental basin — ~1–1.5 cycles across 2048 map → big sea + highlands
   MACRO_SCALE: 0.0007,       // was 0.0015
-  MACRO_AMPLITUDE: 0.38      // was 0.25 — stronger sea / continent contrast
+  MACRO_AMPLITUDE: 0.38,      // was 0.25 — stronger sea / continent contrast
+
+  // Post-process power stretch: remap above-water heights so mid-range values
+  // push up toward peaks, giving mountains and visible elevation variety
+  // instead of everything clustering in the 0.4-0.6 band.
+  // Typical values: 0.5 (aggressive) - 0.7 (moderate) - 1.0 (no stretch)
+  // With 0.5: height 0.50 (grass) → 0.70 (scrub),    0.60 (forest) → 0.80 (stone approach)
+  HEIGHT_EXPONENT: 0.5,       // valleys stay low, mid values push to scrub/stone
  };
