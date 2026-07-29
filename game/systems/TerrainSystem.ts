@@ -453,6 +453,8 @@ export class TerrainSystem {
         }
         const lit = litSmooth[gy * w + gx];
         const s = Math.round(Math.min(255, lit * 255));
+        path();
+        ctx.globalCompositeOperation = 'multiply';
         ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
         // Subtle stroke for multiply pass
