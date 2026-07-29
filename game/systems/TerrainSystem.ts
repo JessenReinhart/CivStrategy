@@ -187,6 +187,7 @@ export class TerrainSystem {
       LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z,
       LIGHT_AMBIENT, LIGHT_DIFFUSE, NORMAL_STRENGTH, HEIGHT_SHADE,
       WATER_LEVEL,
+      CLIFF_SLOPE_START, CLIFF_SLOPE_FULL, CLIFF_FACE_MIN_DROP,
     } = TERRAIN_CONFIG;
     const w = this.gridWidth;
     const h = this.gridHeight;
@@ -194,6 +195,7 @@ export class TerrainSystem {
     // Larger period = continuous texture across cells (no 1-cell minecraft tiles).
     const period = Math.max(64, TEX_PERIOD ?? 128);
     const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
+    const STONE_IDX = BIOMES.length - 1; // peak rock
 
     const patterns: (CanvasPattern | string | null)[] = BIOMES.map((b, i) => {
       if (i === 0) return null;
@@ -223,6 +225,7 @@ export class TerrainSystem {
       return `rgb(${c.r},${c.g},${c.b})`;
     };
 
+    const stonePat = patterns[STONE_IDX] ?? solid(STONE_IDX);
     // Continuous soft blend between adjacent biomes (smoothstep across threshold).
     // Returns lower index a, upper index b, t in [0,1] (0 = fully a, 1 = fully b).
     const getBiomeBlend = (height: number): { a: number; b: number; t: number } => {
@@ -232,7 +235,6 @@ export class TerrainSystem {
       }
       if (idx <= 0) return { a: 0, b: 0, t: 0 };
       if (idx >= BIOMES.length - 1) {
-        // Near last threshold from below?
         const cur = BIOMES[idx].minHeight;
         const prev = BIOMES[idx - 1].minHeight;
         const gap = Math.max(1e-6, cur - (Number.isFinite(prev) ? prev : WATER_LEVEL));
@@ -247,7 +249,6 @@ export class TerrainSystem {
         return { a: idx, b: idx, t: 0 };
       }
 
-      // Blend toward next higher biome around its minHeight
       const next = BIOMES[idx + 1].minHeight;
       const gapUp = Math.max(1e-6, next - BIOMES[idx].minHeight);
       const halfUp = Math.min(BIOME_DITHER, gapUp * 0.45);
@@ -259,7 +260,6 @@ export class TerrainSystem {
         return { a: idx, b: idx + 1, t };
       }
 
-      // Blend from previous lower biome around current minHeight
       const cur = BIOMES[idx].minHeight;
       const prevH = BIOMES[idx - 1].minHeight;
       const gapDn = Math.max(1e-6, cur - (Number.isFinite(prevH) ? prevH : WATER_LEVEL));
@@ -273,6 +273,16 @@ export class TerrainSystem {
       }
 
       return { a: idx, b: idx, t: 0 };
+    };
+
+    // Soft rock amount from local slope magnitude (matches getSlopeAt formula).
+    const rockFromSlope = (slope: number): number => {
+      const lo = CLIFF_SLOPE_START ?? 0.12;
+      const hi = CLIFF_SLOPE_FULL ?? 0.28;
+      if (slope <= lo) return 0;
+      if (slope >= hi) return 1;
+      const raw = (slope - lo) / Math.max(1e-6, hi - lo);
+      return raw * raw * (3 - 2 * raw); // smoothstep
     };
 
     let maxGridHeight = 0;
@@ -302,7 +312,9 @@ export class TerrainSystem {
     const ly = LIGHT_DIR_Y / llen;
     const lz = LIGHT_DIR_Z / llen;
 
-    // Per-cell diamonds with bilinear corner heights + soft biome alpha blend.
+    const faceMin = CLIFF_FACE_MIN_DROP ?? 0.02;
+
+    // Per-cell diamonds with bilinear corner heights + soft biome + steep rock.
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const height = this.heightGrid[gy * w + gx];
@@ -314,6 +326,20 @@ export class TerrainSystem {
         const h1 = this.getHeightInterpolated(wx + CS, wy);
         const h2 = this.getHeightInterpolated(wx + CS, wy + CS);
         const h3 = this.getHeightInterpolated(wx, wy + CS);
+
+        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
+        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
+        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        const dxS = Math.abs(hR - height);
+        const dyS = Math.abs(hD - height);
+        // Also peek west/north so ridge crests both sides get rock
+        const dxW = Math.abs(height - hL);
+        const dyN = Math.abs(height - hU);
+        const slope = Math.sqrt(
+          Math.max(dxS, dxW) * Math.max(dxS, dxW) + Math.max(dyS, dyN) * Math.max(dyS, dyN)
+        );
+        const rockT = rockFromSlope(slope);
 
         const { a, b, t } = getBiomeBlend(height);
         const baseIdx = Math.max(1, a);
@@ -350,10 +376,15 @@ export class TerrainSystem {
           ctx.globalAlpha = 1;
         }
 
-        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
-        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
-        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
-        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        // Steep hillside → rock (stone texture over grass/forest/scrub)
+        if (rockT > 0.02) {
+          path();
+          ctx.globalAlpha = rockT;
+          ctx.fillStyle = stonePat as string | CanvasPattern;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+
         const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
         const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
         const nz = 1;
@@ -363,7 +394,9 @@ export class TerrainSystem {
         let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
         const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
         lit *= 1 + (hTerm - 0.35) * (HEIGHT_SHADE ?? 0.28);
-        lit = Math.max(0.22, Math.min(1.15, lit));
+        // Steep faces read darker (rocky shadow)
+        lit *= 1 - rockT * 0.22;
+        lit = Math.max(0.18, Math.min(1.15, lit));
 
         const s = Math.round(Math.min(255, lit * 255));
         path();
@@ -371,7 +404,7 @@ export class TerrainSystem {
         ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
 
-        if (ndotl > 0.55 && lit > 0.85) {
+        if (ndotl > 0.55 && lit > 0.85 && rockT < 0.4) {
           const ha = Math.min(0.28, (ndotl - 0.55) * 0.35);
           path();
           ctx.globalCompositeOperation = 'soft-light';
@@ -385,33 +418,50 @@ export class TerrainSystem {
         const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
 
-        if (eastH < height - 0.01) {
+        // Cliff face side-walls: rock texture + dark shade (reads as sheer rock face)
+        if (eastH < height - faceMin) {
           const diff = height - eastH;
-          const cliffAlpha = Math.min(0.55, 0.18 + diff * 1.5);
+          const cliffAlpha = Math.min(0.72, 0.22 + diff * 1.8);
           const eBot0 = toIsoElev(wx + CS, wy, eastH);
           const eBot3 = toIsoElev(wx + CS, wy + CS, eastH);
-          ctx.beginPath();
-          ctx.moveTo(c1.x - ox, c1.y - oy);
-          ctx.lineTo(c2.x - ox, c2.y - oy);
-          ctx.lineTo(eBot3.x - ox, eBot3.y - oy);
-          ctx.lineTo(eBot0.x - ox, eBot0.y - oy);
-          ctx.closePath();
-          ctx.fillStyle = `rgba(0,0,0,${cliffAlpha.toFixed(3)})`;
+          const face = () => {
+            ctx.beginPath();
+            ctx.moveTo(c1.x - ox, c1.y - oy);
+            ctx.lineTo(c2.x - ox, c2.y - oy);
+            ctx.lineTo(eBot3.x - ox, eBot3.y - oy);
+            ctx.lineTo(eBot0.x - ox, eBot0.y - oy);
+            ctx.closePath();
+          };
+          face();
+          ctx.fillStyle = stonePat as string | CanvasPattern;
+          ctx.fill();
+          face();
+          ctx.fillStyle = `rgba(20,16,12,${cliffAlpha.toFixed(3)})`;
+          ctx.fill();
+          // Slight warm highlight on upper lip of cliff
+          face();
+          ctx.fillStyle = `rgba(0,0,0,${Math.min(0.35, cliffAlpha * 0.45).toFixed(3)})`;
           ctx.fill();
         }
 
-        if (southH < height - 0.01) {
+        if (southH < height - faceMin) {
           const diff = height - southH;
-          const cliffAlpha = Math.min(0.55, 0.18 + diff * 1.5);
+          const cliffAlpha = Math.min(0.72, 0.22 + diff * 1.8);
           const sBot0 = toIsoElev(wx, wy + CS, southH);
           const sBot1 = toIsoElev(wx + CS, wy + CS, southH);
-          ctx.beginPath();
-          ctx.moveTo(c3.x - ox, c3.y - oy);
-          ctx.lineTo(c2.x - ox, c2.y - oy);
-          ctx.lineTo(sBot1.x - ox, sBot1.y - oy);
-          ctx.lineTo(sBot0.x - ox, sBot0.y - oy);
-          ctx.closePath();
-          ctx.fillStyle = `rgba(0,0,0,${cliffAlpha.toFixed(3)})`;
+          const face = () => {
+            ctx.beginPath();
+            ctx.moveTo(c3.x - ox, c3.y - oy);
+            ctx.lineTo(c2.x - ox, c2.y - oy);
+            ctx.lineTo(sBot1.x - ox, sBot1.y - oy);
+            ctx.lineTo(sBot0.x - ox, sBot0.y - oy);
+            ctx.closePath();
+          };
+          face();
+          ctx.fillStyle = stonePat as string | CanvasPattern;
+          ctx.fill();
+          face();
+          ctx.fillStyle = `rgba(20,16,12,${cliffAlpha.toFixed(3)})`;
           ctx.fill();
         }
       }
@@ -471,23 +521,29 @@ export class TerrainSystem {
     const CS = TERRAIN_CONFIG.CELL_SIZE;
     const gx = Math.floor(wx / CS);
     const gy = Math.floor(wy / CS);
-    // Same hash11 as in applyVisualTinting
-    const dither = ((gx * 7919 + gy * 6271) * 6271 + 7919) % 10000 / 10000;
 
-    for (let i = 0; i < TERRAIN_CONFIG.BIOMES.length - 1; i++) {
-      const lo = TERRAIN_CONFIG.BIOMES[i].minHeight;
-      const tLo = lo - TERRAIN_CONFIG.BIOME_DITHER;
-      const tHi = lo + TERRAIN_CONFIG.BIOME_DITHER;
-      if (h >= tLo && h < tHi) {
-        const idx = dither < (h - tLo) / (tHi - tLo) ? i : i + 1;
-        return TERRAIN_CONFIG.BIOMES[idx]?.label ?? 'grass';
+    // Steep hillsides count as stone so trees/spawners skip cliffs.
+    const slope = this.getSlopeAt(wx, wy).slope;
+    const lo = TERRAIN_CONFIG.CLIFF_SLOPE_START ?? 0.12;
+    const hi = TERRAIN_CONFIG.CLIFF_SLOPE_FULL ?? 0.28;
+    if (slope >= (lo + hi) * 0.5) return 'stone';
+
+    // Soft-blend match: pick dominant biome from height (same thresholds as bake).
+    let idx = 0;
+    for (let i = TERRAIN_CONFIG.BIOMES.length - 1; i >= 0; i--) {
+      if (h >= TERRAIN_CONFIG.BIOMES[i].minHeight) { idx = i; break; }
+    }
+    // In transition band, bias toward higher biome when past midpoint (dither kept for variety).
+    const dither = this.hash11(gx * 7919 + gy * 6271);
+    if (idx < TERRAIN_CONFIG.BIOMES.length - 1) {
+      const next = TERRAIN_CONFIG.BIOMES[idx + 1].minHeight;
+      const half = Math.min(TERRAIN_CONFIG.BIOME_DITHER, Math.max(1e-6, next - TERRAIN_CONFIG.BIOMES[idx].minHeight) * 0.45);
+      if (h >= next - half && h < next + half) {
+        const raw = (h - (next - half)) / (2 * half);
+        if (dither < raw) idx = idx + 1;
       }
     }
-    if (h < TERRAIN_CONFIG.BIOMES[1].minHeight) return 'deep';
-    for (let i = TERRAIN_CONFIG.BIOMES.length - 1; i >= 0; i--) {
-      if (h >= TERRAIN_CONFIG.BIOMES[i].minHeight) return TERRAIN_CONFIG.BIOMES[i].label;
-    }
-    return 'grass';
+    return TERRAIN_CONFIG.BIOMES[idx]?.label ?? 'grass';
   }
   destroy(): void {
     if (this.visualSprite) {

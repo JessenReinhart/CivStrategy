@@ -369,6 +369,12 @@ export const TERRAIN_CONFIG = {
   HEIGHT_LIFT: 200,
   // Legacy ridge multiplier (unused; kept for any external refs)
   SLOPE_TINT: 0.7,
+  // Steep hillsides turn rocky. Slope = sqrt(dx²+dy²) of height/cell (see getSlopeAt).
+  // Soft rock starts near unbuildable; full stone on sheer faces.
+  CLIFF_SLOPE_START: 0.12,
+  CLIFF_SLOPE_FULL: 0.28,
+  // Min neighbor drop (height units) before drawing a rock cliff face trapezoid.
+  CLIFF_FACE_MIN_DROP: 0.02,
 
   // Pattern tile size in world px. Larger = continuous tile across many cells (less Minecraft).
   // 16 = 1 cell = 1 tile (blocky). 128 tiles smoothly over ~8 cells.
