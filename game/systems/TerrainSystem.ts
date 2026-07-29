@@ -192,10 +192,9 @@ export class TerrainSystem {
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
-    // Larger period = continuous texture across cells (no 1-cell minecraft tiles).
     const period = Math.max(64, TEX_PERIOD ?? 128);
     const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
-    const STONE_IDX = BIOMES.length - 1; // peak rock
+    const STONE_IDX = BIOMES.length - 1;
 
     const patterns: (CanvasPattern | string | null)[] = BIOMES.map((b, i) => {
       if (i === 0) return null;
@@ -226,8 +225,7 @@ export class TerrainSystem {
     };
 
     const stonePat = patterns[STONE_IDX] ?? solid(STONE_IDX);
-    // Continuous soft blend between adjacent biomes (smoothstep across threshold).
-    // Returns lower index a, upper index b, t in [0,1] (0 = fully a, 1 = fully b).
+
     const getBiomeBlend = (height: number): { a: number; b: number; t: number } => {
       let idx = 0;
       for (let i = BIOMES.length - 1; i >= 0; i--) {
@@ -275,20 +273,33 @@ export class TerrainSystem {
       return { a: idx, b: idx, t: 0 };
     };
 
-    // Soft rock amount from local slope magnitude (matches getSlopeAt formula).
     const rockFromSlope = (slope: number): number => {
-      const lo = CLIFF_SLOPE_START ?? 0.12;
-      const hi = CLIFF_SLOPE_FULL ?? 0.28;
+      const lo = CLIFF_SLOPE_START ?? 0.18;
+      const hi = CLIFF_SLOPE_FULL ?? 0.38;
       if (slope <= lo) return 0;
       if (slope >= hi) return 1;
       const raw = (slope - lo) / Math.max(1e-6, hi - lo);
-      return raw * raw * (3 - 2 * raw); // smoothstep
+      return raw * raw * (3 - 2 * raw);
     };
+
+    // Shared corner height field (w+1)×(h+1) — every diamond edge uses identical verts → no height seams.
+    const cw = w + 1;
+    const ch = h + 1;
+    const cornerH = new Float32Array(cw * ch);
+    for (let cy = 0; cy < ch; cy++) {
+      for (let cx = 0; cx < cw; cx++) {
+        cornerH[cy * cw + cx] = this.getHeightInterpolated(cx * CS, cy * CS);
+      }
+    }
 
     let maxGridHeight = 0;
     for (let i = 0; i < w * h; i++) {
       const hgt = this.heightGrid[i];
       if (hgt > maxGridHeight) maxGridHeight = hgt;
+    }
+    // Corners can be slightly above grid max after interp edges — pad AABB.
+    for (let i = 0; i < cornerH.length; i++) {
+      if (cornerH[i] > maxGridHeight) maxGridHeight = cornerH[i];
     }
     const maxLift = Math.max(0, maxGridHeight - WATER_LEVEL) * TERRAIN_CONFIG.HEIGHT_LIFT;
 
@@ -300,57 +311,112 @@ export class TerrainSystem {
     }
     minY -= maxLift;
     const ox = minX, oy = minY;
-    const tw = Math.ceil(maxX - minX), th = Math.ceil(maxY - minY);
+    const tw = Math.ceil(maxX - minX) + 2;
+    const th = Math.ceil(maxY - minY) + 2;
 
     const cvs = document.createElement('canvas');
     cvs.width = tw;
     cvs.height = th;
     const ctx = cvs.getContext('2d')!;
+    // Slight overscan so AA fringes aren't clipped.
+    ctx.translate(1, 1);
 
     const llen = Math.hypot(LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z) || 1;
     const lx = LIGHT_DIR_X / llen;
     const ly = LIGHT_DIR_Y / llen;
     const lz = LIGHT_DIR_Z / llen;
 
-    const faceMin = CLIFF_FACE_MIN_DROP ?? 0.02;
+    const faceMin = CLIFF_FACE_MIN_DROP ?? 0.10;
 
-    // Per-cell diamonds with bilinear corner heights + soft biome + steep rock.
+    // Precompute smoothed lighting per cell (3×3) so adjacent diamonds don't form a dark grid.
+    const litGrid = new Float32Array(w * h);
+    const rockGrid = new Float32Array(w * h);
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const height = this.heightGrid[gy * w + gx];
-        if (height < WATER_LEVEL) continue;
-
-        const wx = gx * CS;
-        const wy = gy * CS;
-        const h0 = this.getHeightInterpolated(wx, wy);
-        const h1 = this.getHeightInterpolated(wx + CS, wy);
-        const h2 = this.getHeightInterpolated(wx + CS, wy + CS);
-        const h3 = this.getHeightInterpolated(wx, wy + CS);
-
         const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
         const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
         const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
-        const dxS = Math.abs(hR - height);
-        const dyS = Math.abs(hD - height);
-        // Also peek west/north so ridge crests both sides get rock
-        const dxW = Math.abs(height - hL);
-        const dyN = Math.abs(height - hU);
-        const slope = Math.sqrt(
-          Math.max(dxS, dxW) * Math.max(dxS, dxW) + Math.max(dyS, dyN) * Math.max(dyS, dyN)
-        );
-        const rockT = rockFromSlope(slope);
+        const dx = Math.max(Math.abs(hR - height), Math.abs(height - hL));
+        const dy = Math.max(Math.abs(hD - height), Math.abs(height - hU));
+        const slope = Math.hypot(dx, dy);
+        rockGrid[gy * w + gx] = rockFromSlope(slope);
 
-        const { a, b, t } = getBiomeBlend(height);
+        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
+        const nz = 1;
+        const nlen = Math.hypot(nx, ny, nz) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + nz * lz) / nlen);
+        let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
+        const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
+        lit *= 1 + (hTerm - 0.35) * (HEIGHT_SHADE ?? 0.28);
+        lit *= 1 - rockGrid[gy * w + gx] * 0.18;
+        litGrid[gy * w + gx] = Math.max(0.2, Math.min(1.12, lit));
+      }
+    }
+    // Box-blur lighting once to kill hard cell boundaries.
+    const litSmooth = new Float32Array(w * h);
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        let sum = 0, n = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const x = gx + ox, y = gy + oy;
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            sum += litGrid[y * w + x];
+            n++;
+          }
+        }
+        litSmooth[gy * w + gx] = sum / n;
+      }
+    }
+
+    // Land cells: draw if center OR any corner is above water (seals shoreline holes).
+    const isLandish = (gx: number, gy: number): boolean => {
+      const height = this.heightGrid[gy * w + gx];
+      if (height >= WATER_LEVEL - 0.01) return true;
+      const i = gy * cw + gx;
+      return (
+        cornerH[i] >= WATER_LEVEL ||
+        cornerH[i + 1] >= WATER_LEVEL ||
+        cornerH[i + cw] >= WATER_LEVEL ||
+        cornerH[i + cw + 1] >= WATER_LEVEL
+      );
+    };
+
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        if (!isLandish(gx, gy)) continue;
+
+        const height = this.heightGrid[gy * w + gx];
+        const wx = gx * CS;
+        const wy = gy * CS;
+
+        // Shared corner heights — identical verts on shared edges.
+        const h0 = cornerH[gy * cw + gx];
+        const h1 = cornerH[gy * cw + gx + 1];
+        const h2 = cornerH[(gy + 1) * cw + gx + 1];
+        const h3 = cornerH[(gy + 1) * cw + gx];
+
+        // Lift underwater corners to water plane so shore quads seal against the lake.
+        const e0 = h0 < WATER_LEVEL ? WATER_LEVEL : h0;
+        const e1 = h1 < WATER_LEVEL ? WATER_LEVEL : h1;
+        const e2 = h2 < WATER_LEVEL ? WATER_LEVEL : h2;
+        const e3 = h3 < WATER_LEVEL ? WATER_LEVEL : h3;
+
+        const rockT = rockGrid[gy * w + gx];
+        const sampleH = Math.max(height, WATER_LEVEL);
+        const { a, b, t } = getBiomeBlend(sampleH);
         const baseIdx = Math.max(1, a);
         const topIdx = Math.max(1, b);
         const patA = patterns[baseIdx] ?? solid(baseIdx);
         const patB = patterns[topIdx] ?? solid(topIdx);
 
-        const c0 = toIsoElev(wx, wy, h0);
-        const c1 = toIsoElev(wx + CS, wy, h1);
-        const c2 = toIsoElev(wx + CS, wy + CS, h2);
-        const c3 = toIsoElev(wx, wy + CS, h3);
+        const c0 = toIsoElev(wx, wy, e0);
+        const c1 = toIsoElev(wx + CS, wy, e1);
+        const c2 = toIsoElev(wx + CS, wy + CS, e2);
+        const c3 = toIsoElev(wx, wy + CS, e3);
 
         const path = () => {
           ctx.beginPath();
@@ -361,51 +427,54 @@ export class TerrainSystem {
           ctx.closePath();
         };
 
-        // Base biome full opacity
-        path();
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = patA as string | CanvasPattern;
-        ctx.fill();
+        // Fill + hairline stroke seals canvas AA cracks between shared edges.
+        const fillSeal = (style: string | CanvasPattern, alpha = 1, sealColor?: string) => {
+          path();
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = style;
+          ctx.fill();
+          if (sealColor) {
+            ctx.strokeStyle = sealColor;
+            ctx.lineWidth = 1.15;
+            ctx.lineJoin = 'round';
+            ctx.globalAlpha = Math.min(1, alpha);
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        };
 
-        // Soft overlay of next biome across transition band
+        fillSeal(patA as string | CanvasPattern, 1, solid(baseIdx));
+
         if (t > 0.001 && topIdx !== baseIdx) {
-          path();
-          ctx.globalAlpha = t;
-          ctx.fillStyle = patB as string | CanvasPattern;
-          ctx.fill();
-          ctx.globalAlpha = 1;
+          fillSeal(patB as string | CanvasPattern, t, solid(topIdx));
         }
 
-        // Steep hillside → rock (stone texture over grass/forest/scrub)
         if (rockT > 0.02) {
-          path();
-          ctx.globalAlpha = rockT;
-          ctx.fillStyle = stonePat as string | CanvasPattern;
-          ctx.fill();
-          ctx.globalAlpha = 1;
+          fillSeal(stonePat as string | CanvasPattern, rockT, solid(STONE_IDX));
         }
 
-        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
-        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
-        const nz = 1;
-        const nlen = Math.hypot(nx, ny, nz) || 1;
-        const ndotl = Math.max(0, (nx * lx + ny * ly + nz * lz) / nlen);
-
-        let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
-        const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
-        lit *= 1 + (hTerm - 0.35) * (HEIGHT_SHADE ?? 0.28);
-        // Steep faces read darker (rocky shadow)
-        lit *= 1 - rockT * 0.22;
-        lit = Math.max(0.18, Math.min(1.15, lit));
-
+        const lit = litSmooth[gy * w + gx];
         const s = Math.round(Math.min(255, lit * 255));
         path();
         ctx.globalCompositeOperation = 'multiply';
         ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
+        // Seal multiply pass too (prevents bright crack lines).
+        ctx.strokeStyle = `rgb(${s},${s},${s})`;
+        ctx.lineWidth = 1.0;
+        ctx.stroke();
 
-        if (ndotl > 0.55 && lit > 0.85 && rockT < 0.4) {
-          const ha = Math.min(0.28, (ndotl - 0.55) * 0.35);
+        const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
+        const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
+        const hU = gy > 0 ? this.heightGrid[(gy - 1) * w + gx] : height;
+        const hD = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
+        const nx = -(hR - hL) * 0.5 * NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * NORMAL_STRENGTH;
+        const nlen = Math.hypot(nx, ny, 1) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + 1 * lz) / nlen);
+
+        if (ndotl > 0.55 && lit > 0.85 && rockT < 0.35) {
+          const ha = Math.min(0.22, (ndotl - 0.55) * 0.3);
           path();
           ctx.globalCompositeOperation = 'soft-light';
           ctx.fillStyle = `rgba(255,236,180,${ha.toFixed(3)})`;
@@ -415,60 +484,58 @@ export class TerrainSystem {
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
 
+        // True cliff faces only — large neighbor drop. Small slopes used to paint crack lines.
         const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
 
-        // Cliff face side-walls: rock texture + dark shade (reads as sheer rock face)
         if (eastH < height - faceMin) {
           const diff = height - eastH;
-          const cliffAlpha = Math.min(0.72, 0.22 + diff * 1.8);
-          const eBot0 = toIsoElev(wx + CS, wy, eastH);
-          const eBot3 = toIsoElev(wx + CS, wy + CS, eastH);
+          const cliffAlpha = Math.min(0.65, 0.25 + diff * 1.2);
+          // Bottom edge uses east cell's shared corners on the east edge.
+          const botN = toIsoElev(wx + CS, wy, Math.max(eastH, WATER_LEVEL));
+          const botS = toIsoElev(wx + CS, wy + CS, Math.max(eastH, WATER_LEVEL));
           const face = () => {
             ctx.beginPath();
             ctx.moveTo(c1.x - ox, c1.y - oy);
             ctx.lineTo(c2.x - ox, c2.y - oy);
-            ctx.lineTo(eBot3.x - ox, eBot3.y - oy);
-            ctx.lineTo(eBot0.x - ox, eBot0.y - oy);
+            ctx.lineTo(botS.x - ox, botS.y - oy);
+            ctx.lineTo(botN.x - ox, botN.y - oy);
             ctx.closePath();
           };
           face();
           ctx.fillStyle = stonePat as string | CanvasPattern;
           ctx.fill();
           face();
-          ctx.fillStyle = `rgba(20,16,12,${cliffAlpha.toFixed(3)})`;
-          ctx.fill();
-          // Slight warm highlight on upper lip of cliff
-          face();
-          ctx.fillStyle = `rgba(0,0,0,${Math.min(0.35, cliffAlpha * 0.45).toFixed(3)})`;
+          ctx.fillStyle = `rgba(24,20,16,${cliffAlpha.toFixed(3)})`;
           ctx.fill();
         }
 
         if (southH < height - faceMin) {
           const diff = height - southH;
-          const cliffAlpha = Math.min(0.72, 0.22 + diff * 1.8);
-          const sBot0 = toIsoElev(wx, wy + CS, southH);
-          const sBot1 = toIsoElev(wx + CS, wy + CS, southH);
+          const cliffAlpha = Math.min(0.65, 0.25 + diff * 1.2);
+          const botW = toIsoElev(wx, wy + CS, Math.max(southH, WATER_LEVEL));
+          const botE = toIsoElev(wx + CS, wy + CS, Math.max(southH, WATER_LEVEL));
           const face = () => {
             ctx.beginPath();
             ctx.moveTo(c3.x - ox, c3.y - oy);
             ctx.lineTo(c2.x - ox, c2.y - oy);
-            ctx.lineTo(sBot1.x - ox, sBot1.y - oy);
-            ctx.lineTo(sBot0.x - ox, sBot0.y - oy);
+            ctx.lineTo(botE.x - ox, botE.y - oy);
+            ctx.lineTo(botW.x - ox, botW.y - oy);
             ctx.closePath();
           };
           face();
           ctx.fillStyle = stonePat as string | CanvasPattern;
           ctx.fill();
           face();
-          ctx.fillStyle = `rgba(20,16,12,${cliffAlpha.toFixed(3)})`;
+          ctx.fillStyle = `rgba(24,20,16,${cliffAlpha.toFixed(3)})`;
           ctx.fill();
         }
       }
     }
 
     this.scene.textures.addCanvas('_terrainTint', cvs);
-    this.visualSprite = this.scene.add.sprite(ox, oy, '_terrainTint').setOrigin(0);
+    // Compensate the 1px translate used for AA overscan.
+    this.visualSprite = this.scene.add.sprite(ox - 1, oy - 1, '_terrainTint').setOrigin(0);
     this.visualSprite.setDepth(-10000);
     if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualSprite);
   }
