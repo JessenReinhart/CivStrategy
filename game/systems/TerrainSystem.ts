@@ -54,6 +54,8 @@ export class TerrainSystem {
           height = waterLevel + stretched * (1 - waterLevel);
         }
 
+        this.heightGrid[gy * w + gx] = height;
+
       }
     }
   }
@@ -401,6 +403,34 @@ export class TerrainSystem {
     }
   }
 
+
+  /**
+   * Return the biome label at a world coordinate, matching the baked terrain tint.
+   * Uses the same dither logic as applyVisualTinting so trees match what the player sees.
+   */
+  getBiomeAt(wx: number, wy: number): string {
+    const h = this.getHeightAt(wx, wy);
+    const CS = TERRAIN_CONFIG.CELL_SIZE;
+    const gx = Math.floor(wx / CS);
+    const gy = Math.floor(wy / CS);
+    // Same hash11 as in applyVisualTinting
+    const dither = ((gx * 7919 + gy * 6271) * 6271 + 7919) % 10000 / 10000;
+
+    for (let i = 0; i < TERRAIN_CONFIG.BIOMES.length - 1; i++) {
+      const lo = TERRAIN_CONFIG.BIOMES[i].minHeight;
+      const tLo = lo - TERRAIN_CONFIG.BIOME_DITHER;
+      const tHi = lo + TERRAIN_CONFIG.BIOME_DITHER;
+      if (h >= tLo && h < tHi) {
+        const idx = dither < (h - tLo) / (tHi - tLo) ? i : i + 1;
+        return TERRAIN_CONFIG.BIOMES[idx]?.label ?? 'grass';
+      }
+    }
+    if (h < TERRAIN_CONFIG.BIOMES[1].minHeight) return 'deep';
+    for (let i = TERRAIN_CONFIG.BIOMES.length - 1; i >= 0; i--) {
+      if (h >= TERRAIN_CONFIG.BIOMES[i].minHeight) return TERRAIN_CONFIG.BIOMES[i].label;
+    }
+    return 'grass';
+  }
   destroy(): void {
     if (this.visualSprite) {
       this.visualSprite.destroy();
