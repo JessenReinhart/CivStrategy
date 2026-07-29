@@ -183,7 +183,7 @@ export class TerrainSystem {
     if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
 
     const {
-      CELL_SIZE: CS, BIOMES, BIOME_DITHER, TEX_PERIOD,
+      CELL_SIZE: CS, BIOMES, TEX_PERIOD,
       LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z,
       LIGHT_AMBIENT, LIGHT_DIFFUSE, NORMAL_STRENGTH, HEIGHT_SHADE,
       WATER_LEVEL,
@@ -191,8 +191,6 @@ export class TerrainSystem {
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
-    // Period = how many world px one seamless tile covers. Keep << viewport so
-    // createPattern actually repeats on screen (768 looked like a single zoomed photo).
     const period = Math.max(32, TEX_PERIOD ?? 256);
 
     const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
@@ -210,28 +208,12 @@ export class TerrainSystem {
       const cctx = c.getContext('2d')!;
       cctx.imageSmoothingEnabled = true;
       cctx.imageSmoothingQuality = 'high';
-      // Scale source into period canvas — pattern unit size = period, not raw 512.
       cctx.drawImage(img, 0, 0, sw, sh, 0, 0, period, period);
       return cctx.createPattern(c, 'repeat')!;
     });
 
-    // Dither: pick biome at height boundaries
-    const getBiomeIndex = (height: number, dither: number): number => {
-      for (let i = 0; i < BIOMES.length - 1; i++) {
-        const lo = BIOMES[i].minHeight;
-        const tLo = lo - BIOME_DITHER;
-        const tHi = lo + BIOME_DITHER;
-        if (height >= tLo && height < tHi) {
-          return dither < (height - tLo) / (tHi - tLo) ? i : i + 1;
-        }
-      }
-      if (height < BIOMES[1].minHeight) return 0;
-      for (let i = BIOMES.length - 1; i >= 0; i--) if (height >= BIOMES[i].minHeight) return i;
-      return 0;
-    };
+    // (getBiomeIndex removed — terrain uses marching-squares contours instead)
 
-    // Find max height for AABB expansion (elevation lifts upward = extends minY)
-    let maxGridHeight = 0;
     for (let i = 0; i < w * h; i++) {
       const hgt = this.heightGrid[i];
       if (hgt > maxGridHeight) maxGridHeight = hgt;
@@ -242,7 +224,7 @@ export class TerrainSystem {
     const cornerPts = [toIso(0, 0), toIso(w * CS, 0), toIso(w * CS, h * CS), toIso(0, h * CS)];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const p of cornerPts) { if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y; }
-    minY -= maxLift; // peaks rise upward in screen space
+    minY -= maxLift;
     const ox = minX, oy = minY;
     const tw = Math.ceil(maxX - minX), th = Math.ceil(maxY - minY);
 
@@ -250,20 +232,140 @@ export class TerrainSystem {
     cvs.width = tw;
     cvs.height = th;
     const ctx = cvs.getContext('2d')!;
-    // Normalize light once; N·L in world-grid X/Y (not iso).
+
+    // Normalize light once
     const llen = Math.hypot(LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z) || 1;
     const lx = LIGHT_DIR_X / llen;
     const ly = LIGHT_DIR_Y / llen;
     const lz = LIGHT_DIR_Z / llen;
 
+    // ────────────────────────────────────────────────────────────────────
+    // Phase 1: Marching-squares terrain contours for each biome boundary.
+    // For each biome threshold, generate MS polys for cells above that threshold.
+    // Draw higher biomes first (stone on top), lower ones fill the gaps below.
+    // ────────────────────────────────────────────────────────────────────
+    const sample = (wx: number, wy: number) => this.getHeightInterpolated(wx, wy);
+    const edgePt = (
+      ax: number, ay: number, ha: number,
+      bx: number, by: number, hb: number,
+      level: number
+    ) => {
+      const t = (level - ha) / (hb - ha || 1e-6);
+      return toIsoElev(ax + (bx - ax) * t, ay + (by - ay) * t, level);
+    };
+
+    // Biome thresholds in descending order (stone → scrub → forest → grass → sand)
+    // Index 5=stone, 4=scrub, 3=forest, 2=grass, 1=sand
+    const biomes = BIOMES;
+    // For each biome from highest to lowest, draw its contour
+    // Biome i is land above BIOMES[i].minHeight
+    for (let bi = biomes.length - 1; bi >= 1; bi--) {
+      const level = biomes[bi].minHeight;
+      const pat = patterns[bi];
+      // Skip water biome (index 0) and anything below it
+      if (bi === 0) continue;
+      if (!pat) continue;
+
+      // Expand AABB for each poly
+      let biMinX = Infinity, biMinY = Infinity, biMaxX = -Infinity, biMaxY = -Infinity;
+      const biPolys: { pts: { x: number; y: number }[] }[] = [];
+
+      for (let gy = 0; gy < h; gy++) {
+        for (let gx = 0; gx < w; gx++) {
+          const wx = gx * CS;
+          const wy = gy * CS;
+          const h0 = sample(wx, wy);
+          const h1 = sample(wx + CS, wy);
+          const h2 = sample(wx + CS, wy + CS);
+          const h3 = sample(wx, wy + CS);
+          const m0 = h0 >= level ? 1 : 0;
+          const m1 = h1 >= level ? 1 : 0;
+          const m2 = h2 >= level ? 1 : 0;
+          const m3 = h3 >= level ? 1 : 0;
+          const mask = m0 | (m1 << 1) | (m2 << 2) | (m3 << 3);
+          if (mask === 0) continue;
+
+          // Edge interpolations at this threshold level
+          const e0 = () => edgePt(wx, wy, h0, wx + CS, wy, h1, level);
+          const e1 = () => edgePt(wx + CS, wy, h1, wx + CS, wy + CS, h2, level);
+          const e2 = () => edgePt(wx + CS, wy + CS, h2, wx, wy + CS, h3, level);
+          const e3 = () => edgePt(wx, wy + CS, h3, wx, wy, h0, level);
+
+          // Corner iso positions — use max(actual, level) so all corners in a
+          // boundary cell lift to at least the threshold, preventing seams.
+          const c0 = toIsoElev(wx, wy, Math.max(h0, level));
+          const c1 = toIsoElev(wx + CS, wy, Math.max(h1, level));
+          const c2 = toIsoElev(wx + CS, wy + CS, Math.max(h2, level));
+          const c3 = toIsoElev(wx, wy + CS, Math.max(h3, level));
+
+          let pts: { x: number; y: number }[];
+          // Saddle cases: two separate tris
+          if (mask === 5) {
+            const a = [c0, e0(), e3()]; const b = [c2, e1(), e2()];
+            biPolys.push({ pts: a }); biPolys.push({ pts: b });
+            for (const p of a) { if (p.x < biMinX) biMinX = p.x; if (p.x > biMaxX) biMaxX = p.x; if (p.y < biMinY) biMinY = p.y; if (p.y > biMaxY) biMaxY = p.y; }
+            for (const p of b) { if (p.x < biMinX) biMinX = p.x; if (p.x > biMaxX) biMaxX = p.x; if (p.y < biMinY) biMinY = p.y; if (p.y > biMaxY) biMaxY = p.y; }
+            continue;
+          }
+          if (mask === 10) {
+            const a = [c1, e0(), e1()]; const b = [c3, e2(), e3()];
+            biPolys.push({ pts: a }); biPolys.push({ pts: b });
+            for (const p of a) { if (p.x < biMinX) biMinX = p.x; if (p.x > biMaxX) biMaxX = p.x; if (p.y < biMinY) biMinY = p.y; if (p.y > biMaxY) biMaxY = p.y; }
+            for (const p of b) { if (p.x < biMinX) biMinX = p.x; if (p.x > biMaxX) biMaxX = p.x; if (p.y < biMinY) biMinY = p.y; if (p.y > biMaxY) biMaxY = p.y; }
+            continue;
+          }
+
+          switch (mask) {
+            case 1:  pts = [c0, e0(), e3()]; break;
+            case 2:  pts = [c1, e1(), e0()]; break;
+            case 3:  pts = [c0, c1, e1(), e3()]; break;
+            case 4:  pts = [c2, e2(), e1()]; break;
+            case 6:  pts = [c1, c2, e2(), e0()]; break;
+            case 7:  pts = [c0, c1, c2, e2(), e3()]; break;
+            case 8:  pts = [c3, e3(), e2()]; break;
+            case 9:  pts = [c0, e0(), e2(), c3]; break;
+            case 11: pts = [c0, c1, e1(), e2(), c3]; break;
+            case 12: pts = [c2, c3, e3(), e1()]; break;
+            case 13: pts = [c0, e0(), e1(), c2, c3]; break;
+            case 14: pts = [c1, c2, c3, e3(), e0()]; break;
+            default: pts = [c0, c1, c2, c3]; break; // 15 full cell
+          }
+          biPolys.push({ pts });
+          for (const p of pts) {
+            if (p.x < biMinX) biMinX = p.x; if (p.x > biMaxX) biMaxX = p.x;
+            if (p.y < biMinY) biMinY = p.y; if (p.y > biMaxY) biMaxY = p.y;
+          }
+        }
+      }
+
+      // Draw this biome's contour polys as one batch
+      if (biPolys.length > 0) {
+        // Batch: set pattern once, draw all polys for this biome
+        ctx.save();
+        ctx.fillStyle = pat;
+        for (const poly of biPolys) {
+          ctx.beginPath();
+          const p0 = poly.pts[0];
+          ctx.moveTo(p0.x - ox, p0.y - oy);
+          for (let pi = 1; pi < poly.pts.length; pi++) {
+            ctx.lineTo(poly.pts[pi].x - ox, poly.pts[pi].y - oy);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Phase 2: Per-cell N·L lighting + cliff faces (diamond-based, same as before)
+    // This gives directional shading and elevation shadows.
+    // ────────────────────────────────────────────────────────────────────
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const height = this.heightGrid[gy * w + gx];
         const wx = gx * CS;
         const wy = gy * CS;
-        const dither = this.hash11(gx * 7919 + gy * 6271);
-        const biomeIdx = getBiomeIndex(height, dither);
-        const pat = patterns[biomeIdx];
 
         // Iso diamond with elevation lift
         const c0 = toIsoElev(wx, wy, height);
@@ -280,10 +382,6 @@ export class TerrainSystem {
           ctx.closePath();
         };
 
-        path();
-        ctx.fillStyle = pat ?? '#3c3c32';
-        ctx.fill();
-
         // Central-diff normal from unitless height 0–1
         const hL = gx > 0 ? this.heightGrid[gy * w + (gx - 1)] : height;
         const hR = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
@@ -295,21 +393,18 @@ export class TerrainSystem {
         const nlen = Math.hypot(nx, ny, nz) || 1;
         const ndotl = Math.max(0, (nx * lx + ny * ly + nz * lz) / nlen);
 
-        // Absolute Lambertian (not delta-from-flat) — every cell gets shade.
         let lit = LIGHT_AMBIENT + LIGHT_DIFFUSE * ndotl;
-        // Height term: below water dark, peaks slightly lifted
         const hTerm = (height - WATER_LEVEL) / Math.max(1e-6, 1 - WATER_LEVEL);
         lit *= 1 + (hTerm - 0.35) * HEIGHT_SHADE;
         lit = Math.max(0.22, Math.min(1.15, lit));
 
-        // Multiply into texture (source-over black α was invisible on photo tiles)
         const s = Math.round(Math.min(255, lit * 255));
         path();
         ctx.globalCompositeOperation = 'multiply';
         ctx.fillStyle = `rgb(${s},${s},${s})`;
         ctx.fill();
 
-        // Soft warm lift on sun-facing faces only
+        // Soft warm lift on sun-facing faces
         if (ndotl > 0.55 && lit > 0.85) {
           const ha = Math.min(0.28, (ndotl - 0.55) * 0.35);
           path();
@@ -321,7 +416,6 @@ export class TerrainSystem {
         ctx.globalCompositeOperation = 'source-over';
 
         // ── Cliff face side-walls ──────────────────────────────────────
-        // Dark shadow polygons where east/south neighbor is lower
         const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
 
