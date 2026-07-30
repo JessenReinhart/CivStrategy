@@ -635,6 +635,14 @@ export class MainScene extends Phaser.Scene {
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
     // Scroll wave texture for animated water surface
+    // Animate grass sway via tilePosition drift — same clock as water foam (dt = delta*gameSpeed).
+    // dt is derived from scene update ticks so pause/gameSpeed freeze the sway, matching water behavior.
+    const grassWave = this.terrainSystem.getGrassWaveSprite();
+    if (grassWave) {
+      // ~2:1 X:Y drift aligns with iso 2:1 plane compress, amplitude tiny so baked N·L doesn't crawl.
+      grassWave.tilePositionX += dt * 0.04;
+      grassWave.tilePositionY += dt * 0.02;
+    }
     if (this.waterWaveSprite) {
       // Slow surface drift; ~2:1 X:Y follows iso plane
       this.waterWaveSprite.tilePositionX += dt * 0.05;

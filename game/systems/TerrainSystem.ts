@@ -13,6 +13,8 @@ export class TerrainSystem {
   private gridHeight: number;
   private noise: Noise;
   private visualSprite: Phaser.GameObjects.Sprite | null = null;
+  private grassWaveSprite: Phaser.GameObjects.TileSprite | null = null;
+  private grassMaskSprite: Phaser.GameObjects.Sprite | null = null;
 
   constructor(scene: MainScene, mapWidth: number, mapHeight: number) {
     this.scene = scene;
@@ -181,6 +183,9 @@ export class TerrainSystem {
   applyVisualTinting(): void {
     if (this.visualSprite) { this.visualSprite.destroy(); this.visualSprite = null; }
     if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
+    if (this.grassWaveSprite) { this.grassWaveSprite.destroy(); this.grassWaveSprite = null; }
+    if (this.grassMaskSprite) { this.grassMaskSprite.destroy(); this.grassMaskSprite = null; }
+    if (this.scene.textures.exists('_grassMask')) this.scene.textures.remove('_grassMask');
 
     const {
       CELL_SIZE: CS, BIOMES, BIOME_DITHER, TEX_PERIOD,
@@ -537,6 +542,66 @@ export class TerrainSystem {
     this.visualSprite = this.scene.add.sprite(ox - 1, oy - 1, '_terrainTint').setOrigin(0);
     this.visualSprite.setDepth(-10000);
     if (this.scene.worldLayer) this.scene.worldLayer.add(this.visualSprite);
+
+    // One-shot grass weight mask in same iso canvas space as tint (ox/oy/tw/th + 1px overscan).
+    // BitmapMask reads alpha; non-grass cells stay fully transparent so they never warp.
+    const GRASS_IDX = 2; // BIOMES label 'grass' (sand=1, forest=3)
+    const maskCvs = document.createElement('canvas');
+    maskCvs.width = tw;
+    maskCvs.height = th;
+    const mctx = maskCvs.getContext('2d')!;
+    mctx.translate(1, 1);
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        if (!isLandish(gx, gy)) continue;
+        const height = this.heightGrid[gy * w + gx];
+        const sampleH = Math.max(height, WATER_LEVEL);
+        const { a, b, t } = getBiomeBlend(sampleH);
+        let weight = 0;
+        if (a === GRASS_IDX && b === GRASS_IDX) weight = 1;
+        else if (a === GRASS_IDX) weight = 1 - t;
+        else if (b === GRASS_IDX) weight = t;
+        weight *= 1 - rockGrid[gy * w + gx];
+        if (weight < 0.02) continue;
+
+        const wx = gx * CS;
+        const wy = gy * CS;
+        const h0 = cornerH[gy * cw + gx];
+        const h1 = cornerH[gy * cw + gx + 1];
+        const h2 = cornerH[(gy + 1) * cw + gx + 1];
+        const h3 = cornerH[(gy + 1) * cw + gx];
+        const e0 = h0 < WATER_LEVEL ? WATER_LEVEL : h0;
+        const e1 = h1 < WATER_LEVEL ? WATER_LEVEL : h1;
+        const e2 = h2 < WATER_LEVEL ? WATER_LEVEL : h2;
+        const e3 = h3 < WATER_LEVEL ? WATER_LEVEL : h3;
+        const c0 = toIsoElev(wx, wy, e0);
+        const c1 = toIsoElev(wx + CS, wy, e1);
+        const c2 = toIsoElev(wx + CS, wy + CS, e2);
+        const c3 = toIsoElev(wx, wy + CS, e3);
+        mctx.beginPath();
+        mctx.moveTo(c0.x - ox, c0.y - oy);
+        mctx.lineTo(c1.x - ox, c1.y - oy);
+        mctx.lineTo(c2.x - ox, c2.y - oy);
+        mctx.lineTo(c3.x - ox, c3.y - oy);
+        mctx.closePath();
+        mctx.fillStyle = `rgba(255,255,255,${weight.toFixed(3)})`;
+        mctx.fill();
+      }
+    }
+    this.scene.textures.addCanvas('_grassMask', maskCvs);
+
+    // Masked TileSprite over grass only — depth just above tint, below water.
+    this.grassWaveSprite = this.scene.add.tileSprite(ox - 1, oy - 1, tw, th, 'terrain_grass').setOrigin(0);
+    this.grassWaveSprite.setDepth(-9990);
+    this.grassWaveSprite.setAlpha(0.28);
+    // Iso 2:1 compress on Y; modest scale so baked N·L still reads under sway.
+    this.grassWaveSprite.setTileScale(0.5, 0.25);
+    this.grassMaskSprite = this.scene.add.sprite(ox - 1, oy - 1, '_grassMask').setOrigin(0).setVisible(false);
+    this.grassWaveSprite.setMask(this.grassMaskSprite.createBitmapMask());
+    if (this.scene.worldLayer) {
+      this.scene.worldLayer.add(this.grassWaveSprite);
+      this.scene.worldLayer.add(this.grassMaskSprite);
+    }
   }
 
   getHeightMapData(): Float32Array {
@@ -611,6 +676,11 @@ export class TerrainSystem {
     }
     return TERRAIN_CONFIG.BIOMES[idx]?.label ?? 'grass';
   }
+  /** Public accessor so MainScene can animate tilePosition without private field access. */
+  getGrassWaveSprite(): Phaser.GameObjects.TileSprite | null {
+    return this.grassWaveSprite;
+  }
+
   destroy(): void {
     if (this.visualSprite) {
       this.visualSprite.destroy();
@@ -618,6 +688,17 @@ export class TerrainSystem {
     }
     if (this.scene.textures.exists('_terrainTint')) {
       this.scene.textures.remove('_terrainTint');
+    }
+    if (this.grassWaveSprite) {
+      this.grassWaveSprite.destroy();
+      this.grassWaveSprite = null;
+    }
+    if (this.grassMaskSprite) {
+      this.grassMaskSprite.destroy();
+      this.grassMaskSprite = null;
+    }
+    if (this.scene.textures.exists('_grassMask')) {
+      this.scene.textures.remove('_grassMask');
     }
   }
 }
