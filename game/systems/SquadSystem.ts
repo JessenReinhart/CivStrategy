@@ -16,18 +16,17 @@ import { FormationSystem } from './FormationSystem';
  * - Simplified drawing for LOD_DOT (single circle)
  */
 
-// LOD constants based on camera distance
-const LOD_FULL = 0;       // 0-2500px: render all soldiers
-const LOD_MEDIUM = 1;     // 2500-5000px: render half the soldiers
-const LOD_LOW = 2;        // 5000-8000px: render 1/4 soldiers
-const LOD_DOT = 3;        // >8000px: single dot
+// LOD constants based on camera distance (dynamic scaling at 400u: 0.7x, 800u: 0.5x)
+const LOD_FULL = 0;       // 0-800px: render all soldiers (400px at 800u)
+const LOD_MEDIUM = 1;     // 800-1500px: render half the soldiers (750px at 800u)
+const LOD_LOW = 2;        // 1500-3000px: Blitter rect bobs (1500px at 800u)
+const LOD_DOT = 3;        // >3000px: single dot bob (Blitter)
 
 const LOD_THRESHOLDS: Record<number, number> = {
-    [LOD_FULL]: 2500,
-    [LOD_MEDIUM]: 5000,
-    [LOD_LOW]: 8000,
+    [LOD_FULL]: 800,
+    [LOD_MEDIUM]: 1500,
+    [LOD_LOW]: 3000,
 };
-
 // Maximum squads to process per frame (beyond this, skip update)
 const MAX_SQUADS_PER_FRAME = 200;
 
@@ -160,12 +159,11 @@ export class SquadSystem {
         this.lodDotBlitter.clear();
         this.lodRectBlitter.clear();
 
-        // Dynamic LOD thresholds: tighten when many units (closer cutoff for LOD transitions)
+        // Dynamic LOD thresholds: tighten with more units
         const lodScale = unitCount > 800 ? 0.5 : unitCount > 400 ? 0.7 : 1.0;
         const lodFull = LOD_THRESHOLDS[LOD_FULL] * lodScale;
         const lodMed = LOD_THRESHOLDS[LOD_MEDIUM] * lodScale;
         const lodLow = LOD_THRESHOLDS[LOD_LOW] * lodScale;
-
         for (let i = start; i < end; i++) {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
