@@ -225,8 +225,8 @@ export class TerrainSystem {
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
-    const period = Math.max(64, TEX_PERIOD ?? 128);
-    const textureKeys = ['terrain_sand', 'terrain_grass', 'terrain_forest', 'terrain_scrub', 'terrain_stone'];
+    const period = Math.max(64, TEX_PERIOD ?? 768);
+    const textureKeys = ['terrain_sand', 'terrain_swamp', 'terrain_grass', 'terrain_jungle', 'terrain_forest', 'terrain_tundra', 'terrain_scrub', 'terrain_stone'];
     const STONE_IDX = BIOMES.length - 1;
 
     const patterns: (CanvasPattern | string | null)[] = BIOMES.map((b, i) => {

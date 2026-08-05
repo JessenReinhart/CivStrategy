@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CivStrategy Release-Ready Sprint</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e0e6ed;
+      padding: 2rem;
+      line-height: 1.6;
+    }
+    header {
+      border-bottom: 3px solid #cba374;
+      padding-bottom: 1rem;
+      margin-bottom: 2rem;
+    }
+    h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+    .subtitle { color: #999; font-size: 0.9rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem; margin: 2rem 0; }
+    .card {
+      background: #1a2332;
+      border: 1px solid #2d3e52;
+      border-left: 4px solid #cba374;
+      padding: 1.5rem;
+      border-radius: 4px;
+    }
+    .card h2 { margin-bottom: 1rem; color: #cba374; }
+    .card h3 { margin: 1rem 0 0.5rem; font-size: 0.95rem; color: #a86a42; }
+    .metric {
+      display: flex;
+      justify-content: space-between;
+      padding: 0.5rem 0;
+      border-bottom: 1px solid #2d3e52;
+    }
+    .metric:last-child { border-bottom: none; }
+    .status {
+      padding: 0.25rem 0.75rem;
+      border-radius: 3px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .status.pending { background: #3d3d1f; color: #e6d96b; }
+    .status.running { background: #1f3d3d; color: #6be6d9; }
+    .status.done { background: #1f3d2f; color: #6be68b; }
+    .status.blocked { background: #3d1f1f; color: #e66b6b; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+    }
+    th, td {
+      padding: 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid #2d3e52;
+    }
+    th { background: #0f1419; color: #cba374; font-weight: 600; }
+    .bar-target { color: #6be68b; }
+    .bar-gap { color: #e66b6b; }
+    .bar-met { color: #6be68b; font-weight: 600; }
+    .evidence { margin: 1rem 0; padding: 1rem; background: #0f1419; border-left: 3px solid #a86a42; }
+    .evidence code { background: #2d3e52; padding: 0.25rem 0.5rem; border-radius: 2px; font-family: 'JetBrains Mono', monospace; }
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid #2d3e52;
+      color: #666;
+      font-size: 0.85rem;
+    }
+    .progress-bar {
+      background: #2d3e52;
+      height: 6px;
+      border-radius: 3px;
+      margin: 0.5rem 0;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #cba374, #a86a42);
+      transition: width 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚔️ CivStrategy Release-Ready Sprint</h1>
+    <p class="subtitle">Goal: AoE II: DE visual + performance parity. Bar: 60 FPS @ 1000+ units, visual fidelity match.</p>
+    <p class="subtitle">Started: 2026-08-05T06:29:22Z | Branch: main</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🎯 Sprint Overview</h2>
+      <div class="metric">
+        <span>Total Tasks</span>
+        <strong>19</strong>
+      </div>
+      <div class="metric">
+        <span>Completed</span>
+        <strong><span id="completed">0</span> / 19</strong>
+      </div>
+      <div class="metric">
+        <span>In Progress</span>
+        <strong><span id="running">0</span></strong>
+      </div>
+      <div class="metric">
+        <span>Active Phase</span>
+        <strong><span id="phase">Foundation</span></strong>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: 0%;" id="progress"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📊 Performance Baseline</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Scenario</th>
+            <th>Target</th>
+            <th>Current</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Idle FPS</td>
+            <td class="bar-target">60</td>
+            <td id="idle-fps">—</td>
+            <td id="idle-status"><span class="status pending">pending</span></td>
+          </tr>
+          <tr>
+            <td>FPS @ 500 units</td>
+            <td class="bar-target">60</td>
+            <td id="units500-fps">—</td>
+            <td id="units500-status"><span class="status pending">pending</span></td>
+          </tr>
+          <tr>
+            <td>FPS @ 1000 units</td>
+            <td class="bar-target">60</td>
+            <td id="units1000-fps">—</td>
+            <td id="units1000-status"><span class="status pending">pending</span></td>
+          </tr>
+          <tr>
+            <td>Avg Frame Time</td>
+            <td class="bar-target">&lt;16.67ms</td>
+            <td id="frametime">—</td>
+            <td id="frametime-status"><span class="status pending">pending</span></td>
+          </tr>
+          <tr>
+            <td>Memory @ idle</td>
+            <td class="bar-target">&lt;100MB</td>
+            <td id="mem-idle">—</td>
+            <td id="mem-idle-status"><span class="status pending">pending</span></td>
+          </tr>
+          <tr>
+            <td>Memory @ 1000 units</td>
+            <td class="bar-target">&lt;300MB</td>
+            <td id="mem-1000">—</td>
+            <td id="mem-1000-status"><span class="status pending">pending</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🎨 Visual Gap Report</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Current Quality</th>
+          <th>vs AoE II DE</th>
+          <th>Priority</th>
+          <th>Effort</th>
+        </tr>
+      </thead>
+      <tbody id="visual-gaps">
+        <tr>
+          <td colspan="5" style="text-align: center; color: #999;">Loading…</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>🗺️ Terrain Textures — COMPLETED</h2>
+    <p style="color: #4CAF50; font-weight: bold;">✅ All deliverables verified</p>
+    <ul>
+      <li>TEX_PERIOD: 128 → 768 (6x larger pattern repeat, eliminates visible grid)</li>
+      <li>Biome count: 5 → 8 (+swamp, +jungle, +tundra)</li>
+      <li>8 procedural tiles regenerated at 768² (toroidal fBm, seamΔ ~1.0)</li>
+      <li>Runtime wiring: textureKeys, preload, TREE_DENSITY, BIOME_PATH_COSTS, FARM_TERRAIN_YIELD</li>
+    </ul>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>🔄 Builder Tasks (In Progress)</h2>
+      <div id="builders">
+        <p style="color: #999;">Spawning builders…</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>✅ Critic Reviews</h2>
+      <div id="critics">
+        <p style="color: #999;">Spawning critics…</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📋 Live Log</h2>
+    <div id="log" style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; max-height: 400px; overflow-y: auto; background: #0f1419; padding: 1rem; border-radius: 4px;">
+      <p style="color: #666;">Sprint initialized. Awaiting agent reports…</p>
+    </div>
+  </div>
+
+  <footer>
+    <p>CivStrategy © 2026 | Isometric RTS | Release-Ready Build</p>
+  </footer>
+
+  <script>
+    function log(msg) {
+      const logEl = document.getElementById('log');
+      const time = new Date().toLocaleTimeString();
+      const entry = document.createElement('p');
+      entry.textContent = `[${time}] ${msg}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function updateMetric(id, value, status) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+      const statusEl = document.getElementById(id + '-status');
+      if (statusEl && status) {
+        statusEl.innerHTML = `<span class="status ${status}">${status}</span>`;
+      }
+    }
+
+    function updateProgress(completed, total) {
+      document.getElementById('completed').textContent = completed;
+      document.getElementById('progress').style.width = (completed / total * 100) + '%';
+    }
+
+    log('Sprint initialized. Spawning Builder + Critic pairs...');
+  </script>
+</body>
+</html>

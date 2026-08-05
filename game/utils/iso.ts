@@ -1,5 +1,3 @@
-export const ISO_ANGLE = 26.565; 
-
 export const toIso = (x: number, y: number): { x: number, y: number } => {
   return {
     x: x - y,

@@ -30,7 +30,7 @@ export const CHASE_REPATH_FAR_MS = 2500;
 /** Target must move this far (world) to force early repath. */
 export const CHASE_TARGET_MOVE_THRESH = 28;
 /** Path end within this of target counts as "good enough". */
-export const CHASE_PATH_END_SLACK = 48;
+const CHASE_PATH_END_SLACK = 48;
 
 /**
  * Pick path index to resume after repath.

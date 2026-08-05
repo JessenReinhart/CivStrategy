@@ -128,7 +128,7 @@ export const UNIT_NAMES: Record<string, string> = {
 // ─── Damage Types & Armor (Hack / Pierce / Crush) ────────────────────────────
 // Smooth per-type reduction, 0 A.D.-style:  reducedFraction = K / (armor + K)
 //   armor 0  -> 0% reduction,   armor 10 -> 50%,   armor 30 -> 75%,   armor 50 -> 83%
-export const ARMOR_REDUCTION_K = 10;
+const ARMOR_REDUCTION_K = 10;
 
 // Each unit's damage split by type. Values sum to the legacy flat `attack` so
 // overall combat power is preserved, while enabling rock-paper-scissors counters.
@@ -409,13 +409,6 @@ export function getNextAge(current: Age): Age | null {
   return progression[idx + 1];
 }
 
-// Helper: check if a unit type is unlocked at a given age
-export function isUnitUnlocked(unitType: UnitType, age: Age): boolean {
-  const config = AGE_CONFIGS[age];
-  if (!config) return false;
-  return config.unlocksUnits.includes(unitType);
-}
-
 export const FORMATION_BONUSES: Record<FormationType, { attack: number; defense: number; speed: number }> = {
   [FormationType.BOX]: { attack: 1.0, defense: 0.0, speed: 1.0 },
   [FormationType.LINE]: { attack: 1.2, defense: 0.0, speed: 0.8 },      // +20% Dmg, -20% Speed
@@ -445,9 +438,12 @@ export const TERRAIN_CONFIG = {
   BIOMES: [
     { color: { r: 60, g: 60, b: 50 }, minHeight: -Infinity, label: 'deep' },       // below water, unused
     { color: { r: 194, g: 178, b: 128 }, minHeight: 0.38, label: 'sand' },          // shore
-    { color: { r: 62, g: 148, b: 58 }, minHeight: 0.44, label: 'grass' },           // lowland
-    { color: { r: 45, g: 122, b: 42 }, minHeight: 0.58, label: 'forest' },          // mid
-    { color: { r: 107, g: 95, b: 67 }, minHeight: 0.72, label: 'scrub' },           // highland
+    { color: { r: 72, g: 98, b: 52 }, minHeight: 0.42, label: 'swamp' },            // wetlands
+    { color: { r: 62, g: 148, b: 58 }, minHeight: 0.46, label: 'grass' },           // lowland
+    { color: { r: 38, g: 115, b: 50 }, minHeight: 0.53, label: 'jungle' },          // tropical dense
+    { color: { r: 45, g: 122, b: 42 }, minHeight: 0.60, label: 'forest' },          // mid
+    { color: { r: 148, g: 158, b: 152 }, minHeight: 0.68, label: 'tundra' },        // cold plateau
+    { color: { r: 107, g: 95, b: 67 }, minHeight: 0.75, label: 'scrub' },           // highland
     { color: { r: 130, g: 124, b: 115 }, minHeight: 0.86, label: 'stone' },         // peak
   ],
   // Directional slope lighting (N·L). Baked as multiply — overlay alpha was invisible on photo textures.
@@ -474,8 +470,8 @@ export const TERRAIN_CONFIG = {
   CLIFF_FACE_MIN_DROP: 0.10,
 
   // Pattern tile size in world px. Larger = continuous tile across many cells (less Minecraft).
-  // 16 = 1 cell = 1 tile (blocky). 128 tiles smoothly over ~8 cells.
-  TEX_PERIOD: 128,
+  // 768 = 48 cells of smooth repeating grit texture. No visible grid seams.
+  TEX_PERIOD: 768,
 
   BIOME_VARIANCE: 12,         // per-cell random color variance (±)
   // Soft-blend half-width around biome thresholds (smoothstep). Wider = less Minecraft.
@@ -644,8 +640,11 @@ export const ANIMAL_SPECIES_STATS: Record<AnimalSpecies, AnimalSpeciesStat> = {
 export const BIOME_PATH_COSTS: Record<string, number> = {
   'deep': 999,    // impassable
   'sand': 0.9,    // firm beach
+  'swamp': 1.5,   // wet sticky ground
   'grass': 1.0,   // baseline
+  'jungle': 1.6,  // dense tropical undergrowth
   'forest': 1.4,  // dense undergrowth
+  'tundra': 1.3,  // frozen hard ground
   'scrub': 1.2,   // highland scrub
   'stone': 1.6,   // rocky peaks
 };
@@ -671,7 +670,6 @@ export const VILLAGER_BUILDING_UPKEEP: Partial<Record<BuildingType, { food?: num
 export const POPULATION_FOOD_COST = 30; // food to grow one villager
 
 // ─── Gold Mine Resource Nodes ────────────────────────────────────────
-export const GOLD_MINE_INITIAL = 200;       // gold per mine before depletion
 export const GOLD_MINE_RESPAWN_MS = 60000;  // 60s respawn after depletion
 export const GOLD_MINE_SEARCH_RADIUS = 300; // px radius to find nearest gold mine
 export const GOLD_MINE_COUNT = 4;           // mines spawned per faction start
@@ -680,7 +678,10 @@ export const GOLD_MINE_COUNT = 4;           // mines spawned per faction start
 export const FARM_TERRAIN_YIELD: Record<string, number> = {
   'grass': 1.3,   // fertile lowland bonus
   'forest': 1.0,  // forest floor is OK
+  'jungle': 1.1,  // rich tropical soil
+  'swamp': 0.9,   // waterlogged but fertile
   'sand': 0.6,    // arid penalty
+  'tundra': 0.4,  // frozen, poor yield
   'scrub': 0.8,   // highland penalty
   'stone': 0.3,   // near-impossible
   'deep': 0,      // underwater = no farm

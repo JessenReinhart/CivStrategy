@@ -69,11 +69,6 @@ export enum Age {
   CITY_STATE = 'City-State'
 }
 
-export enum ResourceType {
-  WOOD = 'Wood',
-  FOOD = 'Food',
-  GOLD = 'Gold'
-}
 
 export interface Resources {
   wood: number;
@@ -213,16 +208,6 @@ export interface UnitStats {
   squadColor: number;
 }
 
-export interface EntityData {
-  id: string;
-  x: number;
-  y: number;
-  hp: number;
-  maxHp: number;
-  owner: number;
-  type: string;
-  selected?: boolean;
-}
 
 export interface GameUnit extends Phaser.GameObjects.Image {
   unitType: UnitType;

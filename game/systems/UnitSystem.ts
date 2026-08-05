@@ -780,15 +780,19 @@ export class UnitSystem {
                 if (tetherDist > STANCE_TETHER_RADIUS) {
                     unit.target = null;
                     unit.state = UnitState.IDLE;
-                    const path = this.scene.pathfinder.findPath(
+                    // Spread return-to-anchor paths across frames via async queue
+                    this.scene.pathfinder.requestPath(
                         new Phaser.Math.Vector2(unit.x, unit.y),
-                        new Phaser.Math.Vector2(anchor.x, anchor.y)
+                        new Phaser.Math.Vector2(anchor.x, anchor.y),
+                        (path) => {
+                            if (!unit.scene) return;
+                            if (path && path.length > 1) {
+                                unit.path = path;
+                                unit.pathStep = 0;
+                                unit.pathCreatedAt = time;
+                            }
+                        }
                     );
-                    if (path && path.length > 1) {
-                        unit.path = path;
-                        unit.pathStep = 0;
-                        unit.pathCreatedAt = time;
-                    }
                     return;
                 }
             } else if (stance === UnitStance.HOLD) {
@@ -844,20 +848,29 @@ export class UnitSystem {
 
             if (needRepath || endStale) {
               unit.setData('_lastPathRecalc', nowMs);
-              unit.setData('_chaseTargetPos', { x: target.x, y: target.y });
-              const path = this.scene.pathfinder.findPath(
+              const tx = target.x, ty = target.y;
+              unit.setData('_chaseTargetPos', { x: tx, y: ty });
+              // Spread repath across frames via async queue — unit keeps old path meanwhile
+              this.scene.pathfinder.requestPath(
                 new Phaser.Math.Vector2(unit.x, unit.y),
-                new Phaser.Math.Vector2(target.x, target.y),
+                new Phaser.Math.Vector2(tx, ty),
+                (path) => {
+                  // Validate: unit alive, still chasing same-ish target, hasn't left CHASING
+                  if (!unit.scene) return;
+                  const t = unit.target as Phaser.GameObjects.Image;
+                  if (!t || !t.scene || unit.state !== UnitState.CHASING) return;
+                  const chased = unit.getData('_chaseTargetPos') as { x: number; y: number } | undefined;
+                  if (!chased || Math.hypot(t.x - chased.x, t.y - chased.y) > 80) return;
+                  if (path && path.length > 1) {
+                    unit.path = path;
+                    unit.pathStep = findResumePathStep(path, unit.x, unit.y);
+                    unit.pathCreatedAt = this.scene.gameTime;
+                  } else if (!unit.path || unit.path.length <= 1) {
+                    unit.path = null;
+                    (unit.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0);
+                  }
+                }
               );
-              if (path && path.length > 1) {
-                unit.path = path;
-                unit.pathStep = findResumePathStep(path, unit.x, unit.y);
-                unit.pathCreatedAt = time;
-              } else if (!unit.path || unit.path.length <= 1) {
-                unit.path = null;
-                body.setVelocity(0, 0);
-              }
-              // If repath failed but old path exists, keep following it
             } else if (!lastTarget) {
               unit.setData('_chaseTargetPos', { x: target.x, y: target.y });
             }

@@ -14,6 +14,7 @@ import { FormationSystem } from './FormationSystem';
  * - Reduced per-frame lerp for distant squads
  * - Soldier state recycling (no garbage generation)
  * - Simplified drawing for LOD_DOT (single circle)
+ * - Sprite-based rendering for LOD_FULL/MEDIUM (replaces Graphics draw calls)
  */
 
 // LOD constants based on camera distance (dynamic scaling at 400u: 0.7x, 800u: 0.5x)
@@ -38,6 +39,22 @@ const LOD_FACTORS: Record<number, number> = {
     [LOD_DOT]: Infinity,  // Just a dot
 };
 
+// UnitType → Phaser texture key (textures loaded in MainScene.load())
+const TEXTURE_KEY_MAP: Record<string, string> = {
+    [UnitType.VILLAGER]: 'unit_villager',
+    [UnitType.PIKESMAN]: 'unit_pikesman',
+    [UnitType.CAVALRY]: 'unit_cavalry',
+    [UnitType.LEGION]: 'unit_legion',
+    [UnitType.ARCHER]: 'unit_archer',
+    [UnitType.SLINGER]: 'unit_slinger',
+    [UnitType.AXEMAN]: 'unit_axeman',
+    [UnitType.HOPLITE]: 'unit_hoplite',
+    [UnitType.CHARIOT]: 'unit_chariot',
+    [UnitType.RAM]: 'unit_ram',
+};
+
+const POOL_INITIAL_SIZE = 200;
+
 interface SoldierState {
     x: number;
     y: number;
@@ -50,9 +67,12 @@ export class SquadSystem {
     private frameIndex: number = 0;
     private lodDotBlitter!: Phaser.GameObjects.Blitter;
     private lodRectBlitter!: Phaser.GameObjects.Blitter;
+    // Sprite pool keyed by texture key (e.g. 'unit_pikesman')
+    private spritePool: Map<string, Phaser.GameObjects.Sprite[]>;
 
     constructor(scene: MainScene) {
         this.scene = scene;
+        this.spritePool = new Map();
         // Blitters for batched LOD rendering — each Blitter = 1 GPU draw call for all bobs
         this.lodDotBlitter = scene.add.blitter(0, 0, 'lod_dot');
         this.lodRectBlitter = scene.add.blitter(0, 0, 'lod_rect');
@@ -60,6 +80,61 @@ export class SquadSystem {
             scene.worldLayer.add(this.lodDotBlitter);
             scene.worldLayer.add(this.lodRectBlitter);
         }
+    }
+
+    /**
+     * Get (or lazily create) the sprite pool for a given texture key.
+     */
+    private getPool(textureKey: string): Phaser.GameObjects.Sprite[] {
+        let pool = this.spritePool.get(textureKey);
+        if (!pool) {
+            pool = [];
+            for (let i = 0; i < POOL_INITIAL_SIZE; i++) {
+                const sprite = this.scene.add.sprite(0, 0, textureKey)
+                    .setOrigin(0.5, 1)
+                    .setScale(0.5)
+                    .setVisible(false)
+                    .setActive(false);
+                this.scene.worldLayer?.add(sprite);
+                this.scene.uiCamera?.ignore(sprite);
+                pool.push(sprite);
+            }
+            this.spritePool.set(textureKey, pool);
+        }
+        return pool;
+    }
+
+    /**
+     * Acquire a sprite from the pool. Grows pool if exhausted.
+     */
+    private acquireSprite(textureKey: string): Phaser.GameObjects.Sprite {
+        const pool = this.getPool(textureKey);
+        const sprite = pool.pop();
+        if (sprite) {
+            sprite.setActive(true).setVisible(true);
+            return sprite;
+        }
+        // Pool exhausted — create one more
+        const extra = this.scene.add.sprite(0, 0, textureKey)
+            .setOrigin(0.5, 1)
+            .setScale(0.5);
+        this.scene.worldLayer?.add(extra);
+        this.scene.uiCamera?.ignore(extra);
+        return extra;
+    }
+
+    /**
+     * Return a sprite to the pool for reuse.
+     */
+    private releaseSprite(sprite: Phaser.GameObjects.Sprite): void {
+        sprite.setVisible(false).setActive(false).clearTint();
+        const key = sprite.texture.key;
+        let pool = this.spritePool.get(key);
+        if (!pool) {
+            pool = [];
+            this.spritePool.set(key, pool);
+        }
+        pool.push(sprite);
     }
 
     public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, _owner: number): void {
@@ -70,6 +145,17 @@ export class SquadSystem {
         this.scene.worldVisuals.add(container);
         if (this.scene.worldLayer) this.scene.worldLayer.add(container);
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(container);
+
+        // Acquire soldier sprites from pool and add to container
+        const textureKey = TEXTURE_KEY_MAP[type] || 'unit_pikesman';
+        const soldierSprites: Phaser.GameObjects.Sprite[] = [];
+        for (let i = 0; i < stats.squadSize; i++) {
+            const sprite = this.acquireSprite(textureKey);
+            soldierSprites.push(sprite);
+            container.add(sprite);
+        }
+
+        // Graphics overlay for selection circle only (drawn on top of sprites)
         const gfx = this.scene.add.graphics();
         container.add(gfx);
 
@@ -77,6 +163,8 @@ export class SquadSystem {
         unit.setData('squadCurrentCount', stats.squadSize);
         unit.setData('squadMaxCount', stats.squadSize);
         unit.setData('formationAngle', 0);
+        unit.setData('squadTextureKey', textureKey);
+        unit.setData('soldierSprites', soldierSprites);
 
         this.initializeSoldiers(unit, stats.squadSize, type);
 
@@ -205,6 +293,8 @@ export class SquadSystem {
                     if (soldiers.length > targetCount) soldiers.length = targetCount;
                     else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
                 }
+                // Hide sprites when in DOT LOD
+                this.hideSoldierSprites(unit);
                 continue;
             }
 
@@ -247,10 +337,12 @@ export class SquadSystem {
                         bob.tint = color;
                     }
                 }
+                // Hide sprites when in LOW LOD
+                this.hideSoldierSprites(unit);
                 continue;
             }
 
-            // LOD_FULL/MEDIUM: per-unit Graphics (detail matters for nearby squads)
+            // LOD_FULL/MEDIUM: sprite-based soldier rendering
             const body = unit.body as Phaser.Physics.Arcade.Body;
             let angle = unit.getData('formationAngle') as number || 0;
             const speed = body ? body.velocity.length() : 0;
@@ -273,8 +365,7 @@ export class SquadSystem {
                 if (soldiers.length > targetCount) soldiers.length = targetCount;
                 else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
             }
-            const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
-            this.renderSquad(gfx, unit, soldiers, angle, isMoving, lod, commanderIso);
+            this.renderSquad(unit, soldiers, angle, isMoving, lod, commanderIso);
         }
 
         // Blitters render at entity depth layer
@@ -289,10 +380,22 @@ export class SquadSystem {
     }
 
     /**
+     * Hide all soldier sprites for a unit (when using Blitter LODs).
+     */
+    private hideSoldierSprites(unit: Phaser.GameObjects.GameObject): void {
+        const sprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
+        if (sprites) {
+            for (let i = 0; i < sprites.length; i++) {
+                sprites[i].setVisible(false);
+            }
+        }
+    }
+
+    /**
      * Render a squad with LOD-specific optimizations.
+     * LOD_FULL/MEDIUM now use Sprite-based rendering instead of Graphics draw calls.
      */
     private renderSquad(
-        gfx: Phaser.GameObjects.Graphics,
         unit: GameUnit,
         soldiers: SoldierState[],
         angle: number,
@@ -302,7 +405,7 @@ export class SquadSystem {
     ): void {
         const isStress = !!this.scene.stressTestConfig;
 
-        // Stress-mode cache: when squads are stationary, avoid redundant Graphics clears/redraws
+        // Stress-mode cache: when squads are stationary, avoid redundant redraws
         if (isStress && !isMoving) {
             const angleKey = Math.round((angle / Math.PI) * 16);
             const owner = unit.getData('owner') as number;
@@ -314,12 +417,14 @@ export class SquadSystem {
             unit.setData('stressSquadSig', sig);
         }
 
-        gfx.clear();
-
         const owner = unit.getData('owner') as number;
         const color = this.scene.getFactionColor(owner);
+        const soldierSprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[];
 
-        // Selection circle (always visible if selected, regardless of LOD)
+        // Selection circle (Graphics overlay, always visible if selected)
+        const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
+        const gfx = container.getAt(container.length - 1) as Phaser.GameObjects.Graphics;
+        gfx.clear();
         if (unit.isSelected) {
             const stats = UNIT_STATS[unit.unitType as UnitType];
             gfx.lineStyle(2, 0xffffff, 0.8);
@@ -332,7 +437,8 @@ export class SquadSystem {
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
 
-        for (let i = 0; i < soldiers.length; i += step) {
+        // Position soldier sprites
+        for (let i = 0; i < soldiers.length; i++) {
             const soldier = soldiers[i];
             const dx = soldier.offset.x * cos - soldier.offset.y * sin;
             const dy = soldier.offset.x * sin + soldier.offset.y * cos;
@@ -352,17 +458,36 @@ export class SquadSystem {
             } else {
                 soldier.z = 0; // No bounce for distant squads
             }
-            const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
-            const drawX = isoSoldier.x - commanderIso.x;
-            const drawY = isoSoldier.y - commanderIso.y - soldier.z;
 
-            // Draw soldier based on unit type
-            this.drawSoldier(gfx, unit.unitType, drawX, drawY, soldier.z, color, angle, lod);
+            // Determine visibility based on LOD step
+            const visible = (i % step === 0);
+            const sprite = soldierSprites[i];
+            if (!sprite) continue;
+
+            if (!visible) {
+                sprite.setVisible(false);
+                continue;
+            }
+
+            // Position sprite relative to container (container is at commanderIso)
+            const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
+            const relX = isoSoldier.x - commanderIso.x;
+            const relY = isoSoldier.y - commanderIso.y - soldier.z;
+            sprite.setPosition(relX, relY);
+            // Depth controlled by container depth (set in syncPositions); no per-child setDepth needed
+            sprite.setTint(color);
+            sprite.setVisible(true);
+        }
+
+        // Hide extra sprites beyond current soldier count
+        for (let i = soldiers.length; i < soldierSprites.length; i++) {
+            soldierSprites[i].setVisible(false);
         }
     }
 
     /**
      * Draw a single soldier with type-specific visuals.
+     * Kept for potential fallback; LOD_FULL/MEDIUM now use sprites.
      */
     private drawSoldier(
         gfx: Phaser.GameObjects.Graphics,
@@ -467,7 +592,15 @@ export class SquadSystem {
     }
 
     public destroySquad(unit: Phaser.GameObjects.GameObject): void {
+        const soldierSprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
         const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
+        if (soldierSprites && container) {
+            for (const sprite of soldierSprites) {
+                container.remove(sprite);
+                this.releaseSprite(sprite);
+            }
+            unit.setData('soldierSprites', null);
+        }
         if (container) {
             container.destroy();
         }

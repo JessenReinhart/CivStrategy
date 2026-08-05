@@ -1,14 +1,14 @@
 /* eslint-disable no-console -- CLI generator */
-// Offline seamless grit terrain tiles (256²). True toroidal noise + grain.
+// Offline seamless grit terrain tiles (768²). True toroidal noise + grain.
 // Run: bun run scripts/gen-terrain-tiles.ts
-// Overwrites assets/textures/terrain_{sand,grass,forest,scrub,stone}.png
+// Overwrites assets/textures/terrain_{sand,swamp,grass,jungle,forest,tundra,scrub,stone}.png
 
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { encodePNG } from "./png-encode";
 
 const OUT = join(import.meta.dir, "..", "assets", "textures");
-const SIZE = 256;
+const SIZE = 768;
 
 // ─── Math ─────────────────────────────────────────────
 
@@ -123,6 +123,18 @@ const BIOMES: BiomeSpec[] = [
     contrast: 1.15,
   },
   {
+    name: "swamp",
+    file: "terrain_swamp.png",
+    seed: 151,
+    low: [48, 62, 32],
+    mid: [62, 82, 42],
+    high: [78, 98, 52],
+    accent: [42, 52, 28], // dark peat / mud
+    accentAmt: 0.3,
+    grit: 0.18,
+    contrast: 1.1,
+  },
+  {
     name: "grass",
     file: "terrain_grass.png",
     seed: 202,
@@ -132,6 +144,18 @@ const BIOMES: BiomeSpec[] = [
     accent: [92, 72, 42], // bare dirt patches
     accentAmt: 0.22,
     grit: 0.14,
+    contrast: 1.2,
+  },
+  {
+    name: "jungle",
+    file: "terrain_jungle.png",
+    seed: 253,
+    low: [32, 58, 28],
+    mid: [42, 78, 36],
+    high: [55, 98, 45],
+    accent: [38, 48, 22], // dark vine shadows
+    accentAmt: 0.25,
+    grit: 0.15,
     contrast: 1.2,
   },
   {
@@ -145,6 +169,18 @@ const BIOMES: BiomeSpec[] = [
     accentAmt: 0.28,
     grit: 0.16,
     contrast: 1.25,
+  },
+  {
+    name: "tundra",
+    file: "terrain_tundra.png",
+    seed: 354,
+    low: [130, 138, 128],
+    mid: [155, 162, 155],
+    high: [178, 185, 178],
+    accent: [110, 125, 112], // moss / lichen
+    accentAmt: 0.15,
+    grit: 0.1,
+    contrast: 1.1,
   },
   {
     name: "scrub",

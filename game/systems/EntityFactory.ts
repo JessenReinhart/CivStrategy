@@ -216,7 +216,7 @@ export class EntityFactory {
         return b;
     }
 
-    public spawnUnit(type: UnitType, x: number, y: number, owner: number = 0) {
+    public spawnUnit(type: UnitType, x: number, y: number, owner: number = 0): Phaser.GameObjects.Arc | undefined {
         // Villagers are now handled by VillagerSystem, not EntityFactory
         if (type === UnitType.VILLAGER) {
             console.warn('Villagers should be spawned through VillagerSystem, not EntityFactory.spawnUnit');
@@ -225,7 +225,7 @@ export class EntityFactory {
 
         if (type === UnitType.ANIMAL) {
             // Delegate to AnimalSystem which handles species, behavior, visuals
-            return this.scene.animalSystem.spawnAnimal(x, y);
+            return this.scene.animalSystem.spawnAnimal(x, y) as unknown as Phaser.GameObjects.Arc;
         }
 
         const stats = UNIT_STATS[type];

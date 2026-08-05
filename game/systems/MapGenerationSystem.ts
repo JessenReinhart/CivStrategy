@@ -122,8 +122,11 @@ export class MapGenerationSystem {
     private static readonly TREE_DENSITY: Record<string, number> = {
         deep: 0,    // water — no trees
         sand: 0,    // shore — no trees
+        swamp: 0.3, // wetlands — some water-loving trees
         grass: 0.15,// sparse
+        jungle: 0.9,// dense tropical canopy
         forest: 1.0,// dense
+        tundra: 0.05,// sparse cold-resistant
         scrub: 0.7, // thick
         stone: 0,   // bare rock — no trees
     };

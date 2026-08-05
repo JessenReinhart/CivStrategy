@@ -45,6 +45,9 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     };
 
     const game = new Phaser.Game(config);
+    // DEV-ONLY-PROBE: remove before release (PathCritic profiling hook)
+    const probeTarget = window as unknown as { __civStrategyGame?: Phaser.Game };
+    probeTarget.__civStrategyGame = game;
     gameRef.current = game;
 
     // Manually add the scene class

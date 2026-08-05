@@ -1,0 +1,67 @@
+{
+  "verdict": "INTERIM — PENDING GPUBuilder changes",
+  "criteria": [
+    {
+      "id": 1,
+      "name": "GPU task count reduction (50%+ from 1513)",
+      "target": "< 757 GPU tasks at 500u",
+      "result": "1513 (unchanged)",
+      "verdict": "FAIL",
+      "evidence": "No instanced rendering code exists. CullingSystem is CPU-side visibility toggle."
+    },
+    {
+      "id": 2,
+      "name": "FPS at 500u (steady 60)",
+      "target": "60 fps",
+      "result": "58.6 fps (baseline)",
+      "verdict": "FAIL-UNVERIFIED",
+      "evidence": "Baseline only. No optimization to test."
+    },
+    {
+      "id": 3,
+      "name": "1000u stress test completes (F6)",
+      "target": "Completes without crash",
+      "result": "NOT TESTED",
+      "verdict": "FAIL-UNVERIFIED",
+      "evidence": "Baseline 1000u failed: OOM + HMR. No stability improvement shipped."
+    },
+    {
+      "id": 4,
+      "name": "Frame time p99 < 20ms",
+      "target": "< 20ms",
+      "result": "17.02ms at 500u",
+      "verdict": "PASS",
+      "evidence": "Baseline already meets threshold."
+    },
+    {
+      "id": 5,
+      "name": "Memory bounded (< 200MB at 1000u)",
+      "target": "< 200MB",
+      "result": "109.8MB peak at 500u (1000u untested)",
+      "verdict": "FAIL-UNVERIFIED",
+      "evidence": "500u = 109.8MB. 1000u never completed."
+    }
+  ],
+  "overall": "1 PASS (baseline), 4 FAIL-UNVERIFIED",
+  "biggest_gap": "GPU draw calls — 1513 tasks at 500u, no instanced rendering",
+  "baseline": {
+    "idle_fps": 60.0,
+    "idle_gpu_tasks": 229,
+    "idle_heap_mb": 32.1,
+    "u500_fps": 58.6,
+    "u500_gpu_tasks": 1513,
+    "u500_gpu_pct": 75.6,
+    "u500_heap_peak_mb": 109.8,
+    "u500_frame_p99_ms": 17.02,
+    "u1000_status": "NOT_TESTED"
+  },
+  "files_analyzed": [
+    "game/systems/CullingSystem.ts",
+    "game/systems/SquadSystem.ts",
+    "game/MainScene.ts",
+    "traces/PERF_RESULTS.md"
+  ],
+  "report": "traces/GPU_VERIFICATION_INTERIM.md",
+  "sent_to": ["GPUBuilder", "Main"],
+  "next": "Re-verify when GPUBuilder lands instanced rendering + LOD changes"
+}

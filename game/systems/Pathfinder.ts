@@ -102,9 +102,20 @@ export class Pathfinder {
     private nextRequestId: number = 0;
     private maxPathsPerFrame: number = 20; // Budget: paths to compute per frame
 
-    // Flow field cache
-    private flowFieldCache: Map<string, { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; targetX: number; targetY: number }> = new Map();
+    // Flow field cache (version-stamped: rejected if gridVersion changed)
+    private flowFieldCache: Map<string, { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; targetX: number; targetY: number; version: number }> = new Map();
 
+    // Flow field versioning: bumped on grid changes so stale unit refs are rejected
+    private gridVersion = 0;
+
+    // Queue depth cap: drop oldest beyond this to prevent unbounded growth under load
+    private maxQueueDepth = 500;
+    private droppedRequests = 0;
+
+    // Per-frame profiling (reset via beginFrame)
+    public frameStats = { jpsCalls: 0, pathMs: 0, flowFieldRebuilds: 0, flowFieldMs: 0, queueProcessed: 0, queueDropped: 0 };
+    // Cumulative totals (never reset; PERF report divides by frames)
+    public totals = { jpsCalls: 0, pathMs: 0, flowFieldRebuilds: 0, flowFieldMs: 0, queueProcessed: 0, queueDropped: 0, frames: 0 };
 
     // Statistics
     public pathsComputed: number = 0;
@@ -216,6 +227,7 @@ export class Pathfinder {
      * Returns array of waypoints from start to end (inclusive).
      */
     public findPath(start: Phaser.Math.Vector2, end: Phaser.Math.Vector2): Phaser.Math.Vector2[] {
+        const _pfT0 = performance.now();
         // Clamp and snap
         const sx = this.gridX(Phaser.Math.Clamp(start.x, 0, MAP_WIDTH));
         const sy = this.gridY(Phaser.Math.Clamp(start.y, 0, MAP_HEIGHT));
@@ -224,13 +236,14 @@ export class Pathfinder {
 
         // Same cell
         if (sx === ex && sy === ey) {
+            const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms;
             return [new Phaser.Math.Vector2(end.x, end.y)];
         }
 
         // If end is blocked (building or water), find nearest unblocked
         if (this.isCellBlocked(this.idx(ex, ey))) {
             const nearest = this.findNearestUnblockedGrid(ex, ey);
-            if (!nearest) return [new Phaser.Math.Vector2(start.x, start.y)];
+            if (!nearest) { const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms; return [new Phaser.Math.Vector2(start.x, start.y)]; }
             return this.findPath(start, new Phaser.Math.Vector2(
                 nearest.gx * CELL + CELL / 2,
                 nearest.gy * CELL + CELL / 2
@@ -240,8 +253,7 @@ export class Pathfinder {
         // If start is blocked (building or water), find nearest unblocked
         if (this.isCellBlocked(this.idx(sx, sy))) {
             const nearest = this.findNearestUnblockedGrid(sx, sy);
-            if (!nearest) return [new Phaser.Math.Vector2(start.x, start.y)];
-            // Use nearest as start
+            if (!nearest) { const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms; return [new Phaser.Math.Vector2(start.x, start.y)]; }
             const newStart = new Phaser.Math.Vector2(
                 nearest.gx * CELL + CELL / 2,
                 nearest.gy * CELL + CELL / 2
@@ -250,16 +262,19 @@ export class Pathfinder {
         }
 
         // Run JPS
+        this.frameStats.jpsCalls++;
+        this.totals.jpsCalls++;
         const path = this.jps(sx, sy, ex, ey);
-        
+
         if (!path || path.length === 0) {
-            // No route (e.g. water barrier) — stay put, never straight-line through blocked cells
+            const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms;
             return [new Phaser.Math.Vector2(start.x, start.y)];
         }
 
         this.pathsComputed++;
 
         // Convert grid coords to world coords (center of cell)
+        const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms;
         return path.map(p => new Phaser.Math.Vector2(
             p.gx * CELL + CELL / 2,
             p.gy * CELL + CELL / 2
@@ -483,6 +498,7 @@ export class Pathfinder {
         const cached = this.flowFieldCache.get(key);
         if (cached) return cached;
 
+        const genT0 = performance.now();
         const total = this.gridCols * this.gridRows;
         const integration = new Float64Array(total);
         const dirX = new Float64Array(total);
@@ -540,7 +556,7 @@ export class Pathfinder {
         }
 
         this.flowFieldsGenerated++;
-        const result = { dirX, dirY, cols: this.gridCols, rows: this.gridRows, targetX, targetY };
+        const result = { dirX, dirY, cols: this.gridCols, rows: this.gridRows, targetX, targetY, version: this.gridVersion };
         
         // Cache (invalidate when blocks change)
         if (this.flowFieldCache.size > 10) {
@@ -550,13 +566,20 @@ export class Pathfinder {
         }
         this.flowFieldCache.set(key, result);
 
+        const genMs = performance.now() - genT0;
+        this.frameStats.flowFieldMs += genMs;
+        this.frameStats.flowFieldRebuilds++;
+        this.totals.flowFieldMs += genMs;
+        this.totals.flowFieldRebuilds++;
         return result;
     }
 
     /**
      * Get flow direction for a specific world position.
      */
-    public getFlowDirection(flowField: { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number }, x: number, y: number): { x: number; y: number } | null {
+    public getFlowDirection(flowField: { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; version?: number }, x: number, y: number): { x: number; y: number } | null {
+        // Stale flow field (grid changed since it was built) — unit must re-acquire
+        if (flowField.version !== undefined && flowField.version !== this.gridVersion) return null;
         const gx = this.gridX(x);
         const gy = this.gridY(y);
         if (!this.isValid(gx, gy)) return null;
@@ -612,6 +635,8 @@ export class Pathfinder {
             req.callback(path);
             processed++;
         }
+        this.frameStats.queueProcessed += processed;
+        this.totals.queueProcessed += processed;
     }
 
     /**
@@ -626,6 +651,8 @@ export class Pathfinder {
             req.callback(path);
             processed++;
         }
+        this.frameStats.queueProcessed += processed;
+        this.totals.queueProcessed += processed;
     }
 
     // ─── Utility ───────────────────────────────────────────────────────────
@@ -646,15 +673,40 @@ export class Pathfinder {
         return null;
     }
 
-    /**
-     * Get cached path memory size for diagnostics.
-     */
-    public getCacheStats(): { flowFieldCaches: number; queueSize: number; pathsComputed: number; flowFieldsGenerated: number } {
+    /** Reset per-frame counters. Call at start of each game frame. */
+    public beginFrame(): void {
+        this.frameStats.jpsCalls = 0;
+        this.frameStats.pathMs = 0;
+        this.frameStats.flowFieldRebuilds = 0;
+        this.frameStats.flowFieldMs = 0;
+        this.frameStats.queueProcessed = 0;
+        this.frameStats.queueDropped = 0;
+        this.totals.frames++;
+    }
+
+    /** Get diagnostics snapshot including per-frame averages. */
+    public getCacheStats(): { flowFieldCaches: number; queueSize: number; pathsComputed: number; flowFieldsGenerated: number; gridVersion: number; queueDepth: number; droppedRequests: number } {
         return {
             flowFieldCaches: this.flowFieldCache.size,
             queueSize: this.requestQueue.length,
             pathsComputed: this.pathsComputed,
-            flowFieldsGenerated: this.flowFieldsGenerated
+            flowFieldsGenerated: this.flowFieldsGenerated,
+            gridVersion: this.gridVersion,
+            queueDepth: this.requestQueue.length,
+            droppedRequests: this.droppedRequests,
+        };
+    }
+
+    /** Averages-per-frame from cumulative totals. Used by PERF report. */
+    public getPerfReport(): { avgPathMs: number; avgFlowMs: number; avgJpsCalls: number; avgQueueProcessed: number; avgQueueDropped: number; frames: number } {
+        const n = Math.max(1, this.totals.frames);
+        return {
+            avgPathMs: this.totals.pathMs / n,
+            avgFlowMs: this.totals.flowFieldMs / n,
+            avgJpsCalls: this.totals.jpsCalls / n,
+            avgQueueProcessed: this.totals.queueProcessed / n,
+            avgQueueDropped: this.totals.queueDropped / n,
+            frames: this.totals.frames,
         };
     }
 }
