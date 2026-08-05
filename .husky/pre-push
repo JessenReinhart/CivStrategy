@@ -1,25 +1,38 @@
 #!/bin/sh
 
+# Drain stdin (git sends ref info)
+cat < /dev/null > /dev/null 2>&1
+
 echo "Running full verification before push..."
 
 # TypeScript type check
 echo "1️⃣  TypeScript check..."
-npx tsc --noEmit
+if ! npx tsc --noEmit; then
+  echo "❌ TypeScript check failed"
+  exit 1
+fi
 
 # ESLint
 echo "2️⃣  ESLint..."
-npm run lint
+if ! npm run lint; then
+  echo "❌ ESLint check failed"
+  exit 1
+fi
 
 # Tests
 echo "3️⃣  Tests..."
-npm run test
+if ! npm run test; then
+  echo "❌ Tests failed"
+  exit 1
+fi
 
-# Fallow dead-code detection (non-blocking, just log)
+# Fallow dead-code detection (non-blocking)
 echo "4️⃣  Fallow dead-code detection..."
 FALLOW_JSON=".fallow-report.json"
-npx fallow dead-code --format json > "$FALLOW_JSON" 2>/dev/null
-node scripts/fallow-summary.mjs "$FALLOW_JSON" || true
-rm -f "$FALLOW_JSON"
+if npx fallow dead-code --format json > "$FALLOW_JSON" 2>/dev/null; then
+  node scripts/fallow-summary.mjs "$FALLOW_JSON" || true
+  rm -f "$FALLOW_JSON"
+fi
 
 echo ""
 echo "✅ All checks passed! Pushing..."
