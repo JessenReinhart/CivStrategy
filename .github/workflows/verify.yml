@@ -34,7 +34,8 @@ jobs:
       - name: Fallow - Dead code detection
         run: |
           echo "Checking for unused code with Fallow..."
-          npx fallow dead-code --format json || true
+          npx fallow dead-code --format json > fallow-dead.json || true
+          node scripts/fallow-summary.mjs fallow-dead.json || true
 
       - name: Fallow - Full analysis
         run: |
