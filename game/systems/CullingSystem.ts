@@ -238,9 +238,24 @@ export class CullingSystem {
     });
 
     // Units / squads: fade instead of hard toggle
+    // Optimization: skip units already invisible and far from viewport
+    const farPad = 800; // extra padding for "definitely out" check
+    const farBounds = new Phaser.Geom.Rectangle(
+      view.x - farPad, view.y - farPad,
+      view.width + farPad * 2, view.height + farPad * 2
+    );
     this.scene.units.getChildren().forEach(uObj => {
       const unit = uObj as UnitEntity;
       const squad = uObj.getData('squadContainer') as Fadeable | undefined;
+      const squadVisible = squad && this.isFadeable(squad) && squad.visible;
+      const visualVisible = unit.visual && this.isFadeable(unit.visual) && unit.visual.visible;
+
+      // Skip if both are already hidden and position is far from viewport
+      if (!squadVisible && !visualVisible) {
+        const ux = uObj.getData('isoX') ?? (uObj as unknown as Phaser.GameObjects.Components.Transform).x;
+        const uy = uObj.getData('isoY') ?? (uObj as unknown as Phaser.GameObjects.Components.Transform).y;
+        if (!farBounds.contains(ux, uy)) return;
+      }
 
       if (unit.visual) {
         this.fadeToggle(unit.visual, cullBounds.contains(unit.visual.x, unit.visual.y));

@@ -49,9 +49,18 @@ interface SoldierState {
 export class SquadSystem {
     private scene: MainScene;
     private frameIndex: number = 0;
+    private lodDotBlitter!: Phaser.GameObjects.Blitter;
+    private lodRectBlitter!: Phaser.GameObjects.Blitter;
 
     constructor(scene: MainScene) {
         this.scene = scene;
+        // Blitters for batched LOD rendering — each Blitter = 1 GPU draw call for all bobs
+        this.lodDotBlitter = scene.add.blitter(0, 0, 'lod_dot');
+        this.lodRectBlitter = scene.add.blitter(0, 0, 'lod_rect');
+        if (scene.worldLayer) {
+            scene.worldLayer.add(this.lodDotBlitter);
+            scene.worldLayer.add(this.lodRectBlitter);
+        }
     }
 
     public createSquad(unit: Phaser.GameObjects.GameObject, type: UnitType, _owner: number): void {
@@ -147,6 +156,16 @@ export class SquadSystem {
         const camCenter = cam.getWorldPoint(cam.width / 2, cam.height / 2);
         const zoom = cam.zoom;
 
+        // Clear Blitters each frame (rebuild bobs for visible LOD_DOT/LOD_LOW units)
+        this.lodDotBlitter.clear();
+        this.lodRectBlitter.clear();
+
+        // Dynamic LOD thresholds: tighten when many units (closer cutoff for LOD transitions)
+        const lodScale = unitCount > 800 ? 0.5 : unitCount > 400 ? 0.7 : 1.0;
+        const lodFull = LOD_THRESHOLDS[LOD_FULL] * lodScale;
+        const lodMed = LOD_THRESHOLDS[LOD_MEDIUM] * lodScale;
+        const lodLow = LOD_THRESHOLDS[LOD_LOW] * lodScale;
+
         for (let i = start; i < end; i++) {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
@@ -161,60 +180,108 @@ export class SquadSystem {
             const screenDist = Math.sqrt(dx * dx + dy * dy) / zoom;
 
             let lod = LOD_FULL;
-            if (screenDist > LOD_THRESHOLDS[LOD_LOW]) lod = LOD_DOT;
-            else if (screenDist > LOD_THRESHOLDS[LOD_MEDIUM]) lod = LOD_LOW;
-            else if (screenDist > LOD_THRESHOLDS[LOD_FULL]) lod = LOD_MEDIUM;
+            if (screenDist > lodLow) lod = LOD_DOT;
+            else if (screenDist > lodMed) lod = LOD_LOW;
+            else if (screenDist > lodFull) lod = LOD_MEDIUM;
 
-            // Get formation facing angle
-            const body = unit.body as Phaser.Physics.Arcade.Body;
             const stats = UNIT_STATS[unit.unitType as UnitType];
             if (!stats || stats.squadSize <= 1) continue;
 
-            let angle = unit.getData('formationAngle') as number || 0;
-            const speed = body ? body.velocity.length() : 0;
-            const isMoving = speed > 10;
+            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
+            const commanderIso = toIsoElev(unit.x, unit.y, h);
 
-            // Smooth angle transitions (skip for LOD_DOT)
-            if (lod !== LOD_DOT) {
+            // LOD_DOT: one bob per squad on dot Blitter (1 draw call for ALL distant squads)
+            if (lod === LOD_DOT) {
+                const owner = unit.getData('owner') as number;
+                const color = this.scene.getFactionColor(owner);
+                const bob = this.lodDotBlitter.create(commanderIso.x, commanderIso.y);
+                if (bob) {
+                    bob.tint = color;
+                }
+                // Still need soldier states for HP tracking
+                const hp = unit.getData('hp') as number;
+                const maxHp = unit.getData('maxHp') as number;
+                const soldiers = unit.getData('soldierStates') as SoldierState[];
+                if (soldiers) {
+                    const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
+                    if (soldiers.length > targetCount) soldiers.length = targetCount;
+                    else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
+                }
+                continue;
+            }
+
+            // LOD_LOW: one bob per visible soldier on rect Blitter
+            if (lod === LOD_LOW) {
+                const owner = unit.getData('owner') as number;
+                const color = this.scene.getFactionColor(owner);
+                const body = unit.body as Phaser.Physics.Arcade.Body;
+                let angle = unit.getData('formationAngle') as number || 0;
+                const speed = body ? body.velocity.length() : 0;
+                const isMoving = speed > 10;
                 if (isMoving && body) {
-                    const targetAngle = body.velocity.angle();
-                    angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                    angle = Phaser.Math.Angle.RotateTo(angle, body.velocity.angle(), 0.1);
                     unit.setData('formationAngle', angle);
                 } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
                     const tgt = unit.target as Phaser.GameObjects.Image;
-                    const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y);
-                    angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                    angle = Phaser.Math.Angle.RotateTo(angle, Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y), 0.1);
                     unit.setData('formationAngle', angle);
                 }
+                const hp = unit.getData('hp') as number;
+                const maxHp = unit.getData('maxHp') as number;
+                const soldiers = unit.getData('soldierStates') as SoldierState[];
+                if (!soldiers) continue;
+                const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
+                if (soldiers.length > targetCount) soldiers.length = targetCount;
+                else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                const step = LOD_FACTORS[LOD_LOW];
+                for (let j = 0; j < soldiers.length; j += step) {
+                    const soldier = soldiers[j];
+                    const sdx = soldier.offset.x * cos - soldier.offset.y * sin;
+                    const sdy = soldier.offset.x * sin + soldier.offset.y * cos;
+                    soldier.x = Phaser.Math.Linear(soldier.x, unit.x + sdx, 0.1);
+                    soldier.y = Phaser.Math.Linear(soldier.y, unit.y + sdy, 0.1);
+                    soldier.z = 0;
+                    const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
+                    const bob = this.lodRectBlitter.create(isoSoldier.x, isoSoldier.y);
+                    if (bob) {
+                        bob.tint = color;
+                    }
+                }
+                continue;
             }
 
-            // Update HP-based soldier count (skip for distant)
+            // LOD_FULL/MEDIUM: per-unit Graphics (detail matters for nearby squads)
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            let angle = unit.getData('formationAngle') as number || 0;
+            const speed = body ? body.velocity.length() : 0;
+            const isMoving = speed > 10;
+            if (isMoving && body) {
+                const targetAngle = body.velocity.angle();
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                unit.setData('formationAngle', angle);
+            } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
+                const tgt = unit.target as Phaser.GameObjects.Image;
+                const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y);
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                unit.setData('formationAngle', angle);
+            }
             const hp = unit.getData('hp') as number;
             const maxHp = unit.getData('maxHp') as number;
             const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
             const soldiers = unit.getData('soldierStates') as SoldierState[];
-
-            // Adjust soldier count without garbage generation
             if (soldiers && soldiers.length !== targetCount) {
-                if (soldiers.length > targetCount) {
-                    soldiers.length = targetCount; // Truncate (no GC)
-                } else {
-                    while (soldiers.length < targetCount) {
-                        soldiers.push({
-                            x: unit.x,
-                            y: unit.y,
-                            z: 0,
-                            offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 }
-                        });
-                    }
-                }
+                if (soldiers.length > targetCount) soldiers.length = targetCount;
+                else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
             }
-
-            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
-            const commanderIso = toIsoElev(unit.x, unit.y, h);
             const gfx = container.getAt(0) as Phaser.GameObjects.Graphics;
             this.renderSquad(gfx, unit, soldiers, angle, isMoving, lod, commanderIso);
         }
+
+        // Blitters render at entity depth layer
+        this.lodDotBlitter.setDepth(-10000);
+        this.lodRectBlitter.setDepth(-9999);
 
         // Advance frame bucket
         this.frameIndex += bucketSize;
@@ -237,10 +304,9 @@ export class SquadSystem {
     ): void {
         const isStress = !!this.scene.stressTestConfig;
 
-        // Stress-mode cache: when squads are stationary, avoid redundant Graphics clears/redraws.
-        // This preserves fidelity (no LOD forcing, no skipped attacks), but reduces Graphics overhead.
+        // Stress-mode cache: when squads are stationary, avoid redundant Graphics clears/redraws
         if (isStress && !isMoving) {
-            const angleKey = Math.round((angle / Math.PI) * 16); // quantize angle
+            const angleKey = Math.round((angle / Math.PI) * 16);
             const owner = unit.getData('owner') as number;
             const sig = `${lod}|${angleKey}|${soldiers.length}|${owner}`;
             const lastSig = unit.getData('stressSquadSig') as string | undefined;
@@ -263,14 +329,7 @@ export class SquadSystem {
             gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
         }
 
-        // LOD_DOT: single colored circle
-        if (lod === LOD_DOT) {
-            const dotSize = unit.unitType === UnitType.LEGION ? 8 :
-                unit.unitType === UnitType.CAVALRY ? 6 : 5;
-            gfx.fillStyle(color, 1);
-            gfx.fillCircle(0, 0, dotSize);
-            return;
-        }
+        // LOD step factor (LOD_DOT/LOW handled by Blitter, only FULL/MEDIUM here)
 
         // LOD step factor
         const step = LOD_FACTORS[lod];

@@ -12,8 +12,11 @@ import houseImg from '../assets/textures/house.png';
 import lodgeImg from '../assets/textures/lodge.png';
 import smokeImg from '../assets/textures/smoke.png';
 import terrainSandImg from '../assets/textures/terrain_sand.png';
+import terrainSwampImg from '../assets/textures/terrain_swamp.png';
 import terrainGrassImg from '../assets/textures/terrain_grass.png';
+import terrainJungleImg from '../assets/textures/terrain_jungle.png';
 import terrainForestImg from '../assets/textures/terrain_forest.png';
+import terrainTundraImg from '../assets/textures/terrain_tundra.png';
 import terrainScrubImg from '../assets/textures/terrain_scrub.png';
 import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
@@ -146,6 +149,12 @@ export class MainScene extends Phaser.Scene {
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
   private waterMaskBounds: Phaser.Geom.Rectangle | null = null;
   private waterAnimFrame: number = 0;
+  // Animated water surface (CPU multi-sine waves, throttled 50ms, scene time)
+  private waterWavesSprite: Phaser.GameObjects.Sprite | null = null;
+  private waterWavesCtx: CanvasRenderingContext2D | null = null;
+  private waterLastDrawTime: number = 0;
+  private waterShoreChains: number[][] = [];
+  private waterGlintPoints: { x: number; y: number; phase: number; speed: number }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -190,8 +199,11 @@ export class MainScene extends Phaser.Scene {
     this.load.image('tree', treeImg);
     this.load.image('stump', stumpImg);
     this.load.image('terrain_sand', terrainSandImg);
+    this.load.image('terrain_swamp', terrainSwampImg);
     this.load.image('terrain_grass', terrainGrassImg);
+    this.load.image('terrain_jungle', terrainJungleImg);
     this.load.image('terrain_forest', terrainForestImg);
+    this.load.image('terrain_tundra', terrainTundraImg);
     this.load.image('terrain_scrub', terrainScrubImg);
     this.load.image('terrain_stone', terrainStoneImg);
     this.load.image('house', houseImg);
@@ -211,6 +223,14 @@ export class MainScene extends Phaser.Scene {
     this.peacefulMode = data.peacefulMode === true;
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
     this.stressTestConfig = data.stressTestConfig || null;
+    // URL param auto-trigger: ?stress=500 or ?stress=1000 for headless testing
+    if (!this.stressTestConfig && typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const stressCount = parseInt(params.get('stress') || '0', 10);
+      if (stressCount > 0) {
+        this.stressTestConfig = { unitCount: stressCount, enableEnemies: false };
+      }
+    }
 
     // Pick a random enemy faction that is NOT the player's faction
     const allFactions = Object.values(FactionType) as FactionType[];
@@ -255,6 +275,19 @@ export class MainScene extends Phaser.Scene {
       graphics.fillStyle(0xffffff, 1);
       graphics.fillCircle(4, 4, 4);
       graphics.generateTexture('white_flare', 8, 8);
+    }
+    // LOD Blitter textures: white dot (8x8) and white rect (4x6) — tinted per faction
+    if (!this.textures.exists('lod_dot')) {
+      const gDot = this.make.graphics({ x: 0, y: 0 });
+      gDot.fillStyle(0xffffff, 1);
+      gDot.fillCircle(4, 4, 3);
+      gDot.generateTexture('lod_dot', 8, 8);
+    }
+    if (!this.textures.exists('lod_rect')) {
+      const gRect = this.make.graphics({ x: 0, y: 0 });
+      gRect.fillStyle(0xffffff, 1);
+      gRect.fillRect(0, 0, 4, 6);
+      gRect.generateTexture('lod_rect', 4, 6);
     }
     this.pathfinder = new Pathfinder();
     this.treeSpatialHash = new SpatialHash(250); // 250px cells (approx 1-2 trees width)
@@ -345,7 +378,7 @@ export class MainScene extends Phaser.Scene {
       };
 
       // Marching-squares polys in iso world space + depth
-      type WaterPoly = { pts: { x: number; y: number }[]; depth: number; shore: boolean };
+      type WaterPoly = { pts: { x: number; y: number }[]; depth: number; shore: boolean; isCross: boolean[] };
       const waterPolys: WaterPoly[] = [];
       let wMinX = Infinity, wMinY = Infinity, wMaxX = -Infinity, wMaxY = -Infinity;
       const expand = (pts: { x: number; y: number }[]) => {
@@ -388,32 +421,35 @@ export class MainScene extends Phaser.Scene {
           // Saddle cases: two separate tris (self-crossing if merged)
           if (mask === 5) {
             const a = [c0, e0(), e3()]; const b = [c2, e1(), e2()];
-            waterPolys.push({ pts: a, depth, shore: true }); waterPolys.push({ pts: b, depth, shore: true });
+            waterPolys.push({ pts: a, depth, shore: true, isCross: [false, true, true] });
+            waterPolys.push({ pts: b, depth, shore: true, isCross: [false, true, true] });
             expand(a); expand(b); continue;
           }
           if (mask === 10) {
             const a = [c1, e0(), e1()]; const b = [c3, e2(), e3()];
-            waterPolys.push({ pts: a, depth, shore: true }); waterPolys.push({ pts: b, depth, shore: true });
+            waterPolys.push({ pts: a, depth, shore: true, isCross: [false, true, true] });
+            waterPolys.push({ pts: b, depth, shore: true, isCross: [false, true, true] });
             expand(a); expand(b); continue;
           }
 
           let pts: { x: number; y: number }[];
+          let isCross: boolean[];
           switch (mask) {
-            case 1:  pts = [c0, e0(), e3()]; break;
-            case 2:  pts = [c1, e1(), e0()]; break;
-            case 3:  pts = [c0, c1, e1(), e3()]; break;
-            case 4:  pts = [c2, e2(), e1()]; break;
-            case 6:  pts = [c1, c2, e2(), e0()]; break;
-            case 7:  pts = [c0, c1, c2, e2(), e3()]; break;
-            case 8:  pts = [c3, e3(), e2()]; break;
-            case 9:  pts = [c0, e0(), e2(), c3]; break;
-            case 11: pts = [c0, c1, e1(), e2(), c3]; break;
-            case 12: pts = [c2, c3, e3(), e1()]; break;
-            case 13: pts = [c0, e0(), e1(), c2, c3]; break;
-            case 14: pts = [c1, c2, c3, e3(), e0()]; break;
-            default: pts = [c0, c1, c2, c3]; break; // 15 full cell
+            case 1:  pts = [c0, e0(), e3()]; isCross = [false, true, true]; break;
+            case 2:  pts = [c1, e1(), e0()]; isCross = [false, true, true]; break;
+            case 3:  pts = [c0, c1, e1(), e3()]; isCross = [false, false, true, true]; break;
+            case 4:  pts = [c2, e2(), e1()]; isCross = [false, true, true]; break;
+            case 6:  pts = [c1, c2, e2(), e0()]; isCross = [false, false, true, true]; break;
+            case 7:  pts = [c0, c1, c2, e2(), e3()]; isCross = [false, false, false, true, true]; break;
+            case 8:  pts = [c3, e3(), e2()]; isCross = [false, true, true]; break;
+            case 9:  pts = [c0, e0(), e2(), c3]; isCross = [false, true, true, false]; break;
+            case 11: pts = [c0, c1, e1(), e2(), c3]; isCross = [false, false, true, true, false]; break;
+            case 12: pts = [c2, c3, e3(), e1()]; isCross = [false, false, true, true]; break;
+            case 13: pts = [c0, e0(), e1(), c2, c3]; isCross = [false, true, true, false, false]; break;
+            case 14: pts = [c1, c2, c3, e3(), e0()]; isCross = [false, false, false, true, true]; break;
+            default: pts = [c0, c1, c2, c3]; isCross = [false, false, false, false]; break;
           }
-          waterPolys.push({ pts, depth, shore: mask !== 15 });
+          waterPolys.push({ pts, depth, shore: mask !== 15, isCross });
           expand(pts);
         }
       }
@@ -458,6 +494,78 @@ export class MainScene extends Phaser.Scene {
         dCtx.closePath();
         dCtx.fill();
       }
+      // ── Extract shore edge chains + glint points (one-time init) ──
+      {
+        const segSet = new Set<string>();
+        const segments: [number, number, number, number][] = [];
+        for (const poly of waterPolys) {
+          const n = poly.pts.length;
+          for (let i = 0; i < n; i++) {
+            const ni = (i + 1) % n;
+            if (!(poly.isCross[i] && poly.isCross[ni])) continue;
+            const p1 = poly.pts[i], p2 = poly.pts[ni];
+            const lx1 = p1.x - wb.x, ly1 = p1.y - wb.y;
+            const lx2 = p2.x - wb.x, ly2 = p2.y - wb.y;
+            const key = lx1 < lx2 || (lx1 === lx2 && ly1 < ly2)
+              ? `${(lx1*10|0)},${(ly1*10|0)},${(lx2*10|0)},${(ly2*10|0)}`
+              : `${(lx2*10|0)},${(ly2*10|0)},${(lx1*10|0)},${(ly1*10|0)}`;
+            if (segSet.has(key)) continue;
+            segSet.add(key);
+            segments.push([lx1, ly1, lx2, ly2]);
+          }
+        }
+        // Merge into chains
+        const used = new Uint8Array(segments.length);
+        const epMap = new Map<string, number[]>();
+        const ek = (x: number, y: number) => `${(x * 10 | 0)},${(y * 10 | 0)}`;
+        for (let i = 0; i < segments.length; i++) {
+          const [x1, y1, x2, y2] = segments[i];
+          let a = epMap.get(ek(x1, y1)); if (!a) { a = []; epMap.set(ek(x1, y1), a); } a.push(i);
+          let b = epMap.get(ek(x2, y2)); if (!b) { b = []; epMap.set(ek(x2, y2), b); } b.push(i);
+        }
+        for (let i = 0; i < segments.length; i++) {
+          if (used[i]) continue;
+          used[i] = 1;
+          const chain: number[] = [segments[i][0], segments[i][1], segments[i][2], segments[i][3]];
+          let cx = segments[i][2], cy = segments[i][3];
+          let fwd = true;
+          while (fwd) {
+            fwd = false;
+            for (const ni of (epMap.get(ek(cx, cy)) || [])) {
+              if (used[ni]) continue;
+              used[ni] = 1;
+              const [sx, sy, ex, ey] = segments[ni];
+              if (Math.abs(sx - cx) < 0.2 && Math.abs(sy - cy) < 0.2) {
+                chain.push(ex, ey); cx = ex; cy = ey; fwd = true; break;
+              } else if (Math.abs(ex - cx) < 0.2 && Math.abs(ey - cy) < 0.2) {
+                chain.push(sx, sy); cx = sx; cy = sy; fwd = true; break;
+              }
+            }
+          }
+          if (chain.length >= 6) this.waterShoreChains.push(chain);
+        }
+        // Glint points on shore chains
+        for (const chain of this.waterShoreChains) {
+          for (let i = 0; i < chain.length / 2; i += 3) {
+            this.waterGlintPoints.push({
+              x: chain[i * 2], y: chain[i * 2 + 1],
+              phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 1.2,
+            });
+          }
+        }
+        // Interior glints scattered across water bbox
+        const nInterior = Math.min(150, Math.floor(wb.width * wb.height / 5000));
+        for (let i = 0; i < nInterior; i++) {
+          this.waterGlintPoints.push({
+            x: Math.random() * wb.width, y: Math.random() * wb.height,
+            phase: Math.random() * Math.PI * 2, speed: 0.5 + Math.random() * 1.5,
+          });
+        }
+        console.warn('[Water] shore segments:', segments.length, 'epMap keys:', epMap.size, 'chains:', this.waterShoreChains.length, 'glint pts:', this.waterGlintPoints.length);
+        if (segments.length > 0 && this.waterShoreChains.length === 0) {
+          console.warn('[Water] ALL chains dropped — segments exist but none linked into chains >= 6 pts');
+        }
+      }
 
       // 1px blur = thin AA rim at shoreline only (not whole-body washout)
       const softCvs = document.createElement('canvas');
@@ -472,16 +580,34 @@ export class MainScene extends Phaser.Scene {
       this.textures.addCanvas('_waterDepth', softCvs);
       this.waterDepthSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0);
       this.waterDepthSprite.setDepth(-9000);
+      this.waterDepthSprite.setDisplaySize(softCvs.width, softCvs.height);
       this.worldLayer.add(this.waterDepthSprite);
 
       // Sea foam texture: tileScale y*0.5 matches iso ground compress
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, 'waterFoam').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
-      this.waterWaveSprite.setAlpha(0.28); // less foam wash → color shows
+      this.waterWaveSprite.setAlpha(0.08); // subtle surface grain only — canvas draws real waves
       this.waterWaveSprite.setTileScale(0.35, 0.175);
       this.worldLayer.add(this.waterWaveSprite);
 
       // BitmapMask from soft depth alpha — foam follows smooth shoreline
+      // ── Animated wave canvas (CPU multi-sine, throttled 50ms) ──
+      {
+        const wCvs = document.createElement('canvas');
+        wCvs.width = Math.max(1, Math.ceil(wb.width));
+        wCvs.height = Math.max(1, Math.ceil(wb.height));
+        this.waterWavesCtx = wCvs.getContext('2d')!;
+        if (this.textures.exists('_waterWaves')) this.textures.remove('_waterWaves');
+        this.textures.addCanvas('_waterWaves', wCvs);
+        this.waterWavesSprite = this.add.sprite(wb.x, wb.y, '_waterWaves').setOrigin(0);
+        this.waterWavesSprite.setDepth(-8998);
+        this.waterWavesSprite.setDisplaySize(wCvs.width, wCvs.height);
+        this.worldLayer.add(this.waterWavesSprite);
+        // Bitmap mask from depth alpha — waves follow smooth shoreline
+        const wMaskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
+        this.waterWavesSprite.setMask(wMaskSprite.createBitmapMask());
+        console.warn('[Water] animated wave canvas:', wCvs.width, 'x', wCvs.height);
+      }
       const maskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
       this.waterWaveSprite.setMask(maskSprite.createBitmapMask());
 
@@ -556,6 +682,34 @@ export class MainScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-I', () => {
       this.showUnitIndicators = !this.showUnitIndicators;
     });
+
+    // Stress test debug keybindings: spawn N units and command move
+    const stressKeys: Record<string, number> = { 'F5': 500, 'F6': 1000, 'F7': 2000 };
+    for (const [key, count] of Object.entries(stressKeys)) {
+      this.input.keyboard!.on(`keydown-${key}`, () => {
+        const cx = this.mapWidth / 2;
+        const cy = this.mapHeight / 2;
+        const cols = Math.ceil(Math.sqrt(count));
+        const spacing = 24;
+        const startX = cx - (cols * spacing) / 2;
+        const startY = cy - (cols * spacing) / 2;
+        const units: Phaser.GameObjects.GameObject[] = [];
+        for (let i = 0; i < count; i++) {
+          const x = startX + (i % cols) * spacing + Phaser.Math.Between(-4, 4);
+          const y = startY + Math.floor(i / cols) * spacing + Phaser.Math.Between(-4, 4);
+          const type = i % 3 === 0 ? UnitType.ARCHER : (i % 3 === 1 ? UnitType.PIKESMAN : UnitType.CAVALRY);
+          const u = this.entityFactory.spawnUnit(type, x, y, 0);
+          if (u) units.push(u as unknown as Phaser.GameObjects.GameObject);
+        }
+        // Command move toward enemy AI base — triggers flow field (≥12 units)
+        const tx = this.enemyAI.baseX ?? cx + 400;
+        const ty = this.enemyAI.baseY ?? cy - 50;
+        this.unitSystem.commandMove(units, new Phaser.Math.Vector2(tx, ty));
+        this.debugMode = true;
+        this.debugText.setVisible(true);
+        console.warn(`[STRESS] Spawned ${units.length} units, commanding move to (${tx.toFixed(0)}, ${ty.toFixed(0)})`);
+      });
+    }
 
     this.game.events.on('request-unit-spawn', this.handleUnitSpawnRequest, this);
     this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
@@ -818,23 +972,33 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const frameStart = performance.now();
+    this.pathfinder.beginFrame();
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
-    // Scroll wave texture for animated water surface
+    // Scroll foam texture with scene time (NOT gameTime) — pause/speed immune
     if (this.waterWaveSprite) {
-      // Slow surface drift; ~2:1 X:Y follows iso plane
-      this.waterWaveSprite.tilePositionX += dt * 0.05;
-      this.waterWaveSprite.tilePositionY += dt * 0.025;
+      this.waterWaveSprite.tilePositionX += delta * 0.03;
+      this.waterWaveSprite.tilePositionY += delta * 0.015;
+    }
+    // Animated wave canvas — throttled 50ms, scene time for wave phase
+    if (this.waterWavesCtx && time - this.waterLastDrawTime >= 50) {
+      this.drawWaterSurface(time);
+      this.waterLastDrawTime = time;
     }
     if (this.debugMode) {
       // const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
+      // Estimate GPU draw calls: visible containers + visible graphics + tilemap layers
+      const visUnits = this.units.getChildren().filter(u => (u as unknown as Phaser.GameObjects.Components.Visible).visible).length;
+      const renderer = this.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+      const pipelineCount = renderer?.pipelines?.pipelines?.size ?? 0;
       this.debugText.setText([
         `FPS: ${this.game.loop.actualFps.toFixed(1)}`,
         `Speed: ${this.gameSpeed}x`,
-        // Fix: Cast GameObject to any to access 'visible' property for debug HUD reporting
-        `Units: ${this.units.getLength()} | Visible: ${this.units.getChildren().filter(u => (u as unknown as Phaser.GameObjects.Components.Visible).visible).length}`,
-        `Trees: ${this.trees.getLength()} | Visible: ${this.trees.getChildren().filter(t => (t as unknown as Phaser.GameObjects.Components.Visible).visible).length}`,
-        `AI: ${this.enemyAI.getDebugInfo()}`
+        `Units: ${this.units.getLength()} | Visible: ${visUnits}`,
+        `Trees: ${this.trees.getLength()} | Visible: ${this.units.getLength() > 100 ? '-' : this.trees.getChildren().filter(t => (t as unknown as Phaser.GameObjects.Components.Visible).visible).length}`,
+        `Path: ${this.pathfinder.frameStats.pathMs.toFixed(1)}ms | ${this.pathfinder.frameStats.jpsCalls} JPS | q:${this.pathfinder.getCacheStats().queueDepth}`,
+        `AI: ${this.enemyAI.getDebugInfo()}`,
+        `Pipelines: ${pipelineCount}`
       ]);
     }
 
@@ -1102,12 +1266,13 @@ export class MainScene extends Phaser.Scene {
     if (this.profileFrameCount >= MainScene.PROFILING_REPORT_INTERVAL) {
       const fps = this.game.loop.actualFps.toFixed(1);
       const unitCount = this.units.getLength();
+      const visCount = this.units.getChildren().filter(u => (u as unknown as Phaser.GameObjects.Components.Visible).visible).length;
       const n = this.profileFrameCount;
       const avgUpdate = (this.profileTimings['_totalFrame'] || 0) / n;
       const avgRender = (this.profileTimings['__render'] || 0) / n;
       const avgFrame = avgUpdate + avgRender;
       const reports: string[] = [
-        `[PERF] ${unitCount} units @ ${fps} FPS | ${avgFrame.toFixed(1)}ms/frame ` +
+        `[PERF] ${unitCount} units (${visCount} visible) @ ${fps} FPS | ${avgFrame.toFixed(1)}ms/frame ` +
         `(upd ${avgUpdate.toFixed(1)} + ren ${avgRender.toFixed(1)}) over ${n} frames:`,
       ];
       const sorted = Object.entries(this.profileTimings)
@@ -1119,6 +1284,11 @@ export class MainScene extends Phaser.Scene {
         reports.push(`  ${label}: ${avgMs.toFixed(2)}ms/frame (${pct}%)`);
       }
       reports.push(`  TOTAL (upd+ren): ${avgFrame.toFixed(2)}ms`);
+      const pf = this.pathfinder.getPerfReport();
+      const pfCache = this.pathfinder.getCacheStats();
+      reports.push(`  pathfinder: ${pf.avgPathMs.toFixed(2)}ms/frame (${pf.avgJpsCalls.toFixed(0)} JPS/frame, ${pf.avgFlowMs.toFixed(2)}ms flow)` +
+        ` | queue: ${pfCache.queueDepth} depth, ${pf.avgQueueProcessed.toFixed(0)}/frame, ${pf.avgQueueDropped} dropped` +
+        ` | cache: ${pfCache.flowFieldCaches}, v${pfCache.gridVersion}`);
       console.warn(reports.join('\n'));
 
       this.profileFrameCount = 0;
@@ -1129,6 +1299,92 @@ export class MainScene extends Phaser.Scene {
 
 
 
+  // ─── Animated Water Surface (CPU multi-sine, throttled 50ms) ────────
+  private drawWaterSurface(time: number): void {
+    const ctx = this.waterWavesCtx;
+    const wb = this.waterMaskBounds;
+    if (!ctx || !wb) return;
+    const W = wb.width, H = wb.height;
+    ctx.clearRect(0, 0, W, H);
+    // Scale amplitudes/offsets/widths relative to canvas size — ensures visibility at overview zoom
+    const s = Math.max(1, W / 800);
+
+    // ── Interior calm shimmer bands (full water body, very low amplitude) ──
+    const bandCount = 2;
+    for (let b = 0; b < bandCount; b++) {
+      const dir = b === 0 ? 1 : -0.7;
+      const freq = b === 0 ? 0.012 : 0.018;
+      const amp = 4 * s;
+      const alpha = b === 0 ? 0.07 : 0.05;
+      const phaseOff = b * 1.7;
+      ctx.strokeStyle = b === 0
+        ? `rgba(180,220,240,${alpha})`
+        : `rgba(10,40,80,${alpha})`;
+      ctx.lineWidth = 2.5 * s;
+      const step = Math.max(8, 16 / s);
+      // Draw independent horizontal wave lines across the canvas
+      for (let py = b * 14 * s; py < H; py += 28 * s) {
+        ctx.beginPath();
+        for (let px = -20; px < W + 20; px += step) {
+          const vy = py + Math.sin(time * 0.0008 + px * freq * dir + phaseOff) * amp
+                     + Math.cos(time * 0.0006 + px * freq * 1.3 + phaseOff) * amp * 0.5;
+          if (px === -20) ctx.moveTo(px, vy);
+          else ctx.lineTo(px, vy);
+        }
+        ctx.stroke();
+      }
+    }
+
+    const wavePasses = [
+      { offset: 0, amp: 8 * s, lw: 3 * s, alpha: 0.55, color: [255, 255, 255] },  // foam
+      { offset: 0, amp: 5 * s, lw: 1.5 * s, alpha: 0.80, color: [255, 255, 255] },  // foam core
+      { offset: 15 * s, amp: 7 * s, lw: 2.5 * s, alpha: 0.12, color: [200, 235, 255] },  // wave band 1
+      { offset: 35 * s, amp: 10 * s, lw: 3 * s, alpha: 0.15, color: [220, 245, 255] }, // wave band 2
+      { offset: 55 * s, amp: 6 * s, lw: 2.5 * s, alpha: 0.10, color: [180, 220, 245] }, // wave band 3 (fading)
+    ];
+    for (const pass of wavePasses) {
+      ctx.strokeStyle = `rgba(${pass.color[0]},${pass.color[1]},${pass.color[2]},${pass.alpha})`;
+      ctx.lineWidth = pass.lw;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const chain of this.waterShoreChains) {
+        const nPts = chain.length / 2;
+        if (nPts < 2) continue;
+        ctx.beginPath();
+        for (let i = 0; i < nPts; i++) {
+          const px = chain[i * 2], py = chain[i * 2 + 1];
+          // Inward normal: toward water bbox center
+          const dx = W * 0.5 - px, dy = H * 0.5 - py;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = dx / len, ny = dy / len;
+          // Multi-sine displacement along normal
+          const ph1 = time * 0.0015 + px * 0.015 + py * 0.01;
+          const ph2 = time * 0.0025 + px * 0.007 - py * 0.013;
+          const disp = pass.offset + Math.sin(ph1) * pass.amp + Math.sin(ph2) * pass.amp * 0.5;
+          const sx = px + nx * disp, sy = py + ny * disp;
+          if (i === 0) ctx.moveTo(sx, sy);
+          else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // ── Glint sparkles ──
+    for (const g of this.waterGlintPoints) {
+      const brightness = Math.max(0, Math.sin(time * 0.001 * g.speed + g.phase));
+      const alpha = brightness * brightness * 0.7; // sharp peaks
+      if (alpha < 0.04) continue;
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      const sz = (1.0 + brightness * 0.8) * s;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, sz, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Refresh the Phaser texture (mutated canvas → GPU upload)
+    const tex = this.textures.get('_waterWaves');
+    if (tex && tex.source && tex.source[0]) tex.source[0].update();
+  }
   // ─── Save / Load ─────────────────────────────────────────────────────
   public saveGame(): void {
     if (this.stressTestConfig) return; // Don't save stress tests
