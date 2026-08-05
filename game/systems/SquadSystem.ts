@@ -329,8 +329,6 @@ export class SquadSystem {
             gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
         }
 
-        // LOD step factor (LOD_DOT/LOW handled by Blitter, only FULL/MEDIUM here)
-
         // LOD step factor
         const step = LOD_FACTORS[lod];
         const cos = Math.cos(angle);
