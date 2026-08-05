@@ -1,1 +1,32 @@
-npm run build
+#!/bin/sh
+
+echo "Running full verification before push..."
+
+# TypeScript type check
+echo "1️⃣  TypeScript check..."
+npx tsc --noEmit > /tmp/tsc-prepush.txt 2>&1
+grep -v "vite.config.d.ts\|The file is in the program\|Matched by include pattern" /tmp/tsc-prepush.txt > /tmp/tsc-filtered.txt || true
+
+if [ -s /tmp/tsc-filtered.txt ]; then
+  echo "❌ TypeScript errors found:"
+  cat /tmp/tsc-filtered.txt
+  rm /tmp/tsc-prepush.txt /tmp/tsc-filtered.txt
+  exit 1
+fi
+rm /tmp/tsc-prepush.txt /tmp/tsc-filtered.txt
+echo "✅ TypeScript passed"
+
+# ESLint
+echo "2️⃣  ESLint..."
+npm run lint
+
+# Tests
+echo "3️⃣  Tests..."
+npm run test
+
+# Fallow dead-code detection (non-blocking, just log)
+echo "4️⃣  Fallow dead-code detection..."
+npx fallow dead-code || true
+
+echo ""
+echo "✅ All checks passed! Pushing..."

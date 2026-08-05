@@ -32,6 +32,8 @@ export class ResearchManager {
       gatherMult: { wood: 1, food: 1, gold: 1 },
       damageMult: 1,
       armorAdd: 0,
+      movementSpeedMult: 1,
+      buildingHpMult: 1,
     };
     this.snapshots.set(playerId, snap);
     return snap;
@@ -55,16 +57,14 @@ export class ResearchManager {
     techId: TechId,
     age: Age,
     hostType: BuildingType,
-    hostBuildingKey: string | null = null
+    hostBuildingKey: string | null = null,
+    resources: { wood: number; food: number; gold: number } | null = null
   ): { ok: true } | { ok: false; reason: string } {
     const check = this.canStart(playerId, techId, age, hostType, true);
     if (!check.ok) return check;
 
     const def = TECH_DEFS[techId];
-    // Player 0 only for spine; AI wiring later.
-    if (playerId !== 0) return { ok: false, reason: 'Only player research supported' };
-
-    const res = this.scene.resources;
+    const res = resources ?? this.scene.resources;
     res.wood -= def.cost.wood;
     res.food -= def.cost.food;
     res.gold -= def.cost.gold;
@@ -168,6 +168,8 @@ export class ResearchManager {
       gatherMult: { wood: 1, food: 1, gold: 1 },
       damageMult: 1,
       armorAdd: 0,
+      movementSpeedMult: 1,
+      buildingHpMult: 1,
     };
 
     for (const techId of completed) {
@@ -188,10 +190,54 @@ export class ResearchManager {
           if (mod.add !== undefined) snap.damageMult += mod.add;
         } else if (mod.path === 'Combat/Armor') {
           if (mod.add !== undefined) snap.armorAdd += mod.add;
+        } else if (mod.path === 'Gather/All') {
+          if (mod.multiply !== undefined) {
+            snap.gatherMult.wood *= mod.multiply;
+            snap.gatherMult.food *= mod.multiply;
+            snap.gatherMult.gold *= mod.multiply;
+          }
+        } else if (mod.path === 'Movement/Speed') {
+          if (mod.multiply !== undefined) snap.movementSpeedMult *= mod.multiply;
+        } else if (mod.path === 'Building/HP') {
+          if (mod.multiply !== undefined) snap.buildingHpMult *= mod.multiply;
         }
         // Unknown paths: fail-soft
       }
     }
+    // Custom tech effects not expressible via modification paths
+    if (completed.has(TechId.SIEGE_ENGINEERING)) snap.siegeBuildingDmgMult = 1.25;
+    if (completed.has(TechId.CIVIL_SERVICE)) {
+      snap.popGrowthMult = 1.5;
+      snap.happinessDecayMult = 0.7;
+    }
     this.snapshots.set(playerId, snap);
+  }
+
+  // ─── Save/Load public accessors ─────────────────────────────────────
+  public getCompleted(playerId: number): TechId[] {
+    return [...this.completedOf(playerId)];
+  }
+
+  public setCompleted(playerId: number, techs: TechId[]): void {
+    const set = this.completed.get(playerId) ?? new Set();
+    set.clear();
+    for (const t of techs) set.add(t);
+    this.completed.set(playerId, set);
+  }
+
+  public setActiveResearch(playerId: number, techId: TechId, remainingMs: number): void {
+    const def = TECH_DEFS[techId];
+    if (!def) return;
+    this.active.set(playerId, {
+      techId,
+      remainingMs,
+      totalMs: def.researchTimeMs,
+      hostBuildingKey: null,
+      escrow: { ...def.cost },
+    });
+  }
+
+  public rebuildSnapshotPublic(playerId: number): void {
+    this.rebuildSnapshot(playerId);
   }
 }

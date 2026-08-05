@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import { MAP_WIDTH, MAP_HEIGHT } from '../../constants';
+import { MAP_WIDTH, MAP_HEIGHT, BIOME_PATH_COSTS, SEASON_CONFIG, TERRAIN_CONFIG } from '../../constants';
+import { Season } from '../../types';
 
 /**
  * Pathfinder optimized for Annihilation-scale games (thousands+ units).
@@ -124,6 +125,31 @@ export class Pathfinder {
         this.nodeParent = new Int32Array(total);
         this.nodeOpen = new Uint8Array(total);
         this.nodeVersion = new Uint16Array(total);
+    }
+
+    // ─── Terrain Cost Layer ─────────────────────────────────────────────────
+    /** Recompute per-cell path costs from biome + seasonal multiplier. */
+    public updateTerrainCosts(
+        terrainSystem: { getBiomeAt(wx: number, wy: number): string; isRiverAt?(wx: number, wy: number): boolean },
+        currentSeason?: Season
+    ): void {
+        const halfCell = CELL / 2;
+        const seasonMult = currentSeason != null
+            ? SEASON_CONFIG[currentSeason].movementCostMult
+            : 1.0;
+        for (let gy = 0; gy < this.gridRows; gy++) {
+            for (let gx = 0; gx < this.gridCols; gx++) {
+                const wx = gx * CELL + halfCell;
+                const wy = gy * CELL + halfCell;
+                const biome = terrainSystem.getBiomeAt(wx, wy);
+                const baseCost = BIOME_PATH_COSTS[biome] ?? 1.0;
+                // Apply river crossing penalty if terrain system supports it
+                const riverMult = terrainSystem.isRiverAt?.(wx, wy) ? TERRAIN_CONFIG.RIVER_PATH_COST : 1.0;
+                const raw = baseCost * seasonMult * riverMult;
+                this.costs[this.idx(gx, gy)] = Math.min(255, Math.max(1, Math.round(raw)));
+            }
+        }
+        this.flowFieldCache.clear();
     }
 
     // ─── Grid Indexing ────────────────────────────────────────────────────

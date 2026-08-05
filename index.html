@@ -32,6 +32,21 @@
       }
       /* Disable selection on game container to prevent UI text selection while dragging */
       #game-container { user-select: none; }
+      @keyframes shrink-toast-bar {
+        from { width: 100%; }
+        to { width: 0%; }
+      }
+      .shrink-toast-bar {
+        animation: shrink-toast-bar linear forwards;
+      }
+      @keyframes age-celebration {
+        0% { opacity: 0; transform: translateY(-30px) scale(0.8); }
+        15% { opacity: 1; transform: translateY(0) scale(1.05); }
+        25% { transform: translateY(0) scale(1); }
+        85% { opacity: 1; }
+        100% { opacity: 0; transform: translateY(-10px); }
+      }
+      .age-celebration-banner { animation: age-celebration 5s ease-out forwards; }
     </style>
   <script type="importmap">
 {

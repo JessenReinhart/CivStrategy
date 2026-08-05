@@ -3,7 +3,6 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { CHUNK_SIZE } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
-import { UnitType } from '../../types';
 
 export class InfiniteMapSystem {
     private scene: MainScene;
@@ -61,8 +60,8 @@ export class InfiniteMapSystem {
             const ax = startX + rng.between(50, CHUNK_SIZE - 50);
             const ay = startY + rng.between(50, CHUNK_SIZE - 50);
             if (Phaser.Math.Distance.Between(ax, ay, 400, 400) > 400) {
-                // FIX: Spawn animals as Owner -1 (Neutral) to avoid counting as population
-                this.scene.entityFactory.spawnUnit(UnitType.ANIMAL, ax, ay, -1);
+                // Delegate to AnimalSystem for species-aware spawning
+                this.scene.animalSystem.spawnAnimal(ax, ay);
             }
         }
 

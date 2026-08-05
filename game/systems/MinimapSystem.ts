@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { MapMode, UnitType } from '../../types';
 import { UNIT_VISION } from '../../constants';
-import { toCartesian } from '../utils/iso';
+import { toCartesian, toIso } from '../utils/iso';
 
 export class MinimapSystem {
     private scene: MainScene;
@@ -15,10 +15,9 @@ export class MinimapSystem {
 
     private unitDot: Phaser.GameObjects.Graphics;
     private buildingRect: Phaser.GameObjects.Graphics;
-    private viewportGraphics: Phaser.GameObjects.Graphics;
 
-    private maskGraphics: Phaser.GameObjects.Graphics;
-    private borderGraphics: Phaser.GameObjects.Graphics;
+    private viewportGraphics: Phaser.GameObjects.Graphics;
+    private territoryGraphics: Phaser.GameObjects.Graphics;
 
     private updateInterval = 15;
     private frameCount = 0;
@@ -26,6 +25,7 @@ export class MinimapSystem {
 
     private fogRT: Phaser.GameObjects.RenderTexture;
     private fogBrush: Phaser.GameObjects.Graphics;
+    private isDragging = false;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -56,6 +56,9 @@ export class MinimapSystem {
         this.fogBrush = this.scene.make.graphics({});
         this.fogBrush.setVisible(false);
 
+        this.territoryGraphics = this.scene.make.graphics({});
+        this.territoryGraphics.setVisible(false);
+
         // 3. Circular Mask
         this.maskGraphics = this.scene.make.graphics({});
         this.maskGraphics.fillStyle(0xffffff);
@@ -72,6 +75,9 @@ export class MinimapSystem {
 
         // Initial Layout
         this.updateLayout();
+
+        // 5. Input handling for click-to-move
+        this.setupInput();
     }
 
     public refreshStaticLayer() {
@@ -165,6 +171,9 @@ export class MinimapSystem {
         this.renderTexture.clear();
         this.renderTexture.draw(this.staticTexture, 0, 0);
 
+        // 2b. Draw Territory Overlay (under buildings/units)
+        this.drawTerritory(scalar);
+
         // 3. Draw Buildings (Dynamic ownership/health, so draw every time)
         const buildings = this.scene.buildings.getChildren();
         for (const b of buildings) {
@@ -184,31 +193,65 @@ export class MinimapSystem {
             }
         }
 
-        // 4. Draw Units
+        // 4. Draw Units (batched by owner for performance)
         const units = this.scene.units.getChildren();
         this.unitDot.clear();
         for (const u of units) {
             const unit = u as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const pos = this.worldToMini(unit.x, unit.y, scalar);
-
             if (this.isInBounds(pos)) {
                 const type = unit.unitType;
                 const owner = unit.getData('owner');
-                let color = owner === 0 ? 0x60a5fa : (owner === 1 ? 0xf87171 : 0xffffff);
-                let radius = 2.5;
-                if (type === UnitType.ANIMAL) { color = 0x9ca3af; radius = 1; }
-
+                const isAnimal = type === UnitType.ANIMAL;
+                const isMilitary = !isAnimal && type !== UnitType.VILLAGER;
+                const color = isAnimal ? 0x9ca3af : (owner === 0 ? 0x4ade80 : (owner === 1 ? 0xef4444 : 0xffffff));
+                const radius = isAnimal ? 1 : (isMilitary ? 3 : 2);
                 this.unitDot.fillStyle(color, 1);
-                this.unitDot.fillCircle(0, 0, radius);
-                this.renderTexture.draw(this.unitDot, pos.x, pos.y);
+                this.unitDot.fillCircle(pos.x, pos.y, radius);
             }
         }
+        this.renderTexture.draw(this.unitDot, 0, 0);
 
         // 5. Update Fog of War
         this.updateFog(scalar);
 
         // 6. Viewport
         this.drawViewport(scalar);
+    }
+
+    private drawTerritory(scalar: number) {
+        const buildings = this.scene.buildings.getChildren();
+        const GRID_CELLS = 16;
+        const cellWorld = (this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096) / GRID_CELLS;
+
+        this.territoryGraphics.clear();
+        for (let gy = 0; gy < GRID_CELLS; gy++) {
+            for (let gx = 0; gx < GRID_CELLS; gx++) {
+                const wx = gx * cellWorld + cellWorld / 2;
+                const wy = gy * cellWorld + cellWorld / 2;
+                let playerCount = 0;
+                let aiCount = 0;
+                for (const b of buildings) {
+                    const build = b as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+                    const dx = Math.abs(build.x - wx);
+                    const dy = Math.abs(build.y - wy);
+                    if (dx <= cellWorld && dy <= cellWorld) {
+                        const owner = build.getData('owner');
+                        if (owner === 0) playerCount++;
+                        else if (owner === 1) aiCount++;
+                    }
+                }
+                if (playerCount === 0 && aiCount === 0) continue;
+                const owner = playerCount > aiCount ? 0 : (aiCount > playerCount ? 1 : -1);
+                if (owner === -1) continue;
+                const color = owner === 0 ? 0x4ade80 : 0xef4444;
+                const pos = this.worldToMini(wx, wy, scalar);
+                const size = cellWorld * scalar;
+                this.territoryGraphics.fillStyle(color, 0.15);
+                this.territoryGraphics.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+            }
+        }
+        this.renderTexture.draw(this.territoryGraphics, 0, 0);
     }
 
     private updateFog(scalar: number) {
@@ -318,7 +361,60 @@ export class MinimapSystem {
         }
     }
 
+    // --- Click-to-move input handling ---
+
+    private setupInput() {
+        this.scene.input.on('pointerdown', this.onPointerDown, this);
+        this.scene.input.on('pointermove', this.onPointerMove, this);
+        this.scene.input.on('pointerup', this.onPointerUp, this);
+    }
+
+    /** Public check: is this pointer on the minimap circle? */
+    public isPointerOnMinimap(pointer: Phaser.Input.Pointer): boolean {
+        const h = this.scene.scale.height;
+        const centerX = this.padding + this.mapSize / 2;
+        const centerY = h - this.mapSize / 2 - this.padding;
+        const dx = pointer.x - centerX;
+        const dy = pointer.y - centerY;
+        const radius = this.mapSize / 2;
+        return (dx * dx + dy * dy) <= radius * radius;
+    }
+
+    private screenToMinimap(screenX: number, screenY: number): { x: number; y: number } {
+        return {
+            x: screenX - this.padding,
+            y: screenY - (this.scene.scale.height - this.mapSize - this.padding),
+        };
+    }
+
+    private onPointerDown(pointer: Phaser.Input.Pointer) {
+        if (pointer.leftButtonDown() && this.isPointerOnMinimap(pointer)) {
+            this.isDragging = true;
+            this.moveCameraToMinimapPos(pointer.x, pointer.y);
+        }
+    }
+
+    private onPointerMove(pointer: Phaser.Input.Pointer) {
+        if (this.isDragging && pointer.isDown) {
+            this.moveCameraToMinimapPos(pointer.x, pointer.y);
+        }
+    }
+
+    private onPointerUp() {
+        this.isDragging = false;
+    }
+
+    private moveCameraToMinimapPos(screenX: number, screenY: number) {
+        const mini = this.screenToMinimap(screenX, screenY);
+        const worldPos = this.getWorldFromMinimap(mini.x, mini.y);
+        const iso = toIso(worldPos.x, worldPos.y);
+        this.scene.cameras.main.centerOn(iso.x, iso.y);
+    }
+
     public destroy() {
+        this.scene.input.off('pointerdown', this.onPointerDown, this);
+        this.scene.input.off('pointermove', this.onPointerMove, this);
+        this.scene.input.off('pointerup', this.onPointerUp, this);
         if (this.fogRT) this.fogRT.destroy();
         if (this.fogBrush) this.fogBrush.destroy();
         if (this.renderTexture) this.renderTexture.destroy();
@@ -328,5 +424,6 @@ export class MinimapSystem {
         if (this.unitDot) this.unitDot.destroy();
         if (this.buildingRect) this.buildingRect.destroy();
         if (this.viewportGraphics) this.viewportGraphics.destroy();
+        if (this.territoryGraphics) this.territoryGraphics.destroy();
     }
 }

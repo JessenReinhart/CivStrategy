@@ -17,9 +17,10 @@ import terrainForestImg from '../assets/textures/terrain_forest.png';
 import terrainScrubImg from '../assets/textures/terrain_scrub.png';
 import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, TERRAIN_CONFIG } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, FormationType, UnitStance, Age, GameStats } from '../types';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT } from '../constants';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
+import { createSeededRandom } from './utils/seededRandom';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -41,6 +42,8 @@ import { AnimalSystem } from './systems/AnimalSystem';
 import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
 import { ClashSystem } from './systems/ClashSystem';
 import { TerrainSystem } from './systems/TerrainSystem';
+import { ResearchManager } from './systems/ResearchManager';
+import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
 
 export class MainScene extends Phaser.Scene {
 
@@ -65,10 +68,22 @@ export class MainScene extends Phaser.Scene {
   public isAdvancing: boolean = false;
   public nextAge: Age | null = null;
 
+  // Win/Lose Conditions
+  public gameResult: GameResult = GameResult.PLAYING;
+  private lastWinLoseCheckTime: number = 0;
+  public dominanceProgress: number = 0; // 0 to DOMINANCE_HOLD_TIME_MS, how long player has held ≥60%
+  public playerTerritoryPercent: number = 0; // Current % controlled (0–1)
+  public victoryType: VictoryType = VictoryType.CONQUEST;
+
   // Diplomacy
   public peacefulMode: boolean = false;
   public treatyLength: number = 0; // ms
   public aiDisabled: boolean = false;
+
+  // Map Seed
+  public mapSeed: number = 0;
+  // Map Preset
+  public mapPreset: MapPreset = MapPreset.STANDARD;
 
   // Debug
   public debugMode: boolean = false;
@@ -76,10 +91,17 @@ export class MainScene extends Phaser.Scene {
   private debugText!: Phaser.GameObjects.Text;
 
   // Game Speed & Time
-  public gameSpeed: number = 0.5;
+  public gameSpeed: number = 1;
   public gameTime: number = 0;
   private accumulatedTime: number = 0;
   private accumulatedPopTime: number = 0;
+  // Seasonal Clock
+  public currentSeason: Season = Season.SUMMER;
+  private seasonTimer: number = 0;
+  private lastAnimalCallTime: number = 0;
+  // Auto-save
+  private autoSaveTickCounter: number = 0;
+  private minimapClickHandler: ((e: Event) => void) | null = null;
 
   // Core Groups
   public units!: Phaser.GameObjects.Group;
@@ -117,6 +139,7 @@ export class MainScene extends Phaser.Scene {
   public proceduralSound!: ProceduralSoundSystem;
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
+  public researchManager!: ResearchManager;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
@@ -179,7 +202,7 @@ export class MainScene extends Phaser.Scene {
 
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
 
-  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null }) {
+  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null, mapSeed?: number, mapPreset?: MapPreset }) {
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
 
@@ -206,12 +229,20 @@ export class MainScene extends Phaser.Scene {
     this.maxPopulation = 5;
     this.happiness = 100;
     this.taxRate = 0;
-    this.gameSpeed = 0.5;
+    this.gameSpeed = 1;
     this.aiDisabled = data.aiDisabled === true;
     this.currentAge = Age.VILLAGE;
     this.ageProgress = 0;
     this.isAdvancing = false;
     this.nextAge = null;
+    this.gameResult = GameResult.PLAYING;
+    this.lastWinLoseCheckTime = 0;
+
+    // Map seed: 0 = random, any other value = deterministic
+    this.mapSeed = data.mapSeed ?? DEFAULT_MAP_SEED;
+    if (this.mapSeed === 0) this.mapSeed = Math.floor(Math.random() * 999999) + 1;
+    // Map preset: terrain style (Standard, Island, Desert, etc.)
+    this.mapPreset = data.mapPreset ?? DEFAULT_MAP_PRESET;
   }
 
   create() {
@@ -261,7 +292,8 @@ export class MainScene extends Phaser.Scene {
     this.economySystem = new EconomySystem(this);
     this.inputManager = new InputManager(this);
     this.enemyAI = new EnemyAISystem(this);
-    this.mapGenerationSystem = new MapGenerationSystem(this);
+    const mapRng = createSeededRandom(this.mapSeed);
+    this.mapGenerationSystem = new MapGenerationSystem(this, mapRng);
     this.cullingSystem = new CullingSystem(this);
     this.feedbackSystem = new FeedbackSystem(this);
     this.atmosphericSystem = new AtmosphericSystem(this);
@@ -269,18 +301,26 @@ export class MainScene extends Phaser.Scene {
     this.animalSystem = new AnimalSystem(this);
     this.proceduralSound = new ProceduralSoundSystem(this);
     this.clashSystem = new ClashSystem(this);
+    this.researchManager = new ResearchManager(this);
     
-    // Initialize Terrain System
-    this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight);
+    this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight, this.mapSeed, this.mapPreset);
     this.terrainSystem.generateHeightMap();
     // Guarantee dry land at faction spawn points — raise terrain above water
     const spawnSafeRadius = 150;
-    const spawnMinHeight = TERRAIN_CONFIG.WATER_LEVEL + 0.05;
+    const spawnMinHeight = this.terrainSystem.getWaterLevel() + 0.05;
     const cx = this.mapWidth / 2;
     const cy = this.mapHeight / 2;
     this.terrainSystem.flattenAroundWorld(cx, cy, spawnSafeRadius, spawnMinHeight);
+    // Flatten AI base corner
+    const aiBaseX = this.mapWidth * 0.15;
+    const aiBaseY = this.mapHeight * 0.15;
+    this.terrainSystem.flattenAroundWorld(aiBaseX, aiBaseY, spawnSafeRadius, spawnMinHeight);
     this.terrainSystem.flattenAroundWorld(cx + 400, cy - 50, spawnSafeRadius, spawnMinHeight);
+    // Generate rivers that follow low terrain valleys (natural chokepoints)
+    this.terrainSystem.generateRivers();
     this.terrainSystem.applyVisualTinting();
+    // Wire biome pathfinding costs to terrain
+    this.pathfinder.updateTerrainCosts(this.terrainSystem, this.currentSeason);
 
     if (this.mapMode === MapMode.FIXED) {
       this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
@@ -288,7 +328,7 @@ export class MainScene extends Phaser.Scene {
       const dim = this.terrainSystem.getGridDimensions();
       const grid = this.terrainSystem.getHeightMapData();
       const cellSize = dim.cellSize;
-      const level = TERRAIN_CONFIG.WATER_LEVEL;
+      const level = this.terrainSystem.getWaterLevel();
       // Punchy teal → deep blue (high sat so water pops vs grass)
       const shallowR = 40, shallowG = 175, shallowB = 210;
       const deepR = 12, deepG = 70, deepB = 145;
@@ -476,6 +516,25 @@ export class MainScene extends Phaser.Scene {
 
     // Spawn guaranteed trees near player's starting Town Center for early wood harvesting
     this.mapGenerationSystem.spawnStartingForest(centerX, centerY);
+    // Spawn gold mines near player's starting TC
+    this.mapGenerationSystem.spawnStartingGoldMines(centerX, centerY);
+
+    // Pre-spawn AI base (TC + villagers + resources) to prevent 3s instant-win window
+    // and ensure AI never bricks on water/stone spawn
+    if (!isPendingLoad()) {
+      const aiTC = this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, this.enemyAI.baseX, this.enemyAI.baseY, 1);
+      this.enemyAI.buildings[0] = aiTC; // Mark slot 0 as built
+      this.enemyAI.buildIndex = 1; // Start tickBuild from slot 1
+      // Deduct TC cost from AI resources
+      this.enemyAI.resources.wood -= 300;
+      this.enemyAI.resources.gold -= 100;
+      // Spawn starting villagers
+      this.villagerSystem.spawnVillager(this.enemyAI.baseX + 50, this.enemyAI.baseY + 50, 1);
+      this.villagerSystem.spawnVillager(this.enemyAI.baseX - 50, this.enemyAI.baseY + 50, 1);
+      // Spawn guaranteed resources
+      this.mapGenerationSystem.spawnStartingForest(this.enemyAI.baseX, this.enemyAI.baseY);
+      this.mapGenerationSystem.spawnStartingGoldMines(this.enemyAI.baseX, this.enemyAI.baseY);
+    }
 
     const startIso = toIso(centerX, centerY);
     this.cameras.main.centerOn(startIso.x, startIso.y);
@@ -518,11 +577,11 @@ export class MainScene extends Phaser.Scene {
     if (this.isFowEnabled) { this.fogOfWar = new FogOfWarSystem(this); } else { this.fogOfWar = null; }
     this.minimapSystem = new MinimapSystem(this);
 
-    const minimapClickHandler = (e: Event) => {
+    this.minimapClickHandler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       this.handleMinimapClick(detail.x, detail.y);
     };
-    window.addEventListener('minimap-click-ui', minimapClickHandler);
+    window.addEventListener('minimap-click-ui', this.minimapClickHandler);
 
     this.game.events.on('set-bloom-intensity-ui', (intensity: number) => {
       this.atmosphericSystem.setBloomIntensity(intensity);
@@ -578,9 +637,74 @@ export class MainScene extends Phaser.Scene {
     if (this.fogOfWar) { this.uiCamera.ignore(this.fogOfWar.screenRT); }
 
     // Listen for age advancement requests from React UI
-    this.events.on(EVENTS.ADVANCE_AGE, () => {
+    this.game.events.on(EVENTS.ADVANCE_AGE, () => {
       this.startAgeAdvancement();
     });
+    // Listen for research requests from React UI
+    this.game.events.on(EVENTS.START_RESEARCH, (techId: TechId) => {
+      const def = TECH_DEFS[techId];
+      if (def) this.researchManager.tryStart(0, techId, this.currentAge, def.hostBuildingTypes[0]);
+    });
+    // Listen for research completion — notify player
+    this.events.on(EVENTS.RESEARCH_COMPLETED, (data: { playerId: number; techId: TechId }) => {
+      const def = TECH_DEFS[data.techId];
+      if (def) this.feedbackSystem.notifyResearchComplete(def.name);
+    });
+    // Listen for season changes — update visuals, sound, and feedback
+    this.events.on(EVENTS.SEASON_CHANGED, (data: { season: Season }) => {
+      this.atmosphericSystem.applySeasonalTint(data.season);
+      this.proceduralSound.setSeasonalWind(data.season);
+    });
+    this.events.on(EVENTS.AI_AGE_ADVANCED, (age: Age) => {
+      const name = AGE_CONFIGS[age]?.name ?? age;
+      this.feedbackSystem.addNotification(`⚔️ Enemy entered ${name}!`, 'warning', 6000);
+    });
+    // Listen for garrison release requests from React UI
+    this.game.events.on('release-garrison', () => {
+      const selBuilding = this.inputManager.selectedBuilding;
+      if (!selBuilding) return;
+      const def = selBuilding.getData('def');
+      if (!def || def.type !== BuildingType.CASTLE) return;
+      const garrison: Record<string, number> = selBuilding.getData('garrison') || {};
+      const total = Object.values(garrison).reduce((s, n) => s + n, 0);
+      if (total === 0) return;
+
+      // Spawn units near the castle
+      let offset = 0;
+      for (const [typeStr, count] of Object.entries(garrison)) {
+        for (let i = 0; i < count; i++) {
+          const angle = (offset / total) * Math.PI * 2;
+          const spawnX = selBuilding.x + Math.cos(angle) * 60;
+          const spawnY = selBuilding.y + Math.sin(angle) * 60;
+          this.entityFactory.spawnUnit(typeStr as UnitType, spawnX, spawnY, 0);
+          offset++;
+        }
+      }
+      selBuilding.setData('garrison', {});
+      this.feedbackSystem.showFloatingText(selBuilding.x, selBuilding.y - 40, `${total} units released`, '#4ade80');
+      this.economySystem.updateStats();
+    });
+
+    // ─── Save/Load event listeners ───────────────────────────────────
+    this.game.events.on('save-game', () => {
+      this.saveGame();
+    });
+    this.game.events.on('load-game', () => {
+      this.loadGame();
+    });
+
+    // Check for pending load (from Continue Game in main menu)
+    if (isPendingLoad()) {
+      clearPendingLoad();
+      const save = loadFromLocalStorage();
+      if (save) {
+        // Delay to let terrain/visuals finish settling
+        this.time.delayedCall(500, () => {
+          deserializeGame(this, save);
+          this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+        });
+      }
+    }
     this.proceduralSound.startAmbientWind();
 
     // Lifecycle teardown: close the AudioContext and detach the clash listener
@@ -588,6 +712,10 @@ export class MainScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
         this.proceduralSound.destroy();
         this.clashSystem.destroy();
+        if (this.minimapClickHandler) {
+            window.removeEventListener('minimap-click-ui', this.minimapClickHandler);
+            this.minimapClickHandler = null;
+        }
     });
   }
 
@@ -612,6 +740,63 @@ export class MainScene extends Phaser.Scene {
     const worldPos = this.minimapSystem.getWorldFromMinimap(mx, my);
     const iso = toIso(worldPos.x, worldPos.y);
     this.cameras.main.pan(iso.x, iso.y, 500, 'Power2');
+  }
+
+  public checkWinLose(): void {
+    if (this.gameResult !== GameResult.PLAYING) return;
+
+    // WIN: AI Town Center destroyed (owner=1 TC missing or dead)
+    const aiTC = this.buildings.getChildren().find(
+      (b: any) => b.getData('owner') === 1 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
+    );
+    if (!aiTC) {
+      this.victoryType = VictoryType.CONQUEST;
+      this.gameResult = GameResult.WON;
+      this.feedbackSystem.addNotification('🏆 Victory! The enemy falls!', 'success', 30000);
+      return;
+    }
+
+    // LOSE: Player Town Center destroyed
+    const playerTC = this.buildings.getChildren().find(
+      (b: any) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
+    );
+    if (!playerTC) {
+      this.gameResult = GameResult.LOST;
+      this.events.emit(EVENTS.GAME_OVER, GameResult.LOST);
+      this.feedbackSystem.addNotification('💀 Defeat... Your civilization falls.', 'danger', 30000);
+    }
+  }
+
+  public checkDominance(): void {
+    if (this.gameResult !== GameResult.PLAYING) return;
+
+    // Count buildings by owner to estimate territory control (exclude TCs for fairness)
+    const totalBuildings = this.buildings.getChildren().filter(
+      (b: any) => b.getData('hp') > 0 && b.getData('def')?.type !== BuildingType.TOWN_CENTER // eslint-disable-line @typescript-eslint/no-explicit-any
+    );
+    if (totalBuildings.length === 0) return;
+    if (totalBuildings.length < DOMINANCE_MIN_BUILDINGS) {
+      this.dominanceProgress = 0;
+      this.playerTerritoryPercent = 0;
+      return;
+    }
+
+    const playerBuildings = totalBuildings.filter((b: any) => b.getData('owner') === 0).length; // eslint-disable-line @typescript-eslint/no-explicit-any
+    this.playerTerritoryPercent = playerBuildings / totalBuildings.length;
+
+    if (this.playerTerritoryPercent >= DOMINANCE_CONTROL_THRESHOLD) {
+      this.dominanceProgress += 1000; // 1 second at a time (called every 1s tick)
+      if (this.dominanceProgress >= DOMINANCE_HOLD_TIME_MS) {
+        this.victoryType = VictoryType.DOMINANCE;
+        this.gameResult = GameResult.WON;
+        this.feedbackSystem.addNotification('🏆 Dominance Victory! You control the realm!', 'success', 30000);
+      } else if (this.dominanceProgress >= DOMINANCE_HOLD_TIME_MS * 0.5 && this.dominanceProgress < DOMINANCE_HOLD_TIME_MS * 0.5 + 1000) {
+        // Notify at 50% progress
+        this.feedbackSystem.addNotification('⚠️ Dominance: 30 seconds until victory!', 'warning', 5000);
+      }
+    } else {
+      this.dominanceProgress = 0; // Reset if control lost
+    }
   }
 
   // Performance profiling accumulators (reset every PROFILING_REPORT_INTERVAL frames)
@@ -714,7 +899,7 @@ export class MainScene extends Phaser.Scene {
       this.buildingManager.update();
       this.profileEnd('buildingManager', t0);
 
-      if (!this.aiDisabled) {
+      if (!this.aiDisabled && this.gameResult === GameResult.PLAYING) {
         t0 = this.profileStart('enemyAI');
         this.enemyAI.update(this.gameTime, dt);
         this.profileEnd('enemyAI', t0);
@@ -722,25 +907,115 @@ export class MainScene extends Phaser.Scene {
 
       this.accumulatedTime += dt;
       if (this.accumulatedTime >= 1000) {
-        this.economySystem.tickEconomy();
+        // Check win/lose conditions once per second
+        this.checkWinLose();
+        this.checkDominance();
+
+        if (this.gameResult === GameResult.PLAYING) {
+          this.economySystem.tickEconomy();
+          if (this.researchManager) this.researchManager.tick(1000);
+        }
         this.accumulatedTime -= 1000;
+
+        // Seasonal clock (1-second tick aligned with economy)
+        this.seasonTimer += 1000;
+        if (this.seasonTimer >= SEASON_DURATION_MS) {
+          this.seasonTimer -= SEASON_DURATION_MS;
+          const idx = SEASON_ORDER.indexOf(this.currentSeason);
+          this.currentSeason = SEASON_ORDER[(idx + 1) % SEASON_ORDER.length];
+          this.events.emit(EVENTS.SEASON_CHANGED, { season: this.currentSeason });
+          this.feedbackSystem.notifySeasonChanged(SEASON_CONFIG[this.currentSeason].label);
+          // Update pathfinding costs for new season
+          this.pathfinder.updateTerrainCosts(this.terrainSystem, this.currentSeason);
+        }
+
+        // Respawn depleted gold mines
+        this.trees.getChildren().forEach((t) => {
+          if (t.getData('isGoldMine') && t.getData('isDepleted')) {
+            const depletedAt = t.getData('depletedAt') || 0;
+            if (this.gameTime - depletedAt >= GOLD_MINE_RESPAWN_MS) {
+              t.setData('isDepleted', false);
+              t.setData('goldRemaining', 200);
+              t.setData('isChopped', false);
+              t.setData('visualTexture', 'flare');
+              t.setData('visualTint', 0xFFD700);
+              t.setData('visualScale', 0.1);
+              t.setData('visualOriginY', 0.95);
+              // Update live visual if currently visible
+              const visual = (t as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+              if (visual && visual.active) {
+                visual.setTexture('flare');
+                visual.setScale(0.1);
+                visual.setTint(0xFFD700);
+              }
+            }
+          }
+        });
+
+        // ─── Castle Garrison Firing ───────────────────────────────────────
+        if (this.gameResult === GameResult.PLAYING && this.gameTime - this.lastGarrisonFireTime >= CASTLE_GARRISON_FIRE_INTERVAL) {
+          this.lastGarrisonFireTime = this.gameTime;
+          this.buildings.getChildren().forEach((b) => {
+            const def = b.getData('def');
+            if (!def || def.type !== BuildingType.CASTLE) return;
+            const garrison: Record<string, number> = b.getData('garrison') || {};
+            const totalGarrisoned = Object.values(garrison).reduce((s, n) => s + n, 0);
+            if (totalGarrisoned === 0) return;
+
+            // Find nearest enemy unit within range
+            const cx = (b as Phaser.GameObjects.Image).x;
+            const cy = (b as Phaser.GameObjects.Image).y;
+            const range2 = CASTLE_GARRISON_RANGE * CASTLE_GARRISON_RANGE;
+            let nearest: Phaser.GameObjects.GameObject | null = null;
+            let nearestDist2 = Infinity;
+            this.units.getChildren().forEach((u) => {
+              if (u.getData('owner') === 0) return; // Skip player units
+              const dx = (u as Phaser.GameObjects.Image).x - cx;
+              const dy = (u as Phaser.GameObjects.Image).y - cy;
+              const d2 = dx * dx + dy * dy;
+              if (d2 <= range2 && d2 < nearestDist2) {
+                nearestDist2 = d2;
+                nearest = u;
+              }
+            });
+
+            if (nearest && (nearest as Phaser.GameObjects.Image).takeDamage) {
+              const dmg = totalGarrisoned * CASTLE_GARRISON_DAMAGE_PER_UNIT;
+              (nearest as Phaser.GameObjects.Image).takeDamage(dmg);
+              this.feedbackSystem.showDamageNumber(
+                (nearest as Phaser.GameObjects.Image).x,
+                (nearest as Phaser.GameObjects.Image).y,
+                dmg, 'Pierce'
+              );
+            }
+          });
+        }
+
+        // Auto-save every 60 seconds
+        this.autoSaveTickCounter++;
+        if (this.autoSaveTickCounter >= 60) {
+          this.autoSaveTickCounter = 0;
+          this.saveGame();
+        }
       }
 
-      this.accumulatedPopTime += dt;
-      if (this.accumulatedPopTime >= 5000) {
-        this.economySystem.tickPopulation();
-        this.accumulatedPopTime -= 5000;
-      }
+      if (this.gameResult === GameResult.PLAYING) {
+        this.accumulatedPopTime += dt;
+        if (this.accumulatedPopTime >= 5000) {
+          this.economySystem.tickPopulation();
+          this.accumulatedPopTime -= 5000;
+        }
 
-      this.economySystem.assignJobs();
+        this.economySystem.assignJobs();
 
-      // Age advancement progress ticking (player only)
-      if (this.isAdvancing && this.nextAge) {
-        const config = AGE_CONFIGS[this.nextAge];
-        if (config && config.advancementTime > 0) {
-          this.ageProgress += dt / config.advancementTime;
-          if (this.ageProgress >= 1) {
-            this.completeAgeAdvancement();
+        // Age advancement progress ticking (player only)
+        if (this.isAdvancing && this.nextAge) {
+          const config = AGE_CONFIGS[this.nextAge];
+          if (config && config.advancementTime > 0) {
+            this.ageProgress += dt / config.advancementTime;
+            if (this.ageProgress >= 1) {
+              this.completeAgeAdvancement();
+            }
           }
         }
       }
@@ -753,6 +1028,30 @@ export class MainScene extends Phaser.Scene {
     t0 = this.profileStart('atmosphericSystem');
     this.atmosphericSystem.update(this.gameTime, dt);
     this.profileEnd('atmosphericSystem', t0);
+    // Update feedback/notification system
+    this.feedbackSystem.update(this.gameTime, dt);
+
+    // Periodic ambient animal calls (every ~8 seconds if camera near animals)
+    const seasonAnimalMod = this.currentSeason === Season.WINTER ? 0 : this.currentSeason === Season.AUTUMN ? 0.5 : 1;
+    const animalCallInterval = seasonAnimalMod === 0 ? 999999 : Math.round(8000 / seasonAnimalMod);
+    if (this.gameTime - this.lastAnimalCallTime > animalCallInterval) {
+      this.lastAnimalCallTime = this.gameTime;
+      const animals = this.animalSystem.getAnimals();
+      if (animals.length > 0) {
+        const cam = this.cameras.main;
+        const camCenterX = cam.scrollX + cam.width / 2;
+        const camCenterY = cam.scrollY + cam.height / 2;
+        // Pick a random animal and play its call if it's roughly on screen
+        const animal = animals[Math.floor(Math.random() * animals.length)];
+        if (animal.visual) {
+          const dx = animal.visual.x - camCenterX;
+          const dy = animal.visual.y - camCenterY;
+          if (Math.abs(dx) < cam.width && Math.abs(dy) < cam.height) {
+            this.proceduralSound.playAnimalCall(animal.species, animal.x, animal.y);
+          }
+        }
+      }
+    }
 
     if (!this.stressTestConfig) {
       t0 = this.profileStart('syncVisuals');
@@ -829,6 +1128,35 @@ export class MainScene extends Phaser.Scene {
 
 
 
+
+  // ─── Save / Load ─────────────────────────────────────────────────────
+  public saveGame(): void {
+    if (this.stressTestConfig) return; // Don't save stress tests
+    if (this.gameResult !== GameResult.PLAYING) return; // Don't save finished games
+    try {
+      const save = serializeGame(this);
+      saveToLocalStorage(save);
+      this.feedbackSystem.addNotification('💾 Game saved', 'info', 2000);
+    } catch (e) {
+      console.error('[MainScene] Save failed:', e);
+      this.feedbackSystem.addNotification('⚠️ Save failed!', 'danger', 3000);
+    }
+  }
+
+  public loadGame(): boolean {
+    const save = loadFromLocalStorage();
+    if (!save) return false;
+    try {
+      deserializeGame(this, save);
+      this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+      return true;
+    } catch (e) {
+      console.error('[MainScene] Load failed:', e);
+      this.feedbackSystem.addNotification('⚠️ Load failed!', 'danger', 3000);
+      return false;
+    }
+  }
+
   public setupStressTest() {
     if (!this.stressTestConfig) return;
     const config = this.stressTestConfig;
@@ -880,6 +1208,7 @@ export class MainScene extends Phaser.Scene {
       this.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, centerX + 400, centerY - 50, 1);
       this.entityFactory.spawnBuilding(BuildingType.BARRACKS, centerX + 350, centerY + 80, 1);
       this.entityFactory.spawnBuilding(BuildingType.HOUSE, centerX + 450, centerY + 50, 1);
+      this.mapGenerationSystem.spawnStartingGoldMines(centerX + 400, centerY - 50);
 
       const eCols = Math.ceil(Math.sqrt(enemyCount));
       const eStartX = (centerX + 200) - (eCols * spacing) / 2;
@@ -1054,8 +1383,6 @@ export class MainScene extends Phaser.Scene {
         u.visual.setDepth(iso.y);
       }
     }
-
-    this.events.emit(EVENTS.UPDATE_STATS, this.getGameStats());
   }
 
   // --- Age Advancement ---
@@ -1107,6 +1434,7 @@ export class MainScene extends Phaser.Scene {
     this.nextAge = null;
     const config = AGE_CONFIGS[this.currentAge];
     this.events.emit(EVENTS.AGE_ADVANCED, this.currentAge);
+    this.feedbackSystem.addNotification(`🏛️ ${config.name} begins!`, 'info', 6000);
     this.economySystem.updateStats();
     const tc = this.buildings.getChildren().find(
       (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER
@@ -1129,24 +1457,4 @@ export class MainScene extends Phaser.Scene {
     return config.unlocksUnits.includes(unitType);
   }
 
-  private getGameStats(): GameStats {
-    return {
-      population: this.population,
-      maxPopulation: this.maxPopulation,
-      happiness: this.happiness,
-      happinessChange: 0,
-      resources: { ...this.resources },
-      rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
-      taxRate: this.taxRate,
-      mapMode: this.mapMode,
-      peacefulMode: this.peacefulMode,
-      treatyTimeRemaining: Math.max(0, this.treatyLength - this.gameTime),
-      bloomIntensity: this.bloomIntensity,
-      currentFormation: FormationType.BOX,
-      currentStance: UnitStance.AGGRESSIVE,
-      currentAge: this.currentAge,
-      ageProgress: this.ageProgress,
-      nextAge: this.nextAge
-    };
-  }
 }

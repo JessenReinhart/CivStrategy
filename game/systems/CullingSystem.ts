@@ -230,6 +230,7 @@ export class CullingSystem {
       visual.setTexture(tree.getData('visualTexture') || 'tree');
       visual.setScale(tree.getData('visualScale') || 0.08);
       visual.setOrigin(0.5, tree.getData('visualOriginY') || 0.95);
+      visual.setTint(tree.getData('visualTint') || 0xffffff);
 
       tree.visual = visual;
       this.fadeInTree(visual);

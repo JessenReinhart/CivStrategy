@@ -2,7 +2,7 @@
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { MainScene } from '../game/MainScene';
-import { FactionType, MapMode, MapSize } from '../types';
+import { FactionType, MapMode, MapSize, MapPreset } from '../types';
 
 interface PhaserGameProps {
   faction: FactionType;
@@ -13,10 +13,11 @@ interface PhaserGameProps {
   treatyLength: number; // minutes
   aiDisabled: boolean;
   stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null;
+  mapSeed: number;
+  mapPreset: MapPreset;
   onGameReady: (game: Phaser.Game) => void;
 }
-
-export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, onGameReady }) => {
+export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, mapSeed, mapPreset, onGameReady }) => {
   const gameRef = useRef<Phaser.Game | null>(null);
 
   useEffect(() => {
@@ -62,7 +63,9 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
         peacefulMode,
         treatyLength, // minutes
         aiDisabled,
-        stressTestConfig
+        stressTestConfig,
+        mapSeed,
+        mapPreset
       });
       onGameReady(game);
     });
@@ -71,7 +74,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       game.destroy(true);
       gameRef.current = null;
     };
-  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, onGameReady]);
+  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, mapSeed, mapPreset, onGameReady]);
 
   return (
     <div id="game-container" className="absolute inset-0 z-0" />

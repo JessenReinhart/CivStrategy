@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FactionType, MapMode, MapSize } from '../types';
+import { FactionType, MapMode, MapSize, MapPreset } from '../types';
+import { getSaveMeta, setPendingLoad } from '../game/systems/SaveSystem';
+import { MAP_PRESETS } from '../constants';
 import { Shield, Users, Sword, X } from 'lucide-react';
 import gsap from 'gsap';
 
 interface MainMenuProps {
-  onStart: (faction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, aiDisabled: boolean) => void;
+  onStart: (faction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, aiDisabled: boolean, mapSeed: number, mapPreset: MapPreset) => void;
 }
 
 type MenuScreen = 'landing' | 'lobby' | 'stress';
@@ -95,9 +97,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   const [peacefulMode, setPeacefulMode] = useState<boolean>(false);
   const [treatyLength, setTreatyLength] = useState<number>(10);
   const [aiDisabled, setAiDisabled] = useState<boolean>(false);
+  const [mapSeed, setMapSeed] = useState<number>(0);
+  const [mapPreset, setMapPreset] = useState<MapPreset>(MapPreset.STANDARD);
   const [stressUnitCount, setStressUnitCount] = useState<number>(500);
   const [stressEnableEnemies, setStressEnableEnemies] = useState<boolean>(false);
   const [tipIndex, setTipIndex] = useState(0);
+
+  // Save game detection
+  const [saveMeta, setSaveMeta] = useState<ReturnType<typeof getSaveMeta>>(null);
+  useEffect(() => {
+    setSaveMeta(getSaveMeta());
+  }, []);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const landingRef = useRef<HTMLDivElement>(null);
@@ -245,9 +255,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
     menuScreenRef.current = screen;
     setMenuScreen(screen);
   }, []);
-
   const handleStart = () => {
-    onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled);
+    onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, mapSeed, mapPreset);
   };
 
   const handleStressTestStart = () => {
@@ -256,6 +265,30 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
         detail: { unitCount: stressUnitCount, enableEnemies: stressEnableEnemies },
       })
     );
+  };
+
+  const handleContinue = () => {
+    if (!saveMeta) return;
+    // Read full save to get init params
+    const raw = localStorage.getItem('civstrategy-save');
+    if (!raw) return;
+    try {
+      const save = JSON.parse(raw);
+      setPendingLoad();
+      onStart(
+        save.faction,
+        save.mapMode ?? MapMode.FIXED,
+        save.mapSize ?? MapSize.MEDIUM,
+        save.fowEnabled ?? true,
+        save.peacefulMode ?? false,
+        save.treatyLength ?? 10,
+        save.aiDisabled ?? false,
+        save.mapSeed,
+        save.mapPreset ?? MapPreset.STANDARD
+      );
+    } catch (e) {
+      console.error('[MainMenu] Continue failed:', e);
+    }
   };
 
   const ph = FACTION_HERMES[selectedFaction];
@@ -348,6 +381,39 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
 
         {/* Buttons */}
         <div className="flex flex-col gap-5 mb-20">
+          {/* Continue Game (only if save exists) */}
+          {saveMeta && (
+            <div className="flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={handleContinue}
+                className="group relative px-14 py-4 text-sm font-bold uppercase tracking-[0.22em] transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                style={{
+                  color: '#4ade80',
+                  border: '1px solid #4ade80',
+                  backgroundColor: 'rgba(74, 222, 128, 0.08)',
+                  fontFamily: "'Inter', sans-serif",
+                  letterSpacing: '0.22em',
+                  '--tw-ring-color': '#4ade80',
+                  '--tw-ring-offset-color': DARK_EARTH,
+                } as React.CSSProperties}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(74, 222, 128, 0.15)';
+                  e.currentTarget.style.boxShadow = '0 0 30px rgba(74, 222, 128, 0.15)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'rgba(74, 222, 128, 0.08)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                <span className="relative z-10">Continue Game</span>
+              </button>
+              <span className="text-[10px] tracking-[0.15em] uppercase" style={{ color: TEXT_MUTED, fontFamily: "'Inter', sans-serif" }}>
+                {saveMeta.currentAge} · Seed {saveMeta.mapSeed} · {new Date(saveMeta.timestamp).toLocaleDateString()} {new Date(saveMeta.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => handleNavigate('lobby')}
@@ -655,6 +721,95 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* Map Seed */}
+              <div>
+                <h4
+                  className="text-xs font-bold uppercase tracking-[0.25em] mb-3"
+                  style={{ color: GOLD, fontFamily: "'Cinzel', serif", letterSpacing: '0.25em' }}
+                >
+                  Map Seed
+                </h4>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={999999}
+                    value={mapSeed}
+                    onChange={(e) => setMapSeed(Math.max(0, Math.min(999999, parseInt(e.target.value, 10) || 0)))}
+                    className="flex-1 px-4 py-3 text-xs transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      border: '1px solid',
+                      borderColor: BORDER,
+                      backgroundColor: 'transparent',
+                      color: TEXT_PRIMARY,
+                      '--tw-ring-color': GOLD,
+                    } as React.CSSProperties}
+                    placeholder="0 = random"
+                    aria-label="Map seed (0 for random)"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMapSeed(Math.floor(Math.random() * 999999) + 1)}
+                    className="px-4 py-3 text-lg transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
+                    style={{
+                      border: '1px solid',
+                      borderColor: BORDER,
+                      backgroundColor: 'transparent',
+                      '--tw-ring-color': GOLD,
+                    } as React.CSSProperties}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = BORDER_GOLD;
+                      e.currentTarget.style.backgroundColor = SURFACE;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = BORDER;
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                    aria-label="Randomize map seed"
+                    title="Randomize seed"
+                  >
+                    🎲
+                  </button>
+                </div>
+                <p className="mt-2 text-[10px] uppercase tracking-[0.15em]" style={{ color: TEXT_MUTED, fontFamily: "'Inter', sans-serif" }}>
+                  {mapSeed === 0 ? 'Random map each game' : `Seed: ${mapSeed} — share to replay`}
+                </p>
+              </div>
+
+              {/* Map Preset */}
+              <div>
+                <h4
+                  className="text-xs font-bold uppercase tracking-[0.25em] mb-3"
+                  style={{ color: GOLD, fontFamily: "'Cinzel', serif", letterSpacing: '0.25em' }}
+                >
+                  Map Type
+                </h4>
+                <select
+                  value={mapPreset}
+                  onChange={(e) => setMapPreset(e.target.value as MapPreset)}
+                  className="w-full px-4 py-3 text-xs transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 appearance-none cursor-pointer"
+                  style={{
+                    fontFamily: "'Inter', sans-serif",
+                    border: '1px solid',
+                    borderColor: BORDER,
+                    backgroundColor: 'transparent',
+                    color: TEXT_PRIMARY,
+                    '--tw-ring-color': GOLD,
+                  } as React.CSSProperties}
+                  aria-label="Map type preset"
+                >
+                  {Object.values(MapPreset).map((preset) => (
+                    <option key={preset} value={preset}>
+                      {MAP_PRESETS[preset].name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[10px] uppercase tracking-[0.15em]" style={{ color: TEXT_MUTED, fontFamily: "'Inter', sans-serif" }}>
+                  {MAP_PRESETS[mapPreset].description}
+                </p>
               </div>
 
               {/* Toggles */}

@@ -2,8 +2,8 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { Noise } from '../utils/Noise';
-import { TERRAIN_CONFIG } from '../../constants';
-import { TerrainModifiers, SlopeInfo } from '../../types';
+import { TERRAIN_CONFIG, MAP_PRESETS } from '../../constants';
+import { TerrainModifiers, SlopeInfo, MapPreset } from '../../types';
 import { toIso, toIsoElev } from '../utils/iso';
 
 export class TerrainSystem {
@@ -13,13 +13,18 @@ export class TerrainSystem {
   private gridHeight: number;
   private noise: Noise;
   private visualSprite: Phaser.GameObjects.Sprite | null = null;
+  private riverCells: Set<number> = new Set(); // Grid indices of river cells
+  private preset: MapPreset;
+  private presetConfig: typeof MAP_PRESETS[MapPreset.STANDARD];
 
-  constructor(scene: MainScene, mapWidth: number, mapHeight: number) {
+  constructor(scene: MainScene, mapWidth: number, mapHeight: number, seed?: number, preset: MapPreset = MapPreset.STANDARD) {
     this.scene = scene;
     this.gridWidth = Math.ceil(mapWidth / TERRAIN_CONFIG.CELL_SIZE);
     this.gridHeight = Math.ceil(mapHeight / TERRAIN_CONFIG.CELL_SIZE);
     this.heightGrid = new Float32Array(this.gridWidth * this.gridHeight);
-    this.noise = new Noise(Math.random() * 233280);
+    this.noise = new Noise(seed ? seed * 233280 : Math.random() * 233280);
+    this.preset = preset;
+    this.presetConfig = MAP_PRESETS[preset];
   }
 
   generateHeightMap(): void {
@@ -29,6 +34,18 @@ export class TerrainSystem {
     const detailScale = TERRAIN_CONFIG.DETAIL_SCALE;
     const macroScale = TERRAIN_CONFIG.MACRO_SCALE;
     const macroAmp = TERRAIN_CONFIG.MACRO_AMPLITUDE;
+
+    // Preset overrides
+    const waterLevel = this.presetConfig.waterLevel;
+    const heightMult = this.presetConfig.heightMultiplier;
+    // Highlands: more aggressive power stretch for dramatic peaks
+    const heightExp = this.preset === MapPreset.HIGHLANDS
+      ? TERRAIN_CONFIG.HEIGHT_EXPONENT * 0.7
+      : TERRAIN_CONFIG.HEIGHT_EXPONENT;
+
+    const mapCenterX = w * TERRAIN_CONFIG.CELL_SIZE / 2;
+    const mapCenterY = h * TERRAIN_CONFIG.CELL_SIZE / 2;
+    const maxDist = Math.min(mapCenterX, mapCenterY);
 
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
@@ -44,18 +61,33 @@ export class TerrainSystem {
         let height = (macro + base + detail) * 0.5 + 0.5;
         height = Phaser.Math.Clamp(height, 0, 1);
 
+        // Apply preset height multiplier (affects terrain roughness)
+        if (heightMult !== 1.0) {
+          const mid = 0.5;
+          height = mid + (height - mid) * heightMult;
+          height = Phaser.Math.Clamp(height, 0, 1);
+        }
+
+        // ISLAND preset: push edges below water, keep center as land
+        if (this.preset === MapPreset.ISLAND) {
+          const dx = wx - mapCenterX;
+          const dy = wy - mapCenterY;
+          const dist = Math.sqrt(dx * dx + dy * dy) / maxDist; // 0 at center, ~1 at edge
+          // Smooth falloff: start reducing at 40% from center, fully water at 95%
+          const falloff = dist < 0.4 ? 0 : (dist - 0.4) / 0.55;
+          height -= falloff * 0.35;
+          height = Phaser.Math.Clamp(height, 0, 1);
+        }
+
         // Power stretch: push above-water heights toward peaks so more cells hit
         // scrub/stone biomes instead of everything clustering in grass/forest.
-        const waterLevel = TERRAIN_CONFIG.WATER_LEVEL;
-        const exp = TERRAIN_CONFIG.HEIGHT_EXPONENT;
-        if (height > waterLevel && exp < 1.0) {
+        if (height > waterLevel && heightExp < 1.0) {
           const t = (height - waterLevel) / (1 - waterLevel);
-          const stretched = t ** exp;
+          const stretched = t ** heightExp;
           height = waterLevel + stretched * (1 - waterLevel);
         }
 
         this.heightGrid[gy * w + gx] = height;
-
       }
     }
   }
@@ -186,9 +218,10 @@ export class TerrainSystem {
       CELL_SIZE: CS, BIOMES, BIOME_DITHER, TEX_PERIOD,
       LIGHT_DIR_X, LIGHT_DIR_Y, LIGHT_DIR_Z,
       LIGHT_AMBIENT, LIGHT_DIFFUSE, NORMAL_STRENGTH, HEIGHT_SHADE,
-      WATER_LEVEL,
+      WATER_LEVEL: _waterLevel, // Use preset water level instead
       CLIFF_SLOPE_START, CLIFF_SLOPE_FULL, CLIFF_FACE_MIN_DROP,
     } = TERRAIN_CONFIG;
+    const WATER_LEVEL = this.presetConfig.waterLevel;
     const w = this.gridWidth;
     const h = this.gridHeight;
     const src = this.scene.textures;
@@ -483,6 +516,14 @@ export class TerrainSystem {
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1;
 
+        // River blue tint — draw on river cells for visual identification
+        if (this.riverCells.has(gy * w + gx)) {
+          path();
+          ctx.globalCompositeOperation = 'multiply';
+          ctx.fillStyle = 'rgba(120,160,255,0.7)'; // Blue river tint
+          ctx.fill();
+        }
+
         // True cliff faces only — large neighbor drop. Small slopes used to paint crack lines.
         const eastH = gx < w - 1 ? this.heightGrid[gy * w + (gx + 1)] : height;
         const southH = gy < h - 1 ? this.heightGrid[(gy + 1) * w + gx] : height;
@@ -549,6 +590,158 @@ export class TerrainSystem {
       height: this.gridHeight,
       cellSize: TERRAIN_CONFIG.CELL_SIZE
     };
+  }
+
+  /** Get the effective water level for this map (preset-aware). */
+  getWaterLevel(): number {
+    return this.presetConfig.waterLevel;
+  }
+
+  /** Get the current map preset. */
+  getPreset(): MapPreset {
+    return this.preset;
+  }
+
+  /**
+   * Return the biome label ('sand','grass','forest','scrub','stone','deep')
+   * at a world position using interpolated height and BIOMES thresholds.
+   * No slope/dither — pure height → biome for gameplay (farm yield).
+   */
+  getBiomeLabel(wx: number, wy: number): string {
+    const h = this.getHeightInterpolated(wx, wy);
+    const biomes = TERRAIN_CONFIG.BIOMES;
+    let idx = 0;
+    for (let i = biomes.length - 1; i >= 0; i--) {
+      if (h >= biomes[i].minHeight) { idx = i; break; }
+    }
+    return biomes[idx]?.label ?? 'deep';
+  }
+  /**
+   * Quick check: is the terrain forest at (worldX, worldY)?
+   * Used for forest concealment combat bonuses.
+   */
+  isForestAt(worldX: number, worldY: number): boolean {
+    return this.getBiomeLabel(worldX, worldY) === 'forest';
+  }
+
+  /**
+   * Generate river paths that follow low terrain valleys.
+   * Rivers create natural chokepoints on the map.
+   * Call after generateHeightMap() and before applyVisualTinting().
+   */
+  generateRivers(): void {
+    const riverCount = this.presetConfig.riverCount;
+    const { RIVER_WIDTH_CELLS, RIVER_MIN_HEIGHT, RIVER_MAX_HEIGHT } = TERRAIN_CONFIG;
+    const w = this.gridWidth;
+    const h = this.gridHeight;
+
+    // Use deterministic hash from noise seed for river placement
+    let seedCounter = 12345;
+    const nextRand = () => {
+      seedCounter = (seedCounter * 16807) % 2147483647;
+      return (seedCounter & 0x7fffffff) / 2147483647;
+    };
+
+    for (let river = 0; river < riverCount; river++) {
+      // Pick a random start point along the map edges at mid-elevation
+      const edge = Math.floor(nextRand() * 4); // 0=top, 1=right, 2=bottom, 3=left
+      let startX: number, startY: number;
+
+      if (edge === 0) { // top
+        startX = Math.floor(nextRand() * w);
+        startY = 0;
+      } else if (edge === 1) { // right
+        startX = w - 1;
+        startY = Math.floor(nextRand() * h);
+      } else if (edge === 2) { // bottom
+        startX = Math.floor(nextRand() * w);
+        startY = h - 1;
+      } else { // left
+        startX = 0;
+        startY = Math.floor(nextRand() * h);
+      }
+
+      // Trace river path downhill
+      const path: { gx: number; gy: number }[] = [];
+      let gx = startX;
+      let gy = startY;
+      const maxSteps = w + h; // Prevent infinite loops
+
+      for (let step = 0; step < maxSteps; step++) {
+        path.push({ gx, gy });
+
+        // Find lowest neighbor
+        let bestGx = gx, bestGy = gy;
+        let bestHeight = this.heightGrid[gy * w + gx];
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const nx = gx + dx;
+            const ny = gy + dy;
+            if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+
+            const nh = this.heightGrid[ny * w + nx];
+            if (nh < bestHeight) {
+              bestHeight = nh;
+              bestGx = nx;
+              bestGy = ny;
+            }
+          }
+        }
+
+        // Stop if reached water or no lower neighbor
+        if (bestHeight < TERRAIN_CONFIG.WATER_LEVEL || (bestGx === gx && bestGy === gy)) {
+          break;
+        }
+
+        // Stop if height is too high (river shouldn't climb mountains)
+        if (bestHeight > RIVER_MAX_HEIGHT) {
+          break;
+        }
+
+        gx = bestGx;
+        gy = bestGy;
+      }
+
+      // Mark cells along path as river (with width)
+      for (const pt of path) {
+        for (let dy = -RIVER_WIDTH_CELLS; dy <= RIVER_WIDTH_CELLS; dy++) {
+          for (let dx = -RIVER_WIDTH_CELLS; dx <= RIVER_WIDTH_CELLS; dx++) {
+            const rx = pt.gx + dx;
+            const ry = pt.gy + dy;
+            if (rx < 0 || rx >= w || ry < 0 || ry >= h) continue;
+
+            // Only mark if in valid height range
+            const cellHeight = this.heightGrid[ry * w + rx];
+            if (cellHeight >= RIVER_MIN_HEIGHT && cellHeight <= RIVER_MAX_HEIGHT) {
+              this.riverCells.add(ry * w + rx);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Quick check: is the terrain a river at (worldX, worldY)?
+   * Used for river crossing penalties.
+   */
+  isRiverAt(worldX: number, worldY: number): boolean {
+    const gx = Math.floor(worldX / TERRAIN_CONFIG.CELL_SIZE);
+    const gy = Math.floor(worldY / TERRAIN_CONFIG.CELL_SIZE);
+    if (gx < 0 || gx >= this.gridWidth || gy < 0 || gy >= this.gridHeight) {
+      return false;
+    }
+    return this.riverCells.has(gy * this.gridWidth + gx);
+  }
+
+  /**
+   * Get movement speed multiplier for river crossings.
+   * Returns 0.5 (half speed) for river cells, 1.0 otherwise.
+   */
+  getRiverCrossingPenalty(worldX: number, worldY: number): number {
+    return this.isRiverAt(worldX, worldY) ? TERRAIN_CONFIG.RIVER_CROSSING_SPEED_PENALTY : 1.0;
   }
   /**
    * Raise all height-grid cells within `radius` world-pixels of (wx, wy)

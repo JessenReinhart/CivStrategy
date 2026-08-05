@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile } from '../../constants';
+import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
+import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 import {
@@ -27,8 +27,15 @@ const _SCAN_INTERVAL_IDLE = 1000;     // ms between scans for idle units
 const _PATH_RECALC_INTERVAL = 2000;   // ms between path recalculations
 const SEPARATION_INTERVAL = 3;       // frames between separation checks
 const STALE_PATH_LIFETIME = 5000;    // ms before a path is considered stale
+
+/** All trainable military unit types — used for combat eligibility, targeting, selection, path viz. */
+const COMBAT_UNIT_TYPES: UnitType[] = [
+    UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION,
+    UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT, UnitType.RAM,
+];
 const FLOW_FIELD_THRESHOLD = 12;     // min units to trigger flow field instead of individual paths
 const FLOW_STEER_INTERVAL = 80;    // ms between flow direction updates per unit
+const MAX_ENGAGE_PER_TARGET = 3;    // max friendly units engaging the same enemy before spread kicks in
 
 interface StressEmitter extends Phaser.GameObjects.GameObject {
     start?: () => void;
@@ -44,6 +51,8 @@ interface StressProjectile {
 
     originX: number;
     originY: number;
+    targetX: number;
+    targetY: number;
 
     // Quadratic bezier points in iso-screen space (2D)
     p0x: number; p0y: number;
@@ -420,6 +429,12 @@ export class UnitSystem {
      */
     private moveAlongFlowField(unit: GameUnit, _time: number): void {
         if (!unit.flowTarget) return;
+        // Shield Wall: immobile
+        if (unit.getData('shieldWall')) {
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            if (body) body.setVelocity(0, 0);
+            return;
+        }
 
         const flowField = unit.getData('_flowField') as { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number } | undefined;
         if (!flowField) return;
@@ -457,7 +472,8 @@ export class UnitSystem {
         const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
         const formation = unit.getData('formation') as FormationType || FormationType.BOX;
         const multiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
-        const speed = baseSpeed * multiplier;
+        const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
+        const speed = baseSpeed * multiplier * moveMult;
 
         if (!dir || (dir.x === 0 && dir.y === 0)) {
             // No flow (on water/blocked or field hole) — stop; never straight-line through water
@@ -589,12 +605,8 @@ export class UnitSystem {
                 return;
             }
 
-            const targetType = target.getData('type') || (target as GameUnit).unitType;
-            if (targetType === 'animal' || targetType === UnitType.ANIMAL) {
-                return;
-            }
 
-            if ([UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType)) {
+            if (COMBAT_UNIT_TYPES.includes(unit.unitType)) {
                 unit.target = target;
                 unit.state = UnitState.CHASING;
                 unit.path = null;
@@ -617,61 +629,100 @@ export class UnitSystem {
         }
     }
 
-    // ─── Target Scanning (SpatialHash optimized) ──────────────────────────
+    // ─── Target Scanning (SpatialHash optimized, spread targeting) ───────
+    /** Per-frame engagement cache: enemy → number of friendly units targeting it. */
+    private _engageCache: Map<Phaser.GameObjects.GameObject, number> = new Map();
+    private _engageCacheFrame = -1;
+
+    /**
+     * Build (or reuse) a per-frame map of enemy → how many of `owner`'s units are targeting it.
+     * Cached per frame so it's O(n) per frame, not O(n²) per scan call.
+     */
+    private _buildEngagementMap(owner: number): Map<Phaser.GameObjects.GameObject, number> {
+        const frame = this.scene.game.loop.frame;
+        if (this._engageCacheFrame === frame) return this._engageCache;
+
+        this._engageCache.clear();
+        const children = this.scene.units.getChildren();
+        for (let i = 0, len = children.length; i < len; i++) {
+            const u = children[i] as GameUnit;
+            if (u.getData('owner') !== owner) continue;
+            if (u.getData('hp') <= 0) continue;
+            const tgt = u.target;
+            if (!tgt) continue;
+            this._engageCache.set(tgt, (this._engageCache.get(tgt) || 0) + 1);
+        }
+        this._engageCacheFrame = frame;
+        return this._engageCache;
+    }
+
     private scanForTargets(unit: GameUnit, _time: number): void {
         // Throttle: only scan periodically (~every 500ms)
         const lastScan = unit.getData('_lastScan') as number || 0;
         if (this.scene.time.now - lastScan < SCAN_INTERVAL_COMBAT) return;
         unit.setData('_lastScan', this.scene.time.now);
 
-        const isCombatUnit = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(unit.unitType);
+        const isCombatUnit = COMBAT_UNIT_TYPES.includes(unit.unitType);
         if (!isCombatUnit) return;
 
         const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
-        const visionRange = 250;
+        const visionRange = UNIT_VISION[unit.unitType] || 250;
         const myOwner = unit.getData('owner') as number;
-
-        // Use SpatialHash for O(k) neighbor scanning instead of O(n)
-        const spatialHash = this.scene.unitSpatialHash;
-        let candidates: Phaser.GameObjects.GameObject[];
-
-        if (spatialHash) {
-            candidates = spatialHash.query(unit.x, unit.y, visionRange);
-        } else {
-            // Fallback
-            candidates = this.scene.units.getChildren();
-        }
+        // Siege units (RAM) only target buildings, not units
+        const isSiegeUnit = unit.unitType === UnitType.RAM;
 
         let closest: Phaser.GameObjects.GameObject | null = null;
         let closestDist = visionRange;
 
-        for (const other of candidates) {
-            if (other === unit) continue;
-            const otherOwner = other.getData('owner') as number;
-            if (otherOwner === myOwner) continue;
-            const hp = other.getData('hp') as number;
-            if (hp <= 0) continue;
+        // Siege units skip unit targeting — go straight to buildings
+        if (!isSiegeUnit) {
+            const spatialHash = this.scene.unitSpatialHash;
+            let candidates: Phaser.GameObjects.GameObject[];
 
-            // Skip non-combat entities for targeting
-            const otherType = other.getData('unitType') || (other as GameUnit).unitType;
-            if (otherType === UnitType.VILLAGER || otherType === UnitType.ANIMAL) continue;
-
-            const otherImg = other as Phaser.GameObjects.Image;
-            const dx = unit.x - otherImg.x;
-            const dy = unit.y - otherImg.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < closestDist) {
-                // Fog of War check - skip if fog system active and point not visible
-                // Note: isVisible on FogOfWarSystem is a boolean flag, not a per-point check.
-                // We skip this check for now; FogOfWarSystem currently doesn't expose point visibility.
-                // TODO: Add isPointVisible(x,y,owner) to FogOfWarSystem if needed.
-                closest = other;
-                closestDist = dist;
+            if (spatialHash) {
+                candidates = spatialHash.query(unit.x, unit.y, visionRange);
+            } else {
+                candidates = this.scene.units.getChildren();
             }
+
+            const engageCount = this._buildEngagementMap(myOwner);
+
+            let best: Phaser.GameObjects.GameObject | null = null;
+            let bestDist = visionRange;
+            let fallback: Phaser.GameObjects.GameObject | null = null;
+            let fallbackDist = visionRange;
+
+            for (const other of candidates) {
+                if (other === unit) continue;
+                const otherOwner = other.getData('owner') as number;
+                if (otherOwner === myOwner) continue;
+                const hp = other.getData('hp') as number;
+                if (hp <= 0) continue;
+
+                const otherType = other.getData('unitType') || (other as GameUnit).unitType;
+                if (otherType === UnitType.ANIMAL) continue;
+
+                const otherImg = other as Phaser.GameObjects.Image;
+                const dx = unit.x - otherImg.x;
+                const dy = unit.y - otherImg.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+
+                if (dist < fallbackDist) {
+                    fallback = other;
+                    fallbackDist = dist;
+                }
+                if (dist < bestDist && (engageCount.get(other) || 0) < MAX_ENGAGE_PER_TARGET) {
+                    best = other;
+                    bestDist = dist;
+                }
+            }
+
+            closest = best || fallback;
+            closestDist = best ? bestDist : fallbackDist;
         }
 
-        // If no unit target, scan buildings (smaller set, always cheaper)
-        if (!closest) {
+        // Scan buildings: always for siege, fallback for regular units
+        if (!closest || isSiegeUnit) {
             for (const b of this.scene.buildings.getChildren()) {
                 const bOwner = b.getData('owner') as number;
                 if (bOwner === myOwner) continue;
@@ -851,7 +902,8 @@ export class UnitSystem {
             
             // Apply terrain-based movement speed modifier
             const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
-            const finalSpeed = baseSpeed * formationMultiplier * terrainModifier;
+            const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
+            const finalSpeed = baseSpeed * formationMultiplier * terrainModifier * moveMult;
             
             this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, finalSpeed);
         }
@@ -891,6 +943,11 @@ export class UnitSystem {
         const combatMods = this.scene.terrainSystem.getCombatModifiers(unit.x, unit.y, target.x, target.y);
         const heightAttackMult = 1 + combatMods.attackBonus;
 
+        // River crossing combat penalty — fighting in rivers is harder
+        const riverPenalty = this.scene.terrainSystem.isRiverAt(unit.x, unit.y) 
+          ? TERRAIN_CONFIG.RIVER_COMBAT_PENALTY : 0;
+        const riverAttackMult = 1 - riverPenalty;
+
         // Axeman: bonus damage vs buildings
         const bonusVsBuilding = unit.getData('bonusVsBuilding') as number | undefined;
         if (bonusVsBuilding && target.getData('def')) {
@@ -903,8 +960,9 @@ export class UnitSystem {
             profile = scaleDamageProfile(profile, 1 - defensiveBonus);
         }
 
-        // Formation attack bonus + high-ground attack bonus
-        profile = scaleDamageProfile(profile, attackMult * heightAttackMult);
+        // Formation attack bonus + high-ground attack bonus + faction melee bonus
+        const factionMeleeMult = unit.getData('factionMeleeMult') as number ?? 1;
+        profile = scaleDamageProfile(profile, attackMult * heightAttackMult * riverAttackMult * factionMeleeMult);
 
         // Apply the target's per-type armor via the smooth reduction formula
         const targetArmor = (target.getData('armor') as ArmorProfile) || {};
@@ -920,6 +978,11 @@ export class UnitSystem {
 
             const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
             const damagePerArrow = dmg / arrowCount;
+
+            // Show total volley damage once (not per arrow), unit targets only
+            if (!target.getData('def')) {
+                this.scene.feedbackSystem.showDamageNumber(target.x, target.y, Math.round(dmg), 'Pierce');
+            }
 
             for (let i = 0; i < arrowCount; i++) {
                 const delay = Phaser.Math.Between(0, 300);
@@ -943,8 +1006,16 @@ export class UnitSystem {
                             this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
                             // Apply terrain-based defense bonus for ranged attacks too
                             const defMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
-                            const rangedDmg = Math.round(damagePerArrow * (1 - defMods.defenseBonus));
-                            this.fireProjectile(origin, targetVaried, rangedDmg);
+                            const targetOwner = target.getData('owner') as number;
+                            const targetFaction = targetOwner === 0 ? this.scene.faction : this.scene.enemyFaction;
+                            const rangedArmorMult = (FACTION_BONUSES[targetFaction]?.rangedArmorMult ?? 1);
+                            const rangedDmg = Math.round(damagePerArrow * (1 - defMods.defenseBonus) * rangedArmorMult);
+                            // Forest defense bonus — trees block projectiles (Design Pillar 5: terrain matters)
+                            const forestMult = this.scene.terrainSystem.isForestAt(target.x, target.y) ? 0.7 : 1.0;
+                            // Wall defense: units near walls are harder to hit with arrows
+                            const wallDefMult = this.scene.buildingManager.getWallsNear(target.x, target.y, WALL_PROXIMITY_RADIUS).length > 0
+                                ? (1 - WALL_DEFENSE_BONUS) : 1;
+                            this.fireProjectile(origin, targetVaried, rangedDmg * forestMult * wallDefMult);
                         }
                     });
                 }
@@ -975,22 +1046,62 @@ export class UnitSystem {
             }
 
             if (target.takeDamage) {
-                // Check if this is a clash between opposing factions
                 const unitOwner = unit.getData('owner') as number;
                 const targetOwner = target.getData('owner') as number;
                 const isOpposingFactions = unitOwner !== targetOwner && unitOwner >= 0 && targetOwner >= 0;
                 
-                // Apply terrain-based defense bonus for defender
                 const defCombatMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
                 const heightDefenseMult = 1 - defCombatMods.defenseBonus;
-                const finalDmg = Math.round(dmg * heightDefenseMult);
+                const snap = this.scene.researchManager?.getSnapshot(unitOwner);
+                const dmgMult = snap?.damageMult ?? 1;
+                // Siege Engineering: +25% damage for siege units vs buildings
+                const siegeMult = (unit.unitType === UnitType.RAM && target.getData('def'))
+                    ? (snap?.siegeBuildingDmgMult ?? 1) : 1;
+                // RAM vs Wall: 3x bonus damage — battering rams shred walls
+                const isRamVsWall = unit.unitType === UnitType.RAM && target.getData('def')?.type === BuildingType.WALL;
+                const ramWallMult = isRamVsWall ? RAM_VS_WALL_MULTIPLIER : 1;
+                // Forest defense bonus — trees block projectiles (Design Pillar 5: terrain matters)
+                const forestMult = this.scene.terrainSystem.isForestAt(target.x, target.y) ? 0.7 : 1.0;
+                // Cavalry Charge: 2x damage on first hit while charging
+                const chargeMult = unit.getData('charging') ? 2 : 1;
+                if (chargeMult > 1) {
+                    unit.setData('charging', false); // Consume charge
+                    if (unit.visual) unit.visual.clearTint();
+                }
+                // Wall proximity defense: units near a wall take less damage
+                const nearWall = this.scene.buildingManager.getWallsNear(target.x, target.y, WALL_PROXIMITY_RADIUS).length > 0;
+                const wallDefenseMult = nearWall ? (1 - WALL_DEFENSE_BONUS) : 1;
+                // Melee penalty: non-ram melee attackers deal reduced damage to targets behind walls
+                const wallMeleeMult = (nearWall && unit.unitType !== UnitType.RAM) ? WALL_MELEE_PENALTY : 1;
+                const finalDmg = Math.round(dmg * heightDefenseMult * dmgMult * siegeMult * ramWallMult * forestMult * chargeMult * wallDefenseMult * wallMeleeMult);
 
                 if (isOpposingFactions) {
                     this.scene.events.emit(EVENTS.CLASH_START, { x: target.x, y: target.y });
                 }
 
-                this.scene.proceduralSound.playSwordClash(target.x, target.y);
-                target.takeDamage(finalDmg);
+                // Route to AnimalSystem if target is an animal container
+                const targetType = target.getData('type') as string | undefined;
+                if (targetType === 'animal') {
+                    const animalData = target.getData('data');
+                    if (animalData && this.scene.animalSystem) {
+                        this.scene.animalSystem.takeDamage(animalData, finalDmg);
+                    }
+                } else {
+                    target.takeDamage(finalDmg);
+                }
+                // Show floating damage number for melee hits on units (buildings handled by EntityFactory)
+                if (!target.getData('def')) {
+                    const primaryType = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
+                    this.scene.feedbackSystem.showDamageNumber(target.x, target.y, finalDmg, primaryType || undefined);
+                    this.scene.feedbackSystem.showHitSpark(target.x, target.y, primaryType || undefined);
+                }
+                const primaryType2 = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
+                const isRamVsBuilding = unit.unitType === UnitType.RAM && target.getData('def');
+                if (isRamVsBuilding) {
+                    this.scene.proceduralSound.playSiegeImpact(target.x, target.y);
+                } else {
+                    this.scene.proceduralSound.playAttackImpact(target.x, target.y, primaryType2 || undefined);
+                }
             }
         }
     }
@@ -1032,6 +1143,8 @@ export class UnitSystem {
             emitter,
             originX: origin.x,
             originY: origin.y,
+            targetX: target.x,
+            targetY: target.y,
             p0x, p0y,
             p1x, p1y,
             p2x, p2y,
@@ -1114,6 +1227,7 @@ export class UnitSystem {
                 p.finished = true;
                 this.recycleStressProjectile(p);
                 p.takeDamage(p.dmg);
+                this.scene.proceduralSound.playAttackImpact(p.targetX, p.targetY, 'Pierce');
             }
         }
     }
@@ -1287,6 +1401,8 @@ export class UnitSystem {
                 emitter.destroy();
                 if (target.takeDamage) {
                     target.takeDamage(dmg);
+                    this.scene.feedbackSystem.showHitSpark(target.x, target.y, 'Pierce');
+                    this.scene.proceduralSound.playAttackImpact(target.x, target.y, 'Pierce');
                 }
             }
         });
@@ -1323,7 +1439,7 @@ export class UnitSystem {
     private drawUnitPaths(time: number): void {
         this.pathGraphics.clear();
         for (const u of this.scene.units.getChildren() as GameUnit[]) {
-            const isSelectable = [UnitType.PIKESMAN, UnitType.CAVALRY, UnitType.LEGION, UnitType.ARCHER].includes(u.unitType);
+            const isSelectable = COMBAT_UNIT_TYPES.includes(u.unitType);
 
             if (isSelectable && u.path && u.pathCreatedAt) {
                 const age = time - u.pathCreatedAt;
@@ -1346,4 +1462,108 @@ export class UnitSystem {
             }
         }
     }
+
+    // ─── Unit Abilities ─────────────────────────────────────────────────────
+    public activateAbility(unit: GameUnit): boolean {
+        const ability = UNIT_ABILITIES[unit.unitType];
+        if (!ability) return false;
+
+        const now = this.scene.gameTime;
+        const lastUsed = (unit.getData('abilityCooldown') as number) || 0;
+        const config = ABILITY_CONFIG[ability];
+
+        // Check cooldown
+        if (now - lastUsed < config.cooldown) return false;
+
+        // Set cooldown
+        unit.setData('abilityCooldown', now);
+
+        switch (ability) {
+            case UnitAbility.SHIELD_WALL: {
+                // +50% armor for 5s, immobile
+                unit.setData('shieldWall', true);
+                const baseArmor = unit.getData('armor') as ArmorProfile || {};
+                const boostedArmor: ArmorProfile = {};
+                for (const [key, val] of Object.entries(baseArmor)) {
+                    boostedArmor[key as DamageType] = (val ?? 0) * 1.5;
+                }
+                unit.setData('shieldWallOriginalArmor', baseArmor);
+                unit.setData('armor', boostedArmor);
+                // Stop movement
+                const body = unit.body as Phaser.Physics.Arcade.Body;
+                if (body) body.setVelocity(0, 0);
+                unit.flowTarget = undefined;
+                // Visual feedback
+                if (unit.visual) {
+                    unit.visual.setAlpha(0.8);
+                }
+                // Remove after duration
+                this.scene.time.delayedCall(config.duration, () => {
+                    if (unit.scene) {
+                        unit.setData('shieldWall', false);
+                        unit.setData('armor', baseArmor);
+                        if (unit.visual) unit.visual.setAlpha(1);
+                    }
+                });
+                this.scene.feedbackSystem.showDamageNumber(unit.x, unit.y - 20, 0, 'Hack'); // Visual indicator
+                return true;
+            }
+            case UnitAbility.RAIN_FIRE: {
+                // Area volley: hit all enemies within 100px of unit's target or position
+                const targetX = unit.target ? (unit.target as GameUnit).x : unit.x;
+                const targetY = unit.target ? (unit.target as GameUnit).y : unit.y;
+                const owner = unit.getData('owner') as number;
+                const areaRadius = 100;
+
+                // Find enemies in area
+                const enemies = this.scene.units.getChildren().filter((e) => {
+                    if (e.getData('owner') === owner) return false;
+                    const dx = e.x - targetX;
+                    const dy = e.y - targetY;
+                    return Math.sqrt(dx * dx + dy * dy) <= areaRadius;
+                }) as GameUnit[];
+
+                if (enemies.length === 0) return false;
+
+                // Deal 50% damage to each
+                const profile: DamageProfile = (unit.getData('damage') as DamageProfile) || { [DamageType.PIERCE]: 10 };
+                const halfDmgProfile = scaleDamageProfile(profile, 0.5);
+
+                for (const enemy of enemies) {
+                    const enemyArmor = (enemy.getData('armor') as ArmorProfile) || {};
+                    const finalDmg = computeDamage(halfDmgProfile, enemyArmor);
+                    if (enemy.takeDamage) {
+                        enemy.takeDamage(Math.round(finalDmg));
+                    }
+                    // Show damage number
+                    this.scene.feedbackSystem.showDamageNumber(enemy.x, enemy.y, Math.round(finalDmg), 'Pierce');
+                    // Fire visual arrow
+                    this.fireProjectile(
+                        { x: unit.x, y: unit.y },
+                        { x: enemy.x, y: enemy.y, scene: enemy.scene, takeDamage: () => {} },
+                        0 // Visual only, damage already applied
+                    );
+                }
+                return true;
+            }
+            case UnitAbility.CHARGE: {
+                // 2x damage on first hit after sprinting
+                unit.setData('charging', true);
+                // Visual feedback
+                if (unit.visual) {
+                    unit.visual.setTint(0xff8800);
+                }
+                // Remove after duration
+                this.scene.time.delayedCall(config.duration, () => {
+                    if (unit.scene) {
+                        unit.setData('charging', false);
+                        if (unit.visual) unit.visual.clearTint();
+                    }
+                });
+                return true;
+            }
+        }
+        return false;
+    }
+
 }

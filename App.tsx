@@ -4,7 +4,7 @@ import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
-import { FactionType, GameStats, BuildingType, MapMode, MapSize, UnitType, FormationType, UnitStance, Age } from './types';
+import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
@@ -25,6 +25,8 @@ const App: React.FC = () => {
   const [peacefulMode, setPeacefulMode] = useState<boolean>(false);
   const [treatyLength, setTreatyLength] = useState<number>(10);
   const [aiDisabled, setAiDisabled] = useState<boolean>(false);
+  const [mapSeed, setMapSeed] = useState<number>(0);
+  const [mapPreset, setMapPreset] = useState<MapPreset>(MapPreset.STANDARD);
 
   const [gameInstance, setGameInstance] = useState<Phaser.Game | null>(null);
   const [stressTestConfig, setStressTestConfig] = useState<StressTestConfig | null>(null);
@@ -45,13 +47,17 @@ const App: React.FC = () => {
   currentStance: UnitStance.AGGRESSIVE,
   currentAge: Age.VILLAGE,
   ageProgress: 0,
-  nextAge: null
+  nextAge: null,
+  currentSeason: 'summer' as const,
+  notifications: [],
+  activeResearch: null,
+  completedTechs: [],
+  gameResult: GameResult.PLAYING,
 });
 const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
-
-  const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, disableAI: boolean) => {
+  const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, disableAI: boolean, seed: number = 0, preset: MapPreset = MapPreset.STANDARD) => {
     setFaction(selectedFaction);
     setMapMode(mode);
     setMapSize(size);
@@ -59,6 +65,8 @@ const [selectedCount, setSelectedCount] = useState(0);
     setPeacefulMode(peaceful);
     setTreatyLength(treaty);
     setAiDisabled(disableAI);
+    setMapSeed(seed);
+    setMapPreset(preset);
     setStressTestConfig(null);
     setIsGameLoading(true);
     setLoadProgress(0);
@@ -100,9 +108,18 @@ const [selectedCount, setSelectedCount] = useState(0);
       bloomIntensity: 1.0,
       currentFormation: FormationType.BOX,
     currentStance: UnitStance.AGGRESSIVE,
-    currentAge: Age.VILLAGE,
-    ageProgress: 0,
-    nextAge: null
+      currentAge: Age.VILLAGE,
+      ageProgress: 0,
+      nextAge: null,
+      currentSeason: 'summer' as const,
+      notifications: [],
+      activeResearch: null,
+      completedTechs: [],
+      selectedBuildingInfo: null,
+      gameResult: GameResult.PLAYING,
+      dominanceProgress: 0,
+      playerTerritoryPercent: 0,
+      victoryType: VictoryType.CONQUEST,
     });
   };
 
@@ -186,12 +203,33 @@ const [selectedCount, setSelectedCount] = useState(0);
       gameInstance.events.emit('request-set-stance', customEvent.detail);
     };
 
+    const researchHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit(EVENTS.START_RESEARCH, customEvent.detail);
+    };
+
+    const selectionUIHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit(EVENTS.SELECTION_CHANGED, customEvent.detail);
+    };
+
+    const saveGameHandler = () => {
+      gameInstance.events.emit('save-game');
+    };
+    const loadGameHandler = () => {
+      gameInstance.events.emit('load-game');
+    };
+
     window.addEventListener('set-tax-rate-ui', taxHandler);
     window.addEventListener('center-camera-ui', centerCameraHandler);
     window.addEventListener('set-game-speed-ui', speedHandler);
     window.addEventListener('set-bloom-intensity-ui', bloomHandler);
     window.addEventListener('request-set-formation-ui', formationHandler);
     window.addEventListener('request-set-stance-ui', stanceHandler);
+    window.addEventListener('request-start-research', researchHandler);
+    window.addEventListener(EVENTS.SELECTION_CHANGED, selectionUIHandler);
+    window.addEventListener('save-game', saveGameHandler);
+    window.addEventListener('load-game', loadGameHandler);
 
     return () => {
       if (gameInstance) {
@@ -205,8 +243,9 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('set-game-speed-ui', speedHandler);
       window.removeEventListener('set-game-speed-ui', speedHandler);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
-      window.removeEventListener('request-set-formation-ui', formationHandler);
-      window.removeEventListener('request-set-stance-ui', stanceHandler);
+      window.removeEventListener(EVENTS.SELECTION_CHANGED, selectionUIHandler);
+      window.removeEventListener('save-game', saveGameHandler);
+      window.removeEventListener('load-game', loadGameHandler);
     };
   }, [gameInstance]);
 
@@ -230,6 +269,10 @@ const [selectedCount, setSelectedCount] = useState(0);
     gameInstance?.events.emit(EVENTS.ADVANCE_AGE);
   };
 
+  const handleReleaseGarrison = () => {
+    gameInstance?.events.emit('release-garrison');
+  };
+
   return (
     <div className="w-full h-screen overflow-hidden bg-black text-white relative select-none">
       {gameState === 'menu' && <MainMenu onStart={handleStart} />}
@@ -246,6 +289,8 @@ const [selectedCount, setSelectedCount] = useState(0);
             treatyLength={treatyLength}
             aiDisabled={aiDisabled}
             stressTestConfig={stressTestConfig}
+            mapSeed={mapSeed}
+            mapPreset={mapPreset}
             onGameReady={setGameInstance}
           />
           {!isGameLoading && gameState === 'playing' && (
@@ -260,11 +305,10 @@ const [selectedCount, setSelectedCount] = useState(0);
               selectedCounts={selectedCounts}
               selectedBuildingType={selectedBuildingType}
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
-              onFilterSelection={(type: UnitType) => gameInstance?.events.emit('filter-selection', type)}
-              currentAge={stats.currentAge}
+              onAdvanceAge={handleAdvanceAge}
+              onReleaseGarrison={handleReleaseGarrison}
               ageProgress={stats.ageProgress}
               nextAge={stats.nextAge}
-              onAdvanceAge={handleAdvanceAge}
             />
           )}
           {!isGameLoading && gameState === 'stress-test' && (

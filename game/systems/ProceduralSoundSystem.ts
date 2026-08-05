@@ -1,5 +1,6 @@
 import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
+import { DamageType } from '../../types';
 
 /**
  * ProceduralSoundSystem — Zero-dependency SFX via Web Audio API.
@@ -299,28 +300,40 @@ export class ProceduralSoundSystem {
     /**
      * Unit death — low rumble + fading exhale.
      */
-    public playDeath(worldX: number, worldY: number, isUnit: boolean): void {
+    public playDeath(worldX: number, worldY: number, unitType?: string): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
-        const volume = isUnit ? 0.3 : 0.2;
-        const finalVol = volume * distGain;
+        const isAnimal = unitType === 'deer' || unitType === 'wolf' || unitType === 'boar' || unitType === 'rabbit';
 
-        const rumble = this.noiseBurst('lowpass', Math.min(filterFreq, 350), 2, 0.15, 0.7, finalVol);
-        const exhale = this.noiseBurst('bandpass', 800, 2, 0.1, 0.5, finalVol * 0.4);
+        // Heavy units: deeper, longer death sound. Light/animal: shorter, higher.
+        const heavyUnits = ['HOPLITE', 'LEGION', 'RAM'];
+        const isHeavy = unitType ? heavyUnits.includes(unitType) : false;
+
+        const volume = isHeavy ? 0.4 : isAnimal ? 0.2 : 0.3;
+        const finalVol = volume * distGain;
+        const rumbleFreq = isHeavy ? 250 : isAnimal ? 600 : 350;
+        const rumbleDecay = isHeavy ? 1.0 : isAnimal ? 0.4 : 0.7;
+        const exhaleFreq = isHeavy ? 600 : isAnimal ? 1200 : 800;
+        const oscStartFreq = isHeavy ? 60 : isAnimal ? 150 : 80;
+        const oscEndFreq = isHeavy ? 25 : isAnimal ? 60 : 30;
+        const oscDecay = isHeavy ? 0.8 : isAnimal ? 0.35 : 0.6;
+
+        const rumble = this.noiseBurst('lowpass', Math.min(filterFreq, rumbleFreq), 2, 0.15, rumbleDecay, finalVol);
+        const exhale = this.noiseBurst('bandpass', exhaleFreq, 2, 0.1, rumbleDecay * 0.7, finalVol * 0.4);
 
         const ctx2 = this.ctx!;
         const osc = ctx2.createOscillator();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(80, ctx2.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(30, ctx2.currentTime + 0.5);
+        osc.frequency.setValueAtTime(oscStartFreq, ctx2.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(oscEndFreq, ctx2.currentTime + oscDecay);
         const oscGain = ctx2.createGain();
         oscGain.gain.setValueAtTime(finalVol * 0.3, ctx2.currentTime);
-        oscGain.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.6);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + oscDecay + 0.1);
         osc.connect(oscGain);
-        this.scheduleSource(osc, 0.7);
+        this.scheduleSource(osc, oscDecay + 0.2);
 
         this.applyPan(pan, rumble);
         this.applyPan(pan, exhale);
@@ -378,7 +391,7 @@ export class ProceduralSoundSystem {
     }
 
     /**
-     * Demolition / building destruction — crumbling bursts.
+     * Demolition / building destruction — heavier crumbling bursts.
      */
     public playDemolition(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
@@ -386,34 +399,121 @@ export class ProceduralSoundSystem {
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
-        const volume = 0.5 * distGain;
+        const volume = 0.6 * distGain;
         const now = ctx.currentTime;
 
         for (let i = 0; i < 3; i++) {
-            const t = now + i * 0.12;
+            const t = now + i * 0.15;
             const burst = ctx.createBufferSource();
             burst.buffer = this.noiseBufferLong!;
             const filter = ctx.createBiquadFilter();
             filter.type = 'lowpass';
-            filter.frequency.value = Math.max(150, filterFreq - i * 400);
+            filter.frequency.value = Math.max(100, filterFreq - i * 500);
             filter.Q.value = 2;
             const g = ctx.createGain();
             g.gain.setValueAtTime(0.001, t);
-            g.gain.exponentialRampToValueAtTime(volume * (1 - i * 0.25), t + 0.03);
-            g.gain.exponentialRampToValueAtTime(0.001, t + 0.5 + i * 0.1);
+            g.gain.exponentialRampToValueAtTime(volume * (1 - i * 0.2), t + 0.04);
+            g.gain.exponentialRampToValueAtTime(0.001, t + 0.7 + i * 0.15);
             burst.connect(filter);
             filter.connect(g);
             this.applyPan(pan, g);
-            this.scheduleSource(burst, 0.6 + i * 0.1);
+            this.scheduleSource(burst, 0.85 + i * 0.15);
         }
 
-        const grind = this.noiseBurst('bandpass', 300, 4, 0.05, 0.4, volume * 0.3);
+        const grind = this.noiseBurst('bandpass', 200, 4, 0.05, 0.6, volume * 0.35);
         this.applyPan(pan, grind);
 
-        const thud = this.tone('sine', 45, 0.02, 0.6, volume * 0.5);
+        const thud = this.tone('sine', 35, 0.02, 0.8, volume * 0.6);
         this.applyPan(pan, thud);
     }
 
+    /**
+     * Damage-type-specific attack impact sound.
+     * HACK (swords, axes): metallic clash — high-freq burst + quick decay.
+     * PIERCE (arrows, javelins): sharp twang — very short click.
+     * CRUSH (rams, slingers): heavy thud — low-freq impact + longer decay.
+     */
+    public playAttackImpact(worldX: number, worldY: number, damageType?: string): void {
+        const ctx = this.ensureAudioContext();
+        if (!ctx || this.scene.peacefulMode) return;
+
+        const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
+        const pan = this.getPan(worldX, worldY);
+
+        switch (damageType) {
+            case DamageType.HACK: {
+                // Metallic clash — sword/axe clang
+                const volume = 0.35 * distGain;
+                const clash = this.noiseBurst('bandpass', Math.min(filterFreq, 800), 8, 0.01, 0.2, volume * 0.7);
+                const ring = this.tone('triangle', 800, 0.01, 0.12, volume * 0.25, -100);
+                this.applyPan(pan, clash);
+                this.applyPan(pan, ring);
+                break;
+            }
+            case DamageType.PIERCE: {
+                // Sharp twang — arrow/javelin impact
+                const volume = 0.2 * distGain;
+                const twang = this.noiseBurst('bandpass', Math.min(filterFreq, 1200), 5, 0.002, 0.06, volume);
+                const click = this.tone('triangle', 1200, 0.005, 0.04, volume * 0.3);
+                this.applyPan(pan, twang);
+                this.applyPan(pan, click);
+                break;
+            }
+            case DamageType.CRUSH: {
+                // Heavy thud — slinger/ram impact
+                const volume = 0.4 * distGain;
+                const thud = this.tone('sine', 200, 0.01, 0.35, volume);
+                const crunch = this.noiseBurst('lowpass', 400, 2, 0.01, 0.3, volume * 0.5);
+                this.applyPan(pan, thud);
+                this.applyPan(pan, crunch);
+                break;
+            }
+            default:
+                // Fallback: generic sword clash
+                this.playSwordClash(worldX, worldY);
+                break;
+        }
+    }
+
+    /**
+     * Siege impact — heavy thud + wood creak. Distinct from generic CRUSH.
+     */
+    public playSiegeImpact(worldX: number, worldY: number): void {
+        const ctx = this.ensureAudioContext();
+        if (!ctx || this.scene.peacefulMode) return;
+
+        const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
+        const pan = this.getPan(worldX, worldY);
+        const volume = 0.5 * distGain;
+
+        // Low-frequency thud
+        const thud = this.tone('sine', 120, 0.01, 0.5, volume);
+        const impact = this.noiseBurst('lowpass', Math.min(filterFreq, 250), 2, 0.02, 0.4, volume * 0.6);
+
+        // Wood creak — sawtooth with LFO modulating pitch
+        const ctx2 = this.ctx!;
+        const creak = ctx2.createOscillator();
+        creak.type = 'sawtooth';
+        creak.frequency.value = 180;
+        const lfo = ctx2.createOscillator();
+        lfo.type = 'sine';
+        lfo.frequency.value = 6;
+        const lfoGain = ctx2.createGain();
+        lfoGain.gain.value = 25;
+        lfo.connect(lfoGain);
+        lfoGain.connect(creak.frequency);
+        const creakGain = ctx2.createGain();
+        creakGain.gain.setValueAtTime(0.001, ctx2.currentTime);
+        creakGain.gain.exponentialRampToValueAtTime(volume * 0.35, ctx2.currentTime + 0.02);
+        creakGain.gain.exponentialRampToValueAtTime(0.001, ctx2.currentTime + 0.4);
+        creak.connect(creakGain);
+        this.scheduleSource(creak, 0.45);
+        this.scheduleSource(lfo, 0.45);
+
+        this.applyPan(pan, thud);
+        this.applyPan(pan, impact);
+        this.applyPan(pan, creakGain);
+    }
     /**
      * Wood chop — sharp transient + woody resonance.
      */
@@ -554,6 +654,79 @@ export class ProceduralSoundSystem {
     }
 
     /**
+     * Synthesized animal call with spatial audio.
+     * Wolf howl suppressed in peaceful mode (predatory);
+     * deer, boar, rabbit are ambient and play regardless.
+     */
+    public playAnimalCall(species: string, worldX: number, worldY: number): void {
+        const ctx = this.ensureAudioContext();
+        if (!ctx) return;
+
+        const { gain: distGain } = this.getDistanceGain(worldX, worldY);
+        const pan = this.getPan(worldX, worldY);
+        const now = ctx.currentTime;
+
+        switch (species) {
+            case 'deer': {
+                // Short noise snort + low sine body
+                const volume = 0.15 * distGain;
+                const snort = this.noiseBurst('bandpass', 800, 3, 0.01, 0.15, volume);
+                const body = this.tone('sine', 120, 0.01, 0.05, volume * 0.6);
+                this.applyPan(pan, snort);
+                this.applyPan(pan, body);
+                break;
+            }
+            case 'wolf': {
+                // Predatory — skip in peaceful mode
+                if (this.scene.peacefulMode) return;
+                const volume = 0.2 * distGain;
+                // Sine sweep 300→600Hz over 0.4s
+                const osc = ctx.createOscillator();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.4);
+                const gain = ctx.createGain();
+                gain.gain.setValueAtTime(0.001, now);
+                gain.gain.exponentialRampToValueAtTime(volume, now + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+                osc.connect(gain);
+                this.scheduleSource(osc, 0.7);
+                this.applyPan(pan, gain);
+                break;
+            }
+            case 'boar': {
+                // Two quick low noise bursts spaced 0.1s apart
+                const volume = 0.12 * distGain;
+                const burst1 = this.noiseBurst('lowpass', 250, 2, 0.01, 0.08, volume);
+                this.applyPan(pan, burst1);
+                // Second burst — 0.1s offset (noiseBurst starts immediately, so manual)
+                const src2 = ctx.createBufferSource();
+                src2.buffer = this.noiseBufferMedium!;
+                const filt2 = ctx.createBiquadFilter();
+                filt2.type = 'lowpass';
+                filt2.frequency.value = 250;
+                filt2.Q.value = 2;
+                const gain2 = ctx.createGain();
+                gain2.gain.setValueAtTime(0.001, now + 0.1);
+                gain2.gain.exponentialRampToValueAtTime(volume, now + 0.11);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.19);
+                src2.connect(filt2);
+                filt2.connect(gain2);
+                this.scheduleSource(src2, 0.2);
+                this.applyPan(pan, gain2);
+                break;
+            }
+            case 'rabbit': {
+                // High-pitched squeak
+                const volume = 0.08 * distGain;
+                const squeak = this.tone('sine', 900, 0.005, 0.06, volume);
+                this.applyPan(pan, squeak);
+                break;
+            }
+        }
+    }
+
+    /**
      * Start continuous ambient wind loop.
      */
     public startAmbientWind(): void {
@@ -608,6 +781,29 @@ export class ProceduralSoundSystem {
         this.windFilter = filter;
         this.windLfo = lfo;
         this.windLfoGain = lfoGain;
+    }
+    /**
+     * Adjust wind character based on season.
+     */
+    public setSeasonalWind(season: string): void {
+        if (!this.windFilter) return;
+        const ctx = this.ctx;
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        switch (season) {
+            case 'Spring':
+                this.windFilter.frequency.linearRampToValueAtTime(400, now + 0.5);
+                break;
+            case 'Summer':
+                this.windFilter.frequency.linearRampToValueAtTime(300, now + 0.5);
+                break;
+            case 'Autumn':
+                this.windFilter.frequency.linearRampToValueAtTime(700, now + 0.5);
+                break;
+            case 'Winter':
+                this.windFilter.frequency.linearRampToValueAtTime(900, now + 0.5);
+                break;
+        }
     }
 
     /**

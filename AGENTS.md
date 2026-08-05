@@ -215,6 +215,80 @@ The single existing test is high-quality: it validates complex Web Audio API gra
 - Run `npm run test` to execute (single-run, no watch)
 - No coverage reports available without adding `@vitest/coverage-v8`
 
+
+---
+
+## Verification Workflow
+
+A comprehensive verification workflow prevents type errors, lint violations, and unused code from reaching production. **Run before every commit/push.**
+
+### Quick Check
+
+```bash
+npm run verify
+```
+
+This runs the full verification suite locally:
+1. **TypeScript type check** (strict, filters known-safe errors like `vite.config.d.ts`)
+2. **ESLint** (zero-warning policy)
+3. **Unit tests** (Vitest)
+4. **Fallow dead code detection** (finds unused exports, files, circular deps)
+5. **Fallow full analysis** (complexity, duplication, architecture drift)
+6. **Production build** (ensures `vite build` succeeds)
+
+### Fallow — Unused Code Detection
+
+[Fallow](https://github.com/fallow-rs/fallow) is a static analysis tool for TypeScript/JavaScript that finds:
+- Dead code (unused files, exports, class members)
+- Circular dependencies
+- Duplicate code fragments
+- Complexity hotspots
+- Architecture drift
+
+```bash
+# Quick dead-code check
+npx fallow dead-code
+
+# Full analysis
+npx fallow
+
+# Type-aware mode (slower, more accurate)
+npx fallow dead-code --type-aware
+
+# JSON output for CI
+npx fallow dead-code --format json
+```
+
+Currently **non-blocking** (warnings only) — review findings but won't fail CI. Can be made blocking once codebase is cleaned up.
+
+### CI/CD Integration
+
+GitHub Actions workflow at `.github/workflows/verify.yml` runs the same checks on every push/PR to `main`, `develop`, and `feat/**` branches.
+
+### Git Hooks
+
+Husky pre-commit: runs `npm run lint`  
+Husky pre-push: runs `npm run build`
+
+**Recommended:** Update `.husky/pre-push` to run `npm run verify` instead of just build:
+
+```bash
+#!/bin/sh
+npm run verify
+```
+
+This catches type errors before push (like `this.isPendingLoad()` vs `isPendingLoad()`).
+
+### Why This Matters
+
+TypeScript caught the `this.isPendingLoad()` error, but incomplete verification output (`| head -30`) hid it. The runtime error surfaced immediately when tested. This workflow ensures:
+- **Full tsc output** is checked (no truncation)
+- **Known-safe errors** are filtered (e.g., `vite.config.d.ts`)
+- **New errors block CI/push** before they reach production
+- **Dead code is surfaced** so the codebase stays lean
+
+Always run `npm run verify` before claiming "done" on any task.
+
 ---
 
 ## Performance Considerations

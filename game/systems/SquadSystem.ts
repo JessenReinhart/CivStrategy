@@ -363,16 +363,51 @@ export class SquadSystem {
             // Head
             gfx.fillStyle(0xffffff, 0.8);
             gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
-        } else if (unitType === UnitType.CAVALRY) {
-            // Shadow
+        } else if (unitType === UnitType.SLINGER) {
+            // Light infantry — small circle
             gfx.fillStyle(0x000000, 0.3);
-            gfx.fillEllipse(drawX, drawY + z, 10, 5);
-            // Body
+            gfx.fillEllipse(drawX, drawY + z, 5, 3);
             gfx.fillStyle(color, 1);
-            gfx.fillEllipse(drawX, drawY, 14, 8);
+            gfx.fillCircle(drawX, drawY - 2, 3);
+            gfx.fillStyle(0xffffff, 0.8);
+            gfx.fillCircle(drawX, drawY - 4, 1.5);
+        } else if (unitType === UnitType.AXEMAN) {
+            // Melee — slightly larger circle with accent
+            gfx.fillStyle(0x000000, 0.3);
+            gfx.fillEllipse(drawX, drawY + z, 6, 3);
+            gfx.fillStyle(color, 1);
+            gfx.fillCircle(drawX, drawY - 2, 3.5);
+            // Axe accent
+            gfx.fillStyle(0x8D6E63, 1);
+            gfx.fillRect(drawX + 3, drawY - 6, 1.5, 6);
+            gfx.fillStyle(0xC0C0C0, 1);
+            gfx.fillRect(drawX + 2, drawY - 8, 4, 2.5);
+            gfx.fillStyle(0xffffff, 0.8);
+            gfx.fillCircle(drawX, drawY - 4, 1.5);
+        } else if (unitType === UnitType.HOPLITE) {
+            // Heavy infantry — circle with shield accent
+            gfx.fillStyle(0x000000, 0.3);
+            gfx.fillEllipse(drawX, drawY + z, 7, 3);
+            gfx.fillStyle(color, 1);
+            gfx.fillRect(drawX - 2, drawY - 4, 4, 6);
+            // Shield accent
+            gfx.fillStyle(0xDAA520, 0.9);
+            gfx.fillCircle(drawX - 3, drawY - 1, 3);
+            gfx.fillStyle(0xffffff, 0.8);
+            gfx.fillRect(drawX - 1, drawY - 6, 2, 2);
+        } else if (unitType === UnitType.CHARIOT) {
+            // Mounted — rectangle body
+            gfx.fillStyle(0x000000, 0.3);
+            gfx.fillEllipse(drawX, drawY + z, 12, 5);
+            gfx.fillStyle(color, 1);
+            gfx.fillRect(drawX - 6, drawY - 3, 12, 6);
+            // Wheels
+            gfx.fillStyle(0x8D6E63, 1);
+            gfx.fillCircle(drawX - 4, drawY + 3, 2);
+            gfx.fillCircle(drawX + 4, drawY + 3, 2);
             // Rider head
             gfx.fillStyle(0xffffff, 1);
-            gfx.fillCircle(drawX, drawY - 5, 2.5);
+            gfx.fillCircle(drawX, drawY - 5, 2);
         }
     }
 

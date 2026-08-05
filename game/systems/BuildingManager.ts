@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
-import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG } from '../../constants';
+import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
 export class BuildingManager {
@@ -14,6 +14,7 @@ export class BuildingManager {
     private territoryGraphics: Phaser.GameObjects.Graphics;
     private isTerritoryDirty: boolean = true;
     private activeSelectionBeam: Phaser.GameObjects.Graphics | null = null;
+    private previewText: Phaser.GameObjects.Text | null = null;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -39,12 +40,15 @@ export class BuildingManager {
     public markTerritoryDirty() {
         this.isTerritoryDirty = true;
     }
-
     public cancelBuildMode() {
         this.previewBuildingType = null;
         if (this.previewBuilding) {
             this.previewBuilding.destroy();
             this.previewBuilding = null;
+        }
+        if (this.previewText) {
+            this.previewText.destroy();
+            this.previewText = null;
         }
         if (this.treeHighlightGraphics) {
             this.treeHighlightGraphics.clear();
@@ -169,6 +173,28 @@ export class BuildingManager {
         this.updateHighlights(cx, cy, def);
 
         this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.5);
+
+        // Farm terrain yield preview
+        if (this.previewBuildingType === BuildingType.FARM && isValid) {
+            const biome = this.scene.terrainSystem.getBiomeLabel(cx, cy);
+            const mult = FARM_TERRAIN_YIELD[biome] ?? 1.0;
+            if (!this.previewText) {
+                this.previewText = this.scene.add.text(0, 0, '', {
+                    fontSize: '14px',
+                    color: '#ffd700',
+                    fontStyle: 'bold',
+                    stroke: '#000',
+                    strokeThickness: 3,
+                }).setOrigin(0.5);
+                this.previewBuilding.add(this.previewText);
+            }
+            this.previewText.setText('×' + mult.toFixed(1));
+            this.previewText.setColor(mult >= 1.0 ? '#55ff55' : mult >= 0.6 ? '#ffdd44' : '#ff4444');
+            this.previewText.setPosition(0, -30);
+            this.previewText.setVisible(true);
+        } else if (this.previewText) {
+            this.previewText.setVisible(false);
+        }
     }
 
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
@@ -236,6 +262,8 @@ export class BuildingManager {
             this.emitDustParticles(iso.x, iso.y, def.width);
             this.scene.proceduralSound.playConstruction(cx, cy);
 
+
+
             this.scene.resources.wood -= def.cost.wood;
             this.scene.resources.food -= def.cost.food;
             this.scene.resources.gold -= def.cost.gold;
@@ -247,6 +275,7 @@ export class BuildingManager {
 
 
             this.markTerritoryDirty();
+            this.scene.feedbackSystem.notifyBuildingComplete(def.name);
             this.scene.economySystem.updateStats();
         } else {
             this.scene.feedbackSystem.showFloatingText(cx, cy, validity.reason || "Unable to build", "#ff0000");
@@ -467,12 +496,15 @@ export class BuildingManager {
         this.scene.resources.wood -= cost;
 
         let regrownCount = 0;
+        const regrowthChance = Math.min(1, SEASON_CONFIG[this.scene.currentSeason].treeRegrowth);
         this.scene.trees.getChildren().forEach((tObj: Phaser.GameObjects.GameObject) => {
             const t = tObj as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             if (t.getData('isChopped')) {
                 if (Phaser.Math.Distance.Between(b.x, b.y, t.x, t.y) < (def.effectRadius || 200)) {
-                    this.scene.entityFactory.updateTreeVisual(t, false);
-                    regrownCount++;
+                    if (Math.random() < regrowthChance) {
+                        this.scene.entityFactory.updateTreeVisual(t, false);
+                        regrownCount++;
+                    }
                 }
             }
         });
@@ -615,4 +647,19 @@ export class BuildingManager {
         graphics.lineStyle(2, 0xffffcc, 1.0);
         graphics.strokeEllipse(0, 0, radius * 2, radius);
     }
+
+    /** Return wall buildings within `radius` of (x, y). Optionally filter by owner. */
+    public getWallsNear(x: number, y: number, radius: number, owner?: number): Phaser.GameObjects.GameObject[] {
+        const r2 = radius * radius;
+        return this.scene.buildings.getChildren().filter((b) => {
+            const def = b.getData('def') as BuildingDef | undefined;
+            if (!def || def.type !== BuildingType.WALL) return false;
+            if (owner !== undefined && b.getData('owner') !== owner) return false;
+            const dx = (b as Phaser.GameObjects.Image).x - x;
+            const dy = (b as Phaser.GameObjects.Image).y - y;
+            return dx * dx + dy * dy <= r2;
+        });
+    }
+
+
 }

@@ -1,44 +1,56 @@
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitState, VillagerData } from '../../types';
-import { UNIT_SPEED } from '../../constants';
+import { UnitState, VillagerData, BuildingType } from '../../types';
+import { VILLAGER_SPEED, VILLAGER_CARRY_CAPACITY, VILLAGER_GATHER_RATE_MS, GOLD_MINE_SEARCH_RADIUS } from '../../constants';
 import { toIsoElev } from '../utils/iso';
+
+// ── Carry-bar colors by resource type ─────────────────────────────────
+const CARRY_COLORS: Record<string, number> = {
+    wood: 0x8B4513,
+    food: 0xFACC15,
+    gold: 0xFFD700,
+};
+
+const TREE_SEARCH_RADIUS = 300;
 
 export class VillagerSystem {
     private scene: MainScene;
     private villagers: VillagerData[] = [];
     private nextId: number = 0;
 
+    /** Carry-bar rectangles keyed by villager id */
+    private carryVisuals: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+
     constructor(scene: MainScene) {
         this.scene = scene;
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    //  SPAWN
+    // ──────────────────────────────────────────────────────────────────────
+
     public spawnVillager(x: number, y: number, owner: number = 0): VillagerData {
         const id = `villager_${this.nextId++}`;
 
-        // Create visual container
         const visual = this.scene.add.container(0, 0);
         this.scene.worldVisuals.add(visual);
-        if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to layer
+        if (this.scene.worldLayer) this.scene.worldLayer.add(visual);
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
+
         const gfx = this.scene.add.graphics();
         const primaryColor = this.scene.getFactionColor(owner);
-
         gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6);
         visual.add([
             gfx,
             this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342),
-            this.scene.add.circle(0, -11, 2.5, 0xffcccc)
+            this.scene.add.circle(0, -11, 2.5, 0xffcccc),
         ]);
 
         if (!this.scene.worldLayer) this.scene.add.existing(visual);
 
-        // Position visual
         const iso = toIsoElev(x, y, this.scene.terrainSystem.getHeightAt(x, y));
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
 
-        // Create villager data
         const villager: VillagerData = {
             id,
             x,
@@ -48,12 +60,16 @@ export class VillagerSystem {
             visual,
             path: undefined,
             pathStep: 0,
-            jobBuilding: undefined
+            jobBuilding: undefined,
+            // Spatial economy carry state
+            carryAmount: 0,
+            carryType: null,
+            gatherTimer: 0,
+            targetResource: undefined,
         };
 
         this.villagers.push(villager);
 
-        // Increment population for player-owned villagers
         if (owner === 0) {
             this.scene.population++;
         }
@@ -61,73 +77,377 @@ export class VillagerSystem {
         return villager;
     }
 
-    public update(_time: number, _delta: number): void {
-        for (const villager of this.villagers) {
-            this.updateVillagerLogic(villager);
+    // ──────────────────────────────────────────────────────────────────────
+    //  UPDATE LOOP
+    // ──────────────────────────────────────────────────────────────────────
+
+    public update(_time: number, delta: number): void {
+        for (let i = 0; i < this.villagers.length; i++) {
+            this.updateVillagerLogic(this.villagers[i], delta);
         }
     }
 
-    private updateVillagerLogic(villager: VillagerData): void {
-        // PATH FOLLOWING
+    private updateVillagerLogic(villager: VillagerData, delta: number): void {
+        // ── PATH FOLLOWING ──
         if (villager.path && villager.path.length > 0) {
             if (villager.pathStep !== undefined && villager.pathStep >= villager.path.length) {
-                // Reached destination
+                const arrivedState = villager.state;
                 villager.path = undefined;
                 villager.pathStep = 0;
 
-                if (villager.state === UnitState.MOVING_TO_WORK) {
-                    villager.state = UnitState.WORKING;
-                } else if (villager.state === UnitState.MOVING_TO_RALLY) {
-                    villager.state = UnitState.IDLE;
+                switch (arrivedState) {
+                    case UnitState.MOVING_TO_WORK:
+                        this.startWorking(villager);
+                        break;
+                    case UnitState.CARRYING:
+                        this.depositCarry(villager);
+                        break;
+                    case UnitState.GATHERING:
+                        // Arrived at resource — reset timer, gathering starts next tick
+                        villager.gatherTimer = 0;
+                        break;
+                    case UnitState.MOVING_TO_RALLY:
+                        villager.state = UnitState.IDLE;
+                        break;
                 }
                 return;
             }
 
-            const nextPoint = villager.path[villager.pathStep!];
-            const dist = Phaser.Math.Distance.Between(villager.x, villager.y, nextPoint.x, nextPoint.y);
-
+            const next = villager.path[villager.pathStep!];
+            const dist = Phaser.Math.Distance.Between(villager.x, villager.y, next.x, next.y);
             if (dist < 4) {
                 villager.pathStep!++;
             } else {
-                // Move towards next point
-                const speed = UNIT_SPEED.Villager || 80;
-                const angle = Phaser.Math.Angle.Between(villager.x, villager.y, nextPoint.x, nextPoint.y);
-                const dx = Math.cos(angle) * speed * (1 / 60); // Assuming 60 FPS
-                const dy = Math.sin(angle) * speed * (1 / 60);
+                const dt = delta / 1000;
+                const angle = Phaser.Math.Angle.Between(villager.x, villager.y, next.x, next.y);
+                villager.x += Math.cos(angle) * VILLAGER_SPEED * dt;
+                villager.y += Math.sin(angle) * VILLAGER_SPEED * dt;
+                this.syncVisual(villager);
+            }
+            return; // Don't run state logic while following a path
+        }
 
-                villager.x += dx;
-                villager.y += dy;
+        // ── STATE MACHINE (no active path) ──
+        switch (villager.state) {
+            case UnitState.WORKING:
+                this.startWorking(villager);
+                break;
+            case UnitState.GATHERING:
+                this.processGathering(villager, delta);
+                break;
+            case UnitState.CARRYING:
+                // Arrived at dropsite without a path — deposit immediately
+                this.depositCarry(villager);
+                break;
+            // IDLE, MOVING_TO_RALLY, MOVING_TO_WORK: wait for external assignment
+        }
+    }
 
-                // Update visual position
-                if (villager.visual) {
-                    const iso = toIsoElev(villager.x, villager.y, this.scene.terrainSystem.getHeightAt(villager.x, villager.y));
-                    villager.visual.setPosition(iso.x, iso.y);
-                    villager.visual.setDepth(iso.y);
+    // ──────────────────────────────────────────────────────────────────────
+    //  STATE: WORKING — dispatch by building type
+    // ──────────────────────────────────────────────────────────────────────
+
+    private startWorking(villager: VillagerData): void {
+        const bld = villager.jobBuilding;
+        if (!bld) { villager.state = UnitState.IDLE; return; }
+
+        const def = (bld as Phaser.GameObjects.Image).getData('def') as { type: BuildingType } | undefined;
+        if (!def) { villager.state = UnitState.IDLE; return; }
+
+        switch (def.type) {
+            case BuildingType.LUMBER_CAMP:
+                this.beginLumberLoop(villager);
+                break;
+            case BuildingType.FARM:
+                this.beginFarmLoop(villager);
+                break;
+            case BuildingType.HUNTERS_LODGE:
+                // Passive income only — no carry loop
+                villager.state = UnitState.IDLE;
+                break;
+            case BuildingType.TOWN_CENTER:
+                this.beginGoldLoop(villager);
+                break;
+            default:
+                villager.state = UnitState.IDLE;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  LUMBER CAMP carry loop
+    // ──────────────────────────────────────────────────────────────────────
+
+    private beginLumberLoop(villager: VillagerData): void {
+        const tree = this.findNearestTree(villager.x, villager.y);
+        if (!tree) { villager.state = UnitState.IDLE; return; }
+
+        villager.targetResource = tree;
+        villager.carryType = 'wood';
+        villager.gatherTimer = 0;
+        villager.state = UnitState.GATHERING;
+        this.pathTo(villager, tree.x, tree.y);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  FARM carry loop
+    // ──────────────────────────────────────────────────────────────────────
+
+    private beginFarmLoop(villager: VillagerData): void {
+        villager.carryType = 'food';
+        villager.gatherTimer = 0;
+        villager.targetResource = villager.jobBuilding; // farm IS the resource
+        villager.state = UnitState.GATHERING;
+        // Already at farm — no path needed
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  GOLD MINE carry loop
+    // ──────────────────────────────────────────────────────────────────────
+
+    private beginGoldLoop(villager: VillagerData): void {
+        const mine = this.findNearestGoldMine(villager.x, villager.y);
+        if (!mine) { villager.state = UnitState.IDLE; return; }
+
+        villager.targetResource = mine;
+        villager.carryType = 'gold';
+        villager.gatherTimer = 0;
+        villager.state = UnitState.GATHERING;
+        this.pathTo(villager, mine.x, mine.y);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  STATE: GATHERING
+    // ──────────────────────────────────────────────────────────────────────
+
+    private processGathering(villager: VillagerData, delta: number): void {
+        // Validate resource
+        if (villager.carryType === 'wood') {
+            const tree = villager.targetResource;
+            if (!tree || !(tree as Phaser.GameObjects.Image).active ||
+                (tree as Phaser.GameObjects.Image).getData('isChopped')) {
+                // Tree gone — find another or go idle
+                const next = this.findNearestTree(villager.x, villager.y);
+                if (!next) {
+                    villager.state = UnitState.IDLE;
+                    this.removeCarryVisual(villager);
+                    return;
+                }
+                villager.targetResource = next;
+                this.pathTo(villager, next.x, next.y);
+                return;
+            }
+        }
+
+        // Validate gold mine resource
+        if (villager.carryType === 'gold') {
+            const mine = villager.targetResource;
+            if (!mine || !(mine as Phaser.GameObjects.Image).active ||
+                (mine as Phaser.GameObjects.Image).getData('isDepleted')) {
+                const next = this.findNearestGoldMine(villager.x, villager.y);
+                if (!next) {
+                    villager.state = UnitState.IDLE;
+                    this.removeCarryVisual(villager);
+                    return;
+                }
+                villager.targetResource = next;
+                this.pathTo(villager, next.x, next.y);
+                return;
+            }
+        }
+
+
+        // Accumulate gather time
+        villager.gatherTimer += delta;
+
+        if (villager.gatherTimer >= VILLAGER_GATHER_RATE_MS) {
+            villager.gatherTimer -= VILLAGER_GATHER_RATE_MS;
+            villager.carryAmount++;
+
+            // Decrement gold mine remaining when gathering gold
+            if (villager.carryType === 'gold' && villager.targetResource) {
+                const mine = villager.targetResource as Phaser.GameObjects.Image;
+                const remaining = mine.getData('goldRemaining') ?? 0;
+                const newRemaining = remaining - 1;
+                mine.setData('goldRemaining', newRemaining);
+                if (newRemaining <= 0) {
+                    mine.setData('isDepleted', true);
+                    mine.setData('depletedAt', this.scene.gameTime);
+                    mine.setData('isChopped', true);
+                    // Update visual to stump-like
+                    mine.setData('visualTexture', 'stump');
+                    mine.setData('visualTint', 0xffffff);
+                    mine.setData('visualScale', 0.075);
+                    const vis = (mine as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+                    if (vis && vis.active) {
+                        vis.setTexture('stump');
+                        vis.setTint(0xffffff);
+                        vis.setScale(0.075);
+                    }
+                }
+            }
+
+            const cap = VILLAGER_CARRY_CAPACITY[villager.carryType!] ?? 5;
+            if (villager.carryAmount >= cap) {
+                // Full — transition to CARRYING
+                villager.state = UnitState.CARRYING;
+                this.showCarryVisual(villager);
+
+                if (villager.jobBuilding) {
+                    const bx = (villager.jobBuilding as Phaser.GameObjects.Image).x;
+                    const by = (villager.jobBuilding as Phaser.GameObjects.Image).y;
+                    const dist = Phaser.Math.Distance.Between(villager.x, villager.y, bx, by);
+                    if (dist < 20) {
+                        // Already at dropsite (e.g. farm)
+                        this.depositCarry(villager);
+                    } else {
+                        this.pathToBuilding(villager, villager.jobBuilding);
+                    }
+                } else {
+                    this.depositCarry(villager);
                 }
             }
         }
     }
 
-    public assignJob(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
-        villager.state = UnitState.MOVING_TO_WORK;
-        villager.jobBuilding = building;
+    // ──────────────────────────────────────────────────────────────────────
+    //  STATE: CARRYING → deposit and restart loop
+    // ──────────────────────────────────────────────────────────────────────
 
-        const b = building as Phaser.GameObjects.Image;
+    private depositCarry(villager: VillagerData): void {
+        if (villager.carryAmount > 0 && villager.carryType) {
+            this.scene.economySystem.depositResource(
+                villager.owner,
+                villager.carryType,
+                villager.carryAmount,
+            );
+        }
+
+        // Reset carry state
+        villager.carryAmount = 0;
+        villager.gatherTimer = 0;
+        this.removeCarryVisual(villager);
+
+        // Restart gathering cycle based on building type
+        const bld = villager.jobBuilding;
+        if (bld) {
+            const def = (bld as Phaser.GameObjects.Image).getData('def') as { type: BuildingType } | undefined;
+            if (def?.type === BuildingType.LUMBER_CAMP) {
+                this.beginLumberLoop(villager);
+            } else if (def?.type === BuildingType.FARM) {
+                this.beginFarmLoop(villager);
+            } else if (def?.type === BuildingType.TOWN_CENTER) {
+                this.beginGoldLoop(villager);
+            } else {
+                villager.carryType = null;
+                villager.state = UnitState.IDLE;
+            }
+        } else {
+            villager.carryType = null;
+            villager.state = UnitState.IDLE;
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  RESOURCE FINDING
+    // ──────────────────────────────────────────────────────────────────────
+
+    private findNearestTree(x: number, y: number): Phaser.GameObjects.Image | null {
+        const candidates = this.scene.treeSpatialHash.query(x, y, TREE_SEARCH_RADIUS) as Phaser.GameObjects.Image[];
+        let best: Phaser.GameObjects.Image | null = null;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < candidates.length; i++) {
+            const t = candidates[i];
+            if (!t.active || t.getData('isChopped') || t.getData('isGoldMine')) continue;
+            const d = Phaser.Math.Distance.Between(x, y, t.x, t.y);
+            if (d < bestDist) {
+                bestDist = d;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    private findNearestGoldMine(x: number, y: number): Phaser.GameObjects.Image | null {
+        const candidates = this.scene.treeSpatialHash.query(x, y, GOLD_MINE_SEARCH_RADIUS) as Phaser.GameObjects.Image[];
+        let best: Phaser.GameObjects.Image | null = null;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < candidates.length; i++) {
+            const t = candidates[i];
+            if (!t.active || !t.getData('isGoldMine') || t.getData('isDepleted')) continue;
+            const d = Phaser.Math.Distance.Between(x, y, t.x, t.y);
+            if (d < bestDist) {
+                bestDist = d;
+                best = t;
+            }
+        }
+        return best;
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  PATH HELPERS
+    // ──────────────────────────────────────────────────────────────────────
+
+    private pathTo(villager: VillagerData, tx: number, ty: number): void {
         const path = this.scene.pathfinder.findPath(
             new Phaser.Math.Vector2(villager.x, villager.y),
-            new Phaser.Math.Vector2(b.x, b.y)
+            new Phaser.Math.Vector2(tx, ty),
         );
-
         if (path && path.length > 1) {
             villager.path = path;
             villager.pathStep = 0;
         }
     }
 
+    private pathToBuilding(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
+        const b = building as Phaser.GameObjects.Image;
+        this.pathTo(villager, b.x, b.y);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  VISUAL HELPERS
+    // ──────────────────────────────────────────────────────────────────────
+
+    private syncVisual(villager: VillagerData): void {
+        if (villager.visual) {
+            const iso = toIsoElev(villager.x, villager.y, this.scene.terrainSystem.getHeightAt(villager.x, villager.y));
+            villager.visual.setPosition(iso.x, iso.y);
+            villager.visual.setDepth(iso.y);
+        }
+    }
+
+    private showCarryVisual(villager: VillagerData): void {
+        if (!villager.visual || !villager.carryType) return;
+        this.removeCarryVisual(villager);
+        const color = CARRY_COLORS[villager.carryType] ?? 0xffffff;
+        const rect = this.scene.add.rectangle(0, -18, 8, 4, color);
+        villager.visual.add(rect);
+        this.carryVisuals.set(villager.id, rect);
+    }
+
+    private removeCarryVisual(villager: VillagerData): void {
+        const existing = this.carryVisuals.get(villager.id);
+        if (existing) {
+            existing.destroy();
+            this.carryVisuals.delete(villager.id);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  PUBLIC API
+    // ──────────────────────────────────────────────────────────────────────
+
+    public assignJob(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
+        villager.state = UnitState.MOVING_TO_WORK;
+        villager.jobBuilding = building;
+        this.pathToBuilding(villager, building);
+    }
+
     public getIdleVillagers(owner: number): VillagerData[] {
         return this.villagers.filter(v =>
             v.owner === owner &&
-            (v.state === UnitState.IDLE || v.state === UnitState.MOVING_TO_RALLY)
+            (v.state === UnitState.IDLE || v.state === UnitState.MOVING_TO_RALLY),
         );
     }
 
@@ -140,18 +460,17 @@ export class VillagerSystem {
     }
 
     public destroyVillager(villager: VillagerData): void {
-        // Remove from array
+        this.removeCarryVisual(villager);
+
         const index = this.villagers.indexOf(villager);
         if (index !== -1) {
             this.villagers.splice(index, 1);
         }
 
-        // Destroy visual
         if (villager.visual) {
             villager.visual.destroy();
         }
 
-        // Decrement population
         if (villager.owner === 0) {
             this.scene.population--;
         }
@@ -159,15 +478,6 @@ export class VillagerSystem {
 
     public sendToRallyPoint(villager: VillagerData, rallyX: number, rallyY: number): void {
         villager.state = UnitState.MOVING_TO_RALLY;
-
-        const path = this.scene.pathfinder.findPath(
-            new Phaser.Math.Vector2(villager.x, villager.y),
-            new Phaser.Math.Vector2(rallyX, rallyY)
-        );
-
-        if (path && path.length > 1) {
-            villager.path = path;
-            villager.pathStep = 0;
-        }
+        this.pathTo(villager, rallyX, rallyY);
     }
 }

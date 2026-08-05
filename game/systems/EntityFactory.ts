@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FormationType, UnitStance, DamageType } from '../../types';
-import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG } from '../../constants';
+import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG, FARM_TERRAIN_YIELD, UNIT_NAMES, FACTION_BONUSES } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 
 export class EntityFactory {
@@ -18,10 +18,30 @@ export class EntityFactory {
         this.scene.physics.add.existing(b, true);
         b.setData('def', def);
         b.setData('owner', owner);
-        b.setData('hp', def.maxHp);
-        b.setData('maxHp', def.maxHp);
+        const hpMult = this.scene.researchManager?.getSnapshot(owner).buildingHpMult ?? 1;
+        let adjustedMaxHp = Math.round(def.maxHp * hpMult);
+        // Apply faction building HP bonus (multiplicative with research)
+        const factionBonus = FACTION_BONUSES[owner === 0 ? this.scene.faction : this.scene.enemyFaction];
+        if (factionBonus) {
+            const isWall = type === BuildingType.WALL;
+            const factionHpMult = isWall ? (factionBonus.wallHpMult ?? factionBonus.buildingHpMult ?? 1) : (factionBonus.buildingHpMult ?? 1);
+            adjustedMaxHp = Math.round(adjustedMaxHp * factionHpMult);
+        }
+        b.setData('hp', adjustedMaxHp);
+        b.setData('maxHp', adjustedMaxHp);
         b.setData('armor', BUILDING_ARMOR[type] || {});
         this.scene.buildings.add(b);
+
+        // Farm terrain affinity: store yield multiplier on all farms (player + AI)
+        if (type === BuildingType.FARM) {
+            const biome = this.scene.terrainSystem.getBiomeLabel(x, y);
+            b.setData('terrainYield', FARM_TERRAIN_YIELD[biome] ?? 1.0);
+        }
+
+        // Castle garrison: initialize empty garrison store
+        if (type === BuildingType.CASTLE) {
+            b.setData('garrison', {});
+        }
 
         this.scene.pathfinder.markGrid(x, y, def.width, def.height, true);
 
@@ -91,21 +111,46 @@ export class EntityFactory {
         // --- VACANT / NO RES ICONS (UI Camera Only) ---
         // These are added to uiGroup so they are NOT bloomed
         if (def.workerNeeds || def.effectRadius) {
-            const vy = -def.height * 0.5 - 30; // Position above building
+            const vy = -def.height * 0.5 - 30;
 
             // Vacant Icon (Yellow Warning)
             const vacantIcon = this.scene.add.text(iso.x, iso.y + vy, "⚠️", { fontSize: '24px' });
             vacantIcon.setOrigin(0.5);
-            vacantIcon.setVisible(false); // Default hidden
+            vacantIcon.setVisible(false);
             this.scene.uiGroup.add(vacantIcon);
             visual.setData('vacantIcon', vacantIcon);
 
             // No Resources Icon (Red Ban)
             const noResIcon = this.scene.add.text(iso.x, iso.y + vy, "🚫", { fontSize: '24px' });
             noResIcon.setOrigin(0.5);
-            noResIcon.setVisible(false); // Default hidden
+            noResIcon.setVisible(false);
             this.scene.uiGroup.add(noResIcon);
             visual.setData('noResIcon', noResIcon);
+        }
+
+        // Efficiency ring: shows gathering radius when building is selected
+        if (def.effectRadius) {
+            const ringGfx = this.scene.add.graphics();
+            const r = def.effectRadius;
+            // Dashed ellipse: draw arc segments (iso y compressed 0.5x)
+            const segments = 64;
+            const dashAngle = (Math.PI * 2) / segments;
+            for (let i = 0; i < segments; i += 2) {
+                const a1 = i * dashAngle;
+                const a2 = (i + 1) * dashAngle;
+                const x1 = Math.cos(a1) * r;
+                const y1 = Math.sin(a1) * r * 0.5;
+                const x2 = Math.cos(a2) * r;
+                const y2 = Math.sin(a2) * r * 0.5;
+                ringGfx.lineStyle(1.5, 0xffd700, 0.45);
+                ringGfx.beginPath();
+                ringGfx.moveTo(x1, y1);
+                ringGfx.lineTo(x2, y2);
+                ringGfx.strokePath();
+            }
+            ringGfx.setVisible(false);
+            visual.add(ringGfx);
+            visual.setData('ring', ringGfx);
         }
 
         if (!this.scene.worldLayer) this.scene.add.existing(visual);
@@ -179,8 +224,8 @@ export class EntityFactory {
         }
 
         if (type === UnitType.ANIMAL) {
-            console.warn('Animals should be spawned through AnimalSystem, not EntityFactory.spawnUnit');
-            return;
+            // Delegate to AnimalSystem which handles species, behavior, visuals
+            return this.scene.animalSystem.spawnAnimal(x, y);
         }
 
         const stats = UNIT_STATS[type];
@@ -212,6 +257,13 @@ export class EntityFactory {
         }
         if (type === UnitType.HOPLITE) {
             unit.setData('defensiveBonus', 0.15); // 15% damage reduction
+        }
+
+        // Store faction melee attack multiplier for combat resolution
+        const unitFaction = owner === 0 ? this.scene.faction : this.scene.enemyFaction;
+        const unitFactionBonus = FACTION_BONUSES[unitFaction];
+        if (unitFactionBonus?.meleeAttackMult) {
+            unit.setData('factionMeleeMult', unitFactionBonus.meleeAttackMult);
         }
 
         (unit as any).lastAttackTime = 0; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -250,6 +302,21 @@ export class EntityFactory {
             (unit as any).isSelected = selected; // eslint-disable-line @typescript-eslint/no-explicit-any
             const hpBar = visual.getData('hpBar');
             if (hpBar) hpBar.setVisible(selected || unit.getData('hp') < unit.getData('maxHp'));
+
+            const existingRing = visual.getData('selectionRing') as Phaser.GameObjects.Ellipse | undefined;
+            if (selected) {
+                if (!existingRing) {
+                    const ringColor = owner === 0 ? 0x4ade80 : 0xef4444;
+                    const ring = this.scene.add.ellipse(0, 10, 28, 14, ringColor, 0.5);
+                    visual.addAt(ring, 0); // Render below unit sprite
+                    visual.setData('selectionRing', ring);
+                }
+            } else {
+                if (existingRing) {
+                    existingRing.destroy();
+                    visual.setData('selectionRing', undefined);
+                }
+            }
         };
 
         if (stats.squadSize > 1) this.scene.squadSystem.createSquad(unit, type, owner);
@@ -287,6 +354,13 @@ export class EntityFactory {
             }
         }
 
+        // Apply research armor bonus (flat reduction per research snapshot)
+        const entityOwner = entity.getData('owner') as number;
+        const armorAdd = this.scene.researchManager?.getSnapshot(entityOwner).armorAdd ?? 0;
+        if (armorAdd > 0) {
+            amount = Math.max(1, amount - armorAdd);
+        }
+
         hp -= amount;
         entity.setData('hp', hp);
         const visual = (entity as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -297,13 +371,52 @@ export class EntityFactory {
             fill.scaleX = Math.max(0, hp / maxHp);
             fill.fillColor = fill.scaleX < 0.3 ? 0xef4444 : 0x22c55e;
         }
+        // Show floating damage number for buildings (units handled by UnitSystem)
+        if (!isUnit) {
+            this.scene.feedbackSystem.showDamageNumber((entity as any).x, (entity as any).y, Math.round(amount)); // eslint-disable-line @typescript-eslint/no-explicit-any
+            this.scene.feedbackSystem.showHitSpark((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
+        }
+        // Building health warning at ≤50% HP (fires once per building)
+        if (!isUnit && hp > 0 && hp / maxHp < 0.5 && !entity.getData('_healthWarned')) {
+            entity.setData('_healthWarned', true);
+            const def = entity.getData('def');
+            this.scene.feedbackSystem?.notifyBuildingDamaged(def?.name ?? 'Building', hp / maxHp);
+        }
         if (hp <= 0) {
-            if (isUnit) { this.scene.proceduralSound.playDeath((entity as any).x, (entity as any).y, true); this.scene.squadSystem.destroySquad(entity); if (entity.getData('owner') === 0) this.scene.population--; } // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (isUnit) {
+                const unitType = entity.getData('unitType') as string;
+                const unitName = UNIT_NAMES[unitType] ?? 'Unit';
+                this.scene.feedbackSystem.notifyUnitKilled(unitName, entity.getData('owner') === 0);
+                const e = entity as Phaser.GameObjects.Image;
+                this.scene.proceduralSound.playDeath(e.x, e.y, unitType);
+                this.scene.feedbackSystem?.showDeathEffect(e.x, e.y);
+                this.scene.squadSystem.destroySquad(entity);
+                if (entity.getData('owner') === 0) this.scene.population--;
+                // AI taunts when losing military units
+                if (entity.getData('owner') === 1 && unitType !== UnitType.VILLAGER && unitType !== UnitType.ANIMAL) {
+                    this.scene.enemyAI?.sendTauntOnArmyLost();
+                }
+            }
             else {
-                this.scene.proceduralSound.playDemolition((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 const def = entity.getData('def');
+                if (entity.getData('owner') === 0) {
+                    this.scene.feedbackSystem.notifyBuildingDestroyed(def.name);
+                    // Wall breach: specific notification so player knows their defenses fell
+                    if (def.type === BuildingType.WALL) {
+                        this.scene.feedbackSystem.showFloatingText(
+                            (entity as any).x, (entity as any).y - 20, // eslint-disable-line @typescript-eslint/no-explicit-any
+                            'Wall Breached!', '#ef4444'
+                        );
+                    }
+                    // AI taunts after destroying a player building
+                    this.scene.enemyAI?.sendTauntOnBuildingDestroyed();
+                }
+                this.scene.proceduralSound.playDemolition((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false); // eslint-disable-line @typescript-eslint/no-explicit-any
                 if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+                if (entity.getData('owner') === 0 && def.happinessBonus) {
+                    this.scene.happiness = Math.max(0, this.scene.happiness - def.happinessBonus);
+                }
 
                 // Trigger explosion effect
                 const iso = toIso((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -330,6 +443,25 @@ export class EntityFactory {
         treeBase.setData('visualTexture', 'tree');
         treeBase.setData('visualOriginY', 0.95);
         treeBase.setData('isChopped', false);
+    }
+
+    public spawnGoldMine(x: number, y: number) {
+        if (this.scene.terrainSystem.getHeightAt(x, y) < TERRAIN_CONFIG.WATER_LEVEL) return;
+        const mine = this.scene.add.circle(x, y, 8, 0x000000, 0);
+        mine.setVisible(false);
+        this.scene.physics.add.existing(mine, true);
+        // Reuse trees group + spatial hash — flagged as gold mine
+        this.scene.trees.add(mine);
+        this.scene.treeSpatialHash.insert(mine);
+
+        mine.setData('visualScale', 0.1);
+        mine.setData('visualTexture', 'flare');
+        mine.setData('visualOriginY', 0.95);
+        mine.setData('visualTint', 0xFFD700);
+        mine.setData('isChopped', false);
+        mine.setData('isGoldMine', true);
+        mine.setData('goldRemaining', 200);
+        mine.setData('isDepleted', false);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

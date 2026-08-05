@@ -1,21 +1,62 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData } from '../../types';
-import { EVENTS } from '../../constants';
+import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData, AnimalData } from '../../types';
+import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
 export class EconomySystem {
     private scene: MainScene;
     private lastRates: ResourceRates = { wood: 0, food: 0, gold: 0, foodConsumption: 0 };
     private lastHappinessChange: number = 0;
+    private lastHappinessWarning: number = 0;
+    private lastEnemyCheck: number = 0;
 
     constructor(scene: MainScene) {
         this.scene = scene;
     }
 
+    /**
+     * Called by VillagerSystem when a villager reaches a dropsite.
+     * Deposits carried resources into the global pool with research multipliers applied.
+     */
+    public depositResource(owner: number, type: 'wood' | 'food' | 'gold', amount: number) {
+        let finalAmount = amount;
+
+        // Apply research gather multipliers
+        if (this.scene.researchManager) {
+            const snap = this.scene.researchManager.getSnapshot(owner);
+            if (type === 'wood') finalAmount = Math.floor(finalAmount * snap.gatherMult.wood);
+            else if (type === 'food') finalAmount = Math.floor(finalAmount * snap.gatherMult.food);
+            else if (type === 'gold') finalAmount = Math.floor(finalAmount * snap.gatherMult.gold);
+        }
+        // Apply faction gather rate bonus (multiplicative with research)
+        const gatherFaction = owner === 0 ? this.scene.faction : this.scene.enemyFaction;
+        const gatherMult = FACTION_BONUSES[gatherFaction]?.gatherRateMult ?? 1;
+        if (gatherMult !== 1) finalAmount = Math.floor(finalAmount * gatherMult);
+
+        this.scene.resources[type] += finalAmount;
+
+        // Show floating text at player's TC
+        if (owner === 0) {
+            const tcs = this.scene.buildings.getChildren().filter((b) =>
+                b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+            ) as Phaser.GameObjects.Image[];
+            if (tcs.length > 0) {
+                const label = type.charAt(0).toUpperCase() + type.slice(1);
+                this.scene.feedbackSystem.showFloatingResource(tcs[0].x, tcs[0].y, finalAmount, label);
+            }
+        }
+    }
+
     public tickPopulation() {
         // Only manage Player population (Owner 0)
+        // Civil Service: +50% pop growth = lower effective food cost
+        const growthMult = this.scene.researchManager?.getSnapshot(0).popGrowthMult ?? 1;
+        const effectiveFoodCost = Math.round(POPULATION_FOOD_COST / growthMult);
         if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
+            // Food cost gate: must have enough food to grow
+            if (this.scene.resources.food < effectiveFoodCost) return;
+
             const houses = this.scene.buildings.getChildren().filter((b) =>
                 b.getData('def').type === BuildingType.HOUSE && b.getData('owner') === 0
             ) as Phaser.GameObjects.Rectangle[];
@@ -31,6 +72,9 @@ export class EconomySystem {
             }
 
             if (spawnSource) {
+                // Subtract food cost for population growth
+                this.scene.resources.food -= effectiveFoodCost;
+
                 const offsetX = Phaser.Math.Between(-30, 30);
                 const offsetY = Phaser.Math.Between(-30, 30);
                 const spawnX = spawnSource.x + (offsetX >= 0 ? 50 : -50) + offsetX;
@@ -79,6 +123,48 @@ export class EconomySystem {
                 idleVillagers.splice(workerIndex, 1);
                 b.setData('assignedWorker', closestWorker);
                 this.scene.villagerSystem.assignJob(closestWorker, b);
+            }
+        }
+
+        // Assign idle villagers to gold mines near a Town Center
+        const idleForGold = this.scene.villagerSystem.getIdleVillagers(0);
+        if (idleForGold.length > 0) {
+            // Find player TCs as potential dropsites
+            const tcs = this.scene.buildings.getChildren().filter((b) => {
+                const def = b.getData('def') as BuildingDef;
+                return def.type === BuildingType.TOWN_CENTER && b.getData('owner') === 0;
+            }) as Phaser.GameObjects.Image[];
+
+            for (const tc of tcs) {
+                // Find gold mines near this TC
+                const nearbyMines = this.scene.treeSpatialHash.query(tc.x, tc.y, GOLD_MINE_SEARCH_RADIUS) as Phaser.GameObjects.Image[];
+                const activeMines = nearbyMines.filter((m) =>
+                    m.getData('isGoldMine') && !m.getData('isDepleted') && m.active
+                );
+
+                for (const mine of activeMines) {
+                    if (idleForGold.length === 0) break;
+
+                    // Find closest idle villager to this mine
+                    let bestVillager: VillagerData | null = null;
+                    let bestDist = Infinity;
+                    let bestIdx = -1;
+                    for (let i = 0; i < idleForGold.length; i++) {
+                        const v = idleForGold[i];
+                        if (v.owner !== 0) continue;
+                        const d = Phaser.Math.Distance.Between(mine.x, mine.y, v.x, v.y);
+                        if (d < bestDist) {
+                            bestDist = d;
+                            bestVillager = v;
+                            bestIdx = i;
+                        }
+                    }
+
+                    if (bestVillager && bestDist < GOLD_MINE_SEARCH_RADIUS * 1.5) {
+                        idleForGold.splice(bestIdx, 1);
+                        this.scene.villagerSystem.assignJob(bestVillager, tc);
+                    }
+                }
             }
         }
 
@@ -132,7 +218,11 @@ export class EconomySystem {
         // Base Commerce for Player
         let goldGen = Math.floor((this.scene.population * (0.5 + taxGoldPerPop)) * efficiency);
 
-        const harvestedTrees = new Set<Phaser.GameObjects.GameObject>();
+        // Faction passive gold bonus (e.g., Carthage +1 gold/tick)
+        const factionBonus = FACTION_BONUSES[this.scene.faction];
+        if (factionBonus?.goldPerTick) {
+            goldGen += factionBonus.goldPerTick;
+        }
 
         this.scene.buildings.getChildren().forEach((bObj) => {
             const b = bObj as Phaser.GameObjects.Image;
@@ -145,8 +235,6 @@ export class EconomySystem {
             const noResIcon = visual.getData('noResIcon') as Phaser.GameObjects.Text;
 
             let isWorking = true;
-            let productionAmount = 0;
-            let productionType = '';
 
             if (def.workerNeeds) {
                 const worker = b.getData('assignedWorker') as VillagerData | null;
@@ -158,93 +246,78 @@ export class EconomySystem {
                 }
             }
 
+            // Town Center: commerce hub generates passive gold
             if (def.type === BuildingType.TOWN_CENTER) {
                 goldGen += Math.floor(2 * efficiency);
                 isWorking = true;
             }
 
             if (isWorking) {
+                // Farm terrain affinity: passive bonus per working farm scaled by terrain yield
                 if (def.type === BuildingType.FARM) {
-                    let gain = 5;
-                    const isFertile = this.scene.fertileZones.some(zone => zone.contains((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y));
-                    if (isFertile) gain = Math.floor(gain * 1.5);
-                    gain = Math.floor(gain * efficiency);
-                    foodGen += gain;
-                    productionAmount = gain;
-                    productionType = 'Food';
+                    const terrainYield = b.getData('terrainYield') as number ?? 1.0;
+                    foodGen += Math.floor(terrainYield * 2 * efficiency);
                 }
 
-                if (def.type === BuildingType.LUMBER_CAMP && def.effectRadius) {
-                    let treesNearby = 0;
-                    // Optimize: Use Spatial Partitioning
-                    const candidates = this.scene.treeSpatialHash.query((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, def.effectRadius);
-
-                    for (const t of candidates) {
-                        // Cast t to Image to access x,y
-                        const tree = t as Phaser.GameObjects.Image;
-                        if (Phaser.Math.Distance.Between((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, tree.x, tree.y) < def.effectRadius) {
-                            const isChopped = tree.getData('isChopped');
-                            if (!isChopped && !harvestedTrees.has(tree)) {
-                                treesNearby++;
-                                harvestedTrees.add(tree);
-                                this.scene.proceduralSound.playWoodChop(tree.x, tree.y);
-                                if (Math.random() < 0.1) {
-                                    this.scene.entityFactory.updateTreeVisual(tree, true);
-                                    // if (this.scene.minimapSystem) this.scene.minimapSystem.refreshStaticLayer();
-                                    this.scene.feedbackSystem.showFloatingText(tree.x, tree.y, "Chopped!", "#a0522d");
-                                }
-
-                            }
-                        }
-                    }
-                    if (noResIcon) noResIcon.visible = (treesNearby === 0);
-                    let gain = Math.min(treesNearby * 2, 12);
-                    gain = Math.floor(gain * efficiency);
-                    woodGen += gain;
-                    if (gain > 0) {
-                        productionAmount = gain;
-                        productionType = 'Wood';
-                    }
-                }
-
+                // Hunter's Lodge: passive food from nearby animals (hunting mechanic preserved)
                 if (def.type === BuildingType.HUNTERS_LODGE && def.effectRadius) {
                     const animals = this.scene.animalSystem.getAnimals();
                     let animalsNearby = 0;
-                    const nearbyAnimals: import('../../types').AnimalData[] = [];
+                    const nearbyAnimals: AnimalData[] = [];
 
                     for (const animal of animals) {
-                        const dist = Phaser.Math.Distance.Between(
-                            (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y,
-                            animal.x, animal.y
-                        );
+                        const dist = Phaser.Math.Distance.Between(b.x, b.y, animal.x, animal.y);
                         if (dist < def.effectRadius!) {
                             animalsNearby++;
                             nearbyAnimals.push(animal);
                         }
                     }
-
-                    if (noResIcon) noResIcon.visible = (animalsNearby === 0);
                     if (animalsNearby > 0) {
-                        let gain = 20;
+                        // Use species-specific food value from nearest animal
+                        const nearest = nearbyAnimals[0];
+                        let gain = nearest.foodValue || 20;
                         gain = Math.floor(gain * efficiency);
                         foodGen += gain;
-                        productionAmount = gain;
-                        productionType = 'Food';
                         if (Math.random() < 0.20) {
                             const victim = nearbyAnimals[Phaser.Math.Between(0, nearbyAnimals.length - 1)];
                             this.scene.animalSystem.destroyAnimal(victim);
                             this.scene.feedbackSystem.showFloatingText(b.x, b.y - 30, "Depleted!", "#ef4444");
                         }
-
                     }
                 }
-            }
-            if (productionAmount > 0) {
-                this.scene.feedbackSystem.showFloatingResource((b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y, productionAmount, productionType);
-            }
 
+                // Lumber camp: show "no resource" icon when no trees nearby (visual feedback, no passive generation)
+                if (def.type === BuildingType.LUMBER_CAMP && def.effectRadius) {
+                    const candidates = this.scene.treeSpatialHash.query(b.x, b.y, def.effectRadius);
+                    let treesNearby = 0;
+                    for (const t of candidates) {
+                        const tree = t as Phaser.GameObjects.Image;
+                        if (Phaser.Math.Distance.Between(b.x, b.y, tree.x, tree.y) < def.effectRadius) {
+                            if (!tree.getData('isChopped')) {
+                                treesNearby++;
+                            }
+                        }
+                    }
+                    if (noResIcon) noResIcon.visible = (treesNearby === 0);
+                }
+            }
         });
+        // Trade income: player earns gold when both sides have a Market and peace/treaty is active
+        const playerHasMarket = this.scene.buildings.getChildren().some(
+            (b) => b.getData('owner') === 0 && (b.getData('def') as BuildingDef)?.type === BuildingType.MARKET
+        );
+        const aiHasMarket = this.scene.buildings.getChildren().some(
+            (b) => b.getData('owner') === 1 && (b.getData('def') as BuildingDef)?.type === BuildingType.MARKET
+        );
+        const isPeaceful = this.scene.peacefulMode || this.scene.gameTime < this.scene.treatyLength;
+        const playerHasCathedral = this.scene.buildings.getChildren().some(
+            (b) => b.getData('owner') === 0 && (b.getData('def') as BuildingDef)?.type === BuildingType.CATHEDRAL
+        );
+        const tradeMult = playerHasCathedral ? CATHEDRAL_TRADE_BONUS_MULTIPLIER : 1;
+        const tradeGold = (playerHasMarket && aiHasMarket && isPeaceful) ? TRADE_INCOME * tradeMult : 0;
+        goldGen += tradeGold;
 
+        // Show floating gold at TC
         if (goldGen > 0) {
             const tcs = this.scene.buildings.getChildren().filter((b) =>
                 b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
@@ -252,34 +325,99 @@ export class EconomySystem {
             if (tcs.length > 0) {
                 this.scene.feedbackSystem.showFloatingResource(tcs[0].x, tcs[0].y, goldGen, 'Gold');
             }
-
         }
 
+        // Apply research gather multipliers to passive production
+        if (this.scene.researchManager) {
+            const snap = this.scene.researchManager.getSnapshot(0);
+            woodGen = Math.floor(woodGen * snap.gatherMult.wood);
+            foodGen = Math.floor(foodGen * snap.gatherMult.food);
+        }
+
+        // ─── Building Upkeep ───
+        let upkeepFood = 0;
+        let upkeepGold = 0;
+        this.scene.buildings.getChildren().forEach((bObj) => {
+            const b = bObj as Phaser.GameObjects.Image;
+            if (b.getData('owner') !== 0) return;
+            const def = b.getData('def') as BuildingDef;
+            const upkeep = VILLAGER_BUILDING_UPKEEP[def.type];
+            if (upkeep) {
+                if (upkeep.food) upkeepFood += upkeep.food;
+                if (upkeep.gold) upkeepGold += upkeep.gold;
+            }
+        });
+
         const foodConsumed = this.scene.population * 1;
-        this.lastRates = { wood: woodGen, food: foodGen, gold: goldGen, foodConsumption: foodConsumed };
         this.scene.resources.food += foodGen;
         this.scene.resources.wood += woodGen;
         this.scene.resources.gold += goldGen;
         this.scene.resources.food -= foodConsumed;
+        this.scene.resources.food -= upkeepFood;
+        this.scene.resources.gold -= upkeepGold;
         if (this.scene.resources.food < 0) this.scene.resources.food = 0;
+        if (this.scene.resources.gold < 0) this.scene.resources.gold = 0;
+        this.lastRates = { wood: woodGen, food: foodGen - foodConsumed - upkeepFood, gold: goldGen - upkeepGold, foodConsumption: foodConsumed + upkeepFood };
 
+        // ─── Happiness ───
         let happinessChange = 0;
         const isStarving = this.scene.resources.food === 0 && foodConsumed > 0;
-        if (isStarving) { happinessChange -= 5; } else { happinessChange += 1; }
+        if (isStarving) { happinessChange -= 5; } else { happinessChange += 0; }
         if (this.scene.population > this.scene.maxPopulation) { happinessChange -= 2; }
-        const taxImpact = [1, 0, -1, -3, -6, -10];
+        if (this.scene.population > this.scene.maxPopulation * 0.8) { happinessChange -= 1; }
+        const taxImpact = [0, 0, -1, -3, -6, -10];
         happinessChange += (taxImpact[this.scene.taxRate] || 0);
 
-        // Count ONLY player parks
-        const parks = this.scene.buildings.getChildren().filter((b) =>
-            b.getData('def').type === BuildingType.SMALL_PARK && b.getData('owner') === 0
-        );
-        happinessChange += parks.length;
+        // Civil Service: -30% happiness decay (applies to negative changes only)
+        const decayMult = this.scene.researchManager?.getSnapshot(0).happinessDecayMult ?? 1;
+        if (happinessChange < 0) happinessChange = Math.round(happinessChange * decayMult);
 
         this.scene.happiness += happinessChange;
         this.scene.happiness = Phaser.Math.Clamp(this.scene.happiness, 0, 100);
         this.lastHappinessChange = happinessChange;
+        // ─── Feedback Wiring ───
+        const now = Date.now();
+        if (this.scene.happiness < 30 && this.scene.happiness > 0 && now - this.lastHappinessWarning > 30000) {
+            this.scene.feedbackSystem.notifyHappinessCritical();
+            this.lastHappinessWarning = now;
+        }
+        if (isStarving && now - this.lastHappinessWarning > 10000) {
+            this.scene.feedbackSystem.notifyHappinessCritical();
+            this.lastHappinessWarning = now;
+        }
+
+        // Enemy approaching detection (throttled to every 5s)
+        if (this.scene.gameTime - this.lastEnemyCheck > 5000) {
+            this.lastEnemyCheck = this.scene.gameTime;
+            this.detectEnemyApproaching();
+        }
+
         this.updateStats();
+    }
+
+    /**
+     * Check for enemy units within 500px of any player Town Center.
+     */
+    private detectEnemyApproaching() {
+        const playerTCs = this.scene.buildings.getChildren().filter((b) =>
+            b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+        ) as Phaser.GameObjects.Image[];
+        if (playerTCs.length === 0) return;
+
+        for (const unit of this.scene.units.getChildren()) {
+            const u = unit as Phaser.GameObjects.Image;
+            const owner = u.getData('owner') as number;
+            if (owner === 0 || owner < 0) continue;
+            const hp = u.getData('hp') as number;
+            if (hp <= 0) continue;
+
+            for (const tc of playerTCs) {
+                if (Phaser.Math.Distance.Between(u.x, u.y, tc.x, tc.y) < 500) {
+                    this.scene.feedbackSystem.notifyEnemyApproaching();
+                    return; // one notification per check cycle
+                }
+            }
+        }
     }
 
     public updateStats() {
@@ -301,8 +439,58 @@ export class EconomySystem {
             currentStance: this.scene.unitSystem.currentStance,
             currentAge: this.scene.currentAge,
             ageProgress: this.scene.ageProgress,
-            nextAge: this.scene.nextAge
+            nextAge: this.scene.nextAge,
+            notifications: this.scene.feedbackSystem.getNotifications(),
+            activeResearch: (() => {
+                const active = this.scene.researchManager?.getActive(0);
+                if (!active) return null;
+                return { techId: active.techId, progress: 1 - active.remainingMs / active.totalMs, duration: active.totalMs };
+            })(),
+            completedTechs: [...(this.scene.researchManager?.getSnapshot(0).completed ?? [])],
+            gameResult: this.scene.gameResult,
+            dominanceProgress: this.scene.dominanceProgress,
+            playerTerritoryPercent: this.scene.playerTerritoryPercent,
+            victoryType: this.scene.victoryType,
+            mapSeed: this.scene.mapSeed,
         };
+
+        // Selected building info for UI display
+        const selB = this.scene.inputManager?.selectedBuilding as Phaser.GameObjects.Image | null;
+        if (selB && selB.getData('owner') === 0) {
+            const def = selB.getData('def') as BuildingDef;
+            if (def.effectRadius) {
+                const worker = selB.getData('assignedWorker') as VillagerData | null;
+                const hasWorker = !!(worker && worker.state === UnitState.WORKING);
+                let nearbyResources = 0;
+                let resourceLabel = '';
+                if (def.type === BuildingType.LUMBER_CAMP) {
+                    const candidates = this.scene.treeSpatialHash.query(selB.x, selB.y, def.effectRadius);
+                    for (const t of candidates) {
+                        const tree = t as Phaser.GameObjects.Image;
+                        if (!tree.getData('isChopped') && Phaser.Math.Distance.Between(selB.x, selB.y, tree.x, tree.y) < def.effectRadius) {
+                            nearbyResources++;
+                        }
+                    }
+                    resourceLabel = 'trees nearby';
+                } else if (def.type === BuildingType.HUNTERS_LODGE) {
+                    const animals = this.scene.animalSystem.getAnimals();
+                    for (const a of animals) {
+                        if (Phaser.Math.Distance.Between(selB.x, selB.y, a.x, a.y) < def.effectRadius) {
+                            nearbyResources++;
+                        }
+                    }
+                    resourceLabel = 'animals nearby';
+                } else if (def.type === BuildingType.FARM) {
+                    resourceLabel = 'fertile land';
+                    nearbyResources = 1; // Farms always produce if worker assigned
+                }
+                const garrisonCount = def.type === BuildingType.CASTLE
+                    ? Object.values(selB.getData('garrison') || {} as Record<string, number>).reduce((s: number, n) => s + (n as number), 0)
+                    : undefined;
+                stats.selectedBuildingInfo = { type: def.type, hasWorker, nearbyResources, resourceLabel, garrisonCount };
+            }
+        }
+
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);
     }
 }

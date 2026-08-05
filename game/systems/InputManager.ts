@@ -1,8 +1,8 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { EVENTS } from '../../constants';
-import { UnitType, BuildingType } from '../../types';
+import { EVENTS, UNIT_ABILITIES } from '../../constants';
+import { UnitType, BuildingType, GameUnit } from '../../types';
 import { toCartesian, toIso } from '../utils/iso';
 
 export class InputManager {
@@ -10,7 +10,7 @@ export class InputManager {
     public selectedUnits: Phaser.GameObjects.GameObject[] = [];
     public selectedBuilding: Phaser.GameObjects.GameObject | null = null;
 
-    private isDragging = false;
+    private lastGameSpeed = 0.5;
     private isRightDragging = false;
     private dragStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
@@ -39,6 +39,99 @@ export class InputManager {
         this.scene.game.events.on('filter-selection', (type: UnitType) => {
             this.filterSelectionByType(type);
         });
+
+        // ── Keyboard Shortcuts ───────────────────────────────────────────
+        const kb = this.scene.input.keyboard;
+        if (!kb) return;
+
+        // ESC — Deselect all / cancel build mode
+        kb.on('keydown-ESC', () => {
+            if (this.scene.buildingManager.isDemolishMode) {
+                this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
+            } else if (this.scene.buildingManager.previewBuildingType) {
+                this.scene.buildingManager.cancelBuildMode();
+            }
+            this.clearSelection();
+            this.deselectBuilding();
+        });
+
+        // Space — Pause / unpause
+        kb.on('keydown-SPACE', () => {
+            if (this.scene.gameSpeed > 0) {
+                this.lastGameSpeed = this.scene.gameSpeed;
+                this.scene.gameSpeed = 0;
+                this.scene.tweens.timeScale = 0;
+            } else {
+                this.scene.gameSpeed = this.lastGameSpeed || 0.5;
+                this.scene.physics.world.timeScale = 1 / this.scene.gameSpeed;
+                this.scene.tweens.timeScale = this.scene.gameSpeed;
+            }
+        });
+
+        // 1 — Select all player military units in viewport
+        kb.on('keydown-ONE', () => {
+            const cam = this.scene.cameras.main;
+            const rect = new Phaser.Geom.Rectangle(cam.scrollX, cam.scrollY, cam.width / cam.zoom, cam.height / cam.zoom);
+            this.clearSelection();
+            this.deselectBuilding();
+            const combatTypes = [UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION, UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT];
+            this.scene.units.getChildren().forEach((u: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+                if (u.getData('owner') !== 0) return;
+                if (!combatTypes.includes(u.unitType)) return;
+                const visual = u.visual;
+                if (visual && rect.contains(visual.x, visual.y)) {
+                    u.setSelected(true);
+                    this.selectedUnits.push(u);
+                }
+            });
+            this.emitSelectionChanged();
+        });
+
+        // 2 — Select all idle villagers
+        kb.on('keydown-TWO', () => {
+            const idle = this.scene.villagerSystem.getIdleVillagers(0);
+            if (idle.length > 0 && idle[0].visual) {
+                const v = idle[0].visual;
+                this.scene.cameras.main.centerOn(v.x, v.y);
+            }
+            this.scene.game.events.emit(EVENTS.NOTIFICATION, {
+                message: `${idle.length} idle villager${idle.length !== 1 ? 's' : ''}`,
+                type: idle.length > 0 ? 'info' : 'warning',
+            });
+        });
+
+        // B — Toggle build menu
+        kb.on('keydown-B', () => {
+            window.dispatchEvent(new CustomEvent('toggle-build-menu'));
+        });
+
+        // Delete — Demolish selected building
+        kb.on('keydown-DELETE', () => {
+            if (this.selectedBuilding) {
+                this.scene.game.events.emit(EVENTS.DEMOLISH_SELECTED);
+            }
+        });
+
+        // Q — Activate ability for selected units
+        kb.on('keydown-Q', () => {
+            for (const unitObj of this.selectedUnits) {
+                const unit = unitObj as GameUnit;
+                if (unit.unitType && UNIT_ABILITIES[unit.unitType as UnitType]) {
+                    this.scene.unitSystem.activateAbility(unit);
+                }
+            }
+        });
+
+        // Listen for ability activation from UI button
+        window.addEventListener('activate-ability', ((e: CustomEvent) => {
+            const unitType = e.detail as UnitType;
+            for (const unitObj of this.selectedUnits) {
+                const unit = unitObj as GameUnit;
+                if (unit.unitType === unitType) {
+                    this.scene.unitSystem.activateAbility(unit);
+                }
+            }
+        }) as EventListener);
     }
 
     public update(delta: number) {
@@ -59,6 +152,9 @@ export class InputManager {
     }
 
     private handlePointerDown(pointer: Phaser.Input.Pointer) {
+        // Minimap click-to-move: consume clicks on the minimap
+        if (this.scene.minimapSystem?.isPointerOnMinimap(pointer)) return;
+
         if (pointer.rightButtonDown()) {
             if (this.scene.buildingManager.isDemolishMode) {
                 this.scene.game.events.emit(EVENTS.TOGGLE_DEMOLISH, false);
@@ -246,6 +342,14 @@ export class InputManager {
         const unitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('unit'));
         const buildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('building'));
 
+        // Check if target is an animal container
+        const animalVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('type') === 'animal');
+        if (animalVisual) {
+            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+            this.scene.unitSystem.commandAttack(this.selectedUnits, animalVisual);
+            return;
+        }
+
         let targetEntity: Phaser.GameObjects.GameObject | null = null;
         let isEnemy = false;
 
@@ -259,6 +363,15 @@ export class InputManager {
             if (targetEntity && owner !== 0) isEnemy = true;
         }
 
+        // Friendly Castle garrison: right-click with units on own Castle
+        if (!isEnemy && buildingVisual && targetEntity) {
+            const def = (targetEntity as any).getData('def'); // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (def && def.type === BuildingType.CASTLE && (targetEntity as any).getData('owner') === 0) { // eslint-disable-line @typescript-eslint/no-explicit-any
+                this.garrisonUnits(targetEntity);
+                return;
+            }
+        }
+
         if (isEnemy && targetEntity) {
         this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
@@ -268,6 +381,35 @@ export class InputManager {
         this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
             this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
         }
+    }
+
+    private garrisonUnits(castle: Phaser.GameObjects.GameObject) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const garrison: Record<string, number> = (castle as any).getData('garrison') || {};
+
+        for (const unit of this.selectedUnits) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const unitType = (unit as any).unitType as string;
+            garrison[unitType] = (garrison[unitType] || 0) + 1;
+
+            // Clean up squad visuals if any
+            this.scene.squadSystem.destroySquad(unit);
+            // Destroy visual
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const visual = (unit as any).visual;
+            if (visual) visual.destroy();
+            // Remove from units group (triggers spatial hash removal)
+            this.scene.units.remove(unit, true);
+            this.scene.population--;
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (castle as any).setData('garrison', garrison);
+        this.selectedUnits = [];
+        this.emitSelectionChanged();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.scene.feedbackSystem?.showFloatingText((castle as any).x, (castle as any).y - 40, 'Units garrisoned', '#ffd700');
     }
 
     private handleSingleSelection(pointer: Phaser.Input.Pointer) {
@@ -288,7 +430,6 @@ export class InputManager {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             if (unit && (unit as any).getData('owner') === 0 && this.isSelectable(type)) { // Fix: Owner 0 is Player
                 unit.setSelected(true);
-            this.scene.proceduralSound.playUIClick();
             this.scene.proceduralSound.playUIClick();
             }
         } else if (buildingVisual) {
@@ -332,7 +473,8 @@ export class InputManager {
     }
 
     private isSelectable(type: UnitType) {
-        return type === UnitType.PIKESMAN || type === UnitType.CAVALRY || type === UnitType.ARCHER || type === UnitType.LEGION;
+        const combatTypes = [UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION, UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT, UnitType.VILLAGER];
+        return combatTypes.includes(type);
     }
 
     public clearSelection() {

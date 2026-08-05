@@ -1,1 +1,21 @@
+#!/bin/sh
+
+# TypeScript type check with full output
+echo "Running TypeScript check..."
+npx tsc --noEmit > /tmp/tsc-precommit.txt 2>&1 || true
+
+# Filter out the entire vite.config.d.ts error block (error + 2 context lines)
+grep -v "vite.config.d.ts\|The file is in the program\|Matched by include pattern" /tmp/tsc-precommit.txt > /tmp/tsc-filtered.txt || true
+
+if [ -s /tmp/tsc-filtered.txt ]; then
+  echo "❌ TypeScript errors found:"
+  cat /tmp/tsc-filtered.txt
+  rm /tmp/tsc-precommit.txt /tmp/tsc-filtered.txt
+  exit 1
+fi
+
+rm /tmp/tsc-precommit.txt /tmp/tsc-filtered.txt
+echo "✅ TypeScript check passed"
+
+# ESLint
 npm run lint

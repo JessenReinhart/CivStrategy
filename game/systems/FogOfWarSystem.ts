@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UNIT_VISION } from '../../constants';
-import { UnitType } from '../../types';
+import { UnitType, AnimalSpecies } from '../../types';
 import { toIso } from '../utils/iso';
 
 export class FogOfWarSystem {
@@ -138,10 +138,7 @@ export class FogOfWarSystem {
         const units = this.scene.units.getChildren();
         for (let i = 0; i < units.length; i++) {
             const u = units[i] as Phaser.GameObjects.Sprite;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            if ((u as any).unitType === UnitType.ANIMAL) continue;
-
-            // Fix: Enemy units do not reveal fog
+            if ((u as Phaser.GameObjects.Sprite & { unitType?: UnitType }).unitType === UnitType.ANIMAL) continue; // handled below via AnimalSystem
             if (u.getData('owner') !== 0) continue;
 
             // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
@@ -153,7 +150,21 @@ export class FogOfWarSystem {
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const range = UNIT_VISION[(u as any).unitType as UnitType] || 150;
-            drawVision(iso.x, iso.y, range);
+            const inForest = this.scene.terrainSystem?.isForestAt(u.x, u.y) ?? false;
+            const effectiveRange = inForest ? Math.round(range * 0.7) : range;
+            drawVision(iso.x, iso.y, effectiveRange);
+        }
+
+        // 2b. Herbivore animals reveal fog (deer, rabbit move through world)
+        const herbivores = [AnimalSpecies.DEER, AnimalSpecies.RABBIT];
+        for (const animal of this.scene.animalSystem.getAnimals()) {
+            if (!herbivores.includes(animal.species)) continue;
+            if (animal.hp <= 0) continue;
+            if (!animal.visual || !animal.visual.visible) continue;
+            const aIso = toIso(animal.x, animal.y);
+            if (aIso.x < viewRect.x - padding || aIso.x > viewRect.right + padding ||
+                aIso.y < viewRect.y - padding || aIso.y > viewRect.bottom + padding) continue;
+            drawVision(aIso.x, aIso.y, 100); // small reveal radius
         }
 
         // 3. Process Buildings

@@ -7,6 +7,15 @@ export enum FactionType {
   CARTHAGE = 'Carthage'
 }
 
+export interface FactionBonus {
+  buildingHpMult?: number;    // Building HP multiplier
+  wallHpMult?: number;        // Wall HP multiplier
+  meleeAttackMult?: number;   // Melee attack multiplier
+  rangedArmorMult?: number;   // Ranged armor multiplier (0.9 = -10%)
+  goldPerTick?: number;       // Passive gold income bonus
+  gatherRateMult?: number;    // Gather rate multiplier
+}
+
 export enum MapMode {
   FIXED = 'Fixed Map',
   INFINITE = 'Infinite Realm'
@@ -16,6 +25,14 @@ export enum MapSize {
   SMALL = 'Small',
   MEDIUM = 'Medium',
   LARGE = 'Large'
+}
+
+export enum MapPreset {
+  STANDARD = 'standard',      // Current balanced terrain
+  ISLAND = 'island',          // Water-heavy, naval focus
+  RIVER_VALLEY = 'river_valley', // Rivers create chokepoints
+  DESERT = 'desert',          // Sand-heavy, scarce resources
+  HIGHLANDS = 'highlands',    // Mountain-heavy, stone abundance
 }
 
 export enum FormationType {
@@ -79,6 +96,17 @@ export interface AgeConfig {
   advancementTime: number; // ms of game time to research
 }
 
+export enum GameResult {
+  PLAYING = 'playing',
+  WON = 'won',
+  LOST = 'lost'
+}
+
+export enum VictoryType {
+  CONQUEST = 'conquest',
+  DOMINANCE = 'dominance',
+}
+
 export interface GameStats {
   population: number;
   maxPopulation: number;
@@ -96,6 +124,16 @@ export interface GameStats {
   currentAge: Age;
   ageProgress: number; // 0–1 during advancement research
   nextAge: Age | null; // target age if advancing, null otherwise
+  currentSeason: Season;
+  notifications: readonly { id: number; text: string; severity: 'info' | 'warning' | 'danger' | 'success'; timestamp: number; duration: number; personality?: string; senderName?: string }[];
+  activeResearch: { techId: TechId; progress: number; duration: number } | null;
+  completedTechs: TechId[];
+  selectedBuildingInfo?: { type: BuildingType; hasWorker: boolean; nearbyResources: number; resourceLabel: string; garrisonCount?: number } | null;
+  gameResult?: GameResult;
+  victoryType?: VictoryType;
+  dominanceProgress?: number;
+  playerTerritoryPercent?: number;
+  aiTaunt?: { senderName: string; message: string; personality: string } | null;
 }
 
 export interface BuildingCost {
@@ -112,7 +150,11 @@ export enum BuildingType {
   LUMBER_CAMP = 'Lumber Camp',
   HUNTERS_LODGE = 'Hunter\'s Lodge',
   BONFIRE = 'Bonfire',
-  SMALL_PARK = 'Small Park'
+  SMALL_PARK = 'Small Park',
+  MARKET = 'Market',
+  WALL = 'Wall',
+  CATHEDRAL = 'Cathedral',
+  CASTLE = 'Castle'
 }
 
 export interface BuildingDef {
@@ -141,17 +183,20 @@ export enum UnitType {
   SLINGER = 'Slinger', // Cheap early ranged (Village Age)
   AXEMAN = 'Axeman', // Anti-building melee (Town Age)
   HOPLITE = 'Hoplite', // Elite shielded spearman (City-State Age)
-  CHARIOT = 'Chariot' // Elite ranged cavalry (City-State Age)
+  CHARIOT = 'Chariot', // Elite ranged cavalry (City-State Age)
+  RAM = 'Battering Ram' // Siege unit: high CRUSH vs buildings, slow and fragile
 }
 
 export enum UnitState {
   IDLE = 'idle',
   MOVING_TO_WORK = 'moving_to_work',
   WORKING = 'working',
+  GATHERING = 'gathering',
+  CARRYING = 'carrying',
   MOVING_TO_RALLY = 'moving_to_rally',
   WANDERING = 'wandering',
-  CHASING = 'chasing', // NEW
-  ATTACKING = 'attacking' // NEW
+  CHASING = 'chasing',
+  ATTACKING = 'attacking'
 }
 
 export interface UnitStats {
@@ -201,6 +246,25 @@ export interface VillagerData {
   path?: Phaser.Math.Vector2[];
   pathStep?: number;
   visual?: Phaser.GameObjects.Container;
+  // Spatial economy carry state
+  carryAmount: number;
+  carryType: 'wood' | 'food' | 'gold' | null;
+  gatherTimer: number;
+  targetResource?: Phaser.GameObjects.GameObject;
+}
+
+export enum AnimalSpecies {
+  DEER = 'deer',
+  WOLF = 'wolf',
+  BOAR = 'boar',
+  RABBIT = 'rabbit',
+}
+
+export enum Season {
+  SPRING = 'spring',
+  SUMMER = 'summer',
+  AUTUMN = 'autumn',
+  WINTER = 'winter',
 }
 
 export interface AnimalData {
@@ -208,6 +272,17 @@ export interface AnimalData {
   x: number;
   y: number;
   state: UnitState;
+  species: AnimalSpecies;
+  hp: number;
+  maxHp: number;
+  speed: number;
+  owner: number;        // -1 neutral
+  fearRange: number;    // flee distance
+  attackRange: number;  // attack distance (0 = passive)
+  attackDamage: number; // damage per hit (0 = passive)
+  foodValue: number;    // food dropped on death
+  herdId: number;       // group id for herding (-1 = no herd)
+  breedCooldown: number; // ms remaining until can breed
   visual?: Phaser.GameObjects.Container;
   wanderDest?: Phaser.Math.Vector2;
 }
@@ -221,4 +296,133 @@ export interface TerrainModifiers {
 export interface SlopeInfo {
   slope: number;          // 0.0 (flat) to 1.0+ (steep)
   isBuildable: boolean;   // false if slope > MAX_BUILDABLE_SLOPE
+}
+
+// ─── Unit Abilities ──────────────────────────────────────────────────────
+export enum UnitAbility {
+  SHIELD_WALL = 'shield_wall',      // Pikeman: +50% armor for 5s, can't move
+  RAIN_FIRE = 'rain_fire',           // Archer: volley attack hitting area
+  CHARGE = 'charge',                 // Cavalry: 2x damage on first hit after sprinting
+}
+
+// ─── Research System ─────────────────────────────────────────────────────
+export enum TechId {
+  WOODCUTTING_I = 'woodcutting_i',
+  FORAGING_I = 'foraging_i',
+  IRON_WORKING = 'iron_working',
+  CARRIAGE = 'carriage',
+  FORTIFICATION = 'fortification',
+  LOGISTICS = 'logistics',
+  SIEGE_ENGINEERING = 'siege_engineering',
+  CIVIL_SERVICE = 'civil_service',
+}
+
+export interface TechDef {
+  id: TechId;
+  name: string;
+  description: string;
+  requiredAge: Age;
+  hostBuildingTypes: BuildingType[];
+  prereqs: TechId[];
+  cost: BuildingCost;
+  researchTimeMs: number;
+  modifications: { path: string; multiply?: number; add?: number }[];
+}
+
+export interface ActiveResearch {
+  techId: TechId;
+  remainingMs: number;
+  totalMs: number;
+  hostBuildingKey: string | null;
+  escrow: BuildingCost;
+}
+
+export interface PlayerTechSnapshot {
+  completed: Set<TechId>;
+  active: ActiveResearch | null;
+  gatherMult: { wood: number; food: number; gold: number };
+  damageMult: number;
+  armorAdd: number;
+  movementSpeedMult: number;
+  buildingHpMult: number;
+  siegeBuildingDmgMult?: number;   // multiplier vs buildings (siege engineering)
+  popGrowthMult?: number;           // population growth rate multiplier (civil service)
+  happinessDecayMult?: number;     // happiness decay multiplier (0.7 = 30% less)
+}
+
+// ─── Save/Load System ──────────────────────────────────────────────────
+export interface SaveGame {
+  version: number;
+  timestamp: number;
+  // Scene init params (needed to restart with same map)
+  faction: FactionType;
+  enemyFaction: FactionType;
+  mapMode: MapMode;
+  mapSize: MapSize;
+  fowEnabled: boolean;
+  peacefulMode: boolean;
+  treatyLength: number; // minutes
+  aiDisabled: boolean;
+  mapSeed: number;
+  mapPreset: MapPreset;
+  // Runtime game state
+  gameTime: number;
+  currentAge: Age;
+  ageProgress: number;
+  isAdvancing: boolean;
+  nextAge: Age | null;
+  currentSeason: Season;
+  seasonTimer: number;
+  resources: Resources;
+  population: number;
+  happiness: number;
+  gameSpeed: number;
+  // Entities
+  units: SerializedUnit[];
+  buildings: SerializedBuilding[];
+  // Research
+  research: {
+    completedPlayer: TechId[];
+    activePlayer: { techId: TechId; remainingMs: number } | null;
+    completedAI: TechId[];
+  };
+  // AI
+  aiState: SerializedAIState;
+  // Victory
+  dominanceProgress: number;
+  playerTerritoryPercent: number;
+  gameResult: GameResult;
+  victoryType: VictoryType;
+}
+
+export interface SerializedUnit {
+  type: UnitType;
+  owner: number;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  state: UnitState;
+  stance: UnitStance;
+}
+
+export interface SerializedBuilding {
+  type: BuildingType;
+  owner: number;
+  x: number;
+  y: number;
+  hp: number;
+  maxHp: number;
+  workers: number;
+  garrison?: Record<string, number>;
+}
+
+export interface SerializedAIState {
+  personality: string;
+  currentAge: Age;
+  ageProgress: number;
+  resources: Resources;
+  baseX: number;
+  baseY: number;
+  buildIndex: number;
 }

@@ -1,6 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
+import { Season } from '../../types';
 
 export class AtmosphericSystem {
     private scene: MainScene;
@@ -14,14 +15,29 @@ export class AtmosphericSystem {
 
     // Store user's desired bloom multiplier so adaptive logic doesn't overwrite it
     private userBloomMultiplier: number = 1.0;
+    // Seasonal cloud speed multiplier (1.0 = default)
+    private cloudSpeedMult: number = 1.0;
+    // Seasonal terrain tint overlay
+    private seasonalTint!: Phaser.GameObjects.Graphics;
+    private seasonalTintTarget = { color: 0x000000, alpha: 0 };
+    private seasonalTintCurrent = { color: 0x000000, alpha: 0 };
 
     constructor(scene: MainScene) {
         this.scene = scene;
         this.createCloudTexture();
         this.createClouds();
         this.setupBloom();
+        this.createSeasonalTint();
     }
 
+    private createSeasonalTint() {
+        this.seasonalTint = this.scene.add.graphics();
+        this.seasonalTint.setScrollFactor(0);
+        this.seasonalTint.setDepth(1000);
+        this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.seasonalTint?.destroy();
+        });
+    }
     private createCloudTexture() {
         const size = 128;
         const canvas = this.scene.textures.createCanvas(this.cloudTextureKey, size, size);
@@ -107,6 +123,17 @@ export class AtmosphericSystem {
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
+        // Smoothly interpolate seasonal tint
+        if (this.seasonalTint) {
+            const t = 0.03; // ~30 frames to settle
+            this.seasonalTintCurrent.alpha = Phaser.Math.Linear(this.seasonalTintCurrent.alpha, this.seasonalTintTarget.alpha, t);
+            this.seasonalTintCurrent.color = this.seasonalTintTarget.color;
+            this.seasonalTint.clear();
+            if (this.seasonalTintCurrent.alpha > 0.005) {
+                this.seasonalTint.fillStyle(this.seasonalTintCurrent.color, this.seasonalTintCurrent.alpha);
+                this.seasonalTint.fillRect(viewRect.x - 100, viewRect.y - 100, viewRect.width + 200, viewRect.height + 200);
+            }
+        }
 
         // --- Cloud Logic ---
         // Expand wrap bounds well beyond the camera view to avoid popping
@@ -117,8 +144,7 @@ export class AtmosphericSystem {
             top: viewRect.y - pad,
             bottom: viewRect.y + viewRect.height + pad
         };
-
-        const speed = 2 * (delta / 16.6); // Increased speed for visibility (was 0.2)
+        const speed = 2 * this.cloudSpeedMult * (delta / 16.6);
 
         this.clouds.forEach(cloud => {
             // Move cloud
@@ -139,6 +165,27 @@ export class AtmosphericSystem {
                 cloud.y = wrapBounds.bottom;
             }
         });
+    }
+
+    public applySeasonalTint(season: Season): void {
+        switch (season) {
+            case Season.SPRING:
+                this.seasonalTintTarget = { color: 0x88CC88, alpha: 0.04 };
+                this.cloudSpeedMult = 0.9;
+                break;
+            case Season.SUMMER:
+                this.seasonalTintTarget = { color: 0xFFDD88, alpha: 0.03 };
+                this.cloudSpeedMult = 0.7;
+                break;
+            case Season.AUTUMN:
+                this.seasonalTintTarget = { color: 0xCC8833, alpha: 0.08 };
+                this.cloudSpeedMult = 1.3;
+                break;
+            case Season.WINTER:
+                this.seasonalTintTarget = { color: 0x8899CC, alpha: 0.10 };
+                this.cloudSpeedMult = 1.6;
+                break;
+        }
     }
 
     public getWindSway(x: number, y: number, time: number): number {
