@@ -30,7 +30,9 @@ fi
 echo "4️⃣  Fallow dead-code detection..."
 FALLOW_JSON=".fallow-report.json"
 if npx fallow dead-code --format json > "$FALLOW_JSON" 2>/dev/null; then
-  node scripts/fallow-summary.mjs "$FALLOW_JSON" || true
+  if [ -f scripts/fallow-summary.mjs ]; then
+    node scripts/fallow-summary.mjs "$FALLOW_JSON" || true
+  fi
   rm -f "$FALLOW_JSON"
 fi
 
