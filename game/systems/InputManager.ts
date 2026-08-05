@@ -12,6 +12,7 @@ export class InputManager {
 
     private lastGameSpeed = 0.5;
     private isRightDragging = false;
+    private isDragging = false;
     private dragStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
     private selectionGraphics: Phaser.GameObjects.Graphics;

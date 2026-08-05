@@ -15,7 +15,8 @@ export const CHUNK_SIZE = 512; // For infinite mode
 export const MAP_SIZES: Record<MapSize, number> = {
   [MapSize.SMALL]: 1024,
   [MapSize.MEDIUM]: 2048,
-  [MapSize.LARGE]: 4096
+  [MapSize.LARGE]: 4096,
+  [MapSize.HUGE]: 8192
 };
 
 export const FACTION_COLORS = {
@@ -380,6 +381,7 @@ export const AGE_CONFIGS: Record<Age, AgeConfig> = {
     requiredBuildings: [],
     unlocksUnits: [UnitType.VILLAGER, UnitType.SLINGER, UnitType.PIKESMAN],
     unlocksBuildings: [],
+    advancementTime: 0 // Village age is the starting age, no research needed
   },
   [Age.TOWN]: {
     name: 'Town Age',
@@ -433,8 +435,9 @@ export const TERRAIN_CONFIG = {
   DOWNHILL_SPEED_BONUS: 1.3,   // 30% faster downhill
   UPHILL_SPEED_PENALTY: 0.7,   // 30% slower uphill
   SLOPE_THRESHOLD: 0.05,       // Minimum slope to trigger modifier
-  
+
   // Combat modifiers
+  HEIGHT_DIFF_THRESHOLD: 0.08, // Height difference required for high-ground combat bonus
   HIGH_GROUND_ATTACK_BONUS: 0.10,   // +10% attack from high ground
   HIGH_GROUND_DEFENSE_BONUS: 0.05,  // +5% defense on high ground
   // Visual — biome-based terrain tiles

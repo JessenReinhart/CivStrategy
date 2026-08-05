@@ -133,11 +133,11 @@ export class EnemyAISystem {
     private scene: MainScene;
 
     // AI State
-    private resources: Resources = { wood: 500, food: 500, gold: 500 };
-    private baseX: number = 200;
-    private baseY: number = 200;
+    public resources: Resources = { wood: 500, food: 500, gold: 500 };
+    public baseX: number = 200;
+    public baseY: number = 200;
     private selectedBlueprint: BlueprintItem[] = AI_BASE_LAYOUTS[Phaser.Math.Between(0, AI_BASE_LAYOUTS.length - 1)];
-    private buildings: (Phaser.GameObjects.GameObject | null)[] = new Array(this.selectedBlueprint.length).fill(null);
+    public buildings: (Phaser.GameObjects.GameObject | null)[] = new Array(this.selectedBlueprint.length).fill(null);
 
     // Personality
     private personality: AIPersonality = 'balanced';
@@ -157,7 +157,7 @@ export class EnemyAISystem {
     private ATTACK_INTERVAL_BASE = 90000; // 90 seconds between waves (adjusted by personality)
     private lastTauntTime: number = 0;
 
-    private buildIndex: number = 0;
+    public buildIndex: number = 0;
     private hasSpawnedStartingForest: boolean = false;
 
     // Age advancement
@@ -636,7 +636,7 @@ export class EnemyAISystem {
             this.resources.food -= cost.food;
             this.resources.gold -= cost.gold;
 
-            const unit = this.scene.entityFactory.spawnUnit(chosenUnit, spawnX, spawnY, 1);
+            const unit = this.scene.entityFactory.spawnUnit(chosenUnit, spawnX, spawnY, 1) as GameUnit | null | undefined;
             unit?.setData?.('stance', UnitStance.AGGRESSIVE);
         }
     }

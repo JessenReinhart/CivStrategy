@@ -4,7 +4,7 @@ import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
-import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType } from './types';
+import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import Phaser from 'phaser';
 
@@ -48,7 +48,7 @@ const App: React.FC = () => {
   currentAge: Age.VILLAGE,
   ageProgress: 0,
   nextAge: null,
-  currentSeason: 'summer' as const,
+  currentSeason: Season.SUMMER,
   notifications: [],
   activeResearch: null,
   completedTechs: [],
@@ -111,7 +111,7 @@ const [selectedCount, setSelectedCount] = useState(0);
       currentAge: Age.VILLAGE,
       ageProgress: 0,
       nextAge: null,
-      currentSeason: 'summer' as const,
+      currentSeason: Season.SUMMER,
       notifications: [],
       activeResearch: null,
       completedTechs: [],
@@ -307,6 +307,7 @@ const [selectedCount, setSelectedCount] = useState(0);
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
               onAdvanceAge={handleAdvanceAge}
               onReleaseGarrison={handleReleaseGarrison}
+              currentAge={stats.currentAge}
               ageProgress={stats.ageProgress}
               nextAge={stats.nextAge}
             />

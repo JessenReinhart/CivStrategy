@@ -18,7 +18,7 @@ import terrainScrubImg from '../assets/textures/terrain_scrub.png';
 import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT } from '../constants';
-import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType } from '../types';
+import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
 import { createSeededRandom } from './utils/seededRandom';
 import { SpatialHash } from './utils/SpatialHash';
@@ -101,6 +101,7 @@ export class MainScene extends Phaser.Scene {
   private lastAnimalCallTime: number = 0;
   // Auto-save
   private autoSaveTickCounter: number = 0;
+  private lastGarrisonFireTime: number = 0;
   private minimapClickHandler: ((e: Event) => void) | null = null;
 
   // Core Groups
@@ -661,7 +662,7 @@ export class MainScene extends Phaser.Scene {
     });
     // Listen for garrison release requests from React UI
     this.game.events.on('release-garrison', () => {
-      const selBuilding = this.inputManager.selectedBuilding;
+      const selBuilding = this.inputManager.selectedBuilding as Phaser.GameObjects.Image | null;
       if (!selBuilding) return;
       const def = selBuilding.getData('def');
       if (!def || def.type !== BuildingType.CASTLE) return;
@@ -979,9 +980,9 @@ export class MainScene extends Phaser.Scene {
               }
             });
 
-            if (nearest && (nearest as Phaser.GameObjects.Image).takeDamage) {
+            if (nearest && (nearest as GameUnit).takeDamage) {
               const dmg = totalGarrisoned * CASTLE_GARRISON_DAMAGE_PER_UNIT;
-              (nearest as Phaser.GameObjects.Image).takeDamage(dmg);
+              (nearest as GameUnit).takeDamage!(dmg);
               this.feedbackSystem.showDamageNumber(
                 (nearest as Phaser.GameObjects.Image).x,
                 (nearest as Phaser.GameObjects.Image).y,
@@ -1087,7 +1088,6 @@ export class MainScene extends Phaser.Scene {
         .sort((a, b) => b.ms - a.ms)
         .slice(0, 6);
       try {
-        // @ts-expect-error — import.meta.hot only in Vite dev
         import.meta.hot?.send('game:fps', {
           fps: this.game.loop.actualFps,
           units: this.units.getLength(),
@@ -1296,7 +1296,8 @@ export class MainScene extends Phaser.Scene {
       [UnitType.SLINGER]: { food: 40, gold: 20 },
       [UnitType.AXEMAN]: { food: 120, gold: 60 },
       [UnitType.HOPLITE]: { food: 200, gold: 150 },
-      [UnitType.CHARIOT]: { food: 250, gold: 200 }
+      [UnitType.CHARIOT]: { food: 250, gold: 200 },
+      [UnitType.RAM]: { food: 100, gold: 80 }
     };
 
     const cost = costs[type];
@@ -1327,7 +1328,7 @@ export class MainScene extends Phaser.Scene {
       const spawnX = spawnSource.x + 60;
       const spawnY = spawnSource.y + 60;
 
-      const unit = this.entityFactory.spawnUnit(type, spawnX, spawnY, 0);
+      const unit = this.entityFactory.spawnUnit(type, spawnX, spawnY, 0) as GameUnit | null | undefined;
       this.economySystem.updateStats();
 
       // Check for waypoint

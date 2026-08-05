@@ -1066,7 +1066,7 @@ export class UnitSystem {
                 const chargeMult = unit.getData('charging') ? 2 : 1;
                 if (chargeMult > 1) {
                     unit.setData('charging', false); // Consume charge
-                    if (unit.visual) unit.visual.clearTint();
+                    if (unit.visual) (unit.visual as unknown as Phaser.GameObjects.Image).clearTint();
                 }
                 // Wall proximity defense: units near a wall take less damage
                 const nearWall = this.scene.buildingManager.getWallsNear(target.x, target.y, WALL_PROXIMITY_RADIUS).length > 0;
@@ -1517,9 +1517,9 @@ export class UnitSystem {
 
                 // Find enemies in area
                 const enemies = this.scene.units.getChildren().filter((e) => {
-                    if (e.getData('owner') === owner) return false;
-                    const dx = e.x - targetX;
-                    const dy = e.y - targetY;
+                    if ((e as GameUnit).getData('owner') === owner) return false;
+                    const dx = (e as GameUnit).x - targetX;
+                    const dy = (e as GameUnit).y - targetY;
                     return Math.sqrt(dx * dx + dy * dy) <= areaRadius;
                 }) as GameUnit[];
 
@@ -1551,13 +1551,13 @@ export class UnitSystem {
                 unit.setData('charging', true);
                 // Visual feedback
                 if (unit.visual) {
-                    unit.visual.setTint(0xff8800);
+                    (unit.visual as unknown as Phaser.GameObjects.Image).setTint(0xff8800);
                 }
                 // Remove after duration
                 this.scene.time.delayedCall(config.duration, () => {
                     if (unit.scene) {
                         unit.setData('charging', false);
-                        if (unit.visual) unit.visual.clearTint();
+                        if (unit.visual) (unit.visual as unknown as Phaser.GameObjects.Image).clearTint();
                     }
                 });
                 return true;

@@ -24,7 +24,8 @@ export enum MapMode {
 export enum MapSize {
   SMALL = 'Small',
   MEDIUM = 'Medium',
-  LARGE = 'Large'
+  LARGE = 'Large',
+  HUGE = 'Huge'
 }
 
 export enum MapPreset {
@@ -134,6 +135,7 @@ export interface GameStats {
   dominanceProgress?: number;
   playerTerritoryPercent?: number;
   aiTaunt?: { senderName: string; message: string; personality: string } | null;
+  mapSeed?: number;
 }
 
 export interface BuildingCost {

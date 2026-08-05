@@ -161,7 +161,7 @@ export class AnimalSystem {
   private updatePrey(animal: AnimalData, delta: number): void {
     const threat = this.findNearestUnit(animal, animal.fearRange, 'player');
     if (threat) {
-      this.startFleeing(animal, threat.x, threat.y);
+      this.startFleeing(animal, (threat as Phaser.GameObjects.Image).x, (threat as Phaser.GameObjects.Image).y);
       return;
     }
 
@@ -260,10 +260,11 @@ export class AnimalSystem {
   /** Attack a GameUnit (player or non-neutral). Uses wanderDest.y as cooldown timer. */
   private attackUnitTarget(animal: AnimalData, target: Phaser.GameObjects.GameObject, delta: number): void {
     animal.state = UnitState.ATTACKING;
-    const distSq = Phaser.Math.Distance.BetweenPointsSquared(animal, target);
+    const targetImg = target as Phaser.GameObjects.Image;
+    const distSq = Phaser.Math.Distance.BetweenPointsSquared(animal, targetImg);
 
     if (distSq > animal.attackRange * animal.attackRange) {
-      this.moveToward(animal, target, delta, 1.0);
+      this.moveToward(animal, targetImg, delta, 1.0);
       return;
     }
 
@@ -314,7 +315,7 @@ export class AnimalSystem {
     // Prey check for threats mid-walk
     if (animal.fearRange > 0) {
       const threat = this.findNearestUnit(animal, animal.fearRange, 'player');
-      if (threat) { this.startFleeing(animal, threat.x, threat.y); return; }
+      if (threat) { this.startFleeing(animal, (threat as Phaser.GameObjects.Image).x, (threat as Phaser.GameObjects.Image).y); return; }
     }
 
     this.moveToward(animal, animal.wanderDest, delta, 1.0);

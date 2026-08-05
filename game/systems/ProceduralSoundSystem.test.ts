@@ -52,7 +52,7 @@ function makeNode(type: NodeType): MockNode {
         let toNode: any = target;
         if (!target || typeof target !== 'object' || !('__type' in target)) {
             // Not a node nor a recognized param — treat as an inert target.
-            toNode = { __type: 'unknown', __id: -2, __outEdges: [] } as MockNode;
+            toNode = { __type: 'unknown', __id: -2, __outEdges: [] } as unknown as MockNode;
         }
         this.__outEdges.push(toNode);
         recorder.edges.push({ from: this, to: toNode });

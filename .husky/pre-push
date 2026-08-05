@@ -4,17 +4,7 @@ echo "Running full verification before push..."
 
 # TypeScript type check
 echo "1️⃣  TypeScript check..."
-npx tsc --noEmit > /tmp/tsc-prepush.txt 2>&1 || true
-grep -v "vite.config.d.ts\|The file is in the program\|Matched by include pattern" /tmp/tsc-prepush.txt > /tmp/tsc-filtered.txt || true
-
-if [ -s /tmp/tsc-filtered.txt ]; then
-  echo "❌ TypeScript errors found:"
-  cat /tmp/tsc-filtered.txt
-  rm /tmp/tsc-prepush.txt /tmp/tsc-filtered.txt
-  exit 1
-fi
-rm /tmp/tsc-prepush.txt /tmp/tsc-filtered.txt
-echo "✅ TypeScript passed"
+npx tsc --noEmit
 
 # ESLint
 echo "2️⃣  ESLint..."

@@ -18,6 +18,8 @@ export class MinimapSystem {
 
     private viewportGraphics: Phaser.GameObjects.Graphics;
     private territoryGraphics: Phaser.GameObjects.Graphics;
+    private maskGraphics!: Phaser.GameObjects.Graphics;
+    private borderGraphics!: Phaser.GameObjects.Graphics;
 
     private updateInterval = 15;
     private frameCount = 0;

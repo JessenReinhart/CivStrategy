@@ -440,6 +440,7 @@ export class EconomySystem {
             currentAge: this.scene.currentAge,
             ageProgress: this.scene.ageProgress,
             nextAge: this.scene.nextAge,
+            currentSeason: this.scene.currentSeason,
             notifications: this.scene.feedbackSystem.getNotifications(),
             activeResearch: (() => {
                 const active = this.scene.researchManager?.getActive(0);

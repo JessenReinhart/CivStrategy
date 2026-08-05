@@ -8,7 +8,7 @@ export class AtmosphericSystem {
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
     private bloomEffect!: Phaser.FX.Bloom;
-    private tiltShiftEffect: Phaser.FX.TiltShift | null = null;
+    private tiltShiftEffect: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
     private vignetteEffect!: Phaser.FX.Vignette;
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;

@@ -22,18 +22,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
       
-      - name: TypeScript type check (strict, full output)
-        run: |
-          echo "Running TypeScript compiler with full error output..."
-          npx tsc --noEmit 2>&1 | tee tsc-output.txt
-          # Filter out known acceptable errors
-          grep -v "vite.config.d.ts" tsc-output.txt > tsc-filtered.txt || true
-          if [ -s tsc-filtered.txt ]; then
-            echo "❌ TypeScript errors found:"
-            cat tsc-filtered.txt
-            exit 1
-          fi
-          echo "✅ TypeScript check passed"
+      - name: TypeScript type check
+        run: npx tsc --noEmit
       
       - name: ESLint check
         run: npm run lint
@@ -44,20 +34,12 @@ jobs:
       - name: Fallow - Dead code detection
         run: |
           echo "Checking for unused code with Fallow..."
-          npx fallow dead-code --format json > fallow-dead.json || true
-          # Show summary (non-blocking for now, can be made blocking later)
-          if [ -s fallow-dead.json ]; then
-            echo "⚠️  Fallow found potential unused code:"
-            cat fallow-dead.json
-          else
-            echo "✅ No unused code detected"
-          fi
-      
+          npx fallow dead-code --format json || true
+
       - name: Fallow - Full analysis
         run: |
           echo "Running full Fallow analysis..."
-          npx fallow > fallow-report.txt || true
-          cat fallow-report.txt
+          npx fallow || true
       
       - name: Build check
         run: npm run build

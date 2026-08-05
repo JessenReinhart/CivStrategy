@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType } from '../types';
+import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType, TechId } from '../types';
 import { BUILDINGS, EVENTS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,

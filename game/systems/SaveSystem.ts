@@ -3,7 +3,7 @@ import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import {
   SaveGame, SerializedUnit, SerializedBuilding, SerializedAIState,
-  UnitType, UnitState, BuildingType, Age,
+  UnitType, UnitState, BuildingType, Age, GameUnit,
   MapSize, FactionType, MapPreset, TechId, UnitStance,
 } from '../../types';
 
@@ -197,9 +197,8 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   scene.economySystem?.updateStats();
 
   // 8. Force a full update cycle so everything is consistent
-  scene.cameras.main.centerOn(
-    ...Object.values(getIsoCenter(scene))
-  );
+  const center = getIsoCenter(scene);
+  scene.cameras.main.centerOn(center.x, center.y);
 }
 
 function destroyAllEntities(scene: MainScene): void {
@@ -301,11 +300,11 @@ function respawnUnits(scene: MainScene, save: SaveGame): void {
     if (u.type === UnitType.VILLAGER) {
       scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
     } else {
-      const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);
+      const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner) as GameUnit | null | undefined;
       if (unit) {
         unit.setData('hp', u.hp);
         unit.setData('maxHp', u.maxHp);
-        (unit as any).state = u.state;
+        unit.state = u.state as UnitState;
         unit.setData('stance', u.stance);
       }
     }
