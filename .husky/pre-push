@@ -26,7 +26,7 @@ if ! npm run test; then
   exit 1
 fi
 
-# Fallow dead-code detection (non-blocking)
+# Fallow dead-code detection (non-blocking — optional analysis, does not fail push)
 echo "4️⃣  Fallow dead-code detection..."
 FALLOW_JSON=".fallow-report.json"
 if npx fallow dead-code --format json > "$FALLOW_JSON" 2>/dev/null; then
