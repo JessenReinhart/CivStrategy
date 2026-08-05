@@ -19,6 +19,9 @@
         --amber-glow: #FFDF8F;
         --dust-particle: #B8A88A;
         --terracotta: #8B5A2B;
+        --hud-ink: rgba(12, 11, 10, .88);
+        --hud-line: rgba(230, 220, 196, .16);
+        --hud-muted: rgba(245, 241, 232, .62);
       }
 
       body {
@@ -30,6 +33,21 @@
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
+      .hud-surface {
+        background: linear-gradient(180deg, rgba(25, 22, 18, .92), rgba(10, 9, 8, .88));
+        border: 1px solid var(--hud-line);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, .28), inset 0 1px rgba(255,255,255,.04);
+        backdrop-filter: blur(16px) saturate(115%);
+      }
+      .hud-kicker {
+        color: var(--hud-muted);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+      }
+      .hud-rule { background: var(--hud-line); }
+
       /* Disable selection on game container to prevent UI text selection while dragging */
       #game-container { user-select: none; }
       @keyframes shrink-toast-bar {

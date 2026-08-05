@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType, TechId } from '../types';
-import { BUILDINGS, EVENTS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG } from '../constants';
+import { BUILDINGS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
@@ -187,14 +187,14 @@ export const GameUI: React.FC<GameUIProps> = ({
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
 
             {/* --- TOP BAR: RESOURCES --- */}
-            <div className="absolute top-6 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto">
-                <div className="flex items-center gap-6 px-8 py-3 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-2xl text-stone-100 transition-all hover:bg-black/70">
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto max-w-[calc(100vw-2rem)]">
+                <div className="hud-surface flex items-center gap-5 px-5 py-2.5 rounded-xl text-stone-100 transition-colors hover:border-amber-500/30">
                     <ResourceItem
                         icon={<Pickaxe size={16} className="text-emerald-400" />}
                         value={stats.resources.wood}
                         sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
                     />
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <ResourceItem
                         icon={<Wheat size={16} className="text-yellow-400" />}
                         value={
@@ -206,18 +206,18 @@ export const GameUI: React.FC<GameUIProps> = ({
                             </span>
                         }
                     />
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <ResourceItem
                         icon={<Coins size={16} className="text-amber-400" />}
                         value={stats.resources.gold}
                         sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
                     />
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <ResourceItem
                         icon={<User size={16} className="text-blue-300" />}
                         value={`${stats.population}/${stats.maxPopulation}`}
                     />
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <div className="flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors" onClick={onAdvanceAge} title="Advance Age">
                       <Zap size={16} className={
                         stats.nextAge ? 'text-amber-400 animate-pulse' :
@@ -240,7 +240,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         )}
                       </div>
                     </div>
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <div className="flex flex-col items-center min-w-[60px]">
                         <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
                             <Smile size={16} />
@@ -250,7 +250,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <span className="text-[10px] text-red-400 animate-pulse font-bold tracking-wider">REVOLT RISK</span>
                         )}
                     </div>
-                    <div className="w-px h-8 bg-white/10" />
+                    <div className="hud-rule w-px h-7" />
                     <div className="flex items-center gap-2 px-1" title={stats.currentSeason}>
                         <span className={`text-sm font-bold ${
                             stats.currentSeason === 'spring' ? 'text-emerald-400' :
@@ -267,7 +267,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <span className="text-[10px] font-bold text-cyan-400">🏰 {Math.round(stats.playerTerritoryPercent * 100)}%</span>
                         </div>
                     )}
-                     <div className="w-px h-8 bg-white/10" />
+                     <div className="hud-rule w-px h-7" />
                     <div className="flex items-center gap-1" title="Diplomacy">
                         {stats.peacefulMode ? (
                             <span className="text-[10px] font-bold text-emerald-400">🕊️ Peace</span>
@@ -388,12 +388,11 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                 {/* Menu Dropdown */}
                 {showMenu && (
-                    <div className="flex flex-col gap-2 w-48 animate-in slide-in-from-top-2 fade-in duration-200">
-                        {/* Bloom Intensity Slider in Menu */}
-                        <div className="p-4 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl flex flex-col gap-2">
-                            <div className="flex justify-between items-center text-[10px] font-bold text-stone-400 uppercase tracking-widest">
-                                <span>Bloom Strength</span>
-                                <span className="text-amber-400">{Math.round(stats.bloomIntensity * 100)}%</span>
+                    <div className="hud-surface flex flex-col gap-2 w-56 rounded-lg p-2 animate-in slide-in-from-top-2 fade-in duration-200">
+                        <div className="px-2 py-1">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="hud-kicker">Bloom intensity</span>
+                                <span className="font-mono text-[10px] text-amber-300">{Math.round(stats.bloomIntensity * 100)}%</span>
                             </div>
                             <input
                                 type="range"
@@ -401,27 +400,19 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 max="3"
                                 step="0.1"
                                 value={stats.bloomIntensity}
-                                onChange={(e) => {
-                                    const val = parseFloat(e.target.value);
-                                    window.dispatchEvent(new CustomEvent('set-bloom-intensity-ui', { detail: val }));
-                                }}
+                                onChange={(e) => window.dispatchEvent(new CustomEvent('set-bloom-intensity-ui', { detail: parseFloat(e.target.value) }))}
                                 className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
                             />
                         </div>
-
-                        <button onClick={() => window.dispatchEvent(new CustomEvent('save-game'))} className="flex items-center gap-3 px-4 py-3 bg-emerald-900/80 backdrop-blur hover:bg-emerald-800 text-emerald-100 rounded-xl border border-emerald-700/50 shadow-xl transition-all font-bold text-sm">
-                            <Save size={16} />
-                            Save Game
+                        <div className="hud-rule h-px w-full" />
+                        <button onClick={() => window.dispatchEvent(new CustomEvent('save-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm">
+                            <Save size={15} /> Save game <span className="ml-auto hud-kicker">Ctrl S</span>
                         </button>
-
-                        <button onClick={() => window.dispatchEvent(new CustomEvent('load-game'))} className="flex items-center gap-3 px-4 py-3 bg-blue-900/80 backdrop-blur hover:bg-blue-800 text-blue-100 rounded-xl border border-blue-700/50 shadow-xl transition-all font-bold text-sm">
-                            <BookOpen size={16} />
-                            Load Game
+                        <button onClick={() => window.dispatchEvent(new CustomEvent('load-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm">
+                            <BookOpen size={15} /> Load game
                         </button>
-
-                        <button onClick={onQuit} className="flex items-center gap-3 px-4 py-3 bg-red-900/80 backdrop-blur hover:bg-red-800 text-red-100 rounded-xl border border-red-700/50 shadow-xl transition-all font-bold text-sm">
-                            <LogOut size={16} />
-                            Quit Game
+                        <button onClick={onQuit} className="flex items-center gap-3 px-3 py-2 text-red-300 hover:text-red-200 hover:bg-red-500/10 rounded-md transition-colors text-sm">
+                            <LogOut size={15} /> Exit to menu
                         </button>
                     </div>
                 )}
@@ -469,10 +460,10 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                 {/* A. SELECTION MODE */}
                 {hasSelection && (
-                    <div className="bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-1 min-w-[400px] shadow-2xl animate-in slide-in-from-bottom-4 fade-in duration-300">
+                    <div className="hud-surface min-w-[min(620px,calc(100vw-2rem))] rounded-xl p-1.5 animate-in slide-in-from-bottom-4 fade-in duration-300">
                         <div className="flex items-stretch">
                             {/* Icon Section */}
-                            <div className="w-24 bg-white/5 rounded-xl flex items-center justify-center shrink-0">
+                            <div className="w-20 bg-white/[.035] border-r border-[var(--hud-line)] rounded-lg flex items-center justify-center shrink-0">
                                 {selectedBuildingType ? (
                                     <Home size={32} className="text-amber-500 opacity-80" />
                                 ) : (
@@ -488,7 +479,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     <>
                                         <h3 className="text-lg font-serif font-bold text-stone-100 flex items-center justify-between">
                                             {BUILDINGS[selectedBuildingType].name}
-                                            <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, { detail: 0 }))} className="text-stone-500 hover:text-white">
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-500 hover:text-white">
                                                 <X size={16} />
                                             </button>
                                         </h3>
@@ -514,7 +505,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     <div className="flex flex-col gap-1 w-full">
                                         <div className="flex justify-between items-center mb-1">
                                             <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Selected Group</span>
-                                            <button onClick={() => window.dispatchEvent(new CustomEvent(EVENTS.SELECTION_CHANGED, { detail: 0 }))} className="text-stone-500 hover:text-white">
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-500 hover:text-white">
                                                 <X size={16} />
                                             </button>
                                         </div>
@@ -975,7 +966,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         )}
 
                         {/* Main Dock */}
-                        <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl">
+                        <div className="hud-surface flex items-center gap-2 p-1.5 rounded-xl">
                             <DockButton
                                 isActive={activeCategory === 'economy'}
                                 onClick={() => { setActiveCategory(activeCategory === 'economy' ? null : 'economy'); setShowResearch(false); }}
@@ -1019,36 +1010,28 @@ export const GameUI: React.FC<GameUIProps> = ({
                 )}
             </div>
 
-
-            {/* Toast Notifications */}
+            {/* Event ledger: compact, readable feedback anchored away from the command dock. */}
             {stats.notifications && stats.notifications.length > 0 && (
-                <div className="absolute top-20 right-6 flex flex-col gap-2 pointer-events-auto max-w-xs">
+                <div className="absolute top-20 right-4 flex flex-col gap-1.5 pointer-events-auto w-[min(21rem,calc(100vw-2rem))]">
+                    <div className="hud-kicker px-1">Recent events</div>
                     {stats.notifications.slice(-4).map((n) => {
                         const isTaunt = !!n.personality;
                         const colors = isTaunt
-                            ? 'bg-red-950/90 border-orange-500/60 text-orange-200 shadow-orange-500/20 shadow-lg'
+                            ? 'bg-[#281512]/95 border-orange-400/50 text-orange-100'
                             : {
-                                info: 'bg-blue-900/80 border-blue-500/50 text-blue-200',
-                                warning: 'bg-amber-900/80 border-amber-500/50 text-amber-200',
-                                danger: 'bg-red-900/80 border-red-500/50 text-red-200',
-                                success: 'bg-emerald-900/80 border-emerald-500/50 text-emerald-200',
+                                info: 'bg-[#171d23]/95 border-sky-400/40 text-sky-100',
+                                warning: 'bg-[#282116]/95 border-amber-400/45 text-amber-100',
+                                danger: 'bg-[#281619]/95 border-red-400/45 text-red-100',
+                                success: 'bg-[#14231d]/95 border-emerald-400/40 text-emerald-100',
                             }[n.severity];
                         return (
-                            <div
-                                key={n.id}
-                                className={`${colors} border rounded-lg px-3 py-2 backdrop-blur-sm shadow-lg text-sm`}
-                            >
+                            <div key={n.id} className={`${colors} border rounded-md px-3 py-2 backdrop-blur-md shadow-lg text-sm leading-snug`}>
                                 {isTaunt && n.senderName && (
-                                    <div className="text-[11px] text-orange-400/80 font-semibold uppercase tracking-wider mb-0.5">
-                                        ⚔ {n.senderName}
-                                    </div>
+                                    <div className="text-[10px] text-orange-300/80 font-semibold uppercase tracking-wider mb-0.5">{n.senderName}</div>
                                 )}
                                 <div className={isTaunt ? 'font-medium italic' : 'font-medium'}>{n.text}</div>
-                                <div className="h-0.5 mt-1 rounded bg-white/20 overflow-hidden">
-                                    <div
-                                        className="h-full bg-white/40 shrink-toast-bar"
-                                        style={{ animationDuration: `${n.duration}ms` }}
-                                    />
+                                <div className="h-px mt-2 rounded bg-white/15 overflow-hidden">
+                                    <div className="h-full bg-[var(--gold-leaf)]/70 shrink-toast-bar" style={{ animationDuration: `${n.duration}ms` }} />
                                 </div>
                             </div>
                         );
@@ -1148,8 +1131,8 @@ interface DockButtonProps {
 const DockButton: React.FC<DockButtonProps> = ({ isActive, onClick, icon, label }) => (
     <button
         onClick={onClick}
-        className={`relative group p-3 rounded-xl transition-all duration-300 flex items-center gap-2
-            ${isActive ? 'bg-amber-600 text-white shadow-lg -translate-y-1' : 'text-stone-400 hover:text-white hover:bg-white/10'}
+        className={`relative group p-2.5 rounded-md border transition-colors duration-200 flex items-center gap-2
+            ${isActive ? 'bg-amber-600/90 border-amber-300/70 text-white shadow-[0_0_14px_rgba(212,175,55,.2)]' : 'border-transparent text-stone-400 hover:text-stone-100 hover:bg-white/[.06]'}
         `}
     >
         {icon}
@@ -1170,7 +1153,7 @@ interface ActionButtonProps {
 const ActionButton: React.FC<ActionButtonProps> = ({ onClick, icon, label, color }) => (
     <button
         onClick={onClick}
-        className={`flex flex-col items-center justify-center p-2 rounded-lg hover:bg-white/10 transition-colors ${color} gap-1 min-w-[60px]`}
+        className={`flex flex-col items-center justify-center p-2 rounded-md border border-transparent hover:border-[var(--hud-line)] hover:bg-white/[.05] transition-colors ${color} gap-1 min-w-[60px]`}
     >
         {icon}
         <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
@@ -1218,10 +1201,10 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, cost, stats, onClick, 
         <button
             onClick={onClick}
             disabled={!canAfford}
-            className={`flex flex-col items-center p-1.5 rounded-lg border transition-all min-w-[64px]
+            className={`flex flex-col items-center p-1.5 rounded-md border transition-all min-w-[64px]
                 ${canAfford
-                    ? 'bg-stone-800 border-stone-600 hover:border-red-500 hover:bg-stone-700'
-                    : 'bg-stone-900/50 border-stone-800 opacity-40 cursor-not-allowed grayscale'}
+                    ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-red-400/70 hover:bg-[#30271f]'
+                    : 'bg-black/20 border-white/5 opacity-40 cursor-not-allowed grayscale'}
             `}
         >
             <div className={`mb-0.5 ${canAfford ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
@@ -1252,10 +1235,10 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
         <button
             onClick={onClick}
             disabled={!canAfford}
-            className={`flex flex-col items-center p-2 rounded-xl border transition-all min-w-[70px] group relative
+            className={`flex flex-col items-center p-2 rounded-md border transition-all min-w-[70px] group relative
                 ${canAfford
-                    ? 'bg-stone-800 border-stone-600 hover:border-amber-500 hover:bg-stone-700 hover:-translate-y-1 shadow-lg'
-                    : 'bg-stone-900/50 border-stone-800 opacity-50 cursor-not-allowed grayscale'}
+                    ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-amber-400/70 hover:bg-[#30271f]'
+                    : 'bg-black/20 border-white/5 opacity-50 cursor-not-allowed grayscale'}
             `}
         >
             <div className={`mb-1 transition-colors ${canAfford ? 'text-stone-300 group-hover:text-amber-400' : 'text-stone-600'}`}>{icon}</div>
@@ -1276,9 +1259,9 @@ const FormationButton: React.FC<{ type: FormationType, current: FormationType, i
     return (
         <button
             onClick={() => window.dispatchEvent(new CustomEvent('request-set-formation-ui', { detail: type }))}
-            className={`p-1.5 rounded-lg border transition-all ${isActive
-                ? 'bg-amber-600 border-amber-500 text-white shadow'
-                : 'bg-white/5 border-white/10 text-stone-400 hover:bg-white/10 hover:text-stone-200'
+            className={`p-2 rounded-md border transition-colors ${isActive
+                ? 'bg-amber-600/90 border-amber-300/70 text-white shadow-[0_0_12px_rgba(212,175,55,.2)]'
+                : 'bg-black/20 border-[var(--hud-line)] text-stone-400 hover:bg-white/[.06] hover:text-stone-200'
                 }`}
             title={`Set Formation: ${type}`}
         >
@@ -1299,9 +1282,9 @@ const StanceButton: React.FC<{ type: UnitStance, current: UnitStance, icon: Reac
     return (
         <button
             onClick={() => window.dispatchEvent(new CustomEvent('request-set-stance-ui', { detail: type }))}
-            className={`p-1.5 rounded-lg border transition-all ${isActive
-                ? 'bg-red-600 border-red-500 text-white shadow'
-                : 'bg-white/5 border-white/10 text-stone-400 hover:bg-white/10 hover:text-stone-200'
+            className={`p-2 rounded-md border transition-colors ${isActive
+                ? 'bg-red-600/90 border-red-300/70 text-white shadow-[0_0_12px_rgba(239,68,68,.2)]'
+                : 'bg-black/20 border-[var(--hud-line)] text-stone-400 hover:bg-white/[.06] hover:text-stone-200'
                 }`}
             title={`Set Stance: ${labels[type]}`}
         >

@@ -208,9 +208,8 @@ const [selectedCount, setSelectedCount] = useState(0);
       gameInstance.events.emit(EVENTS.START_RESEARCH, customEvent.detail);
     };
 
-    const selectionUIHandler = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      gameInstance.events.emit(EVENTS.SELECTION_CHANGED, customEvent.detail);
+    const clearSelectionHandler = () => {
+      gameInstance.events.emit('clear-selection');
     };
 
     const saveGameHandler = () => {
@@ -227,7 +226,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('request-set-formation-ui', formationHandler);
     window.addEventListener('request-set-stance-ui', stanceHandler);
     window.addEventListener('request-start-research', researchHandler);
-    window.addEventListener(EVENTS.SELECTION_CHANGED, selectionUIHandler);
+    window.addEventListener('clear-selection', clearSelectionHandler);
     window.addEventListener('save-game', saveGameHandler);
     window.addEventListener('load-game', loadGameHandler);
 
@@ -241,9 +240,10 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('set-tax-rate-ui', taxHandler);
       window.removeEventListener('center-camera-ui', centerCameraHandler);
       window.removeEventListener('set-game-speed-ui', speedHandler);
-      window.removeEventListener('set-game-speed-ui', speedHandler);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
-      window.removeEventListener(EVENTS.SELECTION_CHANGED, selectionUIHandler);
+      window.removeEventListener('request-set-formation-ui', formationHandler);
+      window.removeEventListener('request-set-stance-ui', stanceHandler);
+      window.removeEventListener('clear-selection', clearSelectionHandler);
       window.removeEventListener('save-game', saveGameHandler);
       window.removeEventListener('load-game', loadGameHandler);
     };
@@ -252,9 +252,12 @@ const [selectedCount, setSelectedCount] = useState(0);
   const handleBuild = (type: BuildingType) => {
     gameInstance?.events.emit('request-build', type);
   };
-
   const handleSpawnUnit = (type: UnitType) => {
     gameInstance?.events.emit('request-unit-spawn', type);
+  };
+
+  const handleFilterSelection = (type: UnitType) => {
+    gameInstance?.events.emit('filter-selection', type);
   };
 
   const handleRegrowForest = () => {
@@ -304,6 +307,7 @@ const [selectedCount, setSelectedCount] = useState(0);
               selectedCount={selectedCount}
               selectedCounts={selectedCounts}
               selectedBuildingType={selectedBuildingType}
+              onFilterSelection={handleFilterSelection}
               onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
               onAdvanceAge={handleAdvanceAge}
               onReleaseGarrison={handleReleaseGarrison}

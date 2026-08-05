@@ -41,6 +41,11 @@ export class InputManager {
             this.filterSelectionByType(type);
         });
 
+        this.scene.game.events.on('clear-selection', () => {
+            this.clearSelection();
+            this.deselectBuilding();
+        });
+
         // ── Keyboard Shortcuts ───────────────────────────────────────────
         const kb = this.scene.input.keyboard;
         if (!kb) return;
