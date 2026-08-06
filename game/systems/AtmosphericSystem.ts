@@ -7,14 +7,17 @@ export class AtmosphericSystem {
     private scene: MainScene;
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
-    private bloomEffect!: Phaser.FX.Bloom;
-    private tiltShiftEffect: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
-    private vignetteEffect!: Phaser.FX.Vignette;
+    private bloomEffect: Phaser.FX.Bloom | null = null;
+    private tiltShiftEffect: unknown = null; // reserved for future DOF effect
+    
+    private vignetteEffect: Phaser.FX.Vignette | null = null;
     private cloudTextureKey = 'cloud-puff';
     private cloudCount = 20;
 
     // Store user's desired bloom multiplier so adaptive logic doesn't overwrite it
     private userBloomMultiplier: number = 1.0;
+    // PostFX enabled/disabled toggle (user performance setting)
+    private postFXEnabled: boolean = true;
     // Seasonal cloud speed multiplier (1.0 = default)
     private cloudSpeedMult: number = 1.0;
     // Seasonal terrain tint overlay
@@ -109,11 +112,25 @@ export class AtmosphericSystem {
         this.userBloomMultiplier = intensity;
     }
 
+    /** Toggle PostFX (bloom/vignette) — full-screen GPU passes that dominate frame cost on iGPU. */
+    public setPostFXEnabled(enabled: boolean): void {
+        this.postFXEnabled = enabled;
+        if (!enabled) {
+            this.bloomEffect?.destroy();
+            this.vignetteEffect?.destroy();
+            this.bloomEffect = null;
+            this.vignetteEffect = null;
+        } else if (!this.bloomEffect || !this.vignetteEffect) {
+            this.setupBloom();
+        }
+    }
+
     public update(time: number, delta: number) {
         const cam = this.scene.cameras.main;
         const viewRect = cam.worldView;
 
-        if (this.bloomEffect) {
+        // Bloom strength lerp only — clouds and tint run regardless of PostFX
+        if (this.postFXEnabled && this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
             // Mild glow only — high bloom was washing the map to grey
             const baseStrength = Phaser.Math.Linear(0.55, 0.2, zoomProgress);

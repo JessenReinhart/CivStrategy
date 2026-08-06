@@ -1,9 +1,17 @@
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UNIT_VISION } from '../../constants';
 import { UnitType, AnimalSpecies } from '../../types';
-import { toIso } from '../utils/iso';
+
+/** Snapshot of internal FogOfWarSystem profiling for the last update() call. */
+export interface FogProfSnapshot {
+    totalMs: number;
+    clearFillMs: number;
+    unitsMs: number;
+    animalsMs: number;
+    buildingsMs: number;
+    eraseCalls: number;
+}
 
 export class FogOfWarSystem {
     private scene: MainScene;
@@ -14,6 +22,25 @@ export class FogOfWarSystem {
 
     // Low res for performance
     private readonly RES_SCALE = 0.25;
+
+    // Cached camera/RT state for drawVision (set each update)
+    private _topLeftX = 0;
+    private _topLeftY = 0;
+    private _globalScale = 0;
+    private _viewLeft = 0;
+    private _viewRight = 0;
+    private _viewTop = 0;
+    private _viewBottom = 0;
+
+    // Internal profiling counters (per-update snapshot)
+    private _profileSnapshot: FogProfSnapshot = {
+        totalMs: 0,
+        clearFillMs: 0,
+        unitsMs: 0,
+        animalsMs: 0,
+        buildingsMs: 0,
+        eraseCalls: 0,
+    };
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -67,9 +94,13 @@ export class FogOfWarSystem {
     public update() {
         if (!this.screenRT || !this.isVisible) return;
 
+        const perfStart = performance.now();
+
+        // Clear and fill fog (measured separately)
+        const clearStart = performance.now();
         this.screenRT.clear();
-        // Soft navy unexplored — keep FOW readable without crushing midtones
         this.screenRT.fill(0x0c1820, 0.72);
+        const clearFillMs = performance.now() - clearStart;
 
         const cam = this.scene.cameras.main;
         const zoom = cam.zoom;
@@ -87,104 +118,136 @@ export class FogOfWarSystem {
         this.screenRT.setScale(targetScale);
 
         // 2. Counter-Position: Keep top-left at (0,0) on screen.
-        // Camera Zoom pivots around center. 
+        // Camera Zoom pivots around center.
         // Formula to keep Top-Left (0,0) fixed: Center * (1 - 1/Zoom)
         const offsetX = (width * 0.5) * (1 - 1 / zoom);
         const offsetY = (height * 0.5) * (1 - 1 / zoom);
         this.screenRT.setPosition(offsetX, offsetY);
 
-        // --- DRAWING HOLES ---
-
-        // Get the exact world position of the top-left of the screen
+        // --- Prepare cached state for drawVision ---
         const topLeft = cam.getWorldPoint(0, 0);
+        this._topLeftX = topLeft.x;
+        this._topLeftY = topLeft.y;
+        this._globalScale = zoom * this.RES_SCALE;
 
-        // Calculate scaling factor from World Distance -> RT Pixels
-        // World -> Screen = * Zoom
-        // Screen -> RT = * RES_SCALE
-        const globalScale = zoom * this.RES_SCALE;
-
-        // Helper function
-        const drawVision = (worldX: number, worldY: number, worldRadius: number) => {
-            // 1. Calculate World Delta from Camera Top-Left
-            const relWorldX = worldX - topLeft.x;
-            const relWorldY = worldY - topLeft.y;
-
-            // 2. Convert to RT Coordinates
-            const drawX = relWorldX * globalScale;
-            const drawY = relWorldY * globalScale;
-
-            // 3. Calculate Brush Scale
-            // Visual Radius on Screen = WorldRadius * Zoom
-            // Radius in RT Pixels = ScreenRadius * RES_SCALE
-            const rtRadius = worldRadius * globalScale;
-
-            // Brush texture is 128x128 (Radius 64)
-            const brushScale = rtRadius / 64;
-
-            // Apply Isometric distortion (2:1 ratio) + extra size for fade
-            this.visionBrush.setScale(brushScale * 2.5, brushScale * 1.25);
-            this.visionBrush.setPosition(drawX, drawY);
-
-            this.screenRT.erase(this.visionBrush);
-        };
-
-        // Padding for culling (in world units)
-        // Increased padding to ensure large light sources (like TC with 600 radius)
-        // are still drawn even if their center is off-screen.
-        const padding = 1000 / zoom;
         const viewRect = cam.worldView;
+        const padding = 1000 / zoom;
+        this._viewLeft = viewRect.x - padding;
+        this._viewRight = viewRect.right + padding;
+        this._viewTop = viewRect.y - padding;
+        this._viewBottom = viewRect.bottom + padding;
+
+        // Reset erase counter
+        let eraseCalls = 0;
+
+        // Local reference for speed
+        const unitVision = UNIT_VISION;
 
         // 2. Process Units
+        const unitsStart = performance.now();
         const units = this.scene.units.getChildren();
         for (let i = 0; i < units.length; i++) {
             const u = units[i] as Phaser.GameObjects.Sprite;
             if ((u as Phaser.GameObjects.Sprite & { unitType?: UnitType }).unitType === UnitType.ANIMAL) continue; // handled below via AnimalSystem
             if (u.getData('owner') !== 0) continue;
 
-            // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
-            // The camera looks at Iso coords, so fog must be drawn at Iso coords.
-            const iso = toIso(u.x, u.y);
+            // Inline toIso: isoX = x - y; isoY = (x + y) * 0.5
+            const isoX = u.x - u.y;
+            const isoY = (u.x + u.y) * 0.5;
 
-            if (iso.x < viewRect.x - padding || iso.x > viewRect.right + padding ||
-                iso.y < viewRect.y - padding || iso.y > viewRect.bottom + padding) continue;
+            if (isoX < this._viewLeft || isoX > this._viewRight ||
+                isoY < this._viewTop || isoY > this._viewBottom) continue;
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const range = UNIT_VISION[(u as any).unitType as UnitType] || 150;
+            const range = unitVision[(u as Phaser.GameObjects.Sprite & { unitType?: UnitType }).unitType as UnitType] || 150;
             const inForest = this.scene.terrainSystem?.isForestAt(u.x, u.y) ?? false;
             const effectiveRange = inForest ? Math.round(range * 0.7) : range;
-            drawVision(iso.x, iso.y, effectiveRange);
+            this.drawVision(isoX, isoY, effectiveRange);
+            eraseCalls++;
         }
+        const unitsMs = performance.now() - unitsStart;
 
         // 2b. Herbivore animals reveal fog (deer, rabbit move through world)
-        const herbivores = [AnimalSpecies.DEER, AnimalSpecies.RABBIT];
+        const animalsStart = performance.now();
         for (const animal of this.scene.animalSystem.getAnimals()) {
-            if (!herbivores.includes(animal.species)) continue;
+            if (animal.species !== AnimalSpecies.DEER && animal.species !== AnimalSpecies.RABBIT) continue;
             if (animal.hp <= 0) continue;
             if (!animal.visual || !animal.visual.visible) continue;
-            const aIso = toIso(animal.x, animal.y);
-            if (aIso.x < viewRect.x - padding || aIso.x > viewRect.right + padding ||
-                aIso.y < viewRect.y - padding || aIso.y > viewRect.bottom + padding) continue;
-            drawVision(aIso.x, aIso.y, 100); // small reveal radius
+
+            const aIsoX = animal.x - animal.y;
+            const aIsoY = (animal.x + animal.y) * 0.5;
+
+            if (aIsoX < this._viewLeft || aIsoX > this._viewRight ||
+                aIsoY < this._viewTop || aIsoY > this._viewBottom) continue;
+
+            this.drawVision(aIsoX, aIsoY, 100); // small reveal radius
+            eraseCalls++;
         }
+        const animalsMs = performance.now() - animalsStart;
 
         // 3. Process Buildings
+        const buildingsStart = performance.now();
         const buildings = this.scene.buildings.getChildren();
         for (let i = 0; i < buildings.length; i++) {
-            const b = buildings[i] as Phaser.GameObjects.Image; // or Rectangle
+            const b = buildings[i] as Phaser.GameObjects.Image;
 
             // Fix: Enemy buildings do not reveal fog
             if (b.getData('owner') !== 0) continue;
 
-            // Convert Logic Coordinates (Cartesian) to Visual Coordinates (Isometric)
-            const iso = toIso(b.x, b.y);
+            const bIsoX = b.x - b.y;
+            const bIsoY = (b.x + b.y) * 0.5;
 
-            if (iso.x < viewRect.x - padding || iso.x > viewRect.right + padding ||
-                iso.y < viewRect.y - padding || iso.y > viewRect.bottom + padding) continue;
+            if (bIsoX < this._viewLeft || bIsoX > this._viewRight ||
+                bIsoY < this._viewTop || bIsoY > this._viewBottom) continue;
 
             const def = b.getData('def');
             const range = def.territoryRadius || def.visionRadius || 200;
-            drawVision(iso.x, iso.y, range);
+            this.drawVision(bIsoX, bIsoY, range);
+            eraseCalls++;
         }
+        const buildingsMs = performance.now() - buildingsStart;
+
+        // Total update time
+        const totalMs = performance.now() - perfStart;
+
+        // Store snapshot for external inspection (e.g. browser console: fogOfWar.getProfileSnapshot())
+        this._profileSnapshot = {
+            totalMs,
+            clearFillMs,
+            unitsMs,
+            animalsMs,
+            buildingsMs,
+            eraseCalls,
+        };
+    }
+
+    /** Draw a single vision hole at world (iso) coordinates */
+    private drawVision(worldX: number, worldY: number, worldRadius: number) {
+        // 1. Calculate World Delta from Camera Top-Left
+        const relWorldX = worldX - this._topLeftX;
+        const relWorldY = worldY - this._topLeftY;
+
+        // 2. Convert to RT Coordinates
+        const drawX = relWorldX * this._globalScale;
+        const drawY = relWorldY * this._globalScale;
+
+        // 3. Calculate Brush Scale
+        // Visual Radius on Screen = WorldRadius * Zoom
+        // Radius in RT Pixels = ScreenRadius * RES_SCALE
+        const rtRadius = worldRadius * this._globalScale;
+
+        // Brush texture is 128x128 (Radius 64)
+        const brushScale = rtRadius / 64;
+
+        // Apply Isometric distortion (2:1 ratio) + extra size for fade
+        this.visionBrush.setScale(brushScale * 2.5, brushScale * 1.25);
+        this.visionBrush.setPosition(drawX, drawY);
+
+        this.screenRT.erase(this.visionBrush);
+    }
+
+    /** Returns internal profiling snapshot for the last update() call */
+    public getProfileSnapshot(): FogProfSnapshot {
+        return this._profileSnapshot;
     }
 
     public destroy() {

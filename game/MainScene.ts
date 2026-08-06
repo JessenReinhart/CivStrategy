@@ -1,5 +1,5 @@
-
 import Phaser from 'phaser';
+
 import groundImg from '../assets/textures/ground.jpg';
 import fieldImg from '../assets/textures/field.png';
 import barracksImg from '../assets/textures/barracks.png';
@@ -74,6 +74,9 @@ export class MainScene extends Phaser.Scene {
   public taxRate: number = 0;
   public bloomIntensity: number = 1.0;
   public isFowEnabled: boolean = true;
+
+  // Water animation control (A/B measurement — not a completed FPS fix)
+  public waterAnimationEnabled: boolean = true;
 
   // Age System
   public currentAge: Age = Age.VILLAGE;
@@ -163,8 +166,16 @@ export class MainScene extends Phaser.Scene {
   private waterWavesSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWavesCtx: CanvasRenderingContext2D | null = null;
   private waterLastDrawTime: number = 0;
+  private lastFogUpdateTime: number = -Infinity;
   private waterShoreChains: number[][] = [];
   private waterGlintPoints: { x: number; y: number; phase: number; speed: number }[] = [];
+
+  // Precomputed spatial data for shore chain wave passes (normals + phase offsets)
+  private waterShoreChainData: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[][] = [];
+  // Precomputed scale factor (max(1, canvasW / 800))
+  private waterS: number = 1;
+  // Precomputed wave pass data (styles baked once)
+  private waterWavePassesPre: { style: string; lw: number; offset: number; amp: number }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -237,6 +248,7 @@ export class MainScene extends Phaser.Scene {
   public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
 
   init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null, mapSeed?: number, mapPreset?: MapPreset }) {
+    this.waterAnimationEnabled = true;
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
 
@@ -289,6 +301,37 @@ export class MainScene extends Phaser.Scene {
 
   create() {
     this.game.canvas.oncontextmenu = (e) => e.preventDefault();
+
+    // Programmatic performance API — agents/evaluate() read this
+    if (!window.__perf) {
+      const MAX = 60;
+      const buffer: PerfSnapshot[] = [];
+      let scene: { gameTime: number; atmosphericSystem?: { setPostFXEnabled(enabled: boolean): void }; waterAnimationEnabled: boolean } | null = null;
+      let startTime = 0;
+      window.__perf = {
+        buffer,
+        latest: null as PerfSnapshot | null,
+        get maxSamples() { return MAX; },
+        bind(nextScene) { scene = nextScene; startTime = nextScene.gameTime; buffer.length = 0; this.latest = null; },
+        reset() { if (scene) { buffer.length = 0; startTime = scene.gameTime; } this.latest = null; },
+        setPostFX(enabled: boolean) { scene?.atmosphericSystem?.setPostFXEnabled(enabled); },
+        setWaterAnimation(enabled: boolean) { if (scene) { scene.waterAnimationEnabled = enabled; } },
+        report() {
+          const elapsedS = scene ? (scene.gameTime - startTime) / 1000 : 0;
+          if (buffer.length === 0) return { buffer: [], summary: null, elapsedS };
+          const copy = buffer.map(sample => ({ ...sample, hogs: sample.hogs.map(h => ({ ...h })) }));
+          return {
+            buffer: copy,
+            summary: copy[copy.length - 1],
+            elapsedS,
+          };
+        },
+      };
+      window.__perf.bind(this);
+    } else {
+      window.__perf.bind(this);
+      window.__perf.reset();
+    }
 
     // Generate robust textures
     if (!this.textures.exists('white_flare')) {
@@ -515,6 +558,11 @@ export class MainScene extends Phaser.Scene {
         dCtx.closePath();
         dCtx.fill();
       }
+      // Reset arrays before one-time init (supports scene re-init)
+      this.waterShoreChains = [];
+      this.waterGlintPoints = [];
+      this.waterShoreChainData = [];
+      this.waterWavePassesPre = [];
       // ── Extract shore edge chains + glint points (one-time init) ──
       {
         const segSet = new Set<string>();
@@ -565,6 +613,26 @@ export class MainScene extends Phaser.Scene {
           }
           if (chain.length >= 6) this.waterShoreChains.push(chain);
         }
+        // Cache static spatial terms; time-dependent sine evaluation remains per frame.
+        this.waterShoreChainData = this.waterShoreChains.map(chain => {
+          const points: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[] = [];
+          for (let i = 0; i < chain.length; i += 2) {
+            const px = chain[i], py = chain[i + 1];
+            const dx = wb.width * 0.5 - px, dy = wb.height * 0.5 - py;
+            const len = Math.sqrt(dx * dx + dy * dy) || 1;
+            points.push({ px, py, nx: dx / len, ny: dy / len, ph1: px * 0.015 + py * 0.01, ph2: px * 0.007 - py * 0.013 });
+          }
+          return points;
+        });
+        this.waterS = Math.max(1, wb.width / 800);
+        const s = this.waterS;
+        this.waterWavePassesPre = [
+          { offset: 0, amp: 8 * s, lw: 3 * s, style: 'rgba(255,255,255,0.55)' },
+          { offset: 0, amp: 5 * s, lw: 1.5 * s, style: 'rgba(255,255,255,0.8)' },
+          { offset: 15 * s, amp: 7 * s, lw: 2.5 * s, style: 'rgba(200,235,255,0.12)' },
+          { offset: 35 * s, amp: 10 * s, lw: 3 * s, style: 'rgba(220,245,255,0.15)' },
+          { offset: 55 * s, amp: 6 * s, lw: 2.5 * s, style: 'rgba(180,220,245,0.1)' },
+        ];
         // Glint points on shore chains
         for (const chain of this.waterShoreChains) {
           for (let i = 0; i < chain.length / 2; i += 3) {
@@ -825,6 +893,10 @@ export class MainScene extends Phaser.Scene {
     this.events.on(EVENTS.RESEARCH_COMPLETED, (data: { playerId: number; techId: TechId }) => {
       const def = TECH_DEFS[data.techId];
       if (def) this.feedbackSystem.notifyResearchComplete(def.name);
+      if (data.playerId === 0) {
+        const cam = this.cameras.main;
+        this.proceduralSound.playResearchComplete(cam.scrollX + cam.width / 2, cam.scrollY + cam.height / 2);
+      }
     });
     // Listen for season changes — update visuals, sound, and feedback
     this.events.on(EVENTS.SEASON_CHANGED, (data: { season: Season }) => {
@@ -978,9 +1050,20 @@ export class MainScene extends Phaser.Scene {
   // Performance profiling accumulators (reset every PROFILING_REPORT_INTERVAL frames)
   private profileFrameCount: number = 0;
   private _renderStart: number = 0;
+  private _lastWallUpdate: number = 0; // True wall timing; 0 = uninitialized
   private profileTimings: Record<string, number> = {};
+  private profileSnapshot: Record<string, number> = {};
+  private profileSnapshotFrameCount: number = 0;
   private static readonly PROFILING_REPORT_INTERVAL = 120; // report every ~2s at 60fps
 
+
+  private resetProfiling(): void {
+    this.profileFrameCount = 0;
+    this.profileTimings = {};
+    this.profileSnapshot = {};
+    this.profileSnapshotFrameCount = 0;
+    this._lastWallUpdate = 0;
+  }
 
   private profileStart(_label: string): number {
     return performance.now();
@@ -993,17 +1076,26 @@ export class MainScene extends Phaser.Scene {
 
   update(time: number, delta: number) {
     const frameStart = performance.now();
+    const wallDelta = this._lastWallUpdate === 0 ? 0 : frameStart - this._lastWallUpdate;
+    this._lastWallUpdate = frameStart;
+    if (wallDelta > 0) this.profileTimings['_wallTime'] = (this.profileTimings['_wallTime'] || 0) + wallDelta;
+    this.profileTimings['_wallDelta'] = (this.profileTimings['_wallDelta'] || 0) + delta;
+    let t0: number;
+    t0 = this.profileStart('pathfinderBeginFrame');
     this.pathfinder.beginFrame();
+    this.profileEnd('pathfinderBeginFrame', t0);
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
     // Scroll foam texture with scene time (NOT gameTime) — pause/speed immune
-    if (this.waterWaveSprite) {
+    if (this.waterWaveSprite && this.waterAnimationEnabled) {
       this.waterWaveSprite.tilePositionX += delta * 0.03;
       this.waterWaveSprite.tilePositionY += delta * 0.015;
     }
     // Animated wave canvas — throttled 50ms, scene time for wave phase
-    if (this.waterWavesCtx && time - this.waterLastDrawTime >= 50) {
+    if (this.waterWavesCtx && this.waterAnimationEnabled && time - this.waterLastDrawTime >= 50) {
+      t0 = this.profileStart('drawWaterSurface');
       this.drawWaterSurface(time);
+      this.profileEnd('drawWaterSurface', t0);
       this.waterLastDrawTime = time;
     }
     if (this.debugMode) {
@@ -1023,7 +1115,6 @@ export class MainScene extends Phaser.Scene {
       ]);
     }
 
-    let t0: number;
 
     t0 = this.profileStart('inputManager');
     this.inputManager.update(delta);
@@ -1073,7 +1164,9 @@ export class MainScene extends Phaser.Scene {
     this.profileEnd('unitSystem', t0);
 
     // Sync ALL squad container positions to physics body (cheap pass, prevents stutter)
+    t0 = this.profileStart('squadSyncPositions');
     this.squadSystem.syncPositions();
+    this.profileEnd('squadSyncPositions', t0);
 
     t0 = this.profileStart('squadSystem');
     this.squadSystem.update(dt);
@@ -1100,6 +1193,7 @@ export class MainScene extends Phaser.Scene {
         if (this.gameResult === GameResult.PLAYING) {
           this.economySystem.tickEconomy();
           if (this.researchManager) this.researchManager.tick(1000);
+          this.economySystem.assignJobs();
         }
         this.accumulatedTime -= 1000;
 
@@ -1192,7 +1286,6 @@ export class MainScene extends Phaser.Scene {
           this.accumulatedPopTime -= 5000;
         }
 
-        this.economySystem.assignJobs();
 
         // Age advancement progress ticking (player only)
         if (this.isAdvancing && this.nextAge) {
@@ -1207,15 +1300,30 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    if (this.infiniteMapSystem && !this.stressTestConfig) this.infiniteMapSystem.update();
-    if (this.minimapSystem && !this.stressTestConfig) this.minimapSystem.update();
-    if (this.fogOfWar && !this.stressTestConfig) this.fogOfWar.update();
+    if (this.infiniteMapSystem && !this.stressTestConfig) {
+      t0 = this.profileStart('infiniteMapSystem');
+      this.infiniteMapSystem.update();
+      this.profileEnd('infiniteMapSystem', t0);
+    }
+    if (this.minimapSystem && !this.stressTestConfig) {
+      t0 = this.profileStart('minimapSystem');
+      this.minimapSystem.update();
+      this.profileEnd('minimapSystem', t0);
+    }
+    if (this.fogOfWar && !this.stressTestConfig && this.gameTime - this.lastFogUpdateTime >= 100) {
+      t0 = this.profileStart('fogOfWar');
+      this.fogOfWar.update();
+      this.profileEnd('fogOfWar', t0);
+      this.lastFogUpdateTime = this.gameTime;
+    }
 
     t0 = this.profileStart('atmosphericSystem');
     this.atmosphericSystem.update(this.gameTime, dt);
     this.profileEnd('atmosphericSystem', t0);
     // Update feedback/notification system
+    t0 = this.profileStart('feedbackSystem');
     this.feedbackSystem.update(this.gameTime, dt);
+    this.profileEnd('feedbackSystem', t0);
 
     // Periodic ambient animal calls (every ~8 seconds if camera near animals)
     const seasonAnimalMod = this.currentSeason === Season.WINTER ? 0 : this.currentSeason === Season.AUTUMN ? 0.5 : 1;
@@ -1250,28 +1358,55 @@ export class MainScene extends Phaser.Scene {
     this.uiCamera.scrollY = this.cameras.main.scrollY;
     this.uiCamera.zoom = this.cameras.main.zoom;
 
+    t0 = this.profileStart('proceduralSound');
     this.proceduralSound.update();
+    this.profileEnd('proceduralSound', t0);
 
     // --- Performance report ---
     this.profileFrameCount++;
     const frameTime = performance.now() - frameStart;
     this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
 
-    // Dev-only: terminal FPS + ranked hogs via Vite HMR (every ~0.5s / 30 frames)
+    // Publish interval performance samples every 30 frames.
     if (this.profileFrameCount % 30 === 0) {
-      const n = Math.max(1, this.profileFrameCount);
-      const avgUpdate = (this.profileTimings['_totalFrame'] || 0) / n;
-      const avgRender = (this.profileTimings['__render'] || 0) / n;
-      // Wall frame ≈ update + render (render is outside update(); both accumulate)
+      const intervalFrames = this.profileFrameCount - this.profileSnapshotFrameCount;
+      const n = Math.max(1, intervalFrames);
+      const delta = (key: string): number => Math.max(0,
+        (this.profileTimings[key] || 0) - (this.profileSnapshot[key] || 0));
+      const avgUpdate = delta('_totalFrame') / n;
+      const avgRender = delta('__render') / n;
       const avgFrame = avgUpdate + avgRender;
       const hogs = Object.entries(this.profileTimings)
-        .filter(([k]) => k !== '_totalFrame')
-        .map(([name, total]) => {
-          const ms = total / n;
+        .filter(([key]) => !key.startsWith('_'))
+        .map(([name]) => {
+          const ms = delta(name) / n;
           return { name, ms, pct: avgFrame > 0 ? (ms / avgFrame) * 100 : 0 };
         })
         .sort((a, b) => b.ms - a.ms)
         .slice(0, 6);
+      const wallMs = delta('_wallTime') / n;
+      const phaserDeltaMs = delta('_wallDelta') / n;
+      this.profileSnapshot = { ...this.profileTimings };
+      this.profileSnapshotFrameCount = this.profileFrameCount;
+
+      // Publish to window.__perf for programmatic/agentic measurement
+      const snapshot: PerfSnapshot = {
+        timestamp: performance.now(),
+        fps: this.game.loop.actualFps,
+        frameMs: avgFrame,
+        updateMs: avgUpdate,
+        renderMs: avgRender,
+        wallMs,
+        phaserDeltaMs,
+        units: this.units.getLength(),
+        hogs,
+      };
+      const perf = window.__perf;
+      perf.latest = snapshot;
+      perf.buffer.push(snapshot);
+      if (perf.buffer.length > perf.maxSamples) perf.buffer.shift();
+
+      // Also publish via HMR for Vite terminal dashboard
       try {
         import.meta.hot?.send('game:fps', {
           fps: this.game.loop.actualFps,
@@ -1312,8 +1447,7 @@ export class MainScene extends Phaser.Scene {
         ` | cache: ${pfCache.flowFieldCaches}, v${pfCache.gridVersion}`);
       console.warn(reports.join('\n'));
 
-      this.profileFrameCount = 0;
-      this.profileTimings = {};
+      this.resetProfiling();
     }
   }
 
@@ -1327,8 +1461,8 @@ export class MainScene extends Phaser.Scene {
     if (!ctx || !wb) return;
     const W = wb.width, H = wb.height;
     ctx.clearRect(0, 0, W, H);
-    // Scale amplitudes/offsets/widths relative to canvas size — ensures visibility at overview zoom
-    const s = Math.max(1, W / 800);
+    // Scale amplitudes/offsets/widths relative to canvas size — computed once at map init
+    const s = this.waterS;
 
     // ── Interior calm shimmer bands (full water body, very low amplitude) ──
     const bandCount = 2;
@@ -1356,33 +1490,23 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    const wavePasses = [
-      { offset: 0, amp: 8 * s, lw: 3 * s, alpha: 0.55, color: [255, 255, 255] },  // foam
-      { offset: 0, amp: 5 * s, lw: 1.5 * s, alpha: 0.80, color: [255, 255, 255] },  // foam core
-      { offset: 15 * s, amp: 7 * s, lw: 2.5 * s, alpha: 0.12, color: [200, 235, 255] },  // wave band 1
-      { offset: 35 * s, amp: 10 * s, lw: 3 * s, alpha: 0.15, color: [220, 245, 255] }, // wave band 2
-      { offset: 55 * s, amp: 6 * s, lw: 2.5 * s, alpha: 0.10, color: [180, 220, 245] }, // wave band 3 (fading)
-    ];
-    for (const pass of wavePasses) {
-      ctx.strokeStyle = `rgba(${pass.color[0]},${pass.color[1]},${pass.color[2]},${pass.alpha})`;
+    const chainData = this.waterShoreChainData;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let passIndex = 0; passIndex < this.waterWavePassesPre.length; passIndex++) {
+      const pass = this.waterWavePassesPre[passIndex];
+      ctx.strokeStyle = pass.style;
       ctx.lineWidth = pass.lw;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      for (const chain of this.waterShoreChains) {
-        const nPts = chain.length / 2;
-        if (nPts < 2) continue;
+      for (const points of chainData) {
+        if (points.length < 2) continue;
         ctx.beginPath();
-        for (let i = 0; i < nPts; i++) {
-          const px = chain[i * 2], py = chain[i * 2 + 1];
-          // Inward normal: toward water bbox center
-          const dx = W * 0.5 - px, dy = H * 0.5 - py;
-          const len = Math.sqrt(dx * dx + dy * dy) || 1;
-          const nx = dx / len, ny = dy / len;
-          // Multi-sine displacement along normal
-          const ph1 = time * 0.0015 + px * 0.015 + py * 0.01;
-          const ph2 = time * 0.0025 + px * 0.007 - py * 0.013;
+        for (let i = 0; i < points.length; i++) {
+          const point = points[i];
+          // Multi-sine displacement along precomputed inward normal
+          const ph1 = time * 0.0015 + point.ph1;
+          const ph2 = time * 0.0025 + point.ph2;
           const disp = pass.offset + Math.sin(ph1) * pass.amp + Math.sin(ph2) * pass.amp * 0.5;
-          const sx = px + nx * disp, sy = py + ny * disp;
+          const sx = point.px + point.nx * disp, sy = point.py + point.ny * disp;
           if (i === 0) ctx.moveTo(sx, sy);
           else ctx.lineTo(sx, sy);
         }

@@ -21,9 +21,13 @@ export class MinimapSystem {
     private maskGraphics!: Phaser.GameObjects.Graphics;
     private borderGraphics!: Phaser.GameObjects.Graphics;
 
-    private updateInterval = 15;
     private frameCount = 0;
     private dirtyStatic = true; // Flag to redraw static layer
+    private updateInterval = 45;
+    // Layout caching: only recompute when zoom or viewport size changes
+    private cachedZoom = -1;
+    private cachedWidth = -1;
+    private cachedHeight = -1;
 
     private fogRT: Phaser.GameObjects.RenderTexture;
     private fogBrush: Phaser.GameObjects.Graphics;
@@ -89,9 +93,16 @@ export class MinimapSystem {
     private updateLayout() {
         const cam = this.scene.cameras.main;
         const zoom = cam.zoom;
-        const invZoom = 1 / zoom;
         const w = this.scene.scale.width;
         const h = this.scene.scale.height;
+
+        if (zoom === this.cachedZoom && w === this.cachedWidth && h === this.cachedHeight) return;
+
+        this.cachedZoom = zoom;
+        this.cachedWidth = w;
+        this.cachedHeight = h;
+
+        const invZoom = 1 / zoom;
 
         const targetX = this.padding;
         const targetY = h - this.mapSize - this.padding;
@@ -155,11 +166,11 @@ export class MinimapSystem {
     }
 
     public update() {
-        this.updateLayout();
 
         this.frameCount++;
         if (this.frameCount < this.updateInterval) return;
         this.frameCount = 0;
+        this.updateLayout();
 
         const scalar = this.getMapScalar();
 

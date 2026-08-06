@@ -262,6 +262,8 @@ export class VillagerSystem {
         if (villager.gatherTimer >= VILLAGER_GATHER_RATE_MS) {
             villager.gatherTimer -= VILLAGER_GATHER_RATE_MS;
             villager.carryAmount++;
+            // Play resource gather sound
+            this.scene.proceduralSound.playResourceGather(villager.x, villager.y);
 
             // Decrement gold mine remaining when gathering gold
             if (villager.carryType === 'gold' && villager.targetResource) {

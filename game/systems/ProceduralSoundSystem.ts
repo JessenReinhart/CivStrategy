@@ -1,14 +1,16 @@
 import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import { DamageType } from '../../types';
+import { loadAllSFXBuffers, SFXBufferMap } from './SFXAssetLoader';
 
 /**
- * ProceduralSoundSystem — Zero-dependency SFX via Web Audio API.
+ * ProceduralSoundSystem — Hybrid SFX via Web Audio API.
  *
- * All sounds are synthesized at runtime. No audio files are loaded.
- * Designed for a gritty, atmospheric pre-medieval aesthetic.
+ * Prefers AI-generated MP3 buffers (ElevenLabs) when loaded;
+ * falls back to procedural synthesis. Zero runtime dependency on
+ * either path — both are self-contained.
  *
- * Node graph contract: every effect builds `source → [filter] → gain`
+ * Node graph contract: every procedural effect builds `source → [filter] → gain`
  * (the envelope `gain` is the chain tail). Scheduling (`start`/`stop` +
  * `activeSources` eviction) is separated from connection. The chain tail
  * is wired to output via `applyPan`, which is the SOLE connection to
@@ -31,6 +33,8 @@ export class ProceduralSoundSystem {
     private noiseBufferShort: AudioBuffer | null = null;
     private noiseBufferMedium: AudioBuffer | null = null;
     private noiseBufferLong: AudioBuffer | null = null;
+    private sfxBuffers: SFXBufferMap = {};
+    private sfxLoadAttempted = false;
 
     private _muted = false;
     private _volume = 0.6;
@@ -61,6 +65,7 @@ export class ProceduralSoundSystem {
                 this.ambienceGain.connect(this.masterGain);
 
                 this.preGenerateNoiseBuffers();
+                this.loadSFXBuffers();
             } catch (e) {
                 console.warn('[ProceduralSound] AudioContext not available:', e);
                 return null;
@@ -244,6 +249,61 @@ export class ProceduralSoundSystem {
         merger.connect(this.masterGain!);
     }
 
+    /**
+     * Async-load AI-generated SFX buffers. Fire-and-forget; procedural
+     * fallback runs until buffers arrive.
+     */
+    private loadSFXBuffers(): void {
+        if (this.sfxLoadAttempted || !this.ctx) return;
+        this.sfxLoadAttempted = true;
+        loadAllSFXBuffers(this.ctx).then(buffers => {
+            this.sfxBuffers = buffers;
+        }).catch(e => {
+            console.warn('[SFXAssets] Load failed, using procedural fallback:', e);
+        });
+    }
+    private playBuffer(
+        key: string,
+        worldX?: number,
+        worldY?: number,
+        volume: number = 0.35
+    ): boolean {
+        const buf = this.sfxBuffers[key];
+        if (!buf) return false;
+        const ctx = this.ctx!;
+
+        const source = ctx.createBufferSource();
+        source.buffer = buf;
+
+        const gain = ctx.createGain();
+        const now = ctx.currentTime;
+
+        if (worldX !== undefined && worldY !== undefined) {
+            const { gain: distGain, filterFreq } = this.getDistanceGain(worldX, worldY);
+            const pan = this.getPan(worldX, worldY);
+
+            gain.gain.setValueAtTime(volume * distGain, now);
+
+            // Apply distance-based lowpass filtering
+            const filter = ctx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = filterFreq;
+            source.connect(filter);
+            filter.connect(gain);
+
+            // Spatial pan
+            this.applyPan(pan, gain);
+        } else {
+            // No spatial (UI sounds)
+            gain.gain.setValueAtTime(volume, now);
+            source.connect(gain);
+            this.applyPan(0, gain);
+        }
+
+        this.scheduleSource(source, buf.duration);
+        return true;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     // PUBLIC SOUND EFFECTS
     // ═══════════════════════════════════════════════════════════════════════════
@@ -261,6 +321,7 @@ export class ProceduralSoundSystem {
     public playSwordClash(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('sword-clash', worldX, worldY, 0.35)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -283,6 +344,7 @@ export class ProceduralSoundSystem {
     public playBowRelease(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('bow-release', worldX, worldY, 0.25)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -303,6 +365,7 @@ export class ProceduralSoundSystem {
     public playDeath(worldX: number, worldY: number, unitType?: string): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('unit-fallen', worldX, worldY, 0.30)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -346,6 +409,7 @@ export class ProceduralSoundSystem {
     public playPlacement(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('building-placement', worldX, worldY, 0.40)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -366,6 +430,7 @@ export class ProceduralSoundSystem {
     public playConstruction(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('construction', worldX, worldY, 0.25)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -396,6 +461,7 @@ export class ProceduralSoundSystem {
     public playDemolition(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('demolition', worldX, worldY, 0.60)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -436,6 +502,7 @@ export class ProceduralSoundSystem {
     public playAttackImpact(worldX: number, worldY: number, damageType?: string): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('attack-impact', worldX, worldY, 0.30)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -481,6 +548,7 @@ export class ProceduralSoundSystem {
     public playSiegeImpact(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx || this.scene.peacefulMode) return;
+        if (this.playBuffer('siege-impact', worldX, worldY, 0.50)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -520,6 +588,7 @@ export class ProceduralSoundSystem {
     public playWoodChop(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('wood-chop', worldX, worldY, 0.30)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -559,6 +628,7 @@ export class ProceduralSoundSystem {
     public playUIClick(): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('ui-click', undefined, undefined, 0.08)) return;
 
         const volume = 0.08;
 
@@ -575,6 +645,7 @@ export class ProceduralSoundSystem {
     public playCommandAck(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('command-ack', worldX, worldY, 0.12)) return;
 
         const { gain: distGain } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -601,6 +672,7 @@ export class ProceduralSoundSystem {
     public playAgeAdvance(worldX: number, worldY: number): void {
         const ctx = this.ensureAudioContext();
         if (!ctx) return;
+        if (this.playBuffer('age-advance', worldX, worldY, 0.45)) return;
 
         const { gain: distGain,  filterFreq } = this.getDistanceGain(worldX, worldY);
         const pan = this.getPan(worldX, worldY);
@@ -668,6 +740,7 @@ export class ProceduralSoundSystem {
 
         switch (species) {
             case 'deer': {
+                if (this.playBuffer('animal-deer', worldX, worldY, 0.15)) break;
                 // Short noise snort + low sine body
                 const volume = 0.15 * distGain;
                 const snort = this.noiseBurst('bandpass', 800, 3, 0.01, 0.15, volume);
@@ -679,6 +752,7 @@ export class ProceduralSoundSystem {
             case 'wolf': {
                 // Predatory — skip in peaceful mode
                 if (this.scene.peacefulMode) return;
+                if (this.playBuffer('animal-wolf', worldX, worldY, 0.20)) break;
                 const volume = 0.2 * distGain;
                 // Sine sweep 300→600Hz over 0.4s
                 const osc = ctx.createOscillator();
@@ -724,6 +798,48 @@ export class ProceduralSoundSystem {
                 break;
             }
         }
+    }
+
+    /**
+     * Research completed — magical ascending chime.
+     */
+    public playResearchComplete(worldX: number, worldY: number): void {
+        const ctx = this.ensureAudioContext();
+        if (!ctx) return;
+        if (this.playBuffer('research-complete', worldX, worldY, 0.30)) return;
+
+        // Procedural fallback: ascending sine sweep
+        const { gain: distGain } = this.getDistanceGain(worldX, worldY);
+        const pan = this.getPan(worldX, worldY);
+        const volume = 0.30 * distGain;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(400, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.5);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.001, now);
+        g.gain.exponentialRampToValueAtTime(volume, now + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+        osc.connect(g);
+        this.scheduleSource(osc, 0.7);
+        this.applyPan(pan, g);
+    }
+
+    /**
+     * Resource gathered — short positive chime.
+     */
+    public playResourceGather(worldX: number, worldY: number): void {
+        const ctx = this.ensureAudioContext();
+        if (!ctx) return;
+        if (this.playBuffer('resource-gather', worldX, worldY, 0.15)) return;
+
+        // Procedural fallback: quick tick
+        const { gain: distGain } = this.getDistanceGain(worldX, worldY);
+        const pan = this.getPan(worldX, worldY);
+        const volume = 0.15 * distGain;
+        const tick = this.tone('sine', 800, 0.002, 0.08, volume);
+        this.applyPan(pan, tick);
     }
 
     /**
@@ -863,5 +979,6 @@ export class ProceduralSoundSystem {
         this.noiseBufferShort = null;
         this.noiseBufferMedium = null;
         this.noiseBufferLong = null;
+        this.sfxBuffers = {};
     }
 }
