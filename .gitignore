@@ -27,3 +27,6 @@ dist-ssr
 lint-results*.json
 .env
 .env.*
+tsc-errors.txt
+fallow-report.json
+.fallow-report.json

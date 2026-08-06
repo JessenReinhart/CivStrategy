@@ -1,0 +1,58 @@
+{
+  "timestamp": 1786019571394,
+  "url": "http://localhost:5173/?stress=5000",
+  "units": 5000,
+  "warmupMs": 5000,
+  "durationMs": 20189,
+  "sampleCount": 425,
+  "p50FrameMs": 23.7,
+  "p95FrameMs": 32.7,
+  "minFrameMs": 16.3,
+  "avgFps": 42.08,
+  "minFps": 22.99,
+  "maxFps": 61.35,
+  "topHogs": [
+    {
+      "name": "squadSystem",
+      "ms": 3.56,
+      "pct": 14.72
+    },
+    {
+      "name": "unitSystem",
+      "ms": 1.42,
+      "pct": 5.84
+    },
+    {
+      "name": "proceduralSound",
+      "ms": 0.12,
+      "pct": 0.5
+    },
+    {
+      "name": "squadSyncPositions",
+      "ms": 0.12,
+      "pct": 0.49
+    },
+    {
+      "name": "atmosphericSystem",
+      "ms": 0.11,
+      "pct": 0.45
+    },
+    {
+      "name": "villagerSystem",
+      "ms": 0.1,
+      "pct": 0.41
+    },
+    {
+      "name": "feedbackSystem",
+      "ms": 0.1,
+      "pct": 0.41
+    },
+    {
+      "name": "animalSystem",
+      "ms": 0.1,
+      "pct": 0.41
+    }
+  ],
+  "pass": false,
+  "note": "p95 32.7ms > 16.67ms; min FPS 22.99 < 60"
+}

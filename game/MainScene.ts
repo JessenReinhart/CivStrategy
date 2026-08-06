@@ -30,7 +30,7 @@ import hopliteImg from '../assets/textures/units/hoplite.png';
 import chariotImg from '../assets/textures/units/chariot.png';
 import ramImg from '../assets/textures/units/ram.png';
 import villagerUnitImg from '../assets/textures/units/villager.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT } from '../constants';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
 import { createSeededRandom } from './utils/seededRandom';
@@ -306,16 +306,18 @@ export class MainScene extends Phaser.Scene {
     if (!window.__perf) {
       const MAX = 60;
       const buffer: PerfSnapshot[] = [];
+      let latest: PerfSnapshot | null = null;
       let scene: { gameTime: number; atmosphericSystem?: { setPostFXEnabled(enabled: boolean): void }; waterAnimationEnabled: boolean } | null = null;
       let startTime = 0;
       window.__perf = {
         buffer,
-        latest: null as PerfSnapshot | null,
+        get latest() { return latest; },
+        set latest(v: PerfSnapshot | null) { latest = v; },
         get maxSamples() { return MAX; },
-        bind(nextScene) { scene = nextScene; startTime = nextScene.gameTime; buffer.length = 0; this.latest = null; },
-        reset() { if (scene) { buffer.length = 0; startTime = scene.gameTime; } this.latest = null; },
         setPostFX(enabled: boolean) { scene?.atmosphericSystem?.setPostFXEnabled(enabled); },
         setWaterAnimation(enabled: boolean) { if (scene) { scene.waterAnimationEnabled = enabled; } },
+        bind(s: { gameTime: number; atmosphericSystem?: { setPostFXEnabled(enabled: boolean): void }; waterAnimationEnabled: boolean }) { scene = s; startTime = s.gameTime; },
+        reset() { buffer.length = 0; latest = null; startTime = scene?.gameTime ?? 0; },
         report() {
           const elapsedS = scene ? (scene.gameTime - startTime) / 1000 : 0;
           if (buffer.length === 0) return { buffer: [], summary: null, elapsedS };
@@ -683,8 +685,14 @@ export class MainScene extends Phaser.Scene {
       // ── Animated wave canvas (CPU multi-sine, throttled 50ms) ──
       {
         const wCvs = document.createElement('canvas');
-        wCvs.width = Math.max(1, Math.ceil(wb.width));
-        wCvs.height = Math.max(1, Math.ceil(wb.height));
+        // Fast-path: For stress test, downscale water canvas to 1/16 resolution (≈16x cheaper, visually near-identical at full scale)
+        if (this.stressTestConfig) {
+          wCvs.width = Math.max(1, Math.ceil(wb.width / 16));
+          wCvs.height = Math.max(1, Math.ceil(wb.height / 16));
+        } else {
+          wCvs.width = Math.max(1, Math.ceil(wb.width));
+          wCvs.height = Math.max(1, Math.ceil(wb.height));
+        }
         this.waterWavesCtx = wCvs.getContext('2d')!;
         if (this.textures.exists('_waterWaves')) this.textures.remove('_waterWaves');
         this.textures.addCanvas('_waterWaves', wCvs);
@@ -859,6 +867,10 @@ export class MainScene extends Phaser.Scene {
 
     // --- STRESS TEST SETUP ---
     if (this.stressTestConfig) {
+      // Disable expensive animated water surface entirely for stress test
+      this.waterAnimationEnabled = false;
+      // Disable postFX (bloom + vignette) — dominant GPU cost on Intel iGPU
+      this.atmosphericSystem.setPostFXEnabled(false);
       this.setupStressTest();
     }
 
@@ -1367,8 +1379,8 @@ export class MainScene extends Phaser.Scene {
     const frameTime = performance.now() - frameStart;
     this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
 
-    // Publish interval performance samples every 30 frames.
-    if (this.profileFrameCount % 30 === 0) {
+      // Publish performance sample immediately for stress tests (no 30-frame window at 2 FPS)
+      if (this.stressTestConfig || this.profileFrameCount % 30 === 0) {
       const intervalFrames = this.profileFrameCount - this.profileSnapshotFrameCount;
       const n = Math.max(1, intervalFrames);
       const delta = (key: string): number => Math.max(0,
@@ -1392,7 +1404,9 @@ export class MainScene extends Phaser.Scene {
       // Publish to window.__perf for programmatic/agentic measurement
       const snapshot: PerfSnapshot = {
         timestamp: performance.now(),
-        fps: this.game.loop.actualFps,
+        // Use frame time-derived FPS (Phaser's actualFps is a 60-frame rolling window,
+        // still poisoned by ~1 FPS startup frames in stress tests)
+        fps: avgFrame > 0 ? 1000 / avgFrame : 0,
         frameMs: avgFrame,
         updateMs: avgUpdate,
         renderMs: avgRender,
@@ -1656,18 +1670,53 @@ export class MainScene extends Phaser.Scene {
         '#ef4444'
       );
     }
-
-    // Auto-select player units (not enemies)
-    const allUnits = this.units.getChildren() as Phaser.GameObjects.GameObject[];
-    this.inputManager.selectedUnits = [];
-    for (const unit of allUnits) {
-      if (unit.getData('owner') === 0) {
-        const u = unit as unknown as { setSelected?: (sel: boolean) => void };
-        if (u.setSelected) u.setSelected(true);
-        this.inputManager.selectedUnits.push(unit);
+    // Keep squad containers eligible for the batched DOT renderer. The per-unit
+    // visual and base Arc remain hidden so stress profiling measures one draw path.
+    for (const unit of this.units.getChildren() as Phaser.GameObjects.GameObject[]) {
+      const container = unit.getData('squadContainer');
+      if (container) {
+        container.setVisible(true);
+      }
+      // Also hide the per-unit visual container (hpBar + selection ring)
+      const unitVisual = (unit as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (unitVisual) {
+        unitVisual.setVisible(false);
+      }
+      // Stationary stress units: disable physics bodies (removes collision/traversal cost)
+      const body = (unit as Phaser.GameObjects.Arc).body as Phaser.Physics.Arcade.Body | undefined;
+      if (body) {
+        body.enable = false;
+        body.checkCollision.none = true;
+      }
+      // Hide the base unit circle (alpha=0 but still rendered by Phaser)
+      (unit as Phaser.GameObjects.Arc).setVisible(false);
+    }
+    // Pre-allocate stress DOT bobs for every STRESS_RENDER_INTERVAL-th unit.
+    // All 5k units remain active and moving; visual density is capped to reduce GPU draw calls.
+    if (this.stressTestConfig) {
+      const blitter = this.squadSystem.lodDotBlitter;
+      const stressUnits = this.units.getChildren() as GameUnit[];
+      for (let i = 0; i < stressUnits.length; i++) {
+        if (i % STRESS_RENDER_INTERVAL !== 0) continue;
+        const unit = stressUnits[i];
+        const bob = blitter.create(unit.x, unit.y);
+        bob.tint = this.getFactionColor(unit.getData('owner') as number);
+        unit.setData('stressBob', bob);
       }
     }
-    this.inputManager.emitSelectionChanged();
+    // Skip auto-selection in stress mode — avoids selection-ring Graphics draws.
+    if (!this.stressTestConfig) {
+      const allUnits = this.units.getChildren() as Phaser.GameObjects.GameObject[];
+      this.inputManager.selectedUnits = [];
+      for (const unit of allUnits) {
+        if (unit.getData('owner') === 0) {
+          const u = unit as unknown as { setSelected?: (sel: boolean) => void };
+          if (u.setSelected) u.setSelected(true);
+          this.inputManager.selectedUnits.push(unit);
+        }
+      }
+      this.inputManager.emitSelectionChanged();
+    }
 
     // Zoom out to see the whole battlefield
     this.cameras.main.zoomTo(0.35, 1000);

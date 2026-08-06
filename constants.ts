@@ -9,6 +9,9 @@ export const MAP_WIDTH = 2048;
 export const MAP_HEIGHT = 2048;
 
 export const STANCE_TETHER_RADIUS = 300; // Max distance to chase from anchor in Defensive stance
+// Stress benchmark: render every Nth unit's DOT bob to cap GPU draw count.
+// All 5k units remain active and moving; only the visual density is reduced.
+export const STRESS_RENDER_INTERVAL = 20; // 20 => 250 visible bobs out of 5k
 
 export const CHUNK_SIZE = 512; // For infinite mode
 

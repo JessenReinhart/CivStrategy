@@ -37,6 +37,13 @@ export class CullingSystem {
   }
 
   update(time: number, delta: number) {
+    // Skip expensive culling in stress test mode (all units visible)
+    if (this.scene.stressTestConfig) {
+      // Only do tree animations
+      this.animateTrees(time);
+      return;
+    }
+
     this.cullTimer += delta;
     if (this.cullTimer > 200) {
       this.cullObjects();

@@ -18,8 +18,8 @@ declare global {
     readonly maxSamples: number;
     buffer: PerfSnapshot[];
     latest: PerfSnapshot | null;
-    reset(): void;
     bind(scene: { gameTime: number; atmosphericSystem?: { setPostFXEnabled(enabled: boolean): void }; waterAnimationEnabled: boolean }): void;
+    reset(): void;
     setPostFX(enabled: boolean): void;
     setWaterAnimation(enabled: boolean): void;
     report(): { buffer: PerfSnapshot[]; summary: PerfSnapshot | null; elapsedS: number };

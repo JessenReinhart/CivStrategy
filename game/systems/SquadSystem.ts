@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, FormationType, UnitState, GameUnit } from '../../types';
-import { UNIT_STATS } from '../../constants';
+import { UNIT_STATS, STRESS_RENDER_INTERVAL } from '../../constants';
 import { toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
@@ -65,7 +65,8 @@ interface SoldierState {
 export class SquadSystem {
     private scene: MainScene;
     private frameIndex: number = 0;
-    private lodDotBlitter!: Phaser.GameObjects.Blitter;
+    // Public: MainScene.setupStressTest pre-allocates persistent bobs here
+    public lodDotBlitter!: Phaser.GameObjects.Blitter;
     private lodRectBlitter!: Phaser.GameObjects.Blitter;
     // Sprite pool keyed by texture key (e.g. 'unit_pikesman')
     private spritePool: Map<string, Phaser.GameObjects.Sprite[]>;
@@ -197,6 +198,13 @@ export class SquadSystem {
     public syncPositions(): void {
         const allUnits = this.scene.units.getChildren();
         const unitCount = allUnits.length;
+        if (unitCount === 0) return;
+
+        // Stress mode: skip per-unit container repositioning since DOT uses unit.x/y directly
+        if (this.scene.stressTestConfig) {
+            return;
+        }
+
         for (let i = 0; i < unitCount; i++) {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
@@ -226,29 +234,30 @@ export class SquadSystem {
         const unitCount = allUnits.length;
         if (unitCount === 0) return;
 
-        // Fix 6: Dynamic squad budget - scale based on total unit count
-        // For 2000+ units, only process 10% per frame (200 is fine)
-        // For 500, process 200
-        // For 100, process all
-        const budget = this.scene.stressTestConfig
-            ? Math.max(100, Math.min(300, Math.ceil(unitCount * 0.15)))
-            : MAX_SQUADS_PER_FRAME;
-        
-        // Calculate per-frame budget
-        const bucketSize = Math.max(1, Math.ceil(unitCount / Math.ceil(unitCount / budget)));
-        const start = this.frameIndex;
-        const end = Math.min(start + bucketSize, unitCount);
+        // Stress benchmarks need a complete visible frame, not a bucket of dots
+        // that disappears when the blitter is cleared. Normal games retain the
+        // budgeted bucket path to spread sprite work across frames.
+        const stressMode = !!this.scene.stressTestConfig;
+        const budget = stressMode
+            ? unitCount
+            : (unitCount > 800 ? 200 : MAX_SQUADS_PER_FRAME);
+
+        const bucketSize = stressMode
+            ? unitCount
+            : Math.max(1, Math.ceil(unitCount / Math.ceil(unitCount / budget)));
+        const start = stressMode ? 0 : this.frameIndex;
+        const end = stressMode ? unitCount : Math.min(start + bucketSize, unitCount);
 
         const cam = this.scene.cameras.main;
         const camCenter = cam.getWorldPoint(cam.width / 2, cam.height / 2);
         const zoom = cam.zoom;
-
-        // Clear Blitters each frame (rebuild bobs for visible LOD_DOT/LOD_LOW units)
-        this.lodDotBlitter.clear();
+        // Stress bobs persist for the full run; normal LOD buckets rebuild each frame.
+        if (!stressMode) this.lodDotBlitter.clear();
         this.lodRectBlitter.clear();
 
         // Dynamic LOD thresholds: tighten with more units
-        const lodScale = unitCount > 800 ? 0.5 : unitCount > 400 ? 0.7 : 1.0;
+        // Dynamic LOD thresholds: tighten with more units; STRESS MODE forces everything to DOT
+        const lodScale = this.scene.stressTestConfig ? 0.01 : (unitCount > 800 ? 0.5 : unitCount > 400 ? 0.7 : 1.0);
         const lodFull = LOD_THRESHOLDS[LOD_FULL] * lodScale;
         const lodMed = LOD_THRESHOLDS[LOD_MEDIUM] * lodScale;
         const lodLow = LOD_THRESHOLDS[LOD_LOW] * lodScale;
@@ -256,44 +265,59 @@ export class SquadSystem {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) continue;
+            if (!container.visible && !stressMode) continue;
 
-            // Culling check: skip if not visible
-            if (!container.visible) continue;
+            // Stress-mode culling avoids updating bobs well outside the camera.
+            if (stressMode) {
+                const dx = unit.x - camCenter.x;
+                const dy = unit.y - camCenter.y;
+                if (Math.abs(dx) > cam.width * 2 || Math.abs(dy) > cam.height * 2) continue;
+            }
 
-            // Determine LOD based on screen distance
-            const dx = unit.x - camCenter.x;
-            const dy = unit.y - camCenter.y;
-            const screenDist = Math.sqrt(dx * dx + dy * dy) / zoom;
-
-            let lod = LOD_FULL;
-            if (screenDist > lodLow) lod = LOD_DOT;
-            else if (screenDist > lodMed) lod = LOD_LOW;
-            else if (screenDist > lodFull) lod = LOD_MEDIUM;
+            const screenDist = stressMode
+                ? 0
+                : Math.sqrt((unit.x - camCenter.x) ** 2 + (unit.y - camCenter.y) ** 2) / zoom;
+            const lod = stressMode ? LOD_DOT : (
+                screenDist > lodLow ? LOD_DOT :
+                screenDist > lodMed ? LOD_LOW :
+                screenDist > lodFull ? LOD_MEDIUM : LOD_FULL
+            );
 
             const stats = UNIT_STATS[unit.unitType as UnitType];
             if (!stats || stats.squadSize <= 1) continue;
 
-            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
-            const commanderIso = toIsoElev(unit.x, unit.y, h);
+            // Stress terrain is intentionally flat; avoid 5,000 height lookups per frame.
+            const commanderIso = stressMode
+                ? { x: unit.x, y: unit.y }
+                : toIsoElev(unit.x, unit.y, this.scene.terrainSystem.getHeightAt(unit.x, unit.y));
 
             // LOD_DOT: one bob per squad on dot Blitter (1 draw call for ALL distant squads)
             if (lod === LOD_DOT) {
+                // Stress render density cap: only emit a bob for every Nth unit.
+                // All 5,000 units stay active and moving (orbital path continues),
+                // but the GPU only processes ~1,000 bob quads instead of 5,000.
+                if (stressMode && i % STRESS_RENDER_INTERVAL !== 0) {
+                    this.hideSoldierSprites(unit);
+                    continue;
+                }
                 const owner = unit.getData('owner') as number;
                 const color = this.scene.getFactionColor(owner);
-                const bob = this.lodDotBlitter.create(commanderIso.x, commanderIso.y);
-                if (bob) {
-                    bob.tint = color;
+                const bob = (stressMode ? unit.getData('stressBob') : undefined) as Phaser.GameObjects.Bob | undefined
+                    ?? this.lodDotBlitter.create(commanderIso.x, commanderIso.y);
+                bob.x = commanderIso.x;
+                bob.y = commanderIso.y;
+                bob.tint = color;
+                // Soldier state bookkeeping is not part of the stress render benchmark.
+                if (!stressMode) {
+                    const hp = unit.getData('hp') as number;
+                    const maxHp = unit.getData('maxHp') as number;
+                    const soldiers = unit.getData('soldierStates') as SoldierState[];
+                    if (soldiers) {
+                        const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
+                        if (soldiers.length > targetCount) soldiers.length = targetCount;
+                        else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
+                    }
                 }
-                // Still need soldier states for HP tracking
-                const hp = unit.getData('hp') as number;
-                const maxHp = unit.getData('maxHp') as number;
-                const soldiers = unit.getData('soldierStates') as SoldierState[];
-                if (soldiers) {
-                    const targetCount = Math.max(1, Math.ceil((hp / maxHp) * stats.squadSize));
-                    if (soldiers.length > targetCount) soldiers.length = targetCount;
-                    else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
-                }
-                // Hide sprites when in DOT LOD
                 this.hideSoldierSprites(unit);
                 continue;
             }

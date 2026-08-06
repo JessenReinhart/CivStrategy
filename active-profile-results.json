@@ -1,0 +1,17 @@
+{
+  "timestamp": 1786013768772,
+  "benchmark": "active-entity-headless",
+  "units": 5000,
+  "frames": 600,
+  "warmupFrames": 30,
+  "seed": 1,
+  "wallMs": 3397.6,
+  "avgFrameMs": 5.654,
+  "p50FrameMs": 5.286,
+  "p95FrameMs": 8.183,
+  "minFrameMs": 3.338,
+  "maxFrameMs": 10.866,
+  "avgFps": 176.9,
+  "pass": true,
+  "note": "p95 ≤ 16.67ms — active simulation meets 60 FPS gate"
+}

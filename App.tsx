@@ -124,6 +124,16 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const stressCount = parseInt(params.get('stress') || '0', 10);
+    if (stressCount > 0) {
+      // Defer to next tick to avoid react-hooks/set-state-in-effect
+      const id = setTimeout(() => {
+        handleStressTestStart({ unitCount: stressCount, enableEnemies: params.get('enemies') === 'true' });
+      }, 0);
+      return () => clearTimeout(id);
+    }
+
     const progressHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
       setLoadProgress(customEvent.detail);

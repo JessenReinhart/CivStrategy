@@ -1,0 +1,9 @@
+[profile-stress] launching Chromium 1440x810 -> http://localhost:5173/?stress=5000
+[profile-stress] page loaded, waiting for canvas...
+[profile-stress] canvas detected
+[profile-stress] waiting for window.__perf API...
+[profile-stress] __perf API available
+[profile-stress] waiting for units to reach 5000...
+[profile-stress] failed: page.waitForFunction: Timeout 60000ms exceeded.
+[profile-stress] wrote error result to C:\Users\LGSM228\CivStrategy\profile-results.json
+[profile-stress] appended error to C:\Users\LGSM228\CivStrategy\progress-metrics.jsonl

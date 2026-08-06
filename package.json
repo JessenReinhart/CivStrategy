@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "profile:stress": "node scripts/profile-stress.mjs",
     "preview": "vite preview",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --report-unused-disable-directives --max-warnings 0 --fix",
@@ -31,6 +32,7 @@
     "fallow": "^3.14.0",
     "globals": "^17.0.0",
     "husky": "^9.1.7",
+    "playwright": "^1.62.1",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "typescript": "^5.2.2",

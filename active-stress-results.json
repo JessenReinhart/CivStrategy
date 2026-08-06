@@ -1,0 +1,21 @@
+{
+  "timestamp": 1786014153881,
+  "url": "http://localhost:5173/?stress=5000",
+  "units": 5000,
+  "warmupMs": 5000,
+  "durationMs": 0,
+  "sampleCount": 0,
+  "p50FrameMs": 0,
+  "p95FrameMs": 0,
+  "minFrameMs": 0,
+  "avgFps": 0,
+  "minFps": 0,
+  "maxFps": 0,
+  "topHogs": [],
+  "pass": false,
+  "note": "page.waitForFunction: Timeout 120000ms exceeded.",
+  "stressMode": "visible-active",
+  "errors": [
+    "window.__perf.bind is not a function"
+  ]
+}

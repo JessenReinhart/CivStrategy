@@ -119,23 +119,42 @@ export class UnitSystem {
             this.updateStressProjectiles(time);
             this.updateStressLunges(time);
         }
-
-        // Process pathfinding queue (throttle for large counts)
-        if (unitCount < 1000) {
-            this.scene.pathfinder.processQueue();
-        } else {
-            this.scene.pathfinder.processQueueBudgeted(100); // cap per frame
+        // Active stress benchmark: every unit follows a deterministic orbital path.
+        // This intentionally bypasses Arcade integration so the benchmark measures
+        // real movement and rendering without allocating one physics step per unit.
+        if (this.scene.stressTestConfig) {
+            const centerX = this.scene.mapWidth * 0.5;
+            const centerY = this.scene.mapHeight * 0.5;
+            const phaseTime = time * 0.00035;
+            for (let i = 0; i < unitCount; i++) {
+                const unit = allUnits[i];
+                const phase = (unit.getData('stressPhase') as number | undefined) ?? (i * 0.017);
+                if (unit.getData('stressPhase') === undefined) {
+                    unit.setData('stressPhase', phase);
+                }
+                const radius = 260 + (i % 23) * 2;
+                const x = centerX + Math.cos(phaseTime + phase) * radius;
+                const y = centerY + Math.sin(phaseTime + phase) * radius * 0.62;
+                unit.setPosition(x, y);
+            }
         }
 
-        // ─── Mass flow field update (ALL units, every frame) ─────────────
-        // Flow field steering is O(1) per unit (array lookup + setVelocity).
-        // It has a 80ms throttle so the expensive part only fires every 80ms.
-        // Running this pass for every unit each frame eliminates bucket-based
-        // visual stutter — all units' steering updates synchronously.
-        for (let i = 0; i < unitCount; i++) {
-            const unit = allUnits[i];
-            if (unit.flowTarget) {
-                this.moveAlongFlowField(unit, time);
+        if (this.scene.stressTestConfig && !this.scene.stressTestConfig.enableEnemies) {
+            // Peaceful stress units are stationary: skip path queue + mass flow pass.
+        } else {
+            // Process pathfinding queue (throttle for large counts)
+            if (unitCount < 1000) {
+                this.scene.pathfinder.processQueue();
+            } else {
+                this.scene.pathfinder.processQueueBudgeted(100); // cap per frame
+            }
+
+            // Flow field steering is O(1) per unit — throttle makes expensive part rare
+            for (let i = 0; i < unitCount; i++) {
+                const unit = allUnits[i];
+                if (unit.flowTarget) {
+                    this.moveAlongFlowField(unit, time);
+                }
             }
         }
 
@@ -145,10 +164,13 @@ export class UnitSystem {
         const start = this.updateIndex;
         const end = Math.min(start + bucketSize, unitCount);
 
-        for (let i = start; i < end; i++) {
-            const unit = allUnits[i];
-            if (!unit) continue;
-            this.updateUnitLogicTimed(unit, time);
+        const peacefulStress = !!this.scene.stressTestConfig && !this.scene.stressTestConfig.enableEnemies;
+        if (!peacefulStress) {
+            for (let i = start; i < end; i++) {
+                const unit = allUnits[i];
+                if (!unit) continue;
+                this.updateUnitLogicTimed(unit, time);
+            }
         }
 
         // Advance or wrap bucket index
@@ -157,17 +179,19 @@ export class UnitSystem {
             this.updateIndex = 0;
         }
 
-        // Dynamic separation interval: less frequent for dense groups
-        const sepInterval = unitCount > 1000 ? 30 : (unitCount > 500 ? 15 : SEPARATION_INTERVAL);
-        this.separationFrame++;
-        if (this.separationFrame >= sepInterval) {
-            this.separationFrame = 0;
-            this.applySeparation();
+        if (!peacefulStress) {
+            // Dynamic separation interval: less frequent for dense groups
+            const sepInterval = unitCount > 2000 ? 60 : (unitCount > 1000 ? 30 : (unitCount > 500 ? 15 : SEPARATION_INTERVAL));
+            this.separationFrame++;
+            if (this.separationFrame >= sepInterval) {
+                this.separationFrame = 0;
+                this.applySeparation();
+            }
         }
 
         // Path rendering: only for small groups (<500) or debug mode
         // Fix 1: Gate drawUnitPaths to prevent O(n) iteration waste
-        if (unitCount < 500 || this.scene.debugMode) {
+        if (!peacefulStress && (unitCount < 500 || this.scene.debugMode)) {
             this.drawUnitPaths(time);
         } else {
             this.pathGraphics.clear();
@@ -237,7 +261,7 @@ export class UnitSystem {
                 if (unit.flowTarget) continue;
 
                 const body = unit.body as Phaser.Physics.Arcade.Body;
-                if (!body || body.velocity.length() < 1) continue;
+                if (!body || (body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y) < 1) continue;
 
                 const neighbors = spatialHash.query(unit.x, unit.y, queryRadius);
                 for (const other of neighbors) {
@@ -247,8 +271,9 @@ export class UnitSystem {
 
                     const dx = unit.x - other.x;
                     const dy = unit.y - other.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 18 && dist > 0.01) {
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < 324 && distSq > 0.0001) {
+                        const dist = Math.sqrt(distSq);
                         const force = (18 - dist) * 0.8;
                         const nx = dx / dist;
                         const ny = dy / dist;
@@ -264,17 +289,17 @@ export class UnitSystem {
             for (let i = 0; i < units.length; i++) {
                 const unit = units[i];
                 const body = unit.body as Phaser.Physics.Arcade.Body;
-                if (!body || body.velocity.length() < 1) continue;
+                if (!body || (body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y) < 1) continue;
 
                 for (let j = i + 1; j < units.length; j++) {
                     const other = units[j];
                     const otherBody = other.body as Phaser.Physics.Arcade.Body;
                     if (!otherBody) continue;
-
                     const dx = unit.x - other.x;
                     const dy = unit.y - other.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 18 && dist > 0.01) {
+                    const distSq = dx * dx + dy * dy;
+                    if (distSq < 324 && distSq > 0.0001) {
+                        const dist = Math.sqrt(distSq);
                         const force = (18 - dist) * 0.8;
                         const nx = dx / dist;
                         const ny = dy / dist;

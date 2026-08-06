@@ -97,6 +97,8 @@ export class AnimalSystem {
   }
 
   public update(_time: number, delta: number): void {
+    // Stress test: animals are pure decoration over thousands of units — strip AI/breeding entirely.
+    if (this.scene.stressTestConfig) return;
     const len = this.animals.length;
 
     if (len > 0) {

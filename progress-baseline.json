@@ -1,0 +1,1 @@
+{"timestamp":1786368000000,"units":5004,"warmupMs":20000,"sampleCount":3,"p50FrameMs":633.84,"p95FrameMs":704.26,"minFrameMs":631.36,"avgFps":2.2,"minFps":1.86,"maxFps":2.82,"pass":false,"unitSystemMs":43.8,"renderMs":639.5,"updateMs":64.8,"env":"headless-no-gpu","note":"CPU unitSystem 47ms is GPU-independent and breaks budget"}
