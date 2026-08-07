@@ -179,7 +179,10 @@ export class FogOfWarSystem {
             if (aIsoX < this._viewLeft || aIsoX > this._viewRight ||
                 aIsoY < this._viewTop || aIsoY > this._viewBottom) continue;
 
-            this.drawVision(aIsoX, aIsoY, 100); // small reveal radius
+            // Forest concealment: reduce vision in forests (same 0.7x as units)
+            const animalInForest = this.scene.terrainSystem?.isForestAt(animal.x, animal.y) ?? false;
+            const animalRange = animalInForest ? 70 : 100; // 100 * 0.7
+            this.drawVision(aIsoX, aIsoY, animalRange); // small reveal radius
             eraseCalls++;
         }
         const animalsMs = performance.now() - animalsStart;
@@ -201,7 +204,9 @@ export class FogOfWarSystem {
 
             const def = b.getData('def');
             const range = def.territoryRadius || def.visionRadius || 200;
-            this.drawVision(bIsoX, bIsoY, range);
+            const buildingInForest = this.scene.terrainSystem?.isForestAt(b.x, b.y) ?? false;
+            const effectiveRange = buildingInForest ? Math.round(range * 0.7) : range;
+            this.drawVision(bIsoX, bIsoY, effectiveRange);
             eraseCalls++;
         }
         const buildingsMs = performance.now() - buildingsStart;

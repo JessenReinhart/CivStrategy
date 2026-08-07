@@ -1,58 +1,58 @@
 {
-  "timestamp": 1786023018608,
+  "timestamp": 1786062390063,
   "url": "http://localhost:5173/?stress=5000",
   "units": 5000,
   "warmupMs": 5000,
-  "durationMs": 20244,
-  "sampleCount": 416,
-  "p50FrameMs": 23.8,
-  "p95FrameMs": 31.8,
-  "minFrameMs": 14.2,
-  "avgFps": 42.81,
-  "minFps": 26.88,
-  "maxFps": 70.42,
+  "durationMs": 20002,
+  "sampleCount": 522,
+  "p50FrameMs": 18,
+  "p95FrameMs": 20.3,
+  "minFrameMs": 14.7,
+  "avgFps": 55.84,
+  "minFps": 36.36,
+  "maxFps": 68.03,
   "topHogs": [
     {
-      "name": "squadSystem",
-      "ms": 3.78,
-      "pct": 15.7
+      "name": "unitSystem",
+      "ms": 0.16,
+      "pct": 0.87
     },
     {
-      "name": "unitSystem",
-      "ms": 1.52,
-      "pct": 6.33
+      "name": "squadSystem",
+      "ms": 0.15,
+      "pct": 0.82
     },
     {
       "name": "feedbackSystem",
-      "ms": 0.1,
-      "pct": 0.43
+      "ms": 0.11,
+      "pct": 0.58
     },
     {
       "name": "proceduralSound",
       "ms": 0.1,
-      "pct": 0.4
+      "pct": 0.55
     },
     {
       "name": "atmosphericSystem",
       "ms": 0.1,
-      "pct": 0.44
+      "pct": 0.56
     },
     {
       "name": "squadSyncPositions",
       "ms": 0.1,
-      "pct": 0.43
-    },
-    {
-      "name": "villagerSystem",
-      "ms": 0.1,
-      "pct": 0.41
+      "pct": 0.54
     },
     {
       "name": "animalSystem",
       "ms": 0.1,
-      "pct": 0.46
+      "pct": 0.58
+    },
+    {
+      "name": "villagerSystem",
+      "ms": 0.03,
+      "pct": 0.19
     }
   ],
   "pass": false,
-  "note": "p95 31.8ms > 16.67ms; min FPS 26.88 < 60"
+  "note": "p95 20.3ms > 16.67ms; min FPS 36.36 < 60"
 }

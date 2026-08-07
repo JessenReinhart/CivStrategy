@@ -19,6 +19,16 @@ export class FeedbackSystem {
     private nextId = 1;
     private static readonly MAX_NOTIFICATIONS = 50;
 
+    // ── Object pools for ephemeral damage/spark effects ──────────────────
+    private textPool: Phaser.GameObjects.Text[] = [];
+    private sparkPool: Phaser.GameObjects.Arc[] = [];
+    private activeText = 0;
+    private activeSpark = 0;
+    private static readonly MAX_ACTIVE_TEXT = 80;
+    private static readonly MAX_ACTIVE_SPARK = 120;
+    private static readonly MAX_POOL_TEXT = 80;
+    private static readonly MAX_POOL_SPARK = 120;
+
     constructor(scene: MainScene) {
         this.scene = scene;
         this.scene.events.on(EVENTS.NOTIFICATION, (data: { text: string; severity?: Notification['severity']; duration?: number }) => {
@@ -98,62 +108,59 @@ export class FeedbackSystem {
         this.addNotification(`💬 ${message}`, 'warning', 6000, personality, senderName);
     }
 
+    private acquireText(): Phaser.GameObjects.Text | null {
+        if (this.activeText >= FeedbackSystem.MAX_ACTIVE_TEXT) return null;
+        const text = this.textPool.pop() ?? this.scene.add.text(0, 0, '', {
+            fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold',
+            stroke: '#000000', strokeThickness: 4
+        });
+        this.activeText++;
+        text.setActive(true).setVisible(true).setAlpha(1).setScale(1);
+        return text;
+    }
+
+    private releaseText(text: Phaser.GameObjects.Text): void {
+        text.setActive(false).setVisible(false).setAlpha(0);
+        this.activeText = Math.max(0, this.activeText - 1);
+        if (this.textPool.length < FeedbackSystem.MAX_POOL_TEXT) this.textPool.push(text);
+    }
+
+    private acquireSpark(): Phaser.GameObjects.Arc | null {
+        if (this.activeSpark >= FeedbackSystem.MAX_ACTIVE_SPARK) return null;
+        const spark = this.sparkPool.pop() ?? this.scene.add.circle(0, 0, 3, 0xffffff, 1);
+        this.activeSpark++;
+        spark.setActive(true).setVisible(true).setAlpha(1).setScale(1);
+        return spark;
+    }
+
+    private releaseSpark(spark: Phaser.GameObjects.Arc): void {
+        spark.setActive(false).setVisible(false).setAlpha(0);
+        this.activeSpark = Math.max(0, this.activeSpark - 1);
+        if (this.sparkPool.length < FeedbackSystem.MAX_POOL_SPARK) this.sparkPool.push(spark);
+    }
+
     showDamageNumber(x: number, y: number, damage: number, damageType?: string): void {
         const iso = toIso(x, y);
-        const colorMap: Record<string, string> = {
-            'Hack': '#ef4444',    // red
-            'Pierce': '#f97316',  // orange
-            'Crush': '#fbbf24',   // amber
-        };
-        const color = damageType ? (colorMap[damageType] || '#ef4444') : '#ef4444';
-        const text = this.scene.add.text(
-            iso.x + Phaser.Math.Between(-15, 15),
-            iso.y - 30,
-            `-${damage}`,
-            {
-                fontFamily: 'Arial', fontSize: '16px', fontStyle: 'bold',
-                color: color, stroke: '#000000', strokeThickness: 4
-            }
-        );
-        text.setOrigin(0.5).setDepth(Number.MAX_VALUE);
-        this.scene.tweens.add({
-            targets: text,
-            y: iso.y - 80,
-            alpha: 0,
-            duration: 1200,
-            onComplete: () => text.destroy()
-        });
+        const colorMap: Record<string, string> = { Hack: '#ef4444', Pierce: '#f97316', Crush: '#fbbf24' };
+        const text = this.acquireText();
+        if (!text) return;
+        text.setText(`-${damage}`).setColor(damageType ? (colorMap[damageType] || '#ef4444') : '#ef4444');
+        text.setPosition(iso.x + Phaser.Math.Between(-15, 15), iso.y - 30).setOrigin(0.5).setDepth(Number.MAX_VALUE);
+        this.scene.tweens.add({ targets: text, y: iso.y - 80, alpha: 0, duration: 1200, onComplete: () => this.releaseText(text) });
     }
 
     showHitSpark(x: number, y: number, damageType?: string): void {
         const iso = toIso(x, y);
-        const colorMap: Record<string, number> = {
-            'Hack': 0xff4444,
-            'Pierce': 0xff8800,
-            'Crush': 0xffcc00,
-        };
+        const colorMap: Record<string, number> = { Hack: 0xff4444, Pierce: 0xff8800, Crush: 0xffcc00 };
         const color = damageType ? (colorMap[damageType] ?? 0xff4444) : 0xffffff;
-
-        const count = 3;
-        for (let i = 0; i < count; i++) {
-            const spark = this.scene.add.circle(
-                iso.x + Phaser.Math.Between(-8, 8),
-                iso.y + Phaser.Math.Between(-8, 8),
-                Phaser.Math.Between(2, 4),
-                color, 1
-            );
-            spark.setDepth(Number.MAX_VALUE - 1);
-            this.scene.tweens.add({
-                targets: spark,
-                x: iso.x + Phaser.Math.Between(-20, 20),
-                y: iso.y + Phaser.Math.Between(-30, -10),
-                alpha: 0,
-                scale: 0.1,
-                duration: Phaser.Math.Between(200, 400),
-                onComplete: () => spark.destroy()
-            });
+        for (let i = 0; i < 3; i++) {
+            const spark = this.acquireSpark();
+            if (!spark) break;
+            spark.setFillStyle(color, 1).setRadius(Phaser.Math.Between(2, 4));
+            spark.setPosition(iso.x + Phaser.Math.Between(-8, 8), iso.y + Phaser.Math.Between(-8, 8)).setDepth(Number.MAX_VALUE - 1);
+            this.scene.tweens.add({ targets: spark, x: iso.x + Phaser.Math.Between(-20, 20), y: iso.y + Phaser.Math.Between(-30, -10), alpha: 0, scale: 0.1, duration: Phaser.Math.Between(200, 400), onComplete: () => this.releaseSpark(spark) });
         }
-     }
+    }
 
     // ── Floating text (unchanged) ───────────────────────────────────────
 

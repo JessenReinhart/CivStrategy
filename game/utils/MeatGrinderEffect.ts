@@ -25,7 +25,12 @@ export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: 
     const iso = toIso(worldX, worldY);
 
     // 1. Subtle camera tremor — tight, grounded, like a heavy thud
-    scene.cameras.main.shake(200, 0.004);
+    const cam = scene.cameras.main;
+    const dx = iso.x - cam.scrollX - cam.width / 2;
+    const dy = iso.y - cam.scrollY - cam.height / 2;
+    if (Math.sqrt(dx * dx + dy * dy) < 500) {
+        cam.shake(200, 0.004);
+    }
 
     // 2. Ground dust plume at clash point (uses 'smoke' texture)
     if (scene.textures.exists('smoke')) {

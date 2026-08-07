@@ -1032,7 +1032,7 @@ export class MainScene extends Phaser.Scene {
 
     // Count buildings by owner to estimate territory control (exclude TCs for fairness)
     const totalBuildings = this.buildings.getChildren().filter(
-      (b: any) => b.getData('hp') > 0 && b.getData('def')?.type !== BuildingType.TOWN_CENTER // eslint-disable-line @typescript-eslint/no-explicit-any
+      (b) => b.getData('hp') > 0 && b.getData('def')?.type !== BuildingType.TOWN_CENTER
     );
     if (totalBuildings.length === 0) return;
     if (totalBuildings.length < DOMINANCE_MIN_BUILDINGS) {
@@ -1041,7 +1041,16 @@ export class MainScene extends Phaser.Scene {
       return;
     }
 
-    const playerBuildings = totalBuildings.filter((b: any) => b.getData('owner') === 0).length; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // Require minimum enemy presence: at least 1 non-TC building by AI
+    const enemyNonTCBuildings = totalBuildings.filter((b) => b.getData('owner') === 1).length;
+    if (enemyNonTCBuildings === 0) {
+      // AI has no non-TC buildings; no dominance victory yet
+      this.dominanceProgress = 0;
+      this.playerTerritoryPercent = 0;
+      return;
+    }
+
+    const playerBuildings = totalBuildings.filter((b) => b.getData('owner') === 0).length;
     this.playerTerritoryPercent = playerBuildings / totalBuildings.length;
 
     if (this.playerTerritoryPercent >= DOMINANCE_CONTROL_THRESHOLD) {
@@ -1272,6 +1281,10 @@ export class MainScene extends Phaser.Scene {
             });
 
             if (nearest && (nearest as GameUnit).takeDamage) {
+              this.unitSystem.showProjectile(
+                { x: cx, y: cy },
+                { x: (nearest as Phaser.GameObjects.Image).x, y: (nearest as Phaser.GameObjects.Image).y, scene: this }
+              );
               const dmg = totalGarrisoned * CASTLE_GARRISON_DAMAGE_PER_UNIT;
               (nearest as GameUnit).takeDamage!(dmg);
               this.feedbackSystem.showDamageNumber(

@@ -282,6 +282,9 @@ export class AnimalSystem {
       if (typeof takeDamage === 'function') {
         takeDamage(animal.attackDamage);
       }
+      // Show feedback on melee hit
+      this.scene.feedbackSystem.showDamageNumber(targetImg.x, targetImg.y, animal.attackDamage, 'Hack');
+      this.scene.feedbackSystem.showHitSpark(targetImg.x, targetImg.y, 'Hack');
     }
   }
 
@@ -296,6 +299,9 @@ export class AnimalSystem {
     if (attacker.wanderDest.y <= 0) {
       attacker.wanderDest.y = ATTACK_COOLDOWN_MS;
       this.takeDamage(target, attacker.attackDamage);
+      // Show feedback on melee hit
+      this.scene.feedbackSystem.showDamageNumber(target.x, target.y, attacker.attackDamage, 'Hack');
+      this.scene.feedbackSystem.showHitSpark(target.x, target.y, 'Hack');
     }
   }
 

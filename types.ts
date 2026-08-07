@@ -364,6 +364,8 @@ export interface SaveGame {
   population: number;
   happiness: number;
   gameSpeed: number;
+  taxRate?: number;
+  bloomIntensity?: number;
   // Entities
   units: SerializedUnit[];
   buildings: SerializedBuilding[];
@@ -404,6 +406,13 @@ export interface SerializedBuilding {
   garrison?: Record<string, number>;
 }
 
+// ─── AI System ──────────────────────────────────────────────────────────
+export interface BlueprintItem {
+  type: BuildingType;
+  x: number;
+  y: number;
+}
+
 export interface SerializedAIState {
   personality: string;
   currentAge: Age;
@@ -412,4 +421,18 @@ export interface SerializedAIState {
   baseX: number;
   baseY: number;
   buildIndex: number;
+  selectedBlueprint: BlueprintItem[];
+  nextAttackTime: number;
+  lastEconomyTick: number;
+  lastBuildTick: number;
+  lastRecruitTick: number;
+  lastDefenseTick: number;
+  lastThreatCheck: number;
+  lastAttackTick: number;
+  lastTauntTime: number;
+  hasSpawnedStartingForest: boolean;
+  personalityBonusBuildings: number;
+  aiCurrentAge: Age;
+  aiAgeProgress: number;
+  aiIsAdvancing: boolean;
 }

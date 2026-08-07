@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, EVENTS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER } from '../../constants';
+import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 import {
@@ -128,6 +128,9 @@ export class UnitSystem {
             const phaseTime = time * 0.00035;
             for (let i = 0; i < unitCount; i++) {
                 const unit = allUnits[i];
+                // Skip units with disabled physics bodies — they are stationary in peaceful stress mode
+                const body = unit.body as Phaser.Physics.Arcade.Body | null;
+                if (body && !body.enable) continue;
                 const phase = (unit.getData('stressPhase') as number | undefined) ?? (i * 0.017);
                 if (unit.getData('stressPhase') === undefined) {
                     unit.setData('stressPhase', phase);
@@ -1007,20 +1010,16 @@ export class UnitSystem {
         const effective = computeDamage(profile, targetArmor);
         const dmg = effective;
 
-        if (unit.unitType === UnitType.ARCHER) {
+        // Ranged units have range >= 180 (ARCHER=200, SLINGER=180, CHARIOT=180), melee units have range <= 40
+        if ((unit.getData('range') as number | undefined ?? 0) > 60) {
             // Ranged volley
             const maxHp = unit.getData('maxHp') as number;
             const currentHp = unit.getData('hp') as number;
-            const squadSize = UNIT_STATS[UnitType.ARCHER].squadSize;
+            const squadSize = UNIT_STATS[unit.unitType]?.squadSize ?? 1;
             const soldiers = unit.getData('soldierStates') || [];
 
             const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
             const damagePerArrow = dmg / arrowCount;
-
-            // Show total volley damage once (not per arrow), unit targets only
-            if (!target.getData('def')) {
-                this.scene.feedbackSystem.showDamageNumber(target.x, target.y, Math.round(dmg), 'Pierce');
-            }
 
             for (let i = 0; i < arrowCount; i++) {
                 const delay = Phaser.Math.Between(0, 300);
@@ -1114,7 +1113,19 @@ export class UnitSystem {
                 const finalDmg = Math.round(dmg * heightDefenseMult * dmgMult * siegeMult * ramWallMult * forestMult * chargeMult * wallDefenseMult * wallMeleeMult);
 
                 if (isOpposingFactions) {
-                    this.scene.events.emit(EVENTS.CLASH_START, { x: target.x, y: target.y });
+                    // Show floating damage number for melee hits on units and animals (buildings handled by EntityFactory)
+                    if (!target.getData('def')) {
+                        const primaryType = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
+                        this.scene.feedbackSystem.showDamageNumber(target.x, target.y, finalDmg, primaryType || undefined);
+                        this.scene.feedbackSystem.showHitSpark(target.x, target.y, primaryType || undefined);
+                    }
+                    const isRamVsBuilding = unit.unitType === UnitType.RAM && target.getData('def');
+                    if (isRamVsBuilding) {
+                        this.scene.proceduralSound.playSiegeImpact(target.x, target.y);
+                    } else {
+                        const primaryType = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
+                        this.scene.proceduralSound.playAttackImpact(target.x, target.y, primaryType || undefined);
+                    }
                 }
 
                 // Route to AnimalSystem if target is an animal container
@@ -1126,19 +1137,6 @@ export class UnitSystem {
                     }
                 } else {
                     target.takeDamage(finalDmg);
-                }
-                // Show floating damage number for melee hits on units (buildings handled by EntityFactory)
-                if (!target.getData('def')) {
-                    const primaryType = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
-                    this.scene.feedbackSystem.showDamageNumber(target.x, target.y, finalDmg, primaryType || undefined);
-                    this.scene.feedbackSystem.showHitSpark(target.x, target.y, primaryType || undefined);
-                }
-                const primaryType2 = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
-                const isRamVsBuilding = unit.unitType === UnitType.RAM && target.getData('def');
-                if (isRamVsBuilding) {
-                    this.scene.proceduralSound.playSiegeImpact(target.x, target.y);
-                } else {
-                    this.scene.proceduralSound.playAttackImpact(target.x, target.y, primaryType2 || undefined);
                 }
             }
         }
@@ -1392,26 +1390,20 @@ export class UnitSystem {
     }
 
     // ─── Projectile ────────────────────────────────────────────────────────
+    /** Render a projectile arc and impact feedback without applying damage. */
+    public showProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene: Phaser.Scene }): void {
+        this.fireProjectile(origin, { ...target, takeDamage: () => {} }, 0);
+    }
     private fireProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene: Phaser.Scene; takeDamage: (amt: number) => void }, dmg: number): void {
         const startIso = toIso(origin.x, origin.y);
         const endIso = toIso(target.x, target.y);
 
-        const arrow = this.scene.add.rectangle(startIso.x, startIso.y - 20, 10, 1, 0xffffff);
-        if (this.scene.worldLayer) this.scene.worldLayer.add(arrow);
+        const arrow = this.getPooledArrow(startIso.x, startIso.y - 20);
+        const emitter = this.getPooledEmitter();
+        emitter.setPosition?.(arrow.x, arrow.y);
+        emitter.start?.();
         arrow.setDepth(startIso.y + 100);
-
-        const emitter = this.scene.add.particles(0, 0, 'white_flare', {
-            speed: 0,
-            scale: { start: 0.2, end: 0 },
-            alpha: { start: 0.8, end: 0 },
-            lifespan: 500,
-            tint: 0xffffff,
-            blendMode: 'ADD',
-            frequency: 10,
-            follow: arrow
-        });
-        if (this.scene.worldLayer) this.scene.worldLayer.add(emitter);
-        emitter.setDepth(Number.MAX_VALUE - 100);
+        emitter.setDepth?.(Number.MAX_VALUE - 100);
 
         const midX = (startIso.x + endIso.x) / 2;
         const midY = (startIso.y + endIso.y) / 2 - 50;
@@ -1433,18 +1425,39 @@ export class UnitSystem {
                 arrow.setPosition(projectileObj.vec.x, projectileObj.vec.y);
                 const tangent = curve.getTangent(projectileObj.t);
                 arrow.setRotation(tangent.angle());
+                emitter.setPosition?.(projectileObj.vec.x, projectileObj.vec.y);
             },
             onComplete: () => {
-                arrow.destroy();
-                emitter.destroy();
+                this.recycleStressProjectile({
+                    arrow,
+                    emitter,
+                    originX: origin.x,
+                    originY: origin.y,
+                    targetX: target.x,
+                    targetY: target.y,
+                    p0x: startIso.x,
+                    p0y: startIso.y - 15,
+                    p1x: midX,
+                    p1y: midY - 50,
+                    p2x: endIso.x,
+                    p2y: endIso.y - 10,
+                    startAt: 0,
+                    duration: 800,
+                    dmg,
+                    takeDamage: target.takeDamage,
+                    started: true,
+                    finished: true,
+                });
                 if (target.takeDamage) {
                     target.takeDamage(dmg);
                     this.scene.feedbackSystem.showHitSpark(target.x, target.y, 'Pierce');
+                    if (dmg > 0) this.scene.feedbackSystem.showDamageNumber(target.x, target.y, Math.round(dmg), 'Pierce');
                     this.scene.proceduralSound.playAttackImpact(target.x, target.y, 'Pierce');
                 }
             }
         });
     }
+
 
     // ─── Debug Rendering ───────────────────────────────────────────────────
     private drawDebugLines(): void {

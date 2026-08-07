@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CivStrategy Gauntlet Progress</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e; --gold:#d4af37; --green:#3fb950; --red:#f85149; --yellow:#d29922; --blue:#58a6ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at top,#1d2633 0,#0d1117 42rem); color:var(--text); font:14px/1.45 Inter,system-ui,sans-serif; }
+    main { max-width:1280px; margin:0 auto; padding:24px; }
+    header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:20px; }
+    h1,h2,h3 { margin:0; font-family:Georgia,serif; font-weight:600; }
+    h1 { color:var(--gold); font-size:clamp(1.8rem,4vw,2.7rem); letter-spacing:.02em; }
+    h2 { font-size:1.15rem; margin-bottom:14px; }
+    .sub { color:var(--muted); margin-top:5px; }
+    .live { display:inline-flex; align-items:center; gap:7px; color:var(--muted); }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--red); }
+    .dot.ok { background:var(--green); box-shadow:0 0 12px var(--green); }
+    .panel { background:rgba(22,27,34,.9); border:1px solid var(--line); border-radius:10px; padding:18px; box-shadow:0 12px 30px rgba(0,0,0,.2); }
+    .grid { display:grid; gap:14px; }
+    .summary { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); margin-bottom:14px; }
+    .metric .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
+    .metric .value { color:var(--gold); font:600 1.65rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; margin-top:7px; }
+    .layout { grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr); align-items:start; }
+    @media (max-width:800px) { main{padding:14px}.layout{grid-template-columns:1fr} }
+    .bar { height:10px; background:#21262d; border-radius:9px; overflow:hidden; margin:10px 0 5px; }
+    .bar > span { display:block; height:100%; width:0; background:var(--blue); transition:width .3s ease; }
+    .bar > span.good { background:var(--green); }
+    .bar > span.bad { background:var(--red); }
+    .gate,.gap { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid rgba(48,54,61,.7); }
+    .gate:last-child,.gap:last-child { border-bottom:0; }
+    .badge { border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:.72rem; font-weight:700; text-transform:uppercase; }
+    .pass,.fixed { color:var(--green); border-color:rgba(63,185,80,.45); background:rgba(63,185,80,.1); }
+    .fail,.open { color:var(--red); border-color:rgba(248,81,73,.45); background:rgba(248,81,73,.1); }
+    .warn,.in-progress { color:var(--yellow); border-color:rgba(210,153,34,.45); background:rgba(210,153,34,.1); }
+    .unknown { color:var(--muted); }
+    .cycle { padding:14px 0; border-bottom:1px solid var(--line); }
+    .cycle:last-child { border-bottom:0; }
+    .cycle-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .cycle-title { color:var(--gold); font-weight:700; }
+    .cycle-meta { color:var(--muted); font-size:.82rem; }
+    .cycle p { margin:8px 0 0; color:#c9d1d9; }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#c9d1d9; }
+    .empty { color:var(--muted); padding:12px 0; }
+    footer { color:var(--muted); text-align:center; padding:20px 0 4px; font-size:.8rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>CivStrategy Gauntlet</h1><div class="sub">Live quality, gameplay, and performance tracker</div></div>
+      <div class="live"><span id="liveDot" class="dot"></span><span id="liveText">Waiting for gauntlet-progress.json</span></div>
+    </header>
+
+    <section class="grid summary">
+      <div class="panel metric"><div class="label">Status</div><div id="status" class="value">Not started</div></div>
+      <div class="panel metric"><div class="label">Current cycle</div><div id="cycle" class="value">0</div></div>
+      <div class="panel metric"><div class="label">p95 frame</div><div id="p95" class="value">—</div></div>
+      <div class="panel metric"><div class="label">Average FPS</div><div id="fps" class="value">—</div></div>
+      <div class="panel metric"><div class="label">Open gaps</div><div id="openGaps" class="value">—</div></div>
+    </section>
+
+    <section class="grid layout">
+      <div class="panel">
+        <h2>Quality gates</h2>
+        <div id="gates"><div class="empty">No metrics recorded yet.</div></div>
+        <h2 style="margin-top:22px">Cycle history</h2>
+        <div id="cycles"><div class="empty">No cycles recorded yet. Builders should append entries to <code>gauntlet-progress.json</code>.</div></div>
+      </div>
+      <aside class="grid">
+        <div class="panel"><h2>Gap ledger</h2><div id="gaps"><div class="empty">No gap data.</div></div></div>
+        <div class="panel"><h2>Last update</h2><div id="updated" class="sub">—</div><div class="sub" style="margin-top:10px">Polls every 2 seconds. Serve this file from the Vite dev server to keep it live.</div></div>
+      </aside>
+    </section>
+    <footer>Source: <code>gauntlet-progress.json</code> and <code>profile-results.json</code></footer>
+  </main>
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = (value, suffix = '') => value === null || value === undefined || value === '' ? '—' : `${value}${suffix}`;
+  const num = (value, digits = 2) => typeof value === 'number' ? value.toFixed(digits) : '—';
+  async function getJson(file) {
+    try { const response = await fetch(`${file}?t=${Date.now()}`, { cache: 'no-store' }); return response.ok ? await response.json() : null; }
+    catch { return null; }
+  }
+  function badge(status) {
+    const normalized = String(status || 'unknown').toLowerCase().replace(/\s+/g, '-');
+    const label = normalized === 'fixed' ? 'pass' : normalized;
+    return `<span class="badge ${normalized}">${label}</span>`;
+  }
+  function renderGates(data, profile) {
+    const metrics = { ...(data && data.metrics), ...(profile || {}) };
+    const p95 = metrics.p95FrameMs ?? metrics.p95 ?? null;
+    const fps = metrics.avgFps ?? null;
+    const minFps = metrics.minFps ?? null;
+    const update = metrics.updateMs ?? null;
+    const render = metrics.renderMs ?? null;
+    const gates = [
+      ['p95 frame ≤ 16.67 ms', p95 !== null && p95 <= 16.67, p95 === null ? '—' : `${num(p95)} ms`],
+      ['Average FPS ≥ 60', fps !== null && fps >= 60, fmt(fps, ' FPS')],
+      ['Minimum FPS ≥ 60', minFps !== null && minFps >= 60, fmt(minFps, ' FPS')],
+      ['Game logic ≤ 12 ms', update !== null && update <= 12, update === null ? '—' : `${num(update)} ms`],
+      ['WebGL render ≤ 4.67 ms', render !== null && render <= 4.67, render === null ? '—' : `${num(render)} ms`]
+    ];
+    $('gates').innerHTML = gates.map(([label, pass, value]) => `<div class="gate"><span>${label}<br><small class="sub">${value}</small></span>${value === '—' ? '<span class="badge unknown">unknown</span>' : `<span class="badge ${pass ? 'pass' : 'fail'}">${pass ? 'pass' : 'fail'}</span>`}</div>`).join('');
+    $('p95').textContent = p95 === null ? '—' : `${num(p95)} ms`;
+    $('fps').textContent = fps === null ? '—' : num(fps, 1);
+  }
+  function render() {
+    Promise.all([getJson('gauntlet-progress.json'), getJson('profile-results.json')]).then(([data, profile]) => {
+      if (!data && !profile) { $('liveText').textContent = 'Waiting for progress data'; $('liveDot').classList.remove('ok'); return; }
+      $('liveText').textContent = 'Live — polling every 2s'; $('liveDot').classList.add('ok');
+      if (data) {
+        $('status').textContent = data.status || 'Unknown';
+        $('cycle').textContent = data.currentCycle ?? 0;
+        const gaps = data.gaps || [];
+        const open = gaps.filter(g => !['fixed','pass','closed'].includes(String(g.status).toLowerCase())).length;
+        $('openGaps').textContent = open;
+        $('gaps').innerHTML = gaps.length ? gaps.map(g => `<div class="gap"><span>${g.label || g.name || 'Unnamed gap'}<br><small class="sub">${g.category || ''}</small></span>${badge(g.status)}</div>`).join('') : '<div class="empty">No gaps recorded.</div>';
+        const cycles = data.cycles || [];
+        $('cycles').innerHTML = cycles.length ? cycles.slice().reverse().map(c => `<article class="cycle"><div class="cycle-head"><span class="cycle-title">Cycle ${c.number ?? ''} — ${c.topic || c.focus || 'Untitled'}</span>${badge(c.status || c.result || 'unknown')}</div><div class="cycle-meta">Builders: ${c.builders || '—'} · Critic: ${c.critic || '—'}</div><p>${c.evidence || c.result || c.notes || 'No evidence recorded.'}</p></article>`).join('') : '<div class="empty">No cycles recorded yet. Builders should append entries to <code>gauntlet-progress.json</code>.</div>';
+        $('updated').textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : 'Not updated yet';
+      }
+      renderGates(data || {}, profile || {});
+    });
+  }
+  render();
+  setInterval(render, 2000);
+</script>
+</body>
+</html>

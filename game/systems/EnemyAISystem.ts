@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit, Age, Season, SerializedAIState } from '../../types';
+import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit, Age, Season, SerializedAIState, BlueprintItem } from '../../types';
 import { BUILDINGS, AGE_CONFIGS, EVENTS, getNextAge, SEASON_CONFIG, TECH_DEFS, VILLAGER_BUILDING_UPKEEP, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES, AI_TAUNTS, TAUNT_COOLDOWN_MS, AI_PERSONALITY_NAMES } from '../../constants';
 
 // Units that count as "military" for AI coordination. Villagers/Animals are not.
@@ -52,11 +52,6 @@ const PERSONALITY_NAMES: Record<AIPersonality, string> = {
  * - Squad-based orders: groups units by proximity for batch commands
  */
 
-interface BlueprintItem {
-    type: BuildingType;
-    x: number;
-    y: number;
-}
 
 const BLUEPRINT_SPRAWL: BlueprintItem[] = [
     { type: BuildingType.TOWN_CENTER, x: 0, y: 0 },
@@ -894,17 +889,79 @@ export class EnemyAISystem {
             baseX: this.baseX,
             baseY: this.baseY,
             buildIndex: this.buildIndex,
+            selectedBlueprint: this.selectedBlueprint.map(item => ({ ...item })),
+            nextAttackTime: this.nextAttackTime,
+            lastEconomyTick: this.lastEconomyTick,
+            lastBuildTick: this.lastBuildTick,
+            lastRecruitTick: this.lastRecruitTick,
+            lastDefenseTick: this.lastDefenseTick,
+            lastThreatCheck: this.lastThreatCheck,
+            lastAttackTick: this.lastAttackTick,
+            lastTauntTime: this.lastTauntTime,
+            hasSpawnedStartingForest: this.hasSpawnedStartingForest,
+            personalityBonusBuildings: this.personalityBonusBuildings,
+            aiCurrentAge: this.aiCurrentAge,
+            aiAgeProgress: this.aiAgeProgress,
+            aiIsAdvancing: this.aiIsAdvancing,
         };
     }
 
     public restoreState(state: SerializedAIState): void {
         this.personality = state.personality as AIPersonality;
-        this.aiCurrentAge = state.currentAge;
-        this.aiAgeProgress = state.ageProgress;
+        this.aiCurrentAge = state.aiCurrentAge ?? state.currentAge;
+        this.aiAgeProgress = state.aiAgeProgress ?? state.ageProgress;
         this.resources = { ...state.resources };
         this.baseX = state.baseX;
         this.baseY = state.baseY;
         this.buildIndex = state.buildIndex;
+        this.selectedBlueprint = state.selectedBlueprint?.map(item => ({ ...item })) ?? this.selectedBlueprint;
+        this.nextAttackTime = state.nextAttackTime ?? 0;
+        this.lastEconomyTick = state.lastEconomyTick ?? 0;
+        this.lastBuildTick = state.lastBuildTick ?? 0;
+        this.lastRecruitTick = state.lastRecruitTick ?? 0;
+        this.lastDefenseTick = state.lastDefenseTick ?? 0;
+        this.lastThreatCheck = state.lastThreatCheck ?? 0;
+        this.lastAttackTick = state.lastAttackTick ?? 0;
+        this.lastTauntTime = state.lastTauntTime ?? 0;
+        this.hasSpawnedStartingForest = state.hasSpawnedStartingForest ?? false;
+        this.personalityBonusBuildings = state.personalityBonusBuildings ?? 0;
+        this.aiIsAdvancing = state.aiIsAdvancing ?? false;
         this.applyPersonality();
+
+        // Reconnect serialized build slots to the newly respawned Phaser objects.
+        this.buildings = new Array(this.selectedBlueprint.length).fill(null);
+        const candidates = this.scene.buildings.getChildren().filter(
+            building => building.getData('owner') === 1 && building.getData('hp') > 0
+        );
+        const used = new Set<Phaser.GameObjects.GameObject>();
+        for (let index = 0; index < this.selectedBlueprint.length; index++) {
+            const item = this.selectedBlueprint[index];
+            const expectedX = this.baseX + item.x;
+            const expectedY = this.baseY + item.y;
+            let best: Phaser.GameObjects.GameObject | null = null;
+            let bestDistance = Infinity;
+            for (const building of candidates) {
+                if (used.has(building)) continue;
+                const bImage = building as Phaser.GameObjects.Image;
+                const type = (bImage.getData('def') as BuildingDef | undefined)?.type;
+                if (type !== item.type) continue;
+                const distance = Phaser.Math.Distance.Between(expectedX, expectedY, bImage.x, bImage.y);
+                if (distance < bestDistance && distance <= 120) {
+                    best = bImage;
+                    bestDistance = distance;
+                }
+            }
+            if (best) {
+                this.buildings[index] = best;
+                used.add(best);
+            }
+        }
+
+        // Continue from the first missing blueprint slot after all restored slots.
+        let highestBuilt = -1;
+        for (let index = 0; index < this.buildings.length; index++) {
+            if (this.buildings[index]) highestBuilt = index;
+        }
+        this.buildIndex = Math.max(0, Math.min(this.selectedBlueprint.length - 1, Math.max(this.buildIndex, highestBuilt + 1)));
     }
 }
