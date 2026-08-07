@@ -1,3 +1,7 @@
+    /**
+     * Create Pathfinder with actual map dimensions (dynamic size supported).
+     * Pass mapWidth/mapHeight from MainScene to enable correct coordinate handling on LARGE maps.
+     */
 import Phaser from 'phaser';
 import { MAP_WIDTH, MAP_HEIGHT, BIOME_PATH_COSTS, SEASON_CONFIG, TERRAIN_CONFIG } from '../../constants';
 import { Season } from '../../types';
@@ -81,6 +85,8 @@ export class Pathfinder {
     // Permanent terrain water mask — never cleared by markGrid(false)
     private waterBlocked: Uint8Array;
     private gridCols: number;
+    private mapWidth: number;
+    private mapHeight: number;
     private gridRows: number;
 
     // Cost map (for terrain weighting, initially all 1 = walkable)
@@ -121,9 +127,11 @@ export class Pathfinder {
     public pathsComputed: number = 0;
     public flowFieldsGenerated: number = 0;
 
-    constructor() {
-        this.gridCols = Math.ceil(MAP_WIDTH / CELL);
-        this.gridRows = Math.ceil(MAP_HEIGHT / CELL);
+    constructor(mapWidth: number = MAP_WIDTH, mapHeight: number = MAP_HEIGHT) {
+        this.mapWidth = mapWidth;
+        this.mapHeight = mapHeight;
+        this.gridCols = Math.ceil(mapWidth / CELL);
+        this.gridRows = Math.ceil(mapHeight / CELL);
         const total = this.gridCols * this.gridRows;
         
         this.blocked = new Uint8Array(total);
@@ -137,7 +145,6 @@ export class Pathfinder {
         this.nodeOpen = new Uint8Array(total);
         this.nodeVersion = new Uint16Array(total);
     }
-
     // ─── Terrain Cost Layer ─────────────────────────────────────────────────
     /** Recompute per-cell path costs from biome + seasonal multiplier. */
     public updateTerrainCosts(
@@ -228,11 +235,10 @@ export class Pathfinder {
      */
     public findPath(start: Phaser.Math.Vector2, end: Phaser.Math.Vector2): Phaser.Math.Vector2[] {
         const _pfT0 = performance.now();
-        // Clamp and snap
-        const sx = this.gridX(Phaser.Math.Clamp(start.x, 0, MAP_WIDTH));
-        const sy = this.gridY(Phaser.Math.Clamp(start.y, 0, MAP_HEIGHT));
-        const ex = this.gridX(Phaser.Math.Clamp(end.x, 0, MAP_WIDTH));
-        const ey = this.gridY(Phaser.Math.Clamp(end.y, 0, MAP_HEIGHT));
+        const sx = this.gridX(Phaser.Math.Clamp(start.x, 0, this.mapWidth));
+        const sy = this.gridY(Phaser.Math.Clamp(start.y, 0, this.mapHeight));
+        const ex = this.gridX(Phaser.Math.Clamp(end.x, 0, this.mapWidth));
+        const ey = this.gridY(Phaser.Math.Clamp(end.y, 0, this.mapHeight));
 
         // Same cell
         if (sx === ex && sy === ey) {

@@ -345,7 +345,7 @@ export class MainScene extends Phaser.Scene {
       gRect.fillRect(0, 0, 4, 6);
       gRect.generateTexture('lod_rect', 4, 6);
     }
-    this.pathfinder = new Pathfinder();
+    this.pathfinder = new Pathfinder(this.mapWidth, this.mapHeight);
     this.treeSpatialHash = new SpatialHash(250); // 250px cells (approx 1-2 trees width)
     this.unitSpatialHash = new SpatialHash(150); // 150px cells for unit queries
     this.entityFactory = new EntityFactory(this);
@@ -1089,6 +1089,9 @@ export class MainScene extends Phaser.Scene {
       this.waterWaveSprite.tilePositionX += delta * 0.03;
       this.waterWaveSprite.tilePositionY += delta * 0.015;
     }
+    t0 = this.profileStart('inputManager');
+    this.inputManager.update(delta);
+    this.profileEnd('inputManager', t0);
     const cam = this.cameras.main;
     const topLeft = cam.getWorldPoint(0, 0);
     if (this.debugMode) {
