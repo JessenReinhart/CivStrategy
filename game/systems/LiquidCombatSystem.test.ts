@@ -61,7 +61,7 @@ function makeScene(init: MockSceneInit): MainScene {
 }
 
 // Constant copied from the system under test for deterministic expectations.
-const CONTACT_RANGE = 60;
+const CONTACT_RANGE = 100;
 
 describe('LiquidCombatSystem', () => {
     describe('pressure grid', () => {
@@ -232,16 +232,16 @@ describe('LiquidCombatSystem', () => {
         });
 
         it(`respects CONTACT_RANGE boundary (${CONTACT_RANGE}px)`, () => {
-            // 59px apart => contact; 61px apart => none
+            // 99px apart => contact; 101px apart => none
             const near = makeUnit({ unitType: UnitType.PIKESMAN, x: 1, y: 1, owner: 0, spatialKey: '0,0' });
-            const nearEnemy = makeUnit({ unitType: UnitType.PIKESMAN, x: 60, y: 1, owner: 1, spatialKey: '0,0' });
+            const nearEnemy = makeUnit({ unitType: UnitType.PIKESMAN, x: 100, y: 1, owner: 1, spatialKey: '0,0' });
             const nearSystem = new LiquidCombatSystem(makeScene({ units: [near, nearEnemy] }));
             nearSystem.precompute();
             // One contact line per owner side (player sees enemy, enemy sees player)
             expect(nearSystem.contactLineCount).toBe(2);
 
             const justFar = makeUnit({ unitType: UnitType.PIKESMAN, x: 1, y: 1, owner: 0, spatialKey: '0,0' });
-            const farEnemy = makeUnit({ unitType: UnitType.PIKESMAN, x: 62, y: 1, owner: 1, spatialKey: '0,0' });
+            const farEnemy = makeUnit({ unitType: UnitType.PIKESMAN, x: 102, y: 1, owner: 1, spatialKey: '0,0' });
             const farSystem = new LiquidCombatSystem(makeScene({ units: [justFar, farEnemy] }));
             farSystem.precompute();
             expect(farSystem.contactLineCount).toBe(0);

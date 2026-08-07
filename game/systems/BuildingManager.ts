@@ -260,22 +260,20 @@ export class BuildingManager {
             if (Math.sqrt(dx * dx + dy * dy) < 500) {
                 cam.shake(80, 0.003);
             }
-
             // Juice: Dust particles poof
             this.emitDustParticles(iso.x, iso.y, def.width);
             this.scene.proceduralSound.playConstruction(cx, cy);
 
-
-
             this.scene.resources.wood -= def.cost.wood;
             this.scene.resources.food -= def.cost.food;
             this.scene.resources.gold -= def.cost.gold;
+            // Actually spawn the building sprite into the world
+            this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
                 this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
                 this.scene.feedbackSystem.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
-
 
             this.markTerritoryDirty();
             this.scene.feedbackSystem.notifyBuildingComplete(def.name);

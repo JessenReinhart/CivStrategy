@@ -963,7 +963,7 @@ export class UnitSystem {
                   const t = unit.target as Phaser.GameObjects.Image;
                   if (!t || !t.scene || unit.state !== UnitState.CHASING) return;
                   const chased = unit.getData('_chaseTargetPos') as { x: number; y: number } | undefined;
-                  if (!chased || Math.hypot(t.x - chased.x, t.y - chased.y) > 80) return;
+                  if (!chased || Math.hypot(t.x - chased.x, t.y - chased.y) > range + 12) return;
                   if (path && path.length > 1) {
                     unit.path = path;
                     unit.pathStep = findResumePathStep(path, unit.x, unit.y);

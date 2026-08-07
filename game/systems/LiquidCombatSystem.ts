@@ -42,7 +42,7 @@ const PRESSURE_FORCE_MAX = 60;
 const PRESSURE_CURVE = 2.0;
 
 /** Contact line: max distance (px) at which opposing forces still apply. */
-const CONTACT_RANGE = 60;
+const CONTACT_RANGE = 100;
 /** Contact line: backward push strength (push away from enemy). */
 const CONTACT_BACKWARD_FORCE = 80;
 /** Contact line: lateral tangent push strength (flow along the front). */
