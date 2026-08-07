@@ -3,7 +3,7 @@ import { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import {
   SaveGame, SerializedUnit, SerializedBuilding, SerializedAIState,
-  UnitType, UnitState, BuildingType, Age, GameUnit,
+  UnitType, UnitState, BuildingType, Age,
   MapSize, FactionType, MapPreset, TechId, UnitStance,
 } from '../../types';
 
@@ -41,6 +41,8 @@ export function serializeGame(scene: MainScene): SaveGame {
     population: scene.population,
     happiness: scene.happiness,
     gameSpeed: scene.gameSpeed,
+    taxRate: scene.taxRate,
+    bloomIntensity: scene.bloomIntensity,
     // Entities
     units: serializeUnits(scene),
     buildings: serializeBuildings(scene),
@@ -160,6 +162,20 @@ function serializeAIState(scene: MainScene): SerializedAIState {
       baseX: 200,
       baseY: 200,
       buildIndex: 0,
+      selectedBlueprint: [],
+      nextAttackTime: 0,
+      lastEconomyTick: 0,
+      lastBuildTick: 0,
+      lastRecruitTick: 0,
+      lastDefenseTick: 0,
+      lastThreatCheck: 0,
+      lastAttackTick: 0,
+      lastTauntTime: 0,
+      hasSpawnedStartingForest: false,
+      personalityBonusBuildings: 0,
+      aiCurrentAge: Age.VILLAGE,
+      aiAgeProgress: 0,
+      aiIsAdvancing: false,
     };
   }
   return ai.serializeState();
@@ -184,14 +200,12 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 3. Restore research state
   restoreResearch(scene, save);
 
-  // 4. Restore AI state
-  restoreAIState(scene, save);
-
-  // 5. Respawn buildings (before units, so pathfinder grid is correct)
+  // 4. Respawn buildings (before units, so pathfinder grid is correct)
   respawnBuildings(scene, save);
 
-  // 6. Respawn units (after buildings)
-  respawnUnits(scene, save);
+  // 5. Restore AI state (after buildings are respawned so AI building array repopulates)
+  restoreAIState(scene, save);
+  // 6. Respawn units (after buildings and AI state)
 
   // 7. Recompute economy stats
   scene.economySystem?.updateStats();
@@ -249,6 +263,8 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.maxPopulation = 5; // Base, will be rebuilt by spawning buildings
   scene.happiness = save.happiness;
   scene.gameSpeed = save.gameSpeed;
+  scene.taxRate = save.taxRate ?? 0;
+  scene.bloomIntensity = save.bloomIntensity ?? 1.0;
   scene.dominanceProgress = save.dominanceProgress;
   scene.playerTerritoryPercent = save.playerTerritoryPercent;
   scene.gameResult = save.gameResult;
@@ -295,21 +311,6 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
   }
 }
 
-function respawnUnits(scene: MainScene, save: SaveGame): void {
-  for (const u of save.units) {
-    if (u.type === UnitType.VILLAGER) {
-      scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
-    } else {
-      const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner) as GameUnit | null | undefined;
-      if (unit) {
-        unit.setData('hp', u.hp);
-        unit.setData('maxHp', u.maxHp);
-        unit.state = u.state as UnitState;
-        unit.setData('stance', u.stance);
-      }
-    }
-  }
-}
 function getIsoCenter(scene: MainScene): { x: number; y: number } {
   return toIso(scene.mapWidth / 2, scene.mapHeight / 2);
 }

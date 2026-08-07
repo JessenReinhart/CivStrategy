@@ -65,6 +65,10 @@ interface SoldierState {
 export class SquadSystem {
     private scene: MainScene;
     private frameIndex: number = 0;
+    // Stress mode: soldier sprites are hidden exactly once at startup (they never
+    // re-render — stress forces LOD_DOT). Avoids re-issuing setVisible(false) on
+    // ~10 children × 5000 units every frame.
+    private stressSpritesHidden: boolean = false;
     // Public: MainScene.setupStressTest pre-allocates persistent bobs here
     public lodDotBlitter!: Phaser.GameObjects.Blitter;
     private lodRectBlitter!: Phaser.GameObjects.Blitter;
@@ -261,7 +265,22 @@ export class SquadSystem {
         const lodFull = LOD_THRESHOLDS[LOD_FULL] * lodScale;
         const lodMed = LOD_THRESHOLDS[LOD_MEDIUM] * lodScale;
         const lodLow = LOD_THRESHOLDS[LOD_LOW] * lodScale;
-        for (let i = start; i < end; i++) {
+        // Stress mode forces every squad to LOD_DOT, rendering only every Nth unit.
+        // Step the loop by STRESS_RENDER_INTERVAL instead of visiting all 5,000
+        // units and skipping 4,750 of them — identical output, ~20x less work.
+        const loopStep = stressMode ? STRESS_RENDER_INTERVAL : 1;
+        // Stress mode: hide all soldier sprites once, unhide on exit
+        if (stressMode && !this.stressSpritesHidden) {
+            for (let i = 0; i < allUnits.length; i++) {
+                this.hideSoldierSprites(allUnits[i] as GameUnit);
+            }
+            this.stressSpritesHidden = true;
+        } else if (!stressMode && this.stressSpritesHidden) {
+            // Exiting stress mode: restore soldier sprites for normal LOD rendering
+            this.showAllSoldierSprites();
+            this.stressSpritesHidden = false;
+        }
+        for (let i = start; i < end; i += loopStep) {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) continue;
@@ -293,13 +312,6 @@ export class SquadSystem {
 
             // LOD_DOT: one bob per squad on dot Blitter (1 draw call for ALL distant squads)
             if (lod === LOD_DOT) {
-                // Stress render density cap: only emit a bob for every Nth unit.
-                // All 5,000 units stay active and moving (orbital path continues),
-                // but the GPU only processes ~1,000 bob quads instead of 5,000.
-                if (stressMode && i % STRESS_RENDER_INTERVAL !== 0) {
-                    this.hideSoldierSprites(unit);
-                    continue;
-                }
                 const owner = unit.getData('owner') as number;
                 const color = this.scene.getFactionColor(owner);
                 const bob = (stressMode ? unit.getData('stressBob') : undefined) as Phaser.GameObjects.Bob | undefined
@@ -318,7 +330,6 @@ export class SquadSystem {
                         else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
                     }
                 }
-                this.hideSoldierSprites(unit);
                 continue;
             }
 
@@ -411,6 +422,33 @@ export class SquadSystem {
         if (sprites) {
             for (let i = 0; i < sprites.length; i++) {
                 sprites[i].setVisible(false);
+            }
+        }
+    }
+
+    /**
+     * One-shot hide of every unit's soldier sprites when entering stress mode.
+     * Replaces per-frame per-unit setVisible(false) for ~50,000 sprite children.
+     */
+    private hideAllSoldierSprites(): void {
+        const allUnits = this.scene.units.getChildren();
+        for (let i = 0; i < allUnits.length; i++) {
+            this.hideSoldierSprites(allUnits[i]);
+        }
+    }
+
+    /**
+     * One-shot show of every unit's soldier sprites when exiting stress mode.
+     * Restores visibility for normal LOD rendering.
+     */
+    private showAllSoldierSprites(): void {
+        const allUnits = this.scene.units.getChildren();
+        for (let i = 0; i < allUnits.length; i++) {
+            const sprites = allUnits[i].getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
+            if (sprites) {
+                for (let j = 0; j < sprites.length; j++) {
+                    sprites[j].setVisible(true);
+                }
             }
         }
     }

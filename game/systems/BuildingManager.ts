@@ -252,13 +252,16 @@ export class BuildingManager {
         const validity = this.getBuildValidity(cx, cy, this.previewBuildingType);
 
         if (validity.valid) {
-            this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy);
-
-            // Juice: Screen shake (subtle)
-            this.scene.cameras.main.shake(80, 0.003);
+            // Juice: Screen shake (subtle) - only if near camera center
+            const cam = this.scene.cameras.main;
+            const iso = toIso(cx, cy);
+            const dx = iso.x - cam.scrollX - cam.width / 2;
+            const dy = iso.y - cam.scrollY - cam.height / 2;
+            if (Math.sqrt(dx * dx + dy * dy) < 500) {
+                cam.shake(80, 0.003);
+            }
 
             // Juice: Dust particles poof
-            const iso = toIso(cx, cy);
             this.emitDustParticles(iso.x, iso.y, def.width);
             this.scene.proceduralSound.playConstruction(cx, cy);
 
@@ -430,7 +433,6 @@ export class BuildingManager {
 
     public emitExplosionParticles(isoX: number, isoY: number, _buildingWidth: number) {
         // Larger, more dramatic explosion for demolition/destruction
-        const count = 30;
         const emitter = this.scene.add.particles(isoX, isoY, 'smoke', {
             speed: { min: 100, max: 200 },
             angle: { min: 0, max: 360 },
@@ -456,11 +458,13 @@ export class BuildingManager {
         });
         fireEmitter.setDepth(Number.MAX_VALUE - 5);
 
-        emitter.explode(count);
-        fireEmitter.explode(20);
-
-        // Shake camera for impact
-        this.scene.cameras.main.shake(150, 0.005);
+        // Shake camera for impact - only if near camera center
+        const cam = this.scene.cameras.main;
+        const dx = isoX - cam.scrollX - cam.width / 2;
+        const dy = isoY - cam.scrollY - cam.height / 2;
+        if (Math.sqrt(dx * dx + dy * dy) < 500) {
+            cam.shake(150, 0.005);
+        }
 
         this.scene.time.delayedCall(1500, () => {
             emitter.destroy();
