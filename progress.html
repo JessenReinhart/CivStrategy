@@ -1,246 +1,131 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CivStrategy Performance Dashboard</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CivStrategy Gauntlet Progress</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono&display=swap');
-    :root {
-      --obsidian:#0F0C0A;--parchment:#E6DCC4;--gold-leaf:#D4AF37;--hud-line:rgba(230,220,196,.16);--hud-ink:rgba(12,11,10,.88);--hud-muted:rgba(245,241,232,.62);--terracotta:#8B5A2B;
-    }
-    body { margin:0; font-family:'Inter',sans-serif; background:var(--obsidian); color:var(--parchment); }
-    .font-cinzel { font-family:'Cinzel',serif; }
-    .font-mono { font-family:'JetBrains Mono',monospace; }
-    .hud-panel { background:linear-gradient(180deg,rgba(25,22,18,.92),rgba(10,9,8,.88)); border:1px solid var(--hud-line); box-shadow:0 18px 48px rgba(0,0,0,.28),inset 0 1px rgba(255,255,255,.04); backdrop-filter:blur(16px) saturate(115%); }
-    .metric-badge { background:rgba(212,175,55,.15); border:1px solid rgba(212,175,55,.3); color:var(--gold-leaf); padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; }
-    .fail { background:rgba(239,68,68,.15); border-color:rgba(239,68,68,.3); color:#ef4444; }
-    .pass { background:rgba(76,175,80,.15); border-color:rgba(76,175,80,.3); color:#4CAF50; }
-    .warn { background:rgba(255,193,7,.15); border-color:rgba(255,193,7,.3); color:#FFC107; }
-    .scrollbar-thin::-webkit-scrollbar { width:6px; height:6px; }
-    .scrollbar-thin::-webkit-scrollbar-track { background:rgba(0,0,0,.2); }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background:rgba(212,175,55,.4); border-radius:3px; }
-    .blink { animation: blink 1.5s ease-in-out infinite; }
-    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+    :root { color-scheme: dark; --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e; --gold:#d4af37; --green:#3fb950; --red:#f85149; --yellow:#d29922; --blue:#58a6ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at top,#1d2633 0,#0d1117 42rem); color:var(--text); font:14px/1.45 Inter,system-ui,sans-serif; }
+    main { max-width:1280px; margin:0 auto; padding:24px; }
+    header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:20px; }
+    h1,h2,h3 { margin:0; font-family:Georgia,serif; font-weight:600; }
+    h1 { color:var(--gold); font-size:clamp(1.8rem,4vw,2.7rem); letter-spacing:.02em; }
+    h2 { font-size:1.15rem; margin-bottom:14px; }
+    .sub { color:var(--muted); margin-top:5px; }
+    .live { display:inline-flex; align-items:center; gap:7px; color:var(--muted); }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--red); }
+    .dot.ok { background:var(--green); box-shadow:0 0 12px var(--green); }
+    .panel { background:rgba(22,27,34,.9); border:1px solid var(--line); border-radius:10px; padding:18px; box-shadow:0 12px 30px rgba(0,0,0,.2); }
+    .grid { display:grid; gap:14px; }
+    .summary { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); margin-bottom:14px; }
+    .metric .label { color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; }
+    .metric .value { color:var(--gold); font:600 1.65rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; margin-top:7px; }
+    .layout { grid-template-columns:minmax(0,1.35fr) minmax(280px,.65fr); align-items:start; }
+    @media (max-width:800px) { main{padding:14px}.layout{grid-template-columns:1fr} }
+    .bar { height:10px; background:#21262d; border-radius:9px; overflow:hidden; margin:10px 0 5px; }
+    .bar > span { display:block; height:100%; width:0; background:var(--blue); transition:width .3s ease; }
+    .bar > span.good { background:var(--green); }
+    .bar > span.bad { background:var(--red); }
+    .gate,.gap { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid rgba(48,54,61,.7); }
+    .gate:last-child,.gap:last-child { border-bottom:0; }
+    .badge { border:1px solid var(--line); border-radius:999px; padding:2px 8px; font-size:.72rem; font-weight:700; text-transform:uppercase; }
+    .pass,.fixed { color:var(--green); border-color:rgba(63,185,80,.45); background:rgba(63,185,80,.1); }
+    .fail,.open { color:var(--red); border-color:rgba(248,81,73,.45); background:rgba(248,81,73,.1); }
+    .warn,.in-progress { color:var(--yellow); border-color:rgba(210,153,34,.45); background:rgba(210,153,34,.1); }
+    .unknown { color:var(--muted); }
+    .cycle { padding:14px 0; border-bottom:1px solid var(--line); }
+    .cycle:last-child { border-bottom:0; }
+    .cycle-head { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .cycle-title { color:var(--gold); font-weight:700; }
+    .cycle-meta { color:var(--muted); font-size:.82rem; }
+    .cycle p { margin:8px 0 0; color:#c9d1d9; }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#c9d1d9; }
+    .empty { color:var(--muted); padding:12px 0; }
+    footer { color:var(--muted); text-align:center; padding:20px 0 4px; font-size:.8rem; }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
-  <header class="hud-panel p-4 border-b border-[var(--hud-line)]">
-    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <span class="font-cinzel text-2xl font-bold tracking-tight text-[var(--gold-leaf)]">CIVSTRATEGY</span>
-        <span class="hud-rule w-px h-6"></span>
-        <span class="text-xs uppercase tracking-widest font-semibold text-[var(--hud-muted)]">PERFORMANCE DASHBOARD</span>
+<body>
+  <main>
+    <header>
+      <div><h1>CivStrategy Gauntlet</h1><div class="sub">Live quality, gameplay, and performance tracker</div></div>
+      <div class="live"><span id="liveDot" class="dot"></span><span id="liveText">Waiting for gauntlet-progress.json</span></div>
+    </header>
+
+    <section class="grid summary">
+      <div class="panel metric"><div class="label">Status</div><div id="status" class="value">Not started</div></div>
+      <div class="panel metric"><div class="label">Current cycle</div><div id="cycle" class="value">0</div></div>
+      <div class="panel metric"><div class="label">p95 frame</div><div id="p95" class="value">—</div></div>
+      <div class="panel metric"><div class="label">Average FPS</div><div id="fps" class="value">—</div></div>
+      <div class="panel metric"><div class="label">Open gaps</div><div id="openGaps" class="value">—</div></div>
+    </section>
+
+    <section class="grid layout">
+      <div class="panel">
+        <h2>Quality gates</h2>
+        <div id="gates"><div class="empty">No metrics recorded yet.</div></div>
+        <h2 style="margin-top:22px">Cycle history</h2>
+        <div id="cycles"><div class="empty">No cycles recorded yet. Builders should append entries to <code>gauntlet-progress.json</code>.</div></div>
       </div>
-      <div class="flex items-center gap-4 text-sm">
-        <span id="lastUpdated" class="font-mono text-[var(--hud-muted)]">No data loaded</span>
-        <span id="fetchStatus" class="metric-badge blink">Polling...</span>
-      </div>
-    </div>
-  </header>
-  <main class="flex-1 p-4 max-w-7xl mx-auto w-full">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-      <div class="hud-panel p-4 lg:col-span-2">
-        <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">⚡ Frame-Time Metrics</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div class="bg-black/40 rounded p-3 border border-[var(--hud-line)]">
-            <div class="text-xs uppercase tracking-wider text-[var(--hud-muted)] mb-1">p50 Frame</div>
-            <div id="p50Frame" class="font-mono text-xl font-semibold text-[var(--parchment)]">13.1 ms</div>
-          </div>
-          <div class="bg-black/40 rounded p-3 border border-[var(--hud-line)]">
-            <div class="text-xs uppercase tracking-wider text-[var(--hud-muted)] mb-1">p95 Frame</div>
-            <div id="p95Frame" class="font-mono text-xl font-semibold text-[var(--parchment)]">15.1 ms</div>
-          </div>
-          <div class="bg-black/40 rounded p-3 border border-[var(--hud-line)]">
-            <div class="text-xs uppercase tracking-wider text-[var(--hud-muted)] mb-1">Min Frame</div>
-            <div id="minFrame" class="font-mono text-xl font-semibold text-[var(--parchment)]">8.9 ms</div>
-          </div>
-          <div class="bg-black/40 rounded p-3 border border-[var(--hud-line)]">
-            <div class="text-xs uppercase tracking-wider text-[var(--hud-muted)] mb-1">Budget</div>
-            <div class="font-mono text-xl font-semibold text-[var(--gold-leaf)]">16.67 ms</div>
-          </div>
-        </div>
-      </div>
-      <div class="hud-panel p-4">
-        <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">🎯 Quality Gate</h2>
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="text-[var(--hud-muted)]">FPS ≥ 60</span>
-            <span id="gateFps" class="metric-badge pass">PASS</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[var(--hud-muted)]">p95 ≤ 16.67ms</span>
-            <span id="gateP95" class="metric-badge pass">PASS</span>
-          </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[var(--hud-muted)]">Min FPS ≥ 60</span>
-            <span id="gateMinFps" class="metric-badge pass">PASS</span>
-          </div>
-          <div class="hud-rule my-2"></div>
-          <div class="flex items-center justify-between">
-            <span class="font-cinzel text-sm text-[var(--gold-leaf)]">OVERALL</span>
-            <span id="gateOverall" class="metric-badge pass">PASS</span>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="hud-panel p-4 mb-4">
-      <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">📊 Latest Profile (Gauntlet #1)</h2>
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-        <div><span class="text-[var(--hud-muted)]">Units</span><br><span class="font-mono text-[var(--parchment)]">5,000</span></div>
-        <div><span class="text-[var(--hud-muted)]">Avg FPS</span><br><span class="font-mono text-[var(--gold-leaf)]">79.9</span></div>
-        <div><span class="text-[var(--hud-muted)]">Min FPS</span><br><span class="font-mono text-[var(--gold-leaf)]">66.2</span></div>
-        <div><span class="text-[var(--hud-muted)]">Max FPS</span><br><span class="font-mono text-[var(--gold-leaf)]">112.4</span></div>
-      </div>
-      <div class="grid grid-cols-3 gap-3 mt-3 text-sm">
-        <div><span class="text-[var(--hud-muted)]">Top CPU: animalSystem</span><br><span class="font-mono text-[var(--parchment)]">1.11 ms (8.7%)</span></div>
-        <div><span class="text-[var(--hud-muted)]">Total CPU (hogs)</span><br><span class="font-mono text-[var(--parchment)]">~1.8 ms</span></div>
-        <div><span class="text-[var(--hud-muted)]">Render (inferred)</span><br><span class="font-mono text-[var(--parchment)]">~13 ms</span></div>
-      </div>
-    </div>
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-      <div class="hud-panel p-4">
-        <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">📊 FPS Summary</h2>
-        <div class="space-y-2">
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Avg FPS</span><span id="avgFps" class="font-mono text-[var(--parchment)]">—</span></div>
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Min FPS</span><span id="minFps" class="font-mono text-[var(--terracotta)]">—</span></div>
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Max FPS</span><span id="maxFps" class="font-mono text-[var(--gold-leaf)]">—</span></div>
-          <div class="hud-rule my-2"></div>
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Entities</span><span id="entityCount" class="font-mono text-[var(--parchment)]">—</span></div>
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Samples</span><span id="sampleCount" class="font-mono text-[var(--parchment)]">—</span></div>
-          <div class="flex justify-between"><span class="text-[var(--hud-muted)]">Warmup</span><span id="warmupMs" class="font-mono text-[var(--parchment)]">—</span></div>
-        </div>
-      </div>
-      <div class="hud-panel p-4 lg:col-span-2">
-        <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">🔥 Top CPU Hogs (per frame)</h2>
-        <div id="hogsTable" class="font-mono text-sm overflow-x-auto">
-          <table class="w-full text-left">
-            <thead>
-              <tr class="border-b border-[var(--hud-line)] text-[var(--hud-muted)] text-xs uppercase tracking-wider">
-                <th class="pb-2">System</th><th class="pb-2 text-right">ms/frame</th><th class="pb-2 text-right">%</th>
-              </tr>
-            </thead>
-            <tbody id="hogsBody"></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-    <div class="hud-panel p-4">
-      <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">📜 Evaluation History (newest first)</h2>
-      <div id="history" class="scrollbar-thin max-h-96 overflow-y-auto font-mono text-xs">
-        <div class="text-center text-[var(--hud-muted)] py-8">Loading progress-metrics.jsonl...</div>
-      </div>
-    </div>
-    <div class="hud-panel p-4 mt-4">
-      <h2 class="font-cinzel text-lg font-semibold text-[var(--gold-leaf)] mb-3 flex items-center gap-2">🎨 Visual Parity Status</h2>
-      <div class="flex flex-wrap items-center gap-4 text-sm">
-        <span class="text-[var(--hud-muted)]">AoE IV Reference:</span>
-        <span id="visualStatus" class="metric-badge warn">PENDING — no rendered diff artifact captured</span>
-        <span class="hud-rule flex-1 h-px self-center"></span>
-        <span class="text-[var(--hud-muted)]">Action:</span>
-        <button id="captureBtn" class="px-3 py-1.5 rounded border border-[var(--hud-line)] bg-black/40 text-[var(--parchment)] hover:border-[var(--gold-leaf)] hover:text-[var(--gold-leaf)] transition text-xs" disabled>Capture not implemented</button>
-      </div>
-    </div>
+      <aside class="grid">
+        <div class="panel"><h2>Gap ledger</h2><div id="gaps"><div class="empty">No gap data.</div></div></div>
+        <div class="panel"><h2>Last update</h2><div id="updated" class="sub">—</div><div class="sub" style="margin-top:10px">Polls every 2 seconds. Serve this file from the Vite dev server to keep it live.</div></div>
+      </aside>
+    </section>
+    <footer>Source: <code>gauntlet-progress.json</code> and <code>profile-results.json</code></footer>
   </main>
-  <footer class="hud-panel p-3 border-t border-[var(--hud-line)]">
-    <div class="max-w-7xl mx-auto text-center text-xs text-[var(--hud-muted)]">
-      Auto-refreshes every 2s • Polls <code class="font-mono">profile-results.json</code> + <code class="font-mono">progress-metrics.jsonl</code>
-    </div>
-  </footer>
-  <script>
-    let lastHash = '';
-    function loadJson(url) {
-      return fetch(url + '?t=' + Date.now(), { cache: 'no-store' })
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null);
-    }
-    function loadJsonl(url) {
-      return fetch(url + '?t=' + Date.now(), { cache: 'no-store' })
-        .then(r => r.ok ? r.text() : '')
-        .catch(() => '');
-    }
-    function renderHogs(hogs) {
-      const body = document.getElementById('hogsBody');
-      if (!hogs || hogs.length === 0) {
-        body.innerHTML = '<tr><td colspan="3" class="py-4 text-center text-[var(--hud-muted)]">No hog data</td></tr>';
-        return;
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = (value, suffix = '') => value === null || value === undefined || value === '' ? '—' : `${value}${suffix}`;
+  const num = (value, digits = 2) => typeof value === 'number' ? value.toFixed(digits) : '—';
+  async function getJson(file) {
+    try { const response = await fetch(`${file}?t=${Date.now()}`, { cache: 'no-store' }); return response.ok ? await response.json() : null; }
+    catch { return null; }
+  }
+  function badge(status) {
+    const normalized = String(status || 'unknown').toLowerCase().replace(/\s+/g, '-');
+    const label = normalized === 'fixed' ? 'pass' : normalized;
+    return `<span class="badge ${normalized}">${label}</span>`;
+  }
+  function renderGates(data, profile) {
+    const metrics = { ...(data && data.metrics), ...(profile || {}) };
+    const p95 = metrics.p95FrameMs ?? metrics.p95 ?? null;
+    const fps = metrics.avgFps ?? null;
+    const minFps = metrics.minFps ?? null;
+    const update = metrics.updateMs ?? null;
+    const render = metrics.renderMs ?? null;
+    const gates = [
+      ['p95 frame ≤ 16.67 ms', p95 !== null && p95 <= 16.67, p95 === null ? '—' : `${num(p95)} ms`],
+      ['Average FPS ≥ 60', fps !== null && fps >= 60, fmt(fps, ' FPS')],
+      ['Minimum FPS ≥ 60', minFps !== null && minFps >= 60, fmt(minFps, ' FPS')],
+      ['Game logic ≤ 12 ms', update !== null && update <= 12, update === null ? '—' : `${num(update)} ms`],
+      ['WebGL render ≤ 4.67 ms', render !== null && render <= 4.67, render === null ? '—' : `${num(render)} ms`]
+    ];
+    $('gates').innerHTML = gates.map(([label, pass, value]) => `<div class="gate"><span>${label}<br><small class="sub">${value}</small></span>${value === '—' ? '<span class="badge unknown">unknown</span>' : `<span class="badge ${pass ? 'pass' : 'fail'}">${pass ? 'pass' : 'fail'}</span>`}</div>`).join('');
+    $('p95').textContent = p95 === null ? '—' : `${num(p95)} ms`;
+    $('fps').textContent = fps === null ? '—' : num(fps, 1);
+  }
+  function render() {
+    Promise.all([getJson('gauntlet-progress.json'), getJson('profile-results.json')]).then(([data, profile]) => {
+      if (!data && !profile) { $('liveText').textContent = 'Waiting for progress data'; $('liveDot').classList.remove('ok'); return; }
+      $('liveText').textContent = 'Live — polling every 2s'; $('liveDot').classList.add('ok');
+      if (data) {
+        $('status').textContent = data.status || 'Unknown';
+        $('cycle').textContent = data.currentCycle ?? 0;
+        const gaps = data.gaps || [];
+        const open = gaps.filter(g => !['fixed','pass','closed'].includes(String(g.status).toLowerCase())).length;
+        $('openGaps').textContent = open;
+        $('gaps').innerHTML = gaps.length ? gaps.map(g => `<div class="gap"><span>${g.label || g.name || 'Unnamed gap'}<br><small class="sub">${g.category || ''}</small></span>${badge(g.status)}</div>`).join('') : '<div class="empty">No gaps recorded.</div>';
+        const cycles = data.cycles || [];
+        $('cycles').innerHTML = cycles.length ? cycles.slice().reverse().map(c => `<article class="cycle"><div class="cycle-head"><span class="cycle-title">Cycle ${c.number ?? ''} — ${c.topic || c.focus || 'Untitled'}</span>${badge(c.status || c.result || 'unknown')}</div><div class="cycle-meta">Builders: ${c.builders || '—'} · Critic: ${c.critic || '—'}</div><p>${c.evidence || c.result || c.notes || 'No evidence recorded.'}</p></article>`).join('') : '<div class="empty">No cycles recorded yet. Builders should append entries to <code>gauntlet-progress.json</code>.</div>';
+        $('updated').textContent = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : 'Not updated yet';
       }
-      body.innerHTML = hogs.map((h, i) => `
-        <tr class="${i === 0 ? 'bg-[rgba(212,175,55,.08)]' : ''} border-b border-[var(--hud-line)]">
-          <td class="py-2 pr-4">${h.name}</td>
-          <td class="py-2 pr-4 text-right text-[var(--terracotta)]">${h.ms.toFixed(2)}</td>
-          <td class="py-2 text-right text-[var(--hud-muted)]">${h.pct.toFixed(1)}%</td>
-        </tr>
-      `).join('');
-    }
-    function renderGate(id, pass, label) {
-      const el = document.getElementById(id);
-      el.textContent = pass ? 'PASS' : 'FAIL';
-      el.className = 'metric-badge ' + (pass ? 'pass' : 'fail');
-    }
-    function render() {
-      loadJson('profile-results.json').then(perf => {
-        if (!perf) {
-          document.getElementById('fetchStatus').textContent = 'No profile-results.json';
-          document.getElementById('fetchStatus').className = 'metric-badge fail';
-          return;
-        }
-        document.getElementById('fetchStatus').textContent = 'Live';
-        document.getElementById('fetchStatus').className = 'metric-badge pass';
-        document.getElementById('lastUpdated').textContent = 'Last update: ' + new Date(perf.timestamp || Date.now()).toLocaleTimeString();
-
-        const p50 = perf.p50FrameMs ?? perf.medianFrameMs ?? 0;
-        const p95 = perf.p95FrameMs ?? 0;
-        const minF = perf.minFrameMs ?? 0;
-        const avgFps = perf.avgFps ?? 0;
-        const minFps = perf.minFps ?? 0;
-        const maxFps = perf.maxFps ?? 0;
-        const units = perf.units ?? 0;
-        const samples = perf.sampleCount ?? 0;
-        const warmup = perf.warmupMs ?? 0;
-        const hogs = perf.topHogs || perf.hogs || [];
-
-        document.getElementById('p50Frame').textContent = p50 ? p50.toFixed(2) + ' ms' : '—';
-        document.getElementById('p95Frame').textContent = p95 ? p95.toFixed(2) + ' ms' : '—';
-        document.getElementById('minFrame').textContent = minF ? minF.toFixed(2) + ' ms' : '—';
-        document.getElementById('avgFps').textContent = avgFps ? avgFps.toFixed(1) : '—';
-        document.getElementById('minFps').textContent = minFps ? minFps.toFixed(1) : '—';
-        document.getElementById('maxFps').textContent = maxFps ? maxFps.toFixed(1) : '—';
-        document.getElementById('entityCount').textContent = units ? units.toLocaleString() : '—';
-        document.getElementById('sampleCount').textContent = samples ? samples.toString() : '—';
-        document.getElementById('warmupMs').textContent = warmup ? (warmup/1000).toFixed(1) + 's' : '—';
-
-        renderHogs(hogs);
-
-        const gateP95 = p95 <= 16.67 && p95 > 0;
-        const gateFps = avgFps >= 60 && avgFps > 0;
-        const gateMinFps = minFps >= 60 && minFps > 0;
-        const gateOverall = gateP95 && gateFps && gateMinFps;
-
-        renderGate('gateP95', gateP95);
-        renderGate('gateFps', gateFps);
-        renderGate('gateMinFps', gateMinFps);
-        renderGate('gateOverall', gateOverall);
-      });
-      loadJsonl('progress-metrics.jsonl').then(text => {
-        const lines = text.trim().split('\n').filter(Boolean);
-        if (lines.length === 0) return;
-        const container = document.getElementById('history');
-        container.innerHTML = lines.slice(-50).reverse().map(line => {
-          try {
-            const e = JSON.parse(line);
-            const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : '';
-            const verdict = e.pass ? '✅ PASS' : '❌ FAIL';
-            const fps = e.avgFps ? e.avgFps.toFixed(1) + ' FPS' : '';
-            const units = e.units ? e.units + ' units' : '';
-            return `<div class="py-1 border-b border-[var(--hud-line)]"><span class="text-[var(--hud-muted)]">[${time}]</span> <span class="${e.pass ? 'text-[#4CAF50]' : 'text-[#ef4444]'} ml-2 font-medium">${verdict}</span> <span class="text-[var(--hud-muted)] ml-2">${fps} ${units}</span> ${e.note ? '<span class="text-[var(--hud-muted)] ml-2">— ' + e.note + '</span>' : ''}</div>`;
-          } catch { return '<div class="text-[var(--hud-muted)]">Invalid line</div>'; }
-        }).join('');
-      });
-    }
-    render();
-    setInterval(render, 2000);
-  </script>
+      renderGates(data || {}, profile || {});
+    });
+  }
+  render();
+  setInterval(render, 2000);
+</script>
 </body>
 </html>
