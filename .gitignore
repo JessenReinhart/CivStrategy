@@ -30,3 +30,16 @@ lint-results*.json
 tsc-errors.txt
 fallow-report.json
 .fallow-report.json
+
+# Profiling artifacts
+compare-stderr.log
+comparison-results.json
+progress-metrics*.jsonl
+progress-data.json
+profile-results.json
+active-*-results.json
+progress-baseline.json
+profile-stress-output.txt
+*.png
+!assets/**/*.png
+!public/**/*.png

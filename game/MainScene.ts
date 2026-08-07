@@ -162,20 +162,10 @@ export class MainScene extends Phaser.Scene {
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
   private waterMaskBounds: Phaser.Geom.Rectangle | null = null;
   private waterAnimFrame: number = 0;
-  // Animated water surface (CPU multi-sine waves, throttled 50ms, scene time)
-  private waterWavesSprite: Phaser.GameObjects.Sprite | null = null;
-  private waterWavesCtx: CanvasRenderingContext2D | null = null;
-  private waterLastDrawTime: number = 0;
   private lastFogUpdateTime: number = -Infinity;
-  private waterShoreChains: number[][] = [];
-  private waterGlintPoints: { x: number; y: number; phase: number; speed: number }[] = [];
 
-  // Precomputed spatial data for shore chain wave passes (normals + phase offsets)
+  // Precomputed spatial data for shore chains (normals + phase offsets)
   private waterShoreChainData: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[][] = [];
-  // Precomputed scale factor (max(1, canvasW / 800))
-  private waterS: number = 1;
-  // Precomputed wave pass data (styles baked once)
-  private waterWavePassesPre: { style: string; lw: number; offset: number; amp: number }[] = [];
 
   public uiGroup!: Phaser.GameObjects.Group;
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
@@ -561,10 +551,7 @@ export class MainScene extends Phaser.Scene {
         dCtx.fill();
       }
       // Reset arrays before one-time init (supports scene re-init)
-      this.waterShoreChains = [];
-      this.waterGlintPoints = [];
-      this.waterShoreChainData = [];
-      this.waterWavePassesPre = [];
+      const waterShoreChains: number[][] = [];
       // ── Extract shore edge chains + glint points (one-time init) ──
       {
         const segSet = new Set<string>();
@@ -613,10 +600,10 @@ export class MainScene extends Phaser.Scene {
               }
             }
           }
-          if (chain.length >= 6) this.waterShoreChains.push(chain);
+          if (chain.length >= 6) waterShoreChains.push(chain);
         }
         // Cache static spatial terms; time-dependent sine evaluation remains per frame.
-        this.waterShoreChainData = this.waterShoreChains.map(chain => {
+        this.waterShoreChainData = waterShoreChains.map(chain => {
           const points: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[] = [];
           for (let i = 0; i < chain.length; i += 2) {
             const px = chain[i], py = chain[i + 1];
@@ -626,34 +613,8 @@ export class MainScene extends Phaser.Scene {
           }
           return points;
         });
-        this.waterS = Math.max(1, wb.width / 800);
-        const s = this.waterS;
-        this.waterWavePassesPre = [
-          { offset: 0, amp: 8 * s, lw: 3 * s, style: 'rgba(255,255,255,0.55)' },
-          { offset: 0, amp: 5 * s, lw: 1.5 * s, style: 'rgba(255,255,255,0.8)' },
-          { offset: 15 * s, amp: 7 * s, lw: 2.5 * s, style: 'rgba(200,235,255,0.12)' },
-          { offset: 35 * s, amp: 10 * s, lw: 3 * s, style: 'rgba(220,245,255,0.15)' },
-          { offset: 55 * s, amp: 6 * s, lw: 2.5 * s, style: 'rgba(180,220,245,0.1)' },
-        ];
-        // Glint points on shore chains
-        for (const chain of this.waterShoreChains) {
-          for (let i = 0; i < chain.length / 2; i += 3) {
-            this.waterGlintPoints.push({
-              x: chain[i * 2], y: chain[i * 2 + 1],
-              phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 1.2,
-            });
-          }
-        }
-        // Interior glints scattered across water bbox
-        const nInterior = Math.min(150, Math.floor(wb.width * wb.height / 5000));
-        for (let i = 0; i < nInterior; i++) {
-          this.waterGlintPoints.push({
-            x: Math.random() * wb.width, y: Math.random() * wb.height,
-            phase: Math.random() * Math.PI * 2, speed: 0.5 + Math.random() * 1.5,
-          });
-        }
-        console.warn('[Water] shore segments:', segments.length, 'epMap keys:', epMap.size, 'chains:', this.waterShoreChains.length, 'glint pts:', this.waterGlintPoints.length);
-        if (segments.length > 0 && this.waterShoreChains.length === 0) {
+        console.warn('[Water] shore segments:', segments.length, 'epMap keys:', epMap.size, 'chains:', waterShoreChains.length);
+        if (segments.length > 0 && waterShoreChains.length === 0) {
           console.warn('[Water] ALL chains dropped — segments exist but none linked into chains >= 6 pts');
         }
       }
@@ -677,34 +638,36 @@ export class MainScene extends Phaser.Scene {
       // Sea foam texture: tileScale y*0.5 matches iso ground compress
       this.waterWaveSprite = this.add.tileSprite(wb.x, wb.y, wb.width, wb.height, 'waterFoam').setOrigin(0);
       this.waterWaveSprite.setDepth(-8999);
-      this.waterWaveSprite.setAlpha(0.08); // subtle surface grain only — canvas draws real waves
+      this.waterWaveSprite.setAlpha(0.12); // subtle surface grain
       this.waterWaveSprite.setTileScale(0.35, 0.175);
       this.worldLayer.add(this.waterWaveSprite);
 
-      // BitmapMask from soft depth alpha — foam follows smooth shoreline
-      // ── Animated wave canvas (CPU multi-sine, throttled 50ms) ──
-      {
-        const wCvs = document.createElement('canvas');
-        // Fast-path: For stress test, downscale water canvas to 1/16 resolution (≈16x cheaper, visually near-identical at full scale)
-        if (this.stressTestConfig) {
-          wCvs.width = Math.max(1, Math.ceil(wb.width / 16));
-          wCvs.height = Math.max(1, Math.ceil(wb.height / 16));
-        } else {
-          wCvs.width = Math.max(1, Math.ceil(wb.width));
-          wCvs.height = Math.max(1, Math.ceil(wb.height));
+      // Static shoreline highlight (drawn once from chains, 0ms/frame)
+      if (this.waterShoreChainData.length > 0) {
+        const shoreCvs = document.createElement('canvas');
+        shoreCvs.width = wb.width;
+        shoreCvs.height = wb.height;
+        const sctx = shoreCvs.getContext('2d')!;
+        sctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        sctx.lineWidth = 2;
+        sctx.lineCap = 'round';
+        sctx.lineJoin = 'round';
+        for (const points of this.waterShoreChainData) {
+          sctx.beginPath();
+          for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            if (i === 0) sctx.moveTo(p.px, p.py);
+            else sctx.lineTo(p.px, p.py);
+          }
+          sctx.stroke();
         }
-        this.waterWavesCtx = wCvs.getContext('2d')!;
-        if (this.textures.exists('_waterWaves')) this.textures.remove('_waterWaves');
-        this.textures.addCanvas('_waterWaves', wCvs);
-        this.waterWavesSprite = this.add.sprite(wb.x, wb.y, '_waterWaves').setOrigin(0);
-        this.waterWavesSprite.setDepth(-8998);
-        this.waterWavesSprite.setDisplaySize(wCvs.width, wCvs.height);
-        this.worldLayer.add(this.waterWavesSprite);
-        // Bitmap mask from depth alpha — waves follow smooth shoreline
-        const wMaskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
-        this.waterWavesSprite.setMask(wMaskSprite.createBitmapMask());
-        console.warn('[Water] animated wave canvas:', wCvs.width, 'x', wCvs.height);
+        if (this.textures.exists('_waterShore')) this.textures.remove('_waterShore');
+        this.textures.addCanvas('_waterShore', shoreCvs);
+        const shoreSprite = this.add.sprite(wb.x, wb.y, '_waterShore').setOrigin(0);
+        shoreSprite.setDepth(-8998);
+        this.worldLayer.add(shoreSprite);
       }
+
       const maskSprite = this.add.sprite(wb.x, wb.y, '_waterDepth').setOrigin(0).setVisible(false);
       this.waterWaveSprite.setMask(maskSprite.createBitmapMask());
 
@@ -876,7 +839,6 @@ export class MainScene extends Phaser.Scene {
       this.groundLayer.setVisible(false);
       this.waterDepthSprite?.setVisible(false);
       this.waterWaveSprite?.setVisible(false);
-      this.waterWavesSprite?.setVisible(false);
       this.setupStressTest();
       // Detach every static/hidden child from the render layer; retain only the batched DOT path.
       const stressDot = this.squadSystem.lodDotBlitter;
@@ -1127,13 +1089,8 @@ export class MainScene extends Phaser.Scene {
       this.waterWaveSprite.tilePositionX += delta * 0.03;
       this.waterWaveSprite.tilePositionY += delta * 0.015;
     }
-    // Animated wave canvas — throttled 50ms, scene time for wave phase
-    if (this.waterWavesCtx && this.waterAnimationEnabled && time - this.waterLastDrawTime >= 50) {
-      t0 = this.profileStart('drawWaterSurface');
-      this.drawWaterSurface(time);
-      this.profileEnd('drawWaterSurface', t0);
-      this.waterLastDrawTime = time;
-    }
+    const cam = this.cameras.main;
+    const topLeft = cam.getWorldPoint(0, 0);
     if (this.debugMode) {
       // const treatySecs = Math.max(0, Math.ceil((this.treatyLength - this.gameTime) / 1000));
       // Estimate GPU draw calls: visible containers + visible graphics + tilemap layers
@@ -1151,13 +1108,6 @@ export class MainScene extends Phaser.Scene {
       ]);
     }
 
-
-    t0 = this.profileStart('inputManager');
-    this.inputManager.update(delta);
-    this.profileEnd('inputManager', t0);
-
-    const cam = this.cameras.main;
-    const topLeft = cam.getWorldPoint(0, 0);
     const bottomRight = cam.getWorldPoint(cam.width, cam.height);
     const width = bottomRight.x - topLeft.x;
     const height = bottomRight.y - topLeft.y;
@@ -1497,108 +1447,6 @@ export class MainScene extends Phaser.Scene {
 
 
   // ─── Animated Water Surface (CPU multi-sine, throttled 50ms) ────────
-  private drawWaterSurface(time: number): void {
-    const ctx = this.waterWavesCtx;
-    const wb = this.waterMaskBounds;
-    if (!ctx || !wb) return;
-    const W = wb.width, H = wb.height;
-    ctx.clearRect(0, 0, W, H);
-    // Scale amplitudes/offsets/widths relative to canvas size — computed once at map init
-    const s = this.waterS;
-
-    // ── Interior calm shimmer bands (full water body, very low amplitude) ──
-    const bandCount = 2;
-    for (let b = 0; b < bandCount; b++) {
-      const dir = b === 0 ? 1 : -0.7;
-      const freq = b === 0 ? 0.012 : 0.018;
-      const amp = 4 * s;
-      const alpha = b === 0 ? 0.07 : 0.05;
-      const phaseOff = b * 1.7;
-      ctx.strokeStyle = b === 0
-        ? `rgba(180,220,240,${alpha})`
-        : `rgba(10,40,80,${alpha})`;
-      ctx.lineWidth = 2.5 * s;
-      const step = Math.max(8, 16 / s);
-      // Draw independent horizontal wave lines across the canvas
-      for (let py = b * 14 * s; py < H; py += 28 * s) {
-        ctx.beginPath();
-        for (let px = -20; px < W + 20; px += step) {
-          const vy = py + Math.sin(time * 0.0008 + px * freq * dir + phaseOff) * amp
-                     + Math.cos(time * 0.0006 + px * freq * 1.3 + phaseOff) * amp * 0.5;
-          if (px === -20) ctx.moveTo(px, vy);
-          else ctx.lineTo(px, vy);
-        }
-        ctx.stroke();
-      }
-    }
-
-    const chainData = this.waterShoreChainData;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (let passIndex = 0; passIndex < this.waterWavePassesPre.length; passIndex++) {
-      const pass = this.waterWavePassesPre[passIndex];
-      ctx.strokeStyle = pass.style;
-      ctx.lineWidth = pass.lw;
-      for (const points of chainData) {
-        if (points.length < 2) continue;
-        ctx.beginPath();
-        for (let i = 0; i < points.length; i++) {
-          const point = points[i];
-          // Multi-sine displacement along precomputed inward normal
-          const ph1 = time * 0.0015 + point.ph1;
-          const ph2 = time * 0.0025 + point.ph2;
-          const disp = pass.offset + Math.sin(ph1) * pass.amp + Math.sin(ph2) * pass.amp * 0.5;
-          const sx = point.px + point.nx * disp, sy = point.py + point.ny * disp;
-          if (i === 0) ctx.moveTo(sx, sy);
-          else ctx.lineTo(sx, sy);
-        }
-        ctx.stroke();
-      }
-    }
-
-    // ── Glint sparkles ──
-    for (const g of this.waterGlintPoints) {
-      const brightness = Math.max(0, Math.sin(time * 0.001 * g.speed + g.phase));
-      const alpha = brightness * brightness * 0.7; // sharp peaks
-      if (alpha < 0.04) continue;
-      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-      const sz = (1.0 + brightness * 0.8) * s;
-      ctx.beginPath();
-      ctx.arc(g.x, g.y, sz, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Refresh the Phaser texture (mutated canvas → GPU upload)
-    const tex = this.textures.get('_waterWaves');
-    if (tex && tex.source && tex.source[0]) tex.source[0].update();
-  }
-  // ─── Save / Load ─────────────────────────────────────────────────────
-  public saveGame(): void {
-    if (this.stressTestConfig) return; // Don't save stress tests
-    if (this.gameResult !== GameResult.PLAYING) return; // Don't save finished games
-    try {
-      const save = serializeGame(this);
-      saveToLocalStorage(save);
-      this.feedbackSystem.addNotification('💾 Game saved', 'info', 2000);
-    } catch (e) {
-      console.error('[MainScene] Save failed:', e);
-      this.feedbackSystem.addNotification('⚠️ Save failed!', 'danger', 3000);
-    }
-  }
-
-  public loadGame(): boolean {
-    const save = loadFromLocalStorage();
-    if (!save) return false;
-    try {
-      deserializeGame(this, save);
-      this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
-      return true;
-    } catch (e) {
-      console.error('[MainScene] Load failed:', e);
-      this.feedbackSystem.addNotification('⚠️ Load failed!', 'danger', 3000);
-      return false;
-    }
-  }
 
   public setupStressTest() {
     if (!this.stressTestConfig) return;
@@ -1761,6 +1609,33 @@ export class MainScene extends Phaser.Scene {
     );
 
     console.warn(`[STRESS TEST] Spawned ${count} units. Flow field threshold is ${12}. All units selected. Right-click to command move.`);
+  }
+  // ─── Save / Load ─────────────────────────────────────────────────────
+  public saveGame(): void {
+    if (this.stressTestConfig) return; // Don't save stress tests
+    if (this.gameResult !== GameResult.PLAYING) return; // Don't save finished games
+    try {
+      const save = serializeGame(this);
+      saveToLocalStorage(save);
+      this.feedbackSystem.addNotification('💾 Game saved', 'info', 2000);
+    } catch (e) {
+      console.error('[MainScene] Save failed:', e);
+      this.feedbackSystem.addNotification('⚠️ Save failed!', 'danger', 3000);
+    }
+  }
+
+  public loadGame(): boolean {
+    const save = loadFromLocalStorage();
+    if (!save) return false;
+    try {
+      deserializeGame(this, save);
+      this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+      return true;
+    } catch (e) {
+      console.error('[MainScene] Load failed:', e);
+      this.feedbackSystem.addNotification('⚠️ Load failed!', 'danger', 3000);
+      return false;
+    }
   }
 
   handleUnitSpawnRequest(type: UnitType) {
