@@ -12,7 +12,7 @@ export class TerrainSystem {
   private gridWidth: number;
   private gridHeight: number;
   private noise: Noise;
-  private visualSprite: Phaser.GameObjects.Sprite | null = null;
+  public visualSprite: Phaser.GameObjects.Sprite | null = null;
   private riverCells: Set<number> = new Set(); // Grid indices of river cells
   private preset: MapPreset;
   private presetConfig: typeof MAP_PRESETS[MapPreset.STANDARD];

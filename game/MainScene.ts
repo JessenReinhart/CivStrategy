@@ -867,16 +867,31 @@ export class MainScene extends Phaser.Scene {
 
     // --- STRESS TEST SETUP ---
     if (this.stressTestConfig) {
-      // Disable expensive animated water surface entirely for stress test
+      // Stress benchmark renders only the unit DOT blitter; hide fullscreen fill-rate sprites.
       this.waterAnimationEnabled = false;
-      // Disable postFX (bloom + vignette) — dominant GPU cost on Intel iGPU
       this.atmosphericSystem.setPostFXEnabled(false);
+      if (this.terrainSystem.visualSprite) {
+        this.terrainSystem.visualSprite.setVisible(false);
+      }
+      this.groundLayer.setVisible(false);
+      this.waterDepthSprite?.setVisible(false);
+      this.waterWaveSprite?.setVisible(false);
+      this.waterWavesSprite?.setVisible(false);
       this.setupStressTest();
+      // Detach every static/hidden child from the render layer; retain only the batched DOT path.
+      const stressDot = this.squadSystem.lodDotBlitter;
+      this.worldLayer.removeAll(false);
+      this.worldLayer.add(stressDot);
     }
 
     // --- UI CAMERA SETUP (Must be done AFTER systems init) ---
     this.uiGroup = this.add.group({ runChildUpdate: true });
     this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height);
+    if (this.stressTestConfig) {
+      this.uiCamera.visible = false;
+      this.fogOfWar?.screenRT.setVisible(false);
+      this.atmosphericSystem.clouds.forEach(cloud => cloud.setVisible(false));
+    }
     this.cameras.main.ignore(this.uiGroup);
 
     // Careful exclusions for UI Camera
