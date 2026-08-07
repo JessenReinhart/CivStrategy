@@ -221,6 +221,8 @@ export interface GameUnit extends Phaser.GameObjects.Image {
   takeDamage?: (amount: number) => void;
   isSelected?: boolean;
   flowTarget?: { x: number; y: number };
+  /** Per-unit fluid deformation offset applied by LiquidCombatSystem. */
+  modifiedOffset?: { x: number; y: number };
 }
 
 export interface VillagerData {

@@ -17,14 +17,14 @@ All game logic uses **cartesian coordinates** internally. `toIso()` / `toCartesi
 ### God-Class Orchestrator: MainScene
 
 `game/MainScene.ts` (~1100 lines) is the central hub:
-- Owns **all 20 system instances** as public properties
+- Owns **all 21 system instances** as public properties
 - Owns all Phaser groups (units, buildings, trees, worldLayer, uiGroup)
 - Owns spatial hash instances (treeSpatialHash, unitSpatialHash)
 - Runs the main `update()` loop calling systems in fixed order
 - Owns all game state (resources, population, happiness, age, diplomacy, game speed)
 - Dispatches stats to React via `this.events.emit(EVENTS.UPDATE_STATS, ...)`
 
-### System List (20 systems)
+### System List (21 systems)
 
 | System | File | Responsibility |
 |---|---|---|
@@ -49,13 +49,15 @@ All game logic uses **cartesian coordinates** internally. `toIso()` / `toCartesi
 | ProceduralSoundSystem | `game/systems/ProceduralSoundSystem.ts` | Web Audio API synthesized sounds (zero audio assets) |
 | FeedbackSystem | `game/systems/FeedbackSystem.ts` | Floating text indicators |
 | ClashSystem | `game/systems/ClashSystem.ts` | Bridges clash events to MeatGrinderEffect |
+| LiquidCombatSystem | `game/systems/LiquidCombatSystem.ts` | Pressure grid + contact lines + velocity alignment for liquid mass melee deformation |
 
 All systems are class-based, take a `MainScene` reference, and read/write state directly via `this.scene.*`.
 
 ### Update Loop Order
 
 ```
-InputManager → CullingSystem → VillagerSystem → AnimalSystem → UnitSystem
+InputManager → CullingSystem → VillagerSystem → AnimalSystem
+→ LiquidCombatSystem.precompute() → UnitSystem
 → SquadSystem.syncPositions() → SquadSystem.update() → BuildingManager
 → EnemyAISystem → EconomySystem (1s/5s intervals) → Age advancement
 → InfiniteMapSystem → MinimapSystem → FogOfWarSystem → AtmosphericSystem
@@ -88,7 +90,7 @@ Event constants are defined in `constants.ts` under the `EVENTS` object. Never u
 │   └── StressTestOverlay.tsx
 ├── game/                   # Phaser game layer
 │   ├── MainScene.ts        # Central orchestrator (god-class)
-│   ├── systems/            # 20 game systems (class-based)
+│   ├── systems/            # 21 game systems (class-based)
 │   └── utils/              # Utilities (iso.ts, SpatialHash.ts, Noise.ts, MeatGrinderEffect.ts)
 ├── assets/textures/        # Sprite/texture PNGs + water.frag shader
 ├── src/                    # ⚠️ Only contains vite-env.d.ts — NOT the source root

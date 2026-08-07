@@ -468,10 +468,14 @@ export class SquadSystem {
         const isStress = !!this.scene.stressTestConfig;
 
         // Stress-mode cache: when squads are stationary, avoid redundant redraws
+        // Stress-mode cache: when squads are stationary, avoid redundant redraws.
+        // Include modifiedOffset in signature so liquid combat deformation triggers redraws.
         if (isStress && !isMoving) {
             const angleKey = Math.round((angle / Math.PI) * 16);
             const owner = unit.getData('owner') as number;
-            const sig = `${lod}|${angleKey}|${soldiers.length}|${owner}`;
+            const mo = unit.modifiedOffset;
+            const deformKey = mo ? `${Math.round(mo.x)}|${Math.round(mo.y)}` : '0|0';
+            const sig = `${lod}|${angleKey}|${soldiers.length}|${owner}|${deformKey}`;
             const lastSig = unit.getData('stressSquadSig') as string | undefined;
             if (lastSig === sig) {
                 return;
@@ -502,8 +506,30 @@ export class SquadSystem {
         // Position soldier sprites
         for (let i = 0; i < soldiers.length; i++) {
             const soldier = soldiers[i];
-            const dx = soldier.offset.x * cos - soldier.offset.y * sin;
-            const dy = soldier.offset.x * sin + soldier.offset.y * cos;
+            // Base formation offset + liquid combat deformation (projected per-soldier)
+            const mo = unit.modifiedOffset;
+            let deformX = 0;
+            let deformY = 0;
+            if (mo) {
+                // World-space soldier offset from formation origin
+                const sox = soldier.offset.x * cos - soldier.offset.y * sin;
+                const soy = soldier.offset.x * sin + soldier.offset.y * cos;
+                const soLen = Math.sqrt(sox * sox + soy * soy);
+                const fLen = Math.sqrt(mo.x * mo.x + mo.y * mo.y);
+                if (soLen > 1 && fLen > 1) {
+                    // Front-rank soldiers (offset aligned with force) deform most
+                    const weight = 0.5 + 0.5 * Math.max(-1, Math.min(1, (sox * mo.x + soy * mo.y) / (soLen * fLen)));
+                    deformX = mo.x * weight;
+                    deformY = mo.y * weight;
+                } else {
+                    deformX = mo.x;
+                    deformY = mo.y;
+                }
+            }
+            const baseX = soldier.offset.x + deformX;
+            const baseY = soldier.offset.y + deformY;
+            const dx = baseX * cos - baseY * sin;
+            const dy = baseX * sin + baseY * cos;
             const targetX = unit.x + dx;
             const targetY = unit.y + dy;
 

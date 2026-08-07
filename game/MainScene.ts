@@ -56,6 +56,7 @@ import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
 import { ClashSystem } from './systems/ClashSystem';
 import { TerrainSystem } from './systems/TerrainSystem';
 import { ResearchManager } from './systems/ResearchManager';
+import { LiquidCombatSystem } from './systems/LiquidCombatSystem';
 import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
 
 export class MainScene extends Phaser.Scene {
@@ -157,6 +158,7 @@ export class MainScene extends Phaser.Scene {
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
   public researchManager!: ResearchManager;
+  public liquidCombat!: LiquidCombatSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
@@ -391,6 +393,7 @@ export class MainScene extends Phaser.Scene {
     this.animalSystem = new AnimalSystem(this);
     this.proceduralSound = new ProceduralSoundSystem(this);
     this.clashSystem = new ClashSystem(this);
+    this.liquidCombat = new LiquidCombatSystem(this);
     this.researchManager = new ResearchManager(this);
     
     this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight, this.mapSeed, this.mapPreset);
@@ -1147,6 +1150,12 @@ export class MainScene extends Phaser.Scene {
     t0 = this.profileStart('animalSystem');
     this.animalSystem.update(this.gameTime, dt);
     this.profileEnd('animalSystem', t0);
+
+    // Liquid combat: precompute pressure grid + contact lines before unit bucket pass.
+    // Must run after spatial hash update so `spatialKey` data is fresh for pressure cells.
+    t0 = this.profileStart('liquidCombat');
+    this.liquidCombat.precompute();
+    this.profileEnd('liquidCombat', t0);
 
     t0 = this.profileStart('unitSystem');
     this.unitSystem.update(this.gameTime, dt);

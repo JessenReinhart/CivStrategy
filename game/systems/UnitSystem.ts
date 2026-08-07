@@ -173,6 +173,7 @@ export class UnitSystem {
                 const unit = allUnits[i];
                 if (!unit) continue;
                 this.updateUnitLogicTimed(unit, time);
+                this.applyLiquidSteering(unit, time);
             }
         }
 
@@ -313,6 +314,80 @@ export class UnitSystem {
                     }
                 }
             }
+        }
+    }
+    // ─── Liquid Combat Steering ───────────────────────────────────────────
+    /**
+     * Apply fluid combat forces to a single unit: pressure + contact-line + velocity alignment.
+     * Called inside the rotating bucket pass (update()) so every unit gets forces over time.
+     * Skips civilians, flow-field units, and units without physics bodies.
+     */
+    private applyLiquidSteering(unit: GameUnit, _time: number): void {
+        const liquidCombat = this.scene.liquidCombat;
+        if (!liquidCombat || !liquidCombat.enabled) return;
+
+        // Skip civilians (villagers, animals)
+        if (unit.unitType === UnitType.VILLAGER || unit.unitType === UnitType.ANIMAL) return;
+
+        // Skip flow-field units — mass steering already handles spacing for them
+        if (unit.flowTarget) return;
+
+        const body = unit.body as Phaser.Physics.Arcade.Body;
+        if (!body || !body.enable) return;
+
+        // Accumulate total combat force for visual deformation (per-soldier in renderSquad)
+        let forceX = 0;
+        let forceY = 0;
+
+        // 1. Pressure force — outward push from dense cell
+        const cellKey = unit.getData('spatialKey') as string;
+        if (cellKey) {
+            const pressure = liquidCombat.getPressure(cellKey);
+            if (pressure && pressure.force > 0) {
+                const px = pressure.dirX * pressure.force;
+                const py = pressure.dirY * pressure.force;
+                body.velocity.x += px;
+                body.velocity.y += py;
+                forceX += px;
+                forceY += py;
+            }
+        }
+
+        // 2. Contact-line force — backward push + lateral flow at enemy boundary
+        const owner = unit.getData('owner') as number;
+        if (owner >= 0) {
+            const contact = liquidCombat.getContactForce(unit.x, unit.y, owner);
+            if (contact.bx !== 0 || contact.by !== 0 || contact.lx !== 0 || contact.ly !== 0) {
+                const cx = contact.bx + contact.lx;
+                const cy = contact.by + contact.ly;
+                body.velocity.x += cx;
+                body.velocity.y += cy;
+                forceX += cx;
+                forceY += cy;
+            }
+        }
+
+        // Store force for SquadSystem per-soldier deformation (scaled to px offset)
+        // Divide by force scale to convert velocity-space force to visual displacement
+        const DEFORMATION_SCALE = 0.15;
+        unit.modifiedOffset = { x: forceX * DEFORMATION_SCALE, y: forceY * DEFORMATION_SCALE };
+
+        // 3. Velocity alignment — smooth toward neighbor average (piggybacks on separation interval)
+        // Only apply alignment on frames where separation runs, to avoid extra SpatialHash queries
+        // We check the shared separationFrame counter
+        if (this.separationFrame === 0) {
+            liquidCombat.applyAlignment(unit);
+        }
+
+        // Cap velocity to prevent runaway acceleration
+        const MAX_SPEED = 200;
+        const vx = body.velocity.x;
+        const vy = body.velocity.y;
+        const speedSq = vx * vx + vy * vy;
+        if (speedSq > MAX_SPEED * MAX_SPEED) {
+            const scale = MAX_SPEED / Math.sqrt(speedSq);
+            body.velocity.x = vx * scale;
+            body.velocity.y = vy * scale;
         }
     }
 
