@@ -30,7 +30,11 @@ export const CHASE_REPATH_FAR_MS = 2500;
 /** Target must move this far (world) to force early repath. */
 export const CHASE_TARGET_MOVE_THRESH = 28;
 /** Path end within this of target counts as "good enough". */
-const CHASE_PATH_END_SLACK = 12;
+const CHASE_PATH_END_SLACK = 10;
+
+function hasPath(path: PathPoint[] | null | undefined): boolean {
+  return !!(path && path.length > 1);
+}
 
 /**
  * Pick path index to resume after repath.
@@ -75,10 +79,15 @@ export function shouldRepathChase(input: ChaseRepathInput): boolean {
 
   if (distToTarget <= range) return false;
 
-  const hasPath = !!(path && path.length > 1);
-  const exhausted = !hasPath || pathStep >= (path?.length ?? 0);
+  const hasP = hasPath(path);
+  const exhausted = !hasP || pathStep >= (path?.length ?? 0);
 
   if (exhausted) return true;
+
+  // Keep an existing path alive while closing the final approach. Repathing
+  // here can replace a nearly-complete path with a cell-center endpoint and
+  // strand the unit outside attack range.
+  if (distToTarget - range < 6 && hasP) return false;
 
   // Target relocated — repath, but never faster than CHASE_REPATH_MIN_MS
   if (targetMoved >= CHASE_TARGET_MOVE_THRESH && timeSinceRecalc >= CHASE_REPATH_MIN_MS) {
@@ -121,5 +130,6 @@ export function pathEndNearTarget(
   const end = path[path.length - 1];
   const dx = end.x - targetX;
   const dy = end.y - targetY;
+  // Use larger slack >= attack range so units can finish approach without immediate repath.
   return dx * dx + dy * dy <= slack * slack;
 }

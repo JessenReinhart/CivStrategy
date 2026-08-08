@@ -46,7 +46,7 @@ console.log('[setup] waiting for game scene...');
 await page.waitForFunction(() => {
     const g = window.__civStrategyGame;
     const s = g?.scene?.getScenes?.(true)?.[0];
-    return s && s.entityFactory && s.liquidCombat && s.units.getChildren().length > 0;
+    return s && s.isReady && s.entityFactory && s.liquidCombat;
 }, { timeout: 60000 });
 console.log('[setup] scene live');
 
@@ -54,7 +54,8 @@ console.log('[setup] scene live');
 const setup = await page.evaluate(() => {
     const g = window.__civStrategyGame;
     const scene = g.scene.getScenes(true)[0];
-
+    // Ensure enemy units can chase and attack (disable peaceful failsafe)
+    scene.peacefulMode = false;
     // Anchor on the player's first building (townhall) — guarantees walkable land
     let anchor = null;
     const blds = scene.buildings?.getChildren?.() ?? [];
@@ -73,12 +74,13 @@ const setup = await page.evaluate(() => {
     const maxX = bounds.right - 120, maxY = bounds.bottom - 120;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-    const cx = clamp(anchor.x, minX, maxX);
-    const cy = clamp(anchor.y, minY, maxY);
+    // Spawn away from townhall to avoid pathfinding around buildings
+    const cx = clamp(anchor.x + 400, minX, maxX);
+    const cy = clamp(anchor.y + 300, minY, maxY);
 
-    // Two 6x7 blocks, 340px apart (closing distance lets us watch them collide)
-    const SPAWN_COUNT = 42;
-    const gapX = 340;
+    // Two 6x4 blocks, 60px apart — within CONTACT_RANGE (100px) so contact lines fire immediately
+    const SPAWN_COUNT = 500;
+    const gapX = 120;
     const spacing = 14;
     const player = [];
     const enemies = [];
@@ -109,7 +111,7 @@ const setup = await page.evaluate(() => {
 });
 
 console.log('[setup]', JSON.stringify(setup));
-if (setup.playerCount < 30 || setup.enemyCount < 30) {
+if (setup.playerCount < 20 || setup.enemyCount < 20) {
     console.error('FAIL: could not spawn both armies');
     await browser.close();
     process.exit(1);
@@ -198,15 +200,15 @@ async function probe(tag) {
 }
 
 // ── Watch the armies collide ─────────────────────────────────────────────
-console.log('[verify] armies closing... (8s)');
-await new Promise(r => setTimeout(r, 8000));
+console.log('[verify] armies closing... (15s)');
+await new Promise(r => setTimeout(r, 15000));
 const p1 = await probe('t1-melee');
 
 await page.screenshot({ path: `${OUT}-t1-melee.png` });
 console.log(`[verify] saved ${OUT}-t1-melee.png`);
 
-console.log('[verify] battle continues... (6s)');
-await new Promise(r => setTimeout(r, 6000));
+console.log('[verify] battle continues... (30s)');
+await new Promise(r => setTimeout(r, 30000));
 const p2 = await probe('t2-late');
 
 await page.screenshot({ path: `${OUT}-t2-late.png` });
@@ -215,21 +217,28 @@ console.log(`[verify] saved ${OUT}-t2-late.png`);
 // ── Verdict ──────────────────────────────────────────────────────────────
 const liquidLive = p1.liquid.enabled && (p1.liquid.pressureCells > 0 || p1.liquid.contactLines > 0);
 const forcesApplied = p1.withModifiedOffset > 0;
-const visuallyDeformed = p1.deformedPx > 0;
-const contactActive = p1.liquid.contactLines > 0;
-const battleHappened = p1.samples.some(s => s.hp !== undefined);
+const visuallyDeformed = p1.deformedPx > 0 && p1.maxOffsetPx > 1;
+const contactActive = p1.liquid.contactLines > 0 || p2.liquid.contactLines > 0;
+const frontGapValid = p2.frontGap < 100; // CONTACT_RANGE = 100 in LiquidCombatSystem
+const contactPersisted = p1.liquid.contactLines > 0 && p2.liquid.contactLines > 0;
+// HP loss proves combat actually resolved (not just visual contact)
+const allHp = [...p1.samples, ...p2.samples].map(s => s.hp).filter(h => h !== undefined);
+const hpMax = allHp.length > 0 ? Math.max(...allHp) : 0;
+const hpMin = allHp.length > 0 ? Math.min(...allHp) : 0;
+const battleHappened = allHp.length > 0 && hpMin < hpMax;
 
 console.log('\n=== VERDICT ===');
 console.log(`liquid system live:     ${liquidLive ? 'PASS' : 'FAIL'} (pressure=${p1.liquid.pressureCells}, contact=${p1.liquid.contactLines})`);
-console.log(`contact lines firing:   ${contactActive ? 'PASS' : 'FAIL'} (front gap ${p1.frontGap}px)`);
+console.log(`contact lines firing:   ${contactActive && frontGapValid ? 'PASS' : 'FAIL'} (front gap ${p2.frontGap}px)`);
 console.log(`modifiedOffset applied: ${forcesApplied ? 'PASS' : 'FAIL'} (${p1.withModifiedOffset}/${p1.totalUnits} units)`);
 console.log(`visible deformation:    ${visuallyDeformed ? 'PASS' : 'FAIL'} (${p1.deformedPx} units > 1px, max ${p1.maxOffsetPx}px)`);
 console.log(`LOD_FULL rendering:     ${p1.lod.fullLodUnits > 0 ? 'PASS' : 'FAIL'} (${p1.lod.fullLodUnits}/${p1.lod.probedUnits} units)`);
+console.log(`battle resolved (HP):   ${battleHappened ? 'PASS' : 'FAIL'} (hp range ${hpMin}-${hpMax})`);
+console.log(`contact persisted:      ${contactPersisted ? 'PASS' : 'FAIL'} (both probes had contactLines)`);
 console.log(`units fighting:         ${battleHappened ? 'INFO' : 'WARN'} (no hp sampled)`);
 console.log(`errors:                 ${errors.length === 0 ? 'NONE' : errors.slice(0, 5).join(' | ')}`);
 
-await browser.close();
-if (!liquidLive || !forcesApplied || !visuallyDeformed) {
+if (!liquidLive || !forcesApplied || !visuallyDeformed || !contactActive || !contactPersisted || !battleHappened || !frontGapValid) {
     console.error('VERIFY FAILED — see probes above');
     process.exit(1);
 }

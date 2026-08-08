@@ -93,34 +93,27 @@ export class EconomySystem {
             return def.workerNeeds && !assignedWorker;
         });
 
-        const idleVillagers = this.scene.villagerSystem.getIdleVillagers(0);
-
         for (const building of vacantBuildings) {
-            if (idleVillagers.length === 0) break;
-
             const b = building as Phaser.GameObjects.Image;
             const buildingOwner = b.getData('owner');
 
+            // Query idle villagers matching THIS building's owner
+            const idleVillagers = this.scene.villagerSystem.getIdleVillagers(buildingOwner);
+            if (idleVillagers.length === 0) continue;
+
             let closestWorker: VillagerData | null = null;
             let minDist = Number.MAX_VALUE;
-            let workerIndex = -1;
 
             for (let i = 0; i < idleVillagers.length; i++) {
                 const villager = idleVillagers[i];
-
-                // STRICT OWNERSHIP CHECK: Only assign villagers to buildings of the same owner
-                if (villager.owner !== buildingOwner) continue;
-
                 const dist = Phaser.Math.Distance.Between(b.x, b.y, villager.x, villager.y);
                 if (dist < minDist) {
                     minDist = dist;
                     closestWorker = villager;
-                    workerIndex = i;
                 }
             }
 
             if (closestWorker) {
-                idleVillagers.splice(workerIndex, 1);
                 b.setData('assignedWorker', closestWorker);
                 this.scene.villagerSystem.assignJob(closestWorker, b);
             }
@@ -162,7 +155,7 @@ export class EconomySystem {
 
                     if (bestVillager && bestDist < GOLD_MINE_SEARCH_RADIUS * 1.5) {
                         idleForGold.splice(bestIdx, 1);
-                        this.scene.villagerSystem.assignJob(bestVillager, tc);
+                        this.scene.villagerSystem.assignJob(bestVillager, mine);
                     }
                 }
             }
@@ -238,7 +231,7 @@ export class EconomySystem {
 
             if (def.workerNeeds) {
                 const worker = b.getData('assignedWorker') as VillagerData | null;
-                if (worker && worker.state === UnitState.WORKING) {
+                if (worker && (worker.state === UnitState.WORKING || worker.state === UnitState.GATHERING)) {
                     if (vacantIcon) vacantIcon.visible = false;
                 } else {
                     isWorking = false;

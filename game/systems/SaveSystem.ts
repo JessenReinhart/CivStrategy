@@ -206,6 +206,7 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 5. Restore AI state (after buildings are respawned so AI building array repopulates)
   restoreAIState(scene, save);
   // 6. Respawn units (after buildings and AI state)
+  respawnUnits(scene, save);
 
   // 7. Recompute economy stats
   scene.economySystem?.updateStats();
@@ -299,14 +300,28 @@ function restoreAIState(scene: MainScene, save: SaveGame): void {
 function respawnBuildings(scene: MainScene, save: SaveGame): void {
   for (const b of save.buildings) {
     const building = scene.entityFactory.spawnBuilding(b.type, b.x, b.y, b.owner);
-    // Override HP (spawnBuilding sets HP to max, we want the saved value)
     building.setData('hp', b.hp);
     building.setData('maxHp', b.maxHp);
-    if (b.workers > 0) {
+    if (b.workers !== undefined) {
       building.setData('workers', b.workers);
     }
-    if (b.garrison && b.type === BuildingType.CASTLE) {
-      building.setData('garrison', { ...b.garrison });
+    // restore assignedWorker reference will be restored by VillagerSystem state
+  }
+}
+function respawnUnits(scene: MainScene, save: SaveGame): void {
+  for (const u of save.units) {
+    if (u.type === UnitType.VILLAGER) {
+      const villager = scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
+      villager.state = u.state;
+      // VillagerData doesn't have hp or stance, skip
+    } else {
+      const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);
+      if (unit) {
+        unit.setData('hp', u.hp);
+        unit.setData('maxHp', u.maxHp);
+        unit.setData('stance', u.stance);
+        // State is handled by UnitSystem, defaults to IDLE
+      }
     }
   }
 }

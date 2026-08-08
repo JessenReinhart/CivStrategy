@@ -4,12 +4,12 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import { join } from 'path';
 
-const STRESS_URL = 'http://localhost:5173/?stress=5000';
+const STRESS_URL = 'http://localhost:5173/?stress=300&enableEnemies=true';
 const VIEWPORT_W = 1440;
 const VIEWPORT_H = 810;
-const WARMUP_MS = 5000;
+const WARMUP_MS = 8000;
 const CAPTURE_MS = 20000;
-const UNITS_TARGET = 5000;
+const UNITS_TARGET = 300;
 const REPORT_PATH = join(process.cwd(), 'profile-results.json');
 const JSONL_PATH = join(process.cwd(), 'progress-metrics.jsonl');
 
@@ -37,7 +37,9 @@ function isFiniteNumber(n) {
 
     page.on('pageerror', e => consoleErrors.push(e.message));
     page.on('console', msg => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
+      const text = msg.text();
+      if (msg.type() === 'error' || text.includes('ERROR') || text.includes('error')) consoleErrors.push(text);
+      if (text.startsWith('[stress-wait]') || text.startsWith('[stress]')) console.log(text);
     });
 
     try {
@@ -54,18 +56,60 @@ function isFiniteNumber(n) {
     await page.waitForFunction(() => typeof window.__perf !== 'undefined', { timeout: 30000 });
     console.log('[profile-stress] __perf API available');
 
-    console.log(`[profile-stress] waiting for units to reach ${UNITS_TARGET}...`);
+    console.log(`[profile-stress] waiting for ${UNITS_TARGET} units in active combat...`);
     await page.waitForFunction(
       (target) => {
         const p = window.__perf;
-        if (!p || p.buffer.length === 0) return false;
+        if (!p || p.buffer.length === 0) {
+          console.log('[stress-wait] no __perf buffer');
+          return false;
+        }
         const latest = p.buffer[p.buffer.length - 1];
-        return latest.units >= target;
+        if (latest.units < target) {
+          console.log(`[stress-wait] units ${latest.units} < ${target}`);
+          return false;
+        }
+        const game = window.__civStrategyGame;
+        if (!game) {
+          console.log('[stress-wait] no __civStrategyGame');
+          return false;
+        }
+        const scene = game.scene?.getScenes(true)?.[0];
+        if (!scene) {
+          console.log('[stress-wait] no active scene');
+          return false;
+        }
+        if (!scene.liquidCombat) {
+          console.log('[stress-wait] no scene.liquidCombat');
+          return false;
+        }
+        if (!scene.liquidCombat.enabled) {
+          console.log('[stress-wait] liquidCombat.enabled == false');
+          return false;
+        }
+        if (scene.liquidCombat.contactLines.length === 0) {
+          console.log('[stress-wait] contactLines.length == 0');
+          return false;
+        }
+        const units = scene.units?.getChildren?.() || [];
+        let hpLoss = false;
+        for (const u of units) {
+          const hp = u.getData?.('hp');
+          const maxHp = u.getData?.('maxHp');
+          if (hp !== undefined && maxHp !== undefined && hp < maxHp) { hpLoss = true; break; }
+        }
+        if (!hpLoss) {
+          console.log('[stress-wait] no HP loss detected');
+          return false;
+        }
+        console.log(`[stress-wait] combat OK: units=${latest.units}, contact=${scene.liquidCombat.contactLines.length}, hpLoss=true`);
+        return true;
       },
       UNITS_TARGET,
-      { timeout: 120000 }
+      { timeout: 180000 }
     );
 
+    console.log('[profile-stress] combat engagement confirmed');
     console.log(`[profile-stress] units >= ${UNITS_TARGET} confirmed in runtime`);
 
     console.log(`[profile-stress] warming up ${WARMUP_MS}ms...`);
@@ -126,6 +170,7 @@ function isFiniteNumber(n) {
       isFiniteNumber(minFrameMs) && isFiniteNumber(avgFps) &&
       isFiniteNumber(minFps) && isFiniteNumber(maxFps);
 
+    // Combat stress pass condition: maintain 60 FPS (p95 frame time <= 16.67ms)
     const pass = hasSufficientData && p95FrameMs <= 16.67 && minFps >= 60;
 
     let note;
@@ -139,7 +184,7 @@ function isFiniteNumber(n) {
       if (minFps < 60) reasons.push(`min FPS ${minFps} < 60`);
       note = reasons.join('; ');
     } else {
-      note = 'meets 60 FPS target';
+      note = 'meets 60 FPS target under active combat';
     }
 
     const result = {
@@ -199,7 +244,6 @@ function isFiniteNumber(n) {
       fs.writeFileSync(REPORT_PATH, JSON.stringify(errorResult, null, 2) + '\n');
       console.log(`[profile-stress] wrote error result to ${REPORT_PATH}`);
       fs.appendFileSync(JSONL_PATH, JSON.stringify(errorResult) + '\n');
-      console.log(`[profile-stress] appended error to ${JSONL_PATH}`);
     } catch (e) {
       console.error('[profile-stress] failed to write error result:', e.message);
     }

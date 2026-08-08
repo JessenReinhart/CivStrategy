@@ -164,7 +164,7 @@ export const GameUI: React.FC<GameUIProps> = ({
     // Close build menu when selecting something
     useEffect(() => {
         if ((selectedCount > 0 || selectedBuildingType) && activeCategory !== null) {
-            const timer = setTimeout(() => { setActiveCategory(null); setShowResearch(false); }, 0);
+            const timer = setTimeout(() => { setActiveCategory(null); if (activeCategory !== 'civic') setShowResearch(false); }, 0);
             return () => clearTimeout(timer);
         }
     }, [selectedCount, selectedBuildingType, activeCategory]);
@@ -759,10 +759,10 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                     stats.activeResearch?.techId === def.id ? 'researching' :
                                                     (() => {
                                                         const prereqsMet = def.prereqs.every(p => stats.completedTechs.includes(p));
-                                                        const canAfford = stats.resources.food >= def.cost.food && stats.resources.gold >= def.cost.gold;
+                                                        const canAfford = stats.resources.wood >= def.cost.wood && stats.resources.food >= def.cost.food && stats.resources.gold >= def.cost.gold;
                                                         return isAgeUnlocked(def.requiredAge) && prereqsMet && !stats.activeResearch && canAfford ? 'available' : 'locked';
                                                     })()
-                                                ) as 'complete' | 'researching' | 'available' | 'locked'
+                                                )
                                             }))
                                     }));
 
@@ -907,7 +907,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                 {techs.map(def => {
                                                     const isCompleted = stats.completedTechs.includes(def.id);
                                                     const isActive = stats.activeResearch?.techId === def.id;
-                                                    const canAfford = stats.resources.food >= def.cost.food && stats.resources.gold >= def.cost.gold;
+                                                    const canAfford = stats.resources.wood >= def.cost.wood && stats.resources.food >= def.cost.food && stats.resources.gold >= def.cost.gold;
                                                     const isAvailable = ageUnlocked && !isCompleted && !stats.activeResearch && canAfford;
                                                     return (
                                                         <div

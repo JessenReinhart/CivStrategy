@@ -307,19 +307,31 @@ export class BuildingManager {
         const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
         let overlaps = false;
         this.scene.buildings.getChildren().forEach((b) => {
+            if (!b || !b.scene) return;
             if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, (b as Phaser.GameObjects.Image).getBounds())) {
                 overlaps = true;
             }
         });
+        this.scene.units.getChildren().forEach((u) => {
+            if (!u || !u.scene) return;
+            if (bounds.contains((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y)) overlaps = true;
+        });
+        this.scene.villagerSystem?.getAllVillagers().forEach((v) => {
+            if (!v) return;
+            if (bounds.contains(v.x, v.y)) overlaps = true;
+        });
+
         if (overlaps) return { valid: false, reason: "Space Occupied" };
 
+        // Check tree overlap
         let treeOverlap = false;
         this.scene.trees.getChildren().forEach((t) => {
+            if (!t || !t.scene) return;
             if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) treeOverlap = true;
         });
         if (treeOverlap) return { valid: false, reason: "Tree in way" };
 
-        // Check terrain slope
+         // Check terrain slope
         const slopeInfo = this.scene.terrainSystem.getSlopeAt(x, y);
         if (!slopeInfo.isBuildable) {
             return { valid: false, reason: "Terrain too steep" };

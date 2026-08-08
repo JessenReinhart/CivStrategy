@@ -115,20 +115,19 @@ export class UnitSystem {
         const unitCount = allUnits.length;
         if (unitCount === 0) return;
 
+
         if (this.scene.stressTestConfig) {
             this.updateStressProjectiles(time);
             this.updateStressLunges(time);
         }
-        // Active stress benchmark: every unit follows a deterministic orbital path.
-        // This intentionally bypasses Arcade integration so the benchmark measures
-        // real movement and rendering without allocating one physics step per unit.
-        if (this.scene.stressTestConfig) {
+        // Active stress benchmark: orbital paths ONLY in peaceful mode (no combat).
+        // In combat stress mode, units use normal physics/pathfinding/liquid steering.
+        if (this.scene.stressTestConfig && !this.scene.stressTestConfig.enableEnemies) {
             const centerX = this.scene.mapWidth * 0.5;
             const centerY = this.scene.mapHeight * 0.5;
             const phaseTime = time * 0.00035;
             for (let i = 0; i < unitCount; i++) {
                 const unit = allUnits[i];
-                // Skip units with disabled physics bodies — they are stationary in peaceful stress mode
                 const body = unit.body as Phaser.Physics.Arcade.Body | null;
                 if (body && !body.enable) continue;
                 const phase = (unit.getData('stressPhase') as number | undefined) ?? (i * 0.017);
@@ -155,6 +154,7 @@ export class UnitSystem {
             // Flow field steering is O(1) per unit — throttle makes expensive part rare
             for (let i = 0; i < unitCount; i++) {
                 const unit = allUnits[i];
+                if (!unit || !unit.scene) continue;
                 if (unit.flowTarget) {
                     this.moveAlongFlowField(unit, time);
                 }
@@ -230,6 +230,7 @@ export class UnitSystem {
         }
 
         // Combat state handling
+
         if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
             this.handleCombatState(unit, time);
         }
@@ -263,6 +264,8 @@ export class UnitSystem {
                 // flow direction + direct bias blended steering. Separation would fight
                 // the flow field and creates massive O(k×n) overhead for packed armies.
                 if (unit.flowTarget) continue;
+                // Skip combat units: separation fights liquid steering + chase velocity
+                if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) continue;
 
                 const body = unit.body as Phaser.Physics.Arcade.Body;
                 if (!body || (body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y) < 1) continue;
@@ -869,8 +872,29 @@ export class UnitSystem {
 
         const dx = unit.x - target.x;
         const dy = unit.y - target.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const range = unit.getData('range') as number || 40;
+        const rawDist = Math.sqrt(dx * dx + dy * dy);
+        const baseRange = unit.getData('range') as number || 40;
+
+        // Adjust for building size: if target is a building, compute effective distance
+        // to its nearest edge instead of center. This prevents endless chasing because
+        // the unit cannot reach the center (it's inside solid collision).
+        let effectiveDist = rawDist;
+        let chaseTargetX = target.x;
+        let chaseTargetY = target.y;
+        const def = target.getData('def') as { width: number; height: number } | undefined;
+        if (def) {
+            const halfW = def.width / 2;
+            const halfH = def.height / 2;
+            // Clamp unit position to building edge rectangle to get closest approach
+            const closestX = Math.max(target.x - halfW, Math.min(unit.x, target.x + halfW));
+            const closestY = Math.max(target.y - halfH, Math.min(unit.y, target.y + halfH));
+            effectiveDist = Math.hypot(unit.x - closestX, unit.y - closestY);
+            // Chase toward the edge point, not center
+            chaseTargetX = closestX;
+            chaseTargetY = closestY;
+        }
+
+        const range = baseRange;
         const attackSpeed = unit.getData('attackSpeed') as number || 1000;
         const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
         const anchor = unit.getData('anchor') || { x: unit.x, y: unit.y };
@@ -899,7 +923,7 @@ export class UnitSystem {
                     return;
                 }
             } else if (stance === UnitStance.HOLD) {
-                if (dist > range) {
+                if (effectiveDist > range) {
                     body.setVelocity(0, 0);
                     unit.target = null;
                     unit.state = UnitState.IDLE;
@@ -909,7 +933,8 @@ export class UnitSystem {
         }
 
         // Attack or chase
-        if (dist <= range) {
+
+        if (effectiveDist <= range) {
             body.setVelocity(0, 0);
             unit.state = UnitState.ATTACKING;
             unit.path = null;
@@ -937,23 +962,21 @@ export class UnitSystem {
               pathStep: unit.pathStep ?? 0,
               timeSinceRecalc: nowMs - lastRecalc,
               targetMoved: Number.isFinite(targetMoved) ? targetMoved : 9999,
-              distToTarget: dist,
+              distToTarget: effectiveDist,
               range,
             });
 
-            // Also repath if existing path no longer ends near the target
             const endStale = !!(
               unit.path
               && unit.path.length > 1
-              && !pathEndNearTarget(unit.path, target.x, target.y)
+              && !pathEndNearTarget(unit.path, chaseTargetX, chaseTargetY)
               && (nowMs - lastRecalc) >= 450
             );
 
             if (needRepath || endStale) {
               unit.setData('_lastPathRecalc', nowMs);
-              const tx = target.x, ty = target.y;
+              const tx = chaseTargetX, ty = chaseTargetY;
               unit.setData('_chaseTargetPos', { x: tx, y: ty });
-              // Spread repath across frames via async queue — unit keeps old path meanwhile
               this.scene.pathfinder.requestPath(
                 new Phaser.Math.Vector2(unit.x, unit.y),
                 new Phaser.Math.Vector2(tx, ty),
@@ -963,25 +986,33 @@ export class UnitSystem {
                   const t = unit.target as Phaser.GameObjects.Image;
                   if (!t || !t.scene || unit.state !== UnitState.CHASING) return;
                   const chased = unit.getData('_chaseTargetPos') as { x: number; y: number } | undefined;
-                  if (!chased || Math.hypot(t.x - chased.x, t.y - chased.y) > range + 12) return;
+                  if (!chased || Math.hypot(t.x - chased.x, t.y - chased.y) > range + 30) return;
                   if (path && path.length > 1) {
                     unit.path = path;
                     unit.pathStep = findResumePathStep(path, unit.x, unit.y);
                     unit.pathCreatedAt = this.scene.gameTime;
                   } else if (!unit.path || unit.path.length <= 1) {
                     unit.path = null;
-                    (unit.body as Phaser.Physics.Arcade.Body)?.setVelocity(0, 0);
                   }
                 }
               );
             } else if (!lastTarget) {
-              unit.setData('_chaseTargetPos', { x: target.x, y: target.y });
+              unit.setData('_chaseTargetPos', { x: chaseTargetX, y: chaseTargetY });
             }
 
-            if (unit.path && unit.path.length > 0) {
+            if (unit.path && unit.path.length > 1 && (unit.pathStep ?? 0) < unit.path.length) {
               this.moveAlongPath(unit);
             } else {
-              body.setVelocity(0, 0);
+              // A terminal/one-point path can end at a walkable cell center short of a blocked target.
+              // Keep closing directly until the attack-range check transitions to ATTACKING.
+              const finalSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+              const formation = unit.getData('formation') as FormationType || FormationType.BOX;
+              const formationMultiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
+              const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
+              const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
+              const speed = finalSpeed * formationMultiplier * terrainModifier * moveMult;
+              this.scene.physics.moveTo(unit, chaseTargetX, chaseTargetY, speed);
+              if (unit.pathStep >= (unit.path?.length ?? 0)) unit.path = null;
             }
         }
     }

@@ -234,7 +234,10 @@ export class EntityFactory {
         this.scene.physics.add.existing(unit);
         const body = unit.body as Phaser.Physics.Arcade.Body;
         body.setCircle(radius);
-        body.setDrag(800); // Prevent drifting from separation forces
+        // Combat units only reach here; drag differs for civilians (excluded above).
+        // 250 balances liquid combat steering (forces ~50-300px/s²) with attack-range stability.
+        // 800 killed liquid forces entirely; 80 caused overshoot past attack range.
+        body.setDrag(250);
         const damageProfile = UNIT_DAMAGE[type] || {};
         const attackTotal = Object.values(DamageType).reduce((s, t) => s + (damageProfile[t] || 0), 0);
         unit.setData({

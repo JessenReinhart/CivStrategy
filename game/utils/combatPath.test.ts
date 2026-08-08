@@ -55,6 +55,16 @@ describe('shouldRepathChase', () => {
       }),
     ).toBe(false);
   });
+  it('does not repath when just outside attack range', () => {
+    expect(shouldRepathChase({
+      path: basePath,
+      pathStep: 1,
+      timeSinceRecalc: CHASE_REPATH_FAR_MS,
+      targetMoved: CHASE_TARGET_MOVE_THRESH + 100,
+      distToTarget: 44,
+      range: 40,
+    })).toBe(false);
+  });
 
   it('repaths when path exhausted while still out of range', () => {
     expect(
@@ -129,6 +139,40 @@ describe('shouldRepathChase', () => {
         timeSinceRecalc: 9999,
         targetMoved: 999,
         distToTarget: 30,
+        range: 40,
+      }),
+    ).toBe(false);
+  });
+
+  it('repaths when target is just outside attack range and path end is not near target', () => {
+    expect(
+      shouldRepathChase({
+        path: [
+          { x: 0, y: 0 },
+          { x: 50, y: 0 },
+          { x: 80, y: 0 }, // 30 px from target at 110,0 — within range slack but far enough to need repath
+        ],
+        pathStep: 1,
+        timeSinceRecalc: CHASE_REPATH_FAR_MS,
+        targetMoved: 0,
+        distToTarget: 70, // outside 40 range
+        range: 40,
+      }),
+    ).toBe(true);
+  });
+
+  it('does not repath when final approach is within a few pixels of range even after far interval', () => {
+    expect(
+      shouldRepathChase({
+        path: [
+          { x: 0, y: 0 },
+          { x: 50, y: 0 },
+          { x: 70, y: 0 }, // 20 px from target at 90,0
+        ],
+        pathStep: 1,
+        timeSinceRecalc: CHASE_REPATH_FAR_MS,
+        targetMoved: 0,
+        distToTarget: 45, // only 5 past range, final approach guard keeps path alive
         range: 40,
       }),
     ).toBe(false);

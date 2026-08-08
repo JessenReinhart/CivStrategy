@@ -149,11 +149,19 @@ export class VillagerSystem {
 
     private startWorking(villager: VillagerData): void {
         const bld = villager.jobBuilding;
-        if (!bld) { villager.state = UnitState.IDLE; return; }
+        if (!bld) { this.clearJobBuilding(villager); villager.state = UnitState.IDLE; return; }
 
         const def = (bld as Phaser.GameObjects.Image).getData('def') as { type: BuildingType } | undefined;
-        if (!def) { villager.state = UnitState.IDLE; return; }
-
+        // Gold mine resource nodes have no building def — route directly to gold loop
+        if (!def && (bld as Phaser.GameObjects.Image).getData('isGoldMine')) {
+            this.beginGoldLoop(villager);
+            return;
+        }
+        if (!def) { this.clearJobBuilding(villager); villager.state = UnitState.IDLE; return; }
+        if (def.type === BuildingType.TOWN_CENTER) {
+            this.beginGoldLoop(villager);
+            return;
+        }
         switch (def.type) {
             case BuildingType.LUMBER_CAMP:
                 this.beginLumberLoop(villager);
@@ -162,13 +170,11 @@ export class VillagerSystem {
                 this.beginFarmLoop(villager);
                 break;
             case BuildingType.HUNTERS_LODGE:
-                // Passive income only — no carry loop
-                villager.state = UnitState.IDLE;
-                break;
-            case BuildingType.TOWN_CENTER:
-                this.beginGoldLoop(villager);
+                // Passive income remains assigned; worker is considered working.
+                villager.state = UnitState.WORKING;
                 break;
             default:
+                this.clearJobBuilding(villager);
                 villager.state = UnitState.IDLE;
         }
     }
@@ -179,7 +185,7 @@ export class VillagerSystem {
 
     private beginLumberLoop(villager: VillagerData): void {
         const tree = this.findNearestTree(villager.x, villager.y);
-        if (!tree) { villager.state = UnitState.IDLE; return; }
+        if (!tree) { this.clearJobBuilding(villager); villager.state = UnitState.IDLE; return; }
 
         villager.targetResource = tree;
         villager.carryType = 'wood';
@@ -206,7 +212,7 @@ export class VillagerSystem {
 
     private beginGoldLoop(villager: VillagerData): void {
         const mine = this.findNearestGoldMine(villager.x, villager.y);
-        if (!mine) { villager.state = UnitState.IDLE; return; }
+        if (!mine) { this.clearJobBuilding(villager); villager.state = UnitState.IDLE; return; }
 
         villager.targetResource = mine;
         villager.carryType = 'gold';
@@ -228,6 +234,7 @@ export class VillagerSystem {
                 // Tree gone — find another or go idle
                 const next = this.findNearestTree(villager.x, villager.y);
                 if (!next) {
+                    this.clearJobBuilding(villager);
                     villager.state = UnitState.IDLE;
                     this.removeCarryVisual(villager);
                     return;
@@ -245,6 +252,7 @@ export class VillagerSystem {
                 (mine as Phaser.GameObjects.Image).getData('isDepleted')) {
                 const next = this.findNearestGoldMine(villager.x, villager.y);
                 if (!next) {
+                    this.clearJobBuilding(villager);
                     villager.state = UnitState.IDLE;
                     this.removeCarryVisual(villager);
                     return;
@@ -329,20 +337,17 @@ export class VillagerSystem {
         villager.gatherTimer = 0;
         this.removeCarryVisual(villager);
 
-        // Restart gathering cycle based on building type
         const bld = villager.jobBuilding;
-        if (bld) {
-            const def = (bld as Phaser.GameObjects.Image).getData('def') as { type: BuildingType } | undefined;
-            if (def?.type === BuildingType.LUMBER_CAMP) {
-                this.beginLumberLoop(villager);
-            } else if (def?.type === BuildingType.FARM) {
-                this.beginFarmLoop(villager);
-            } else if (def?.type === BuildingType.TOWN_CENTER) {
-                this.beginGoldLoop(villager);
-            } else {
-                villager.carryType = null;
-                villager.state = UnitState.IDLE;
-            }
+        if (!bld) { villager.carryType = null; villager.state = UnitState.IDLE; return; }
+
+        const def = (bld as Phaser.GameObjects.Image).getData('def') as { type: BuildingType } | undefined;
+        if (!def) { this.clearJobBuilding(villager); villager.carryType = null; villager.state = UnitState.IDLE; return; }
+        if (def?.type === BuildingType.LUMBER_CAMP) {
+            this.beginLumberLoop(villager);
+        } else if (def?.type === BuildingType.FARM) {
+            this.beginFarmLoop(villager);
+        } else if (def?.type === BuildingType.TOWN_CENTER) {
+            this.beginGoldLoop(villager);
         } else {
             villager.carryType = null;
             villager.state = UnitState.IDLE;
@@ -439,10 +444,19 @@ export class VillagerSystem {
     // ──────────────────────────────────────────────────────────────────────
     //  PUBLIC API
     // ──────────────────────────────────────────────────────────────────────
+    // Clear any previous building assignment to avoid stale reservations
+    private clearJobBuilding(villager: VillagerData): void {
+        if (villager.jobBuilding) {
+            villager.jobBuilding.setData('assignedWorker', undefined);
+            villager.jobBuilding = undefined;
+        }
+    }
 
     public assignJob(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
+        this.clearJobBuilding(villager);
         villager.state = UnitState.MOVING_TO_WORK;
         villager.jobBuilding = building;
+        building.setData('assignedWorker', villager);
         this.pathToBuilding(villager, building);
     }
 
@@ -462,6 +476,7 @@ export class VillagerSystem {
     }
 
     public destroyVillager(villager: VillagerData): void {
+        this.clearJobBuilding(villager);
         this.removeCarryVisual(villager);
 
         const index = this.villagers.indexOf(villager);
@@ -479,6 +494,7 @@ export class VillagerSystem {
     }
 
     public sendToRallyPoint(villager: VillagerData, rallyX: number, rallyY: number): void {
+        this.clearJobBuilding(villager);
         villager.state = UnitState.MOVING_TO_RALLY;
         this.pathTo(villager, rallyX, rallyY);
     }

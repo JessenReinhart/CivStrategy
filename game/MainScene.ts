@@ -247,14 +247,19 @@ export class MainScene extends Phaser.Scene {
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     this.peacefulMode = data.peacefulMode === true;
     this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
-    this.stressTestConfig = data.stressTestConfig || null;
     // URL param auto-trigger: ?stress=500 or ?stress=1000 for headless testing
+    // Optional: ?enableEnemies=true to enable combat in stress mode
     if (!this.stressTestConfig && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const stressCount = parseInt(params.get('stress') || '0', 10);
+      const enableEnemies = params.get('enableEnemies') === 'true';
       if (stressCount > 0) {
-        this.stressTestConfig = { unitCount: stressCount, enableEnemies: false };
+        this.stressTestConfig = { unitCount: stressCount, enableEnemies };
       }
+    }
+    // Stress test with combat: override peaceful mode to ensure enemies fight
+    if (this.stressTestConfig && this.stressTestConfig.enableEnemies) {
+      this.peacefulMode = false;
     }
 
     // Pick a random enemy faction that is NOT the player's faction
@@ -283,6 +288,9 @@ export class MainScene extends Phaser.Scene {
     this.nextAge = null;
     this.gameResult = GameResult.PLAYING;
     this.lastWinLoseCheckTime = 0;
+    this.dominanceProgress = 0;
+    this.playerTerritoryPercent = 0;
+    this.victoryType = VictoryType.CONQUEST;
 
     // Map seed: 0 = random, any other value = deterministic
     this.mapSeed = data.mapSeed ?? DEFAULT_MAP_SEED;
@@ -833,7 +841,9 @@ export class MainScene extends Phaser.Scene {
 
     // --- STRESS TEST SETUP ---
     if (this.stressTestConfig) {
-      // Stress benchmark renders only the unit DOT blitter; hide fullscreen fill-rate sprites.
+      const config = this.stressTestConfig;
+      const peacefulStress = !config.enableEnemies;
+      // Hide environment to reduce fill-rate (applies to both peaceful and combat stress)
       this.waterAnimationEnabled = false;
       this.atmosphericSystem.setPostFXEnabled(false);
       if (this.terrainSystem.visualSprite) {
@@ -843,10 +853,12 @@ export class MainScene extends Phaser.Scene {
       this.waterDepthSprite?.setVisible(false);
       this.waterWaveSprite?.setVisible(false);
       this.setupStressTest();
-      // Detach every static/hidden child from the render layer; retain only the batched DOT path.
-      const stressDot = this.squadSystem.lodDotBlitter;
-      this.worldLayer.removeAll(false);
-      this.worldLayer.add(stressDot);
+      // Detach static fill-rate sprites; combat stress keeps unit visuals in worldLayer.
+      if (peacefulStress) {
+        const stressDot = this.squadSystem.lodDotBlitter;
+        this.worldLayer.removeAll(false);
+        this.worldLayer.add(stressDot);
+      }
     }
 
     // --- UI CAMERA SETUP (Must be done AFTER systems init) ---
@@ -879,7 +891,9 @@ export class MainScene extends Phaser.Scene {
     // Listen for research requests from React UI
     this.game.events.on(EVENTS.START_RESEARCH, (techId: TechId) => {
       const def = TECH_DEFS[techId];
-      if (def) this.researchManager.tryStart(0, techId, this.currentAge, def.hostBuildingTypes[0]);
+      if (def && this.researchManager.tryStart(0, techId, this.currentAge, def.hostBuildingTypes[0])) {
+        this.economySystem.updateStats();
+      }
     });
     // Listen for research completion — notify player
     this.events.on(EVENTS.RESEARCH_COMPLETED, (data: { playerId: number; techId: TechId }) => {
@@ -888,6 +902,10 @@ export class MainScene extends Phaser.Scene {
       if (data.playerId === 0) {
         const cam = this.cameras.main;
         this.proceduralSound.playResearchComplete(cam.scrollX + cam.width / 2, cam.scrollY + cam.height / 2);
+      }
+      // Immediately update GameStats to ensure React UI reflects completed research
+      if (this.economySystem) {
+        this.economySystem.updateStats();
       }
     });
     // Listen for season changes — update visuals, sound, and feedback
@@ -938,12 +956,19 @@ export class MainScene extends Phaser.Scene {
       clearPendingLoad();
       const save = loadFromLocalStorage();
       if (save) {
-        // Delay to let terrain/visuals finish settling
+        // Delay to let terrain/visuals finish settling, then load and mark ready
         this.time.delayedCall(500, () => {
           deserializeGame(this, save);
           this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+          this.isReady = true;
         });
+      } else {
+        // Save was cleared or corrupt; fall through to normal game
+        this.isReady = true;
       }
+    } else {
+      // Normal game: no pending load, ready immediately after setup
+      this.isReady = true;
     }
     this.proceduralSound.startAmbientWind();
 
@@ -960,6 +985,7 @@ export class MainScene extends Phaser.Scene {
   }
 
 
+  public isReady = false;
   private lastTcIndex = -1;
 
   public centerCameraOnTownCenter() {
@@ -986,14 +1012,19 @@ export class MainScene extends Phaser.Scene {
     if (this.gameResult !== GameResult.PLAYING) return;
 
     // WIN: AI Town Center destroyed (owner=1 TC missing or dead)
-    const aiTC = this.buildings.getChildren().find(
-      (b: any) => b.getData('owner') === 1 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
-    );
-    if (!aiTC) {
-      this.victoryType = VictoryType.CONQUEST;
-      this.gameResult = GameResult.WON;
-      this.feedbackSystem.addNotification('🏆 Victory! The enemy falls!', 'success', 30000);
-      return;
+    // Skip conquest win if AI is disabled or in peaceful mode
+    if (!this.aiDisabled && !this.peacefulMode) {
+      const aiTC = this.buildings.getChildren().find(
+        (b: any) => b.getData('owner') === 1 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
+      );
+      if (!aiTC) {
+        this.victoryType = VictoryType.CONQUEST;
+        this.dominanceProgress = 0;
+        this.playerTerritoryPercent = 0;
+        this.gameResult = GameResult.WON;
+        this.feedbackSystem.addNotification('🏆 Victory! The enemy falls!', 'success', 30000);
+        return;
+      }
     }
 
     // LOSE: Player Town Center destroyed
@@ -1001,6 +1032,8 @@ export class MainScene extends Phaser.Scene {
       (b: any) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
     );
     if (!playerTC) {
+      this.dominanceProgress = 0;
+      this.playerTerritoryPercent = 0;
       this.gameResult = GameResult.LOST;
       this.events.emit(EVENTS.GAME_OVER, GameResult.LOST);
       this.feedbackSystem.addNotification('💀 Defeat... Your civilization falls.', 'danger', 30000);
@@ -1490,7 +1523,7 @@ export class MainScene extends Phaser.Scene {
 
     // Player units (owner=0) on the left side
     const pCols = Math.ceil(Math.sqrt(playerCount));
-    const pStartX = (centerX - 200) - (pCols * spacing) / 2;
+    const pStartX = (centerX - 130) - (pCols * spacing) / 2;
     const pStartY = centerY - (pCols * spacing) / 2;
     let spawned = 0;
     for (let i = 0; i < pCols; i++) {
@@ -1514,7 +1547,7 @@ export class MainScene extends Phaser.Scene {
       this.mapGenerationSystem.spawnStartingGoldMines(centerX + 400, centerY - 50);
 
       const eCols = Math.ceil(Math.sqrt(enemyCount));
-      const eStartX = (centerX + 200) - (eCols * spacing) / 2;
+      const eStartX = (centerX + 130) - (eCols * spacing) / 2;
       const eStartY = centerY - (eCols * spacing) / 2;
       let eSpawned = 0;
       for (let i = 0; i < eCols; i++) {
@@ -1549,6 +1582,10 @@ export class MainScene extends Phaser.Scene {
         if (closestTarget) {
           this.unitSystem.commandAttack(enemyUnits, closestTarget);
         }
+        const closestEnemy = enemyUnits[0] ?? null;
+        if (closestEnemy) {
+          this.unitSystem.commandAttack(playerUnits, closestEnemy);
+        }
       }
 
       this.feedbackSystem.showFloatingText(
@@ -1558,30 +1595,29 @@ export class MainScene extends Phaser.Scene {
         '#ef4444'
       );
     }
-    // Keep squad containers eligible for the batched DOT renderer. The per-unit
-    // visual and base Arc remain hidden so stress profiling measures one draw path.
-    for (const unit of this.units.getChildren() as Phaser.GameObjects.GameObject[]) {
-      const container = unit.getData('squadContainer');
-      if (container) {
-        container.setVisible(true);
+    // Peaceful stress: hide visuals and disable physics for stationary units.
+    // Combat stress: keep physics + visuals enabled so liquid combat runs.
+    const peacefulStress = !enableEnemies;
+    if (peacefulStress) {
+      for (const unit of this.units.getChildren() as Phaser.GameObjects.GameObject[]) {
+        const container = unit.getData('squadContainer');
+        if (container) {
+          container.setVisible(true);
+        }
+        const unitVisual = (unit as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+        if (unitVisual) {
+          unitVisual.setVisible(false);
+        }
+        const body = (unit as Phaser.GameObjects.Arc).body as Phaser.Physics.Arcade.Body | undefined;
+        if (body) {
+          body.enable = false;
+          body.checkCollision.none = true;
+        }
+        (unit as Phaser.GameObjects.Arc).setVisible(false);
       }
-      // Also hide the per-unit visual container (hpBar + selection ring)
-      const unitVisual = (unit as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (unitVisual) {
-        unitVisual.setVisible(false);
-      }
-      // Stationary stress units: disable physics bodies (removes collision/traversal cost)
-      const body = (unit as Phaser.GameObjects.Arc).body as Phaser.Physics.Arcade.Body | undefined;
-      if (body) {
-        body.enable = false;
-        body.checkCollision.none = true;
-      }
-      // Hide the base unit circle (alpha=0 but still rendered by Phaser)
-      (unit as Phaser.GameObjects.Arc).setVisible(false);
     }
-    // Pre-allocate stress DOT bobs for every STRESS_RENDER_INTERVAL-th unit.
-    // All 5k units remain active and moving; visual density is capped to reduce GPU draw calls.
-    if (this.stressTestConfig) {
+    // Pre-allocate stress DOT bobs ONLY for peaceful stress — combat stress uses full rendering.
+    if (peacefulStress) {
       const blitter = this.squadSystem.lodDotBlitter;
       const stressUnits = this.units.getChildren() as GameUnit[];
       for (let i = 0; i < stressUnits.length; i++) {

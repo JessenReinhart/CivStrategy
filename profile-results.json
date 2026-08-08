@@ -1,58 +1,58 @@
 {
-  "timestamp": 1786073201439,
-  "url": "http://localhost:5173/?stress=5000",
-  "units": 5000,
-  "warmupMs": 5000,
-  "durationMs": 20022,
-  "sampleCount": 640,
-  "p50FrameMs": 3.7,
-  "p95FrameMs": 5.4,
-  "minFrameMs": 2,
-  "avgFps": 273.82,
-  "minFps": 66.67,
-  "maxFps": 500,
+  "timestamp": 1786133113347,
+  "url": "http://localhost:5173/?stress=300&enableEnemies=true",
+  "units": 300,
+  "warmupMs": 8000,
+  "durationMs": 20064,
+  "sampleCount": 1141,
+  "p50FrameMs": 9.8,
+  "p95FrameMs": 15.2,
+  "minFrameMs": 6.2,
+  "avgFps": 101.69,
+  "minFps": 30.67,
+  "maxFps": 161.29,
   "topHogs": [
     {
       "name": "unitSystem",
-      "ms": 0.28,
-      "pct": 7.25
+      "ms": 1.78,
+      "pct": 15.83
+    },
+    {
+      "name": "liquidCombat",
+      "ms": 0.22,
+      "pct": 2.19
     },
     {
       "name": "squadSystem",
-      "ms": 0.2,
-      "pct": 5.45
+      "ms": 0.1,
+      "pct": 1
     },
     {
       "name": "atmosphericSystem",
       "ms": 0.1,
-      "pct": 2.84
+      "pct": 1.04
     },
     {
       "name": "proceduralSound",
       "ms": 0.1,
-      "pct": 2.61
+      "pct": 0.95
     },
     {
       "name": "squadSyncPositions",
       "ms": 0.1,
-      "pct": 2.98
+      "pct": 0.96
     },
     {
-      "name": "animalSystem",
+      "name": "villagerSystem",
       "ms": 0.1,
-      "pct": 2.51
+      "pct": 0.99
     },
     {
       "name": "feedbackSystem",
       "ms": 0.1,
-      "pct": 2.58
-    },
-    {
-      "name": "villagerSystem",
-      "ms": 0.09,
-      "pct": 2.33
+      "pct": 1.05
     }
   ],
-  "pass": true,
-  "note": "meets 60 FPS target"
+  "pass": false,
+  "note": "min FPS 30.67 < 60"
 }
