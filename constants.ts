@@ -849,3 +849,17 @@ export const RAM_VS_WALL_MULTIPLIER = 3.0;        // Rams deal 3x damage to wall
 export const CASTLE_GARRISON_RANGE = 200;          // Garrisoned units fire at enemies within this range
 export const CASTLE_GARRISON_FIRE_INTERVAL = 3000; // ms between garrison volleys
 export const CASTLE_GARRISON_DAMAGE_PER_UNIT = 3;  // damage per garrisoned unit per volley
+
+// ─── Soldier-Level Combat (Total War-style melee) ──────────────────────
+/** Max soldiers per squad that actually engage an enemy in melee (front-rank lock). */
+export const MAX_ATTACKERS = 3;
+/** Separation radius scale for combat-mode soldiers (boid spacing → dempet). */
+export const SEP_COMBAT = 0.5;
+/** Charge impulse applied to a soldier on first contact with an enemy (px/s). */
+export const CHARGE_IMPULSE = 180;
+/** Charge impulse duration (ms) — how long the soldier keeps the boost. */
+export const CHARGE_IMPULSE_DURATION_MS = 250;
+/** Distance from squad center at which a soldier is considered "front rank". */
+export const FRONT_RANK_RADIUS = 24;
+/** Crowd-push scale: rear ranks push their slot forward through the front line. */
+export const CROWD_PUSH_SCALE = 0.6;

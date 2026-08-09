@@ -196,6 +196,14 @@ export enum UnitState {
   ATTACKING = 'attacking'
 }
 
+/** Per-soldier steering mode within a squad. */
+export enum SoldierSteeringMode {
+  /** Soldier follows formation slot strictly. */
+  FORMATION = 'formation',
+  /** Soldier engages in melee: 1v1 lock, flank wrap, charge impulse. */
+  COMBAT = 'combat'
+}
+
 export interface UnitStats {
   maxHp: number;
   attack: number;

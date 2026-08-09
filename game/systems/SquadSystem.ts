@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, FormationType, UnitState, GameUnit } from '../../types';
+import { UnitType, FormationType, UnitState, GameUnit, SoldierSteeringMode } from '../../types';
 import { UNIT_STATS, STRESS_RENDER_INTERVAL } from '../../constants';
 import { toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
@@ -60,6 +60,12 @@ interface SoldierState {
     y: number;
     z: number;
     offset: { x: number; y: number };
+    /** Steering mode: formation slot vs combat melee. */
+    mode?: SoldierSteeringMode;
+    /** Charge impulse timer (ms remaining). */
+    chargeTimer?: number;
+    /** Crowd-push weight from rear ranks. */
+    crowdPush?: number;
 }
 
 export class SquadSystem {
@@ -185,7 +191,10 @@ export class SquadSystem {
                 x: u.x,
                 y: u.y,
                 z: 0,
-                offset: { x: 0, y: 0 }
+                offset: { x: 0, y: 0 },
+                mode: SoldierSteeringMode.FORMATION,
+                chargeTimer: 0,
+                crowdPush: 0
             });
         }
         unit.setData('soldierStates', soldiers);
@@ -711,6 +720,44 @@ export class SquadSystem {
         for (let i = 0; i < count; i++) {
             if (i < offsets.length) {
                 soldiers[i].offset = { x: offsets[i].x, y: offsets[i].y };
+            }
+        }
+    }
+
+    /**
+     * Update per-soldier steering mode based on combat state and front rank.
+     */
+    public updateSoldierModes(unit: GameUnit): void {
+        const soldiers = unit.getData('soldierStates') as SoldierState[];
+        if (!soldiers) return;
+        const target = unit.target as Phaser.GameObjects.Image | null;
+        if (!target) {
+            // No target – all soldiers stay in formation mode.
+            for (const s of soldiers) s.mode = SoldierSteeringMode.FORMATION;
+            return;
+        }
+        const dirX = target.x - unit.x;
+        const dirY = target.y - unit.y;
+        const len = Math.hypot(dirX, dirY);
+        const normX = len > 0 ? dirX / len : 0;
+        const normY = len > 0 ? dirY / len : 0;
+
+        for (const s of soldiers) {
+            // Rotate soldier offset into world space
+            const cos = Math.cos(unit.getData('formationAngle') || 0);
+            const sin = Math.sin(unit.getData('formationAngle') || 0);
+            const wx = s.offset.x * cos - s.offset.y * sin;
+            const wy = s.offset.x * sin + s.offset.y * cos;
+            const dot = wx * normX + wy * normY;
+            const dist = Math.hypot(wx, wy);
+            if (dot > 0 && dist < FRONT_RANK_RADIUS) {
+                s.mode = SoldierSteeringMode.COMBAT;
+                s.crowdPush = 0;
+            } else {
+                s.mode = SoldierSteeringMode.FORMATION;
+                // Crowd-push weight: rear ranks push forward through front line
+                const push = Math.max(0, FRONT_RANK_RADIUS - dist) * CROWD_PUSH_SCALE;
+                s.crowdPush = push;
             }
         }
     }

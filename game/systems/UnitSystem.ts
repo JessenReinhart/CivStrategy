@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER } from '../../constants';
+import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, MAX_ATTACKERS, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 import {
@@ -257,15 +257,10 @@ export class UnitSystem {
         const queryRadius = 20;
         const spatialHash = this.scene.unitSpatialHash;
         
-        if (spatialHash) {
+if (spatialHash) {
             for (const unit of units) {
-                // Fix 2: Skip separation for units following flow fields.
-                // Flow field crowd steering naturally handles spacing via the combined
-                // flow direction + direct bias blended steering. Separation would fight
-                // the flow field and creates massive O(k×n) overhead for packed armies.
+                // Skip flow field units — crowd steering handles spacing
                 if (unit.flowTarget) continue;
-                // Skip combat units: separation fights liquid steering + chase velocity
-                if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) continue;
 
                 const body = unit.body as Phaser.Physics.Arcade.Body;
                 if (!body || (body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y) < 1) continue;
@@ -281,7 +276,11 @@ export class UnitSystem {
                     const distSq = dx * dx + dy * dy;
                     if (distSq < 324 && distSq > 0.0001) {
                         const dist = Math.sqrt(distSq);
-                        const force = (18 - dist) * 0.8;
+                        // Combat units use reduced separation (SEP_COMBAT) so they cluster/dempet
+                        // instead of maintaining boid spacing. Front-rank lock & flank wrap rely on this.
+                        const isCombat = unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING;
+                        const sepScale = isCombat ? SEP_COMBAT : 1.0;
+                        const force = (18 - dist) * 0.8 * sepScale;
                         const nx = dx / dist;
                         const ny = dy / dist;
                         body.velocity.x += nx * force;
@@ -307,7 +306,9 @@ export class UnitSystem {
                     const distSq = dx * dx + dy * dy;
                     if (distSq < 324 && distSq > 0.0001) {
                         const dist = Math.sqrt(distSq);
-                        const force = (18 - dist) * 0.8;
+                        const isCombat = unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING;
+                        const sepScale = isCombat ? SEP_COMBAT : 1.0;
+                        const force = (18 - dist) * 0.8 * sepScale;
                         const nx = dx / dist;
                         const ny = dy / dist;
                         body.velocity.x += nx * force;
@@ -319,6 +320,45 @@ export class UnitSystem {
             }
         }
     }
+    /**
+    }
+    /**
+     * Get front-rank soldiers (up to MAX_ATTACKERS) for a given target.
+     * Queries SpatialHash for same-owner CHASING/ATTACKING units near the target.
+     * Returns array sorted by distance to target (closest = front rank).
+     */
+    private getFrontRankSoldiers(target: Phaser.GameObjects.Image): Phaser.GameObjects.GameObject[] {
+        const spatialHash = this.scene.unitSpatialHash;
+        if (!spatialHash) return [];
+
+        // Query same-owner CHASING/ATTACKING units within reasonable range
+        const owner = target.getData('owner') as number;
+        const range = 300; // px for front rank detection
+
+        const candidates = spatialHash.query(target.x, target.y, range);
+        const frontRank: Phaser.GameObjects.GameObject[] = [];
+
+        for (const unit of candidates) {
+            if (unit === target) continue;
+            const uOwner = unit.getData('owner') as number;
+            if (uOwner !== owner) continue;
+            const state = unit.getData('state') as string;
+            if (state === UnitState.CHASING || state === UnitState.ATTACKING) {
+                frontRank.push(unit);
+            }
+        }
+
+        // Sort by distance to target (front first)
+        frontRank.sort((a, b) => {
+            const da = Phaser.Math.Distance.Between(a.x, a.y, target.x, target.y);
+            const db = Phaser.Math.Distance.Between(b.x, b.y, target.x, target.y);
+            return da - db;
+        });
+
+        return frontRank.slice(0, MAX_ATTACKERS);
+    }
+
+
     // ─── Liquid Combat Steering ───────────────────────────────────────────
     /**
      * Apply fluid combat forces to a single unit: pressure + contact-line + velocity alignment.
@@ -936,8 +976,19 @@ export class UnitSystem {
 
         if (effectiveDist <= range) {
             body.setVelocity(0, 0);
+            const wasChasing = unit.state === UnitState.CHASING;
             unit.state = UnitState.ATTACKING;
             unit.path = null;
+
+            // Charge impulse on first contact: give a forward velocity boost
+            if (wasChasing) {
+                const chargeDirX = -dx / rawDist;
+                const chargeDirY = -dy / rawDist;
+                body.velocity.x += chargeDirX * CHARGE_IMPULSE;
+                body.velocity.y += chargeDirY * CHARGE_IMPULSE;
+                // Store charge timer on squad soldiers for visual effect
+                unit.setData('chargeTimer', CHARGE_IMPULSE_DURATION_MS);
+            }
 
             const now = time;
             const last = unit.lastAttackTime || 0;
