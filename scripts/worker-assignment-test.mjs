@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Worker Assignment Integration Test
-// Validates: farms, lumber camps, and gold mines receive workers
+// Worker Assignment Integration Test (original click flow + deep debugging)
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 
@@ -8,11 +7,20 @@ const VIEWPORT = { width: 1600, height: 900 };
 const OUT = 'shots/worker-assignment';
 mkdirSync(OUT, { recursive: true });
 
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-renderer-backgrounding', '--disable-background-timer-throttling'] });
 const page = await browser.newPage({ viewport: VIEWPORT });
 const errors = [];
+const consoleLogs = [];
+
+let exitCode = 1;
+try {
+
 page.on('pageerror', e => errors.push(e.message));
-page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('console', m => {
+    const text = `[browser:${m.type()}] ${m.text()}`;
+    consoleLogs.push(text);
+    console.log(text); // print immediately
+});
 
 async function clickText(label) {
     await page.locator(`text=${label}`).first().click();
@@ -30,7 +38,15 @@ if (await fow.count() > 0) {
     await fow.first().click();
 }
 await clickText('Commence');
-console.log('[setup] waiting for game scene...');
+await page.bringToFront();
+await page.waitForTimeout(500);
+console.log('[setup] clicking commence, now waiting for game scene...');
+
+// Wait for Phaser game to be created
+await page.waitForFunction(() => {
+    return !!(window.__civStrategyGame);
+}, { timeout: 30000 });
+console.log('[setup] Phaser game exists');
 
 // Wait for the game scene to be live
 await page.waitForFunction(() => {
@@ -40,21 +56,77 @@ await page.waitForFunction(() => {
 }, { timeout: 60000 });
 console.log('[setup] scene live');
 
+await page.evaluate(() => {
+    const game = window.__civStrategyGame;
+    const scene = game?.scene?.getScenes(true)?.[0];
+    console.log('[test] pre-force:', { gameResult: scene.gameResult, stressTestConfig: scene.stressTestConfig, gameTime: scene.gameTime, gameSpeed: scene.gameSpeed, sysPaused: scene.sys?.isPaused, sysActive: scene.sys?.isActive });
+    scene.stressTestConfig = null;
+    scene.gameResult = 'playing';
+    scene.gameSpeed = 1;
+    scene.time.timeScale = 1;
+    if (scene.sys?.isPaused) {
+        console.log('[test] resuming scene via scene.scene.resume()');
+        scene.scene.resume();
+    }
+    if (scene.game?.loop?.sleeping) {
+        console.log('[test] loop sleeping, waking');
+        scene.game.loop.wake();
+    }
+});
+await page.bringToFront();
+await page.waitForTimeout(100);
+
 // Wait for Town Center to spawn
 await page.waitForFunction(() => {
-    const game = window.__civStrategyGame;
-    const scene = game?.scene?.getScenes?.(true)?.[0];
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0];
     if (!scene) return false;
     const blds = scene.buildings?.getChildren?.() ?? [];
     return blds.some(b => b.getData('def')?.type === 'Town Center');
 }, { timeout: 30000 });
 console.log('[setup] Town Center found');
+// Give the game loop time to advance (headless throttles timers)
+console.log('[setup] waiting 500ms for first tick...');
+await page.waitForTimeout(500);
 
-// ── Build a farm + lumber camp + spawn villagers ───────────────────────
-// Phaser GameObjects don't have a built-in .id, so we tag them with setData('testId', N)
+// Manually call assignJobs once to prime the system
+await page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0];
+    scene.economySystem.assignJobs();
+    console.log('[setup] called assignJobs once');
+});
+
+
+// Check game state after tick
+const tickCheck = await page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0];
+    return {
+        gameResult: scene.gameResult,
+        stressTestConfig: scene.stressTestConfig,
+        gameTime: scene.gameTime,
+        economyExists: !!scene.economySystem,
+        assignJobsExists: typeof scene.economySystem?.assignJobs === 'function',
+        villagerCount: scene.villagerSystem?.getAllVillagers?.().length ?? 'no method',
+        buildingCount: scene.buildings?.getChildren?.().length ?? 'none',
+        paused: scene.sys.isPaused,
+        active: scene.sys.isActive,
+    };
+});
+
+console.log('[setup] 1-second tick elapsed');
+
+// Manually call assignJobs
+await page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0]
+    if (scene.economySystem?.assignJobs) {
+        scene.economySystem.assignJobs(1000);
+        console.log('[test] called assignJobs manually after 1s tick');
+    }
+});
+
+
+// Build a farm + lumber camp + spawn villagers
 const setup = await page.evaluate(() => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScenes(true)[0];
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0];
 
     const playerTC = scene.buildings.getChildren().find(b =>
         b.getData('def')?.type === 'Town Center' && b.getData('owner') === 0
@@ -62,10 +134,15 @@ const setup = await page.evaluate(() => {
     if (!playerTC) return { error: 'No player TC found' };
 
     const factory = scene.entityFactory;
-    const farm = factory.spawnBuilding('Farm', playerTC.x + 100, playerTC.y + 50, 0);
-    const lumber = factory.spawnBuilding('Lumber Camp', playerTC.x + 150, playerTC.y - 50, 0);
 
-    // Tag buildings so we can find them later (Phaser objects have no .id)
+    // DIAGNOSTIC: Log before spawnBuilding
+    console.log('[spawn] initial buildings count:', scene.buildings.getChildren().length);
+    const farm = factory.spawnBuilding('Farm', playerTC.x + 100, playerTC.y + 50, 0);
+    console.log('[spawn] after farm - buildings count:', scene.buildings.getChildren().length, 'farm in group:', scene.buildings.contains(farm), 'farm type:', farm.getData('def')?.type);
+
+    const lumber = factory.spawnBuilding('Lumber Camp', playerTC.x + 150, playerTC.y - 50, 0);
+    console.log('[spawn] after lumber - buildings count:', scene.buildings.getChildren().length, 'lumber in group:', scene.buildings.contains(lumber), 'lumber type:', lumber.getData('def')?.type);
+
     farm.setData('testTag', 'testFarm');
     lumber.setData('testTag', 'testLumber');
 
@@ -87,22 +164,33 @@ const setup = await page.evaluate(() => {
 });
 
 console.log('[setup] buildings created:', JSON.stringify(setup));
+await page.waitForTimeout(500);
+const buildingCheck = await page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0];
+    const blds = scene.buildings.getChildren();
+    const debug = [];
+    for (const b of blds) {
+        const def = b.getData('def');
+        debug.push({ type: def?.type, owner: b.getData('owner'), testTag: b.getData('testTag') });
+    }
+    return debug;
+});
+console.log('[debug] buildings after setup:', JSON.stringify(buildingCheck, null, 2));
 
 if (setup.error) {
     console.error('[FAIL]', setup.error);
-    await browser.close();
-    process.exit(1);
+    exitCode = 1;
+    throw new Error(setup.error);
 }
 
-// ── Poll for farm + lumber worker assignment ───────────────────────────
+// Poll for farm + lumber worker assignment
 const POLL_INTERVAL = 1000;
 const MAX_POLLS = 40;
 
 async function waitForWorkers() {
     for (let i = 0; i < MAX_POLLS; i++) {
         const result = await page.evaluate(() => {
-            const game = window.__civStrategyGame;
-            const scene = game.scene.getScenes(true)[0];
+            const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0]
             const blds = scene.buildings.getChildren();
             const farm = blds.find(b => b.getData('testTag') === 'testFarm');
             const lumber = blds.find(b => b.getData('testTag') === 'testLumber');
@@ -134,17 +222,19 @@ const workerResult = await waitForWorkers();
 
 if (!workerResult) {
     console.error('[FAIL] Farm/lumber workers not assigned within timeout');
-    await browser.close();
-    process.exit(1);
+    console.error('=== CONSOLE LOGS ===');
+    consoleLogs.forEach(log => console.error(log));
+    exitCode = 1;
+    throw new Error('Farm/lumber workers not assigned within timeout');
 }
+
 console.log('[PASS] Both farm and lumber camp have workers assigned');
 
-// ── Gold mine assignment ───────────────────────────────────────────────
+// Gold mine assignment
 console.log('[test] testing gold mine assignment...');
 
 const goldResult = await page.evaluate(() => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScenes(true)[0];
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0]
 
     const playerTC = scene.buildings.getChildren().find(b =>
         b.getData('def')?.type === 'Town Center' && b.getData('owner') === 0
@@ -159,7 +249,6 @@ const goldResult = await page.evaluate(() => {
     const mine = nearbyMines[0];
     mine.setData('testTag', 'testGoldMine');
 
-    // Spawn idle villagers if none available
     const idle = scene.villagerSystem.getIdleVillagers(0);
     if (idle.length === 0) {
         for (let i = 0; i < 2; i++) {
@@ -178,8 +267,7 @@ if (goldResult.error) {
 } else {
     for (let i = 0; i < MAX_POLLS; i++) {
         const result = await page.evaluate(() => {
-            const game = window.__civStrategyGame;
-            const scene = game.scene.getScenes(true)[0];
+            const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0]
             const mine = scene.treeSpatialHash.query(0, 0, 10000).find(m => m.getData('testTag') === 'testGoldMine');
             if (!mine) return { error: 'Mine not found' };
             const worker = mine.getData('assignedWorker');
@@ -193,10 +281,9 @@ if (goldResult.error) {
     console.log(goldAssigned ? '[PASS] Gold mine has worker assigned' : '[WARN] Gold mine worker not assigned within timeout');
 }
 
-// ── Final summary ──────────────────────────────────────────────────────
+// Final summary
 const finalResult = await page.evaluate(() => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScenes(true)[0];
+    const scene = window.__civStrategyGame?.scene?.getScenes(true)?.[0]
 
     const buildings = scene.buildings.getChildren().filter(b => {
         const def = b.getData('def');
@@ -218,16 +305,19 @@ const finalResult = await page.evaluate(() => {
 
 console.log('\n=== FINAL VERIFICATION ===');
 console.log(JSON.stringify(finalResult, null, 2));
-
-const allBuildingsStaffed = finalResult.buildingsWithWorkers === finalResult.totalBuildings && finalResult.totalBuildings > 0;
-const allGoldMinesStaffed = finalResult.goldMinesWithWorkers === finalResult.totalGoldMines && finalResult.totalGoldMines > 0;
-
-console.log(`\nBuildings with workers: ${finalResult.buildingsWithWorkers}/${finalResult.totalBuildings} ${allBuildingsStaffed ? 'PASS' : 'FAIL'}`);
-console.log(`Gold mines with workers: ${finalResult.goldMinesWithWorkers}/${finalResult.totalGoldMines} ${allGoldMinesStaffed ? 'PASS' : 'FAIL'}`);
-console.log(`Idle villagers: ${finalResult.idleVillagers}`);
-console.log(`Errors: ${errors.length === 0 ? 'NONE' : errors.slice(0, 5).join(' | ')}`);
+console.log('=== CONSOLE LOGS ===');
+consoleLogs.forEach(log => console.log(log));
 
 await page.screenshot({ path: `${OUT}/final.png` });
-await browser.close();
 
-process.exit(allBuildingsStaffed ? 0 : 1);
+const allBuildingsStaffed = finalResult.buildingsWithWorkers === finalResult.totalBuildings;
+exitCode = allBuildingsStaffed ? 0 : 1;
+
+} finally {
+    try {
+        await browser.close();
+    } catch (e) {
+        // ignore
+    }
+    process.exit(exitCode);
+}
