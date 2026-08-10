@@ -707,7 +707,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                         {/* Research Panel */}
                         {showResearch && activeCategory === 'civic' && (
-                            <div className={`bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2 ${showTreeView ? 'w-[640px]' : 'w-[420px]'}`}>
+                            <div className={`bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2 overflow-hidden ${showTreeView ? 'w-[640px]' : 'w-[420px]'}`}>
                                 {/* Header with toggle */}
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-bold text-stone-100 uppercase tracking-widest flex items-center gap-2">
@@ -811,7 +811,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     const treeH = Math.max(...treeData.map(a => by(a.age === Age.VILLAGE ? 0 : a.age === Age.TOWN ? 1 : 2, a.techs.length - 1) + BH + 10));
 
                                     return (
-                                        <div className="relative" style={{ minHeight: treeH, height: treeH }}>
+                                        <div className="relative" style={{ minHeight: treeH }}>
                                             {/* Connector SVG */}
                                             {conns.length > 0 && (
                                                 <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ left: 10, top: 0, width: 'calc(100% - 10px)' }}>
@@ -865,7 +865,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                             {status === 'complete' ? <Check size={11} className="text-emerald-400 shrink-0" /> : <BookOpen size={11} className={isActive ? 'text-blue-400 shrink-0' : 'text-stone-500 shrink-0'} />}
                                                                             <span className={`text-[11px] font-bold truncate ${nameC(status)}`}>{def.name}</span>
                                                                         </div>
-                                                                        <div className={`text-[9px] mb-1.5 ${descC(status)}`}>{def.description}</div>
+                                                                        <div className={`text-[9px] mb-1.5 line-clamp-2 ${descC(status)}`}>{def.description}</div>
                                                                         {status !== 'complete' && !isActive && (
                                                                             <div className="flex items-center gap-1.5 flex-wrap">
                                                                                 {def.cost.food > 0 && <span className="flex items-center gap-0.5 text-[9px] text-stone-400"><Wheat size={8} className="text-yellow-400" />{def.cost.food}</span>}
@@ -881,7 +881,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                             </div>
                                                                         )}
                                                                         {status === 'locked' && def.prereqs.length > 0 && (
-                                                                            <div className="text-[8px] text-stone-600 mt-0.5">Requires: {def.prereqs.map(p => TECH_DEFS[p]?.name).join(', ')}</div>
+                                                                            <div className="text-[8px] text-stone-600 mt-0.5 truncate">Requires: {def.prereqs.map(p => TECH_DEFS[p]?.name).join(', ')}</div>
                                                                         )}
                                                                     </div>
                                                                 );
