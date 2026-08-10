@@ -186,13 +186,14 @@ export class EconomySystem {
                             }
                         }
                         const rallyPoint = closestBonfire;
-                        // Only move if far away
-                        if (minDistance > 100) {
+                        // Only move if far away AND no existing rally destination (prevents per-tick random reassignment)
+                        if (minDistance > 100 && !villager.rallyPoint) {
                             const angle = Math.random() * Math.PI * 2;
                             const r = Math.random() * 60 + 40;
                             const destX = rallyPoint.x + Math.cos(angle) * r;
                             const destY = rallyPoint.y + Math.sin(angle) * r;
                             this.scene.villagerSystem.sendToRallyPoint(villager, destX, destY);
+                            villager.rallyPoint = { x: destX, y: destY };
                         }
                     }
                 });

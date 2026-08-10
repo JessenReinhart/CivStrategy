@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, MAX_ATTACKERS, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
+import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 import {
@@ -262,6 +262,9 @@ if (spatialHash) {
                 // Skip flow field units — crowd steering handles spacing
                 if (unit.flowTarget) continue;
 
+                // Skip IDLE units — they should not be pushed by separation
+                if (unit.state === UnitState.IDLE) continue;
+
                 const body = unit.body as Phaser.Physics.Arcade.Body;
                 if (!body || (body.velocity.x * body.velocity.x + body.velocity.y * body.velocity.y) < 1) continue;
 
@@ -320,43 +323,6 @@ if (spatialHash) {
             }
         }
     }
-    /**
-    }
-    /**
-     * Get front-rank soldiers (up to MAX_ATTACKERS) for a given target.
-     * Queries SpatialHash for same-owner CHASING/ATTACKING units near the target.
-     * Returns array sorted by distance to target (closest = front rank).
-     */
-    private getFrontRankSoldiers(target: Phaser.GameObjects.Image): Phaser.GameObjects.GameObject[] {
-        const spatialHash = this.scene.unitSpatialHash;
-        if (!spatialHash) return [];
-
-        // Query same-owner CHASING/ATTACKING units within reasonable range
-        const owner = target.getData('owner') as number;
-        const range = 300; // px for front rank detection
-
-        const candidates = spatialHash.query(target.x, target.y, range);
-        const frontRank: Phaser.GameObjects.GameObject[] = [];
-
-        for (const unit of candidates) {
-            if (unit === target) continue;
-            const uOwner = unit.getData('owner') as number;
-            if (uOwner !== owner) continue;
-            const state = unit.getData('state') as string;
-            if (state === UnitState.CHASING || state === UnitState.ATTACKING) {
-                frontRank.push(unit);
-            }
-        }
-
-        // Sort by distance to target (front first)
-        frontRank.sort((a, b) => {
-            const da = Phaser.Math.Distance.Between(a.x, a.y, target.x, target.y);
-            const db = Phaser.Math.Distance.Between(b.x, b.y, target.x, target.y);
-            return da - db;
-        });
-
-        return frontRank.slice(0, MAX_ATTACKERS);
-    }
 
 
     // ─── Liquid Combat Steering ───────────────────────────────────────────
@@ -371,6 +337,9 @@ if (spatialHash) {
 
         // Skip civilians (villagers, animals)
         if (unit.unitType === UnitType.VILLAGER || unit.unitType === UnitType.ANIMAL) return;
+
+        // Skip IDLE units — they should not receive combat steering forces
+        if (unit.state === UnitState.IDLE) return;
 
         // Skip flow-field units — mass steering already handles spacing for them
         if (unit.flowTarget) return;
@@ -988,6 +957,22 @@ if (spatialHash) {
                 body.velocity.y += chargeDirY * CHARGE_IMPULSE;
                 // Store charge timer on squad soldiers for visual effect
                 unit.setData('chargeTimer', CHARGE_IMPULSE_DURATION_MS);
+            }
+
+            // Track attacker index on target for front-rank lock / flank wrap
+            if (target && target instanceof Phaser.GameObjects.Image) {
+                const attackerCount = (target.getData('attackerCount') as number) || 0;
+                target.setData('attackerCount', attackerCount + 1);
+                unit.setData('attackerIndex', attackerCount); // 0 = first, 1 = second, etc.
+            }
+
+            // Propagate chargeTimer to soldier states for render
+            const soldiers = unit.getData('soldierStates') as SoldierState[];
+            if (soldiers && soldiers.length > 0) {
+                const timer = unit.getData('chargeTimer') as number;
+                for (const s of soldiers) {
+                    s.chargeTimer = timer || 0;
+                }
             }
 
             const now = time;

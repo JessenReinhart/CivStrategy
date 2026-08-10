@@ -108,6 +108,7 @@ export class VillagerSystem {
                         break;
                     case UnitState.MOVING_TO_RALLY:
                         villager.state = UnitState.IDLE;
+                        villager.rallyPoint = undefined; // Arrived — allow future rally moves if pushed far away again
                         break;
                 }
                 return;

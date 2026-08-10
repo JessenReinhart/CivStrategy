@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, FormationType, UnitState, GameUnit, SoldierSteeringMode } from '../../types';
-import { UNIT_STATS, STRESS_RENDER_INTERVAL } from '../../constants';
+import { UNIT_STATS, STRESS_RENDER_INTERVAL, FRONT_RANK_RADIUS, CROWD_PUSH_SCALE, COMBAT_JITTER_AMPLITUDE, COMBAT_JITTER_PERIOD_MS, CHARGE_THRUST_RATIO, CROWD_PUSH_FORWARD_RATIO, CHARGE_TIMER_DECAY_MS, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIsoElev } from '../utils/iso';
 import { FormationSystem } from './FormationSystem';
 
@@ -409,6 +409,7 @@ export class SquadSystem {
                 if (soldiers.length > targetCount) soldiers.length = targetCount;
                 else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
             }
+            this.updateSoldierModes(unit);
             this.renderSquad(unit, soldiers, angle, isMoving, lod, commanderIso);
         }
 
@@ -511,7 +512,7 @@ export class SquadSystem {
         const step = LOD_FACTORS[lod];
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
-
+        // Position soldier sprites
         // Position soldier sprites
         for (let i = 0; i < soldiers.length; i++) {
             const soldier = soldiers[i];
@@ -535,8 +536,40 @@ export class SquadSystem {
                     deformY = mo.y;
                 }
             }
-            const baseX = soldier.offset.x + deformX;
-            const baseY = soldier.offset.y + deformY;
+
+            // Soldier-melee deformation: charge impulse, crowd-push, combat clustering
+            let meleeDeformX = 0;
+            let meleeDeformY = 0;
+            let spacingScale = 1.0;
+            const mode = soldier.mode ?? SoldierSteeringMode.FORMATION;
+            if (mode === SoldierSteeringMode.COMBAT) {
+                // Combat clustering: tighter spacing
+                spacingScale = 0.5;
+                // Charge impulse surge: forward along contact direction
+                if (soldier.chargeTimer && soldier.chargeTimer > 0) {
+                    const chargeRatio = soldier.chargeTimer / CHARGE_IMPULSE_DURATION_MS;
+                    meleeDeformX = deformX * chargeRatio * CHARGE_THRUST_RATIO;
+                    meleeDeformY = deformY * chargeRatio * CHARGE_THRUST_RATIO;
+                    soldier.chargeTimer = Math.max(0, soldier.chargeTimer - CHARGE_TIMER_DECAY_MS);
+                }
+                // Per-soldier sinusoidal jitter (chaos) – only when no external deformation
+                if (deformX === 0 && deformY === 0) {
+                    const phase = soldier.phase ?? Math.random() * Math.PI * 2;
+                    soldier.phase = phase;
+                    const jitter = Math.sin(this.scene.time.now / COMBAT_JITTER_PERIOD_MS + phase) * COMBAT_JITTER_AMPLITUDE;
+                    meleeDeformX += jitter * 0.5;
+                    meleeDeformY += jitter * 0.5;
+                }
+            } else {
+                // Formation mode: crowd-push from rear ranks
+                if (soldier.crowdPush && soldier.crowdPush > 0) {
+                    meleeDeformX = Math.cos(angle) * soldier.crowdPush * CROWD_PUSH_FORWARD_RATIO;
+                    meleeDeformY = Math.sin(angle) * soldier.crowdPush * CROWD_PUSH_FORWARD_RATIO;
+                }
+            }
+
+            const baseX = soldier.offset.x * spacingScale + deformX + meleeDeformX;
+            const baseY = soldier.offset.y * spacingScale + deformY + meleeDeformY;
             const dx = baseX * cos - baseY * sin;
             const dy = baseX * sin + baseY * cos;
             const targetX = unit.x + dx;
@@ -544,8 +577,15 @@ export class SquadSystem {
 
             // Reduce lerp iterations for distant squads
             const lerpSpeed = lod === LOD_MEDIUM ? 0.2 : (isMoving ? 0.15 : 0.1);
-            soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
-            soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
+            const distToTarget = Math.hypot(targetX - soldier.x, targetY - soldier.y);
+            if (distToTarget < 0.05 && !isMoving) {
+                // Convergence: snap to exact target so idle soldiers stop shimmering
+                soldier.x = targetX;
+                soldier.y = targetY;
+            } else {
+                soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
+                soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
+            }
 
             // Walking animation (skip for low LOD)
             if (lod === LOD_FULL && isMoving) {

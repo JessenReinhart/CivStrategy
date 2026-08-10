@@ -858,8 +858,20 @@ export const SEP_COMBAT = 0.5;
 /** Charge impulse applied to a soldier on first contact with an enemy (px/s). */
 export const CHARGE_IMPULSE = 180;
 /** Charge impulse duration (ms) — how long the soldier keeps the boost. */
-export const CHARGE_IMPULSE_DURATION_MS = 250;
+export const CHARGE_IMPULSE_DURATION_MS = 150;
 /** Distance from squad center at which a soldier is considered "front rank". */
-export const FRONT_RANK_RADIUS = 24;
+export const FRONT_RANK_RADIUS = 180;
 /** Crowd-push scale: rear ranks push their slot forward through the front line. */
-export const CROWD_PUSH_SCALE = 0.6;
+export const CROWD_PUSH_SCALE = 0.4;
+/** Combat spacing scale (soldiers cluster tighter). */
+export const COMBAT_SPACING_SCALE = 0.5;
+/** Jitter amplitude for combat chaos. */
+export const COMBAT_JITTER_AMPLITUDE = 2;
+/** Jitter frequency (ms period). */
+export const COMBAT_JITTER_PERIOD_MS = 100;
+/** Charge thrust ratio applied to deformation. */
+export const CHARGE_THRUST_RATIO = 0.3;
+/** Crowd-push forward ratio. */
+export const CROWD_PUSH_FORWARD_RATIO = 0.2;
+/** Charge timer decay per frame at 60fps (16ms). */
+export const CHARGE_TIMER_DECAY_MS = 16;

@@ -248,6 +248,7 @@ export interface VillagerData {
   carryType: 'wood' | 'food' | 'gold' | null;
   gatherTimer: number;
   targetResource?: Phaser.GameObjects.GameObject;
+  rallyPoint?: { x: number; y: number };
 }
 
 export enum AnimalSpecies {
