@@ -708,7 +708,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                         {/* Research Panel */}
                         {showResearch && activeCategory === 'civic' && (
-                            <div className={`bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2 overflow-hidden ${showTreeView ? 'w-[640px]' : 'w-[420px]'}`}>
+                                <div className={`bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2 ${showTreeView ? 'w-[640px]' : 'w-[420px] overflow-hidden'}`}>
                                 {/* Header with toggle */}
                                 <div className="flex items-center justify-between mb-3">
                                     <h3 className="text-sm font-bold text-stone-100 uppercase tracking-widest flex items-center gap-2">
@@ -768,7 +768,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     }));
 
                                     // Column positions for connector lines
-                                    const BW = 130, BH = 76, CX = 160, GY = 20;
+                                    const BW = 160, BH = 104, CX = 190, GY = 24;
                                     const bx = (ci: number) => 20 + ci * CX;
                                     const by = (_ci: number, ti: number) => 30 + ti * (BH + GY);
 
@@ -812,7 +812,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     const treeH = Math.max(...treeData.map(a => by(a.age === Age.VILLAGE ? 0 : a.age === Age.TOWN ? 1 : 2, a.techs.length - 1) + BH + 10));
 
                                     return (
-                                        <div className="relative" style={{ minHeight: treeH }}>
+                                        <div className="relative overflow-y-auto" style={{ minHeight: treeH, maxHeight: '55vh' }}>
                                             {/* Connector SVG */}
                                             {conns.length > 0 && (
                                                 <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ left: 10, top: 0, width: 'calc(100% - 10px)' }}>
@@ -855,7 +855,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                     <div
                                                                         key={def.id}
                                                                         className={`rounded-lg border p-2 transition-all ${borderC(status)} ${bgC(status)} ${cur(status)} ${isActive ? 'ring-1 ring-blue-500/50' : ''}`}
-                                                                        style={{ minHeight: BH }}
+                                                                        style={{ minHeight: BH, maxHeight: BH, overflow: 'hidden' }}
                                                                         onClick={() => {
                                                                             if (status === 'available') {
                                                                                 window.dispatchEvent(new CustomEvent('request-start-research', { detail: def.id }));
