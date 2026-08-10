@@ -39,7 +39,7 @@ export const FACTION_BONUSES: Record<string, FactionBonus> = {
   },
   [FactionType.CARTHAGE]: {
     goldPerTick: 1,
-    gatherRateMult: 1.10,
+    gatherRateMult: 1.00,
   },
 };
 
@@ -65,19 +65,19 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
     squadSize: 1, squadSpacing: 0, squadColor: 0xcccccc
   },
   [UnitType.PIKESMAN]: {
-    maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 100,
+    maxHp: 200, attack: 15, range: 40, attackSpeed: 1200, speed: 90,
     squadSize: 16, squadSpacing: 8, squadColor: 0xef4444
   },
   [UnitType.CAVALRY]: {
-    maxHp: 400, attack: 20, range: 40, attackSpeed: 1000, speed: 160,
+    maxHp: 400, attack: 20, range: 40, attackSpeed: 1200, speed: 130,
     squadSize: 6, squadSpacing: 12, squadColor: 0x8D6E63
   },
   [UnitType.LEGION]: {
     maxHp: 2000, attack: 10, range: 40, attackSpeed: 1500, speed: 70,
-    squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6 // 100 soldiers for massive feel
+    squadSize: 100, squadSpacing: 4, squadColor: 0x3b82f6
   },
   [UnitType.ARCHER]: {
-    maxHp: 150, attack: 12, range: 200, attackSpeed: 1000, speed: 90,
+    maxHp: 150, attack: 12, range: 200, attackSpeed: 1200, speed: 90,
     squadSize: 10, squadSpacing: 10, squadColor: 0x10b981
   },
   [UnitType.ANIMAL]: {
@@ -89,19 +89,19 @@ export const UNIT_STATS: Record<UnitType, UnitStats> = {
     squadSize: 8, squadSpacing: 9, squadColor: 0xa89984
   },
   [UnitType.AXEMAN]: {
-    maxHp: 250, attack: 25, range: 40, attackSpeed: 1400, speed: 85,
+    maxHp: 250, attack: 17, range: 40, attackSpeed: 1800, speed: 80,
     squadSize: 10, squadSpacing: 8, squadColor: 0xd4a373
   },
   [UnitType.HOPLITE]: {
-    maxHp: 600, attack: 22, range: 40, attackSpeed: 1100, speed: 80,
+    maxHp: 600, attack: 15, range: 40, attackSpeed: 1400, speed: 80,
     squadSize: 20, squadSpacing: 6, squadColor: 0xb8860b
   },
   [UnitType.CHARIOT]: {
-    maxHp: 500, attack: 22, range: 180, attackSpeed: 1200, speed: 180,
+    maxHp: 500, attack: 22, range: 180, attackSpeed: 1200, speed: 150,
     squadSize: 4, squadSpacing: 14, squadColor: 0xd4af37
   },
   [UnitType.RAM]: {
-    maxHp: 150, attack: 50, range: 40, attackSpeed: 2000, speed: 25,
+    maxHp: 150, attack: 40, range: 40, attackSpeed: 2000, speed: 25,
     squadSize: 1, squadSpacing: 0, squadColor: 0x8B4513
   }
 };
@@ -344,9 +344,9 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
 };
 
 export const INITIAL_RESOURCES = {
-  wood: 200,
-  food: 200,
-  gold: 100
+  wood: 250,
+  food: 300,
+  gold: 150
 };
 
 export const EVENTS = {
@@ -392,7 +392,7 @@ export const AGE_CONFIGS: Record<Age, AgeConfig> = {
     requiredBuildings: [{ type: BuildingType.BARRACKS, count: 1 }, { type: BuildingType.HOUSE, count: 1 }],
     unlocksUnits: [UnitType.ARCHER, UnitType.CAVALRY, UnitType.AXEMAN, UnitType.RAM],
     unlocksBuildings: [BuildingType.SMALL_PARK, BuildingType.MARKET],
-    advancementTime: 60000 // 60s of game time
+    advancementTime: 120000 // 2 minutes of game time (slower, cozier pacing)
   },
   [Age.CITY_STATE]: {
     name: 'City-State Age',
@@ -400,7 +400,7 @@ export const AGE_CONFIGS: Record<Age, AgeConfig> = {
     requiredBuildings: [{ type: BuildingType.BARRACKS, count: 2 }, { type: BuildingType.HOUSE, count: 3 }],
     unlocksUnits: [UnitType.LEGION, UnitType.HOPLITE, UnitType.CHARIOT],
     unlocksBuildings: [BuildingType.CATHEDRAL, BuildingType.CASTLE],
-    advancementTime: 90000 // 90s of game time
+    advancementTime: 180000 // 3 minutes of game time (slower, cozier pacing)
   }
 };
 
@@ -653,27 +653,25 @@ export const BIOME_PATH_COSTS: Record<string, number> = {
 };
 
 // ─── Spatial Economy ──────────────────────────────────────────────────
-export const VILLAGER_SPEED = 80;
-
-export const TRADE_INCOME = 2; // gold per tick when both sides have a Market and peace/treaty is active
+export const VILLAGER_SPEED = 65;
+export const TRADE_INCOME = 3; // gold per tick when both sides have a Market and peace/treaty is active
 export const CATHEDRAL_TRADE_BONUS_MULTIPLIER = 2; // Cathedral doubles trade income (2→4 gold/tick)
 export const VILLAGER_CARRY_CAPACITY: Record<string, number> = {
-  wood: 5,
-  food: 8,
-  gold: 3,
+  wood: 8, food: 10, gold: 4
 };
 
-export const VILLAGER_GATHER_RATE_MS = 2000; // ms per resource unit gathered
+
+export const VILLAGER_GATHER_RATE_MS = 2500; // ms per resource unit gathered
+export const POPULATION_FOOD_COST = 25; // food to grow one villager
 
 export const VILLAGER_BUILDING_UPKEEP: Partial<Record<BuildingType, { food?: number; gold?: number }>> = {
   [BuildingType.BARRACKS]: { gold: 2 },
   [BuildingType.HUNTERS_LODGE]: { gold: 1 },
 };
 
-export const POPULATION_FOOD_COST = 30; // food to grow one villager
 
 // ─── Gold Mine Resource Nodes ────────────────────────────────────────
-export const GOLD_MINE_RESPAWN_MS = 60000;  // 60s respawn after depletion
+export const GOLD_MINE_RESPAWN_MS = 90000;  // 90s respawn after depletion
 export const GOLD_MINE_SEARCH_RADIUS = 300; // px radius to find nearest gold mine
 export const GOLD_MINE_COUNT = 4;           // mines spawned per faction start
 
@@ -691,7 +689,7 @@ export const FARM_TERRAIN_YIELD: Record<string, number> = {
 };
 
 // ─── Seasonal Configuration ───────────────────────────────────────────
-export const SEASON_DURATION_MS = 300000; // 5 minutes real time
+export const SEASON_DURATION_MS = 480000; // 8 minutes real time
 
 export interface SeasonModifiers {
   farmFertility: number;     // multiplier on farm food production
@@ -845,7 +843,7 @@ export const AI_PERSONALITY_NAMES: Record<string, string> = {
 export const WALL_DEFENSE_BONUS = 0.4;           // 40% less damage to units near walls
 export const WALL_MELEE_PENALTY = 0.5;            // Melee attackers deal 50% damage to units behind walls
 export const WALL_PROXIMITY_RADIUS = 30;          // px — unit is "behind wall" if within this radius
-export const RAM_VS_WALL_MULTIPLIER = 3.0;        // Rams deal 3x damage to walls
+export const RAM_VS_WALL_MULTIPLIER = 2.0;        // Rams deal 2x damage to walls (was 3x)
 export const CASTLE_GARRISON_RANGE = 200;          // Garrisoned units fire at enemies within this range
 export const CASTLE_GARRISON_FIRE_INTERVAL = 3000; // ms between garrison volleys
 export const CASTLE_GARRISON_DAMAGE_PER_UNIT = 3;  // damage per garrisoned unit per volley
@@ -856,9 +854,9 @@ export const MAX_ATTACKERS = 3;
 /** Separation radius scale for combat-mode soldiers (boid spacing → dempet). */
 export const SEP_COMBAT = 0.5;
 /** Charge impulse applied to a soldier on first contact with an enemy (px/s). */
-export const CHARGE_IMPULSE = 180;
+export const CHARGE_IMPULSE = 120; // was 180, reduced for cozier combat
 /** Charge impulse duration (ms) — how long the soldier keeps the boost. */
-export const CHARGE_IMPULSE_DURATION_MS = 150;
+export const CHARGE_IMPULSE_DURATION_MS = 300; // was 150, longer decay
 /** Distance from squad center at which a soldier is considered "front rank". */
 export const FRONT_RANK_RADIUS = 180;
 /** Crowd-push scale: rear ranks push their slot forward through the front line. */

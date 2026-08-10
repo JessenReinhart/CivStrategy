@@ -302,14 +302,15 @@ export const GameUI: React.FC<GameUIProps> = ({
                     {/* Speed Controls */}
                     <div className="flex items-center bg-white/5 rounded-xl p-1 gap-0.5">
                         <button
-                            onClick={() => handleSpeedChange(Math.max(1, gameSpeed - 1))}
-                            disabled={gameSpeed <= 1}
+                            onClick={() => handleSpeedChange(Math.max(0.5, gameSpeed - 0.5))}
+                            disabled={gameSpeed <= 0.5}
                             className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                             title="Decrease speed (-)"
                         >
                             <Minus size={14} />
                         </button>
                         {[
+                            { speed: 0.5, icon: '▸', label: '0.5×' },
                             { speed: 1, icon: '▶', label: '1×' },
                             { speed: 2, icon: '▶▶', label: '2×' },
                             { speed: 3, icon: '▶▶▶', label: '3×' },
@@ -328,7 +329,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                             </button>
                         ))}
                         <button
-                            onClick={() => handleSpeedChange(Math.min(3, gameSpeed + 1))}
+                            onClick={() => handleSpeedChange(Math.min(3, gameSpeed + 0.5))}
                             disabled={gameSpeed >= 3}
                             className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                             title="Increase speed (+)"

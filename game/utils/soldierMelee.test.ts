@@ -33,12 +33,12 @@ describe('soldierMelee - pure soldier-level melee utilities', () => {
       expect(SEP_COMBAT_MULTIPLIER).toBe(0.5);
     });
 
-    it('CHARGE_IMPULSE is 180 (first contact velocity boost)', () => {
-      expect(CHARGE_IMPULSE).toBe(180);
+    it('CHARGE_IMPULSE is 120 (first contact velocity boost, cozier)', () => {
+      expect(CHARGE_IMPULSE).toBe(120);
     });
 
-    it('CHARGE_IMPULSE_DURATION_MS is 150', () => {
-      expect(CHARGE_IMPULSE_DURATION_MS).toBe(150);
+    it('CHARGE_IMPULSE_DURATION_MS is 300 (slower decay)', () => {
+      expect(CHARGE_IMPULSE_DURATION_MS).toBe(300);
     });
 
     it('FRONT_RANK_RADIUS is 180', () => {

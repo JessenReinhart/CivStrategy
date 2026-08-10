@@ -118,11 +118,11 @@ const AI_BASE_LAYOUTS: BlueprintItem[][] = [
 ];
 
 // How often (ms) each AI subsystem ticks
-const TICK_ECONOMY = 2000;
-const TICK_BUILD = 3000;
-const TICK_RECRUIT = 2000;
-const TICK_DEFENSE = 1500;
-const TICK_ATTACK = 3000;
+const TICK_ECONOMY = 4000;
+const TICK_BUILD = 6000;
+const TICK_RECRUIT = 4000;
+const TICK_DEFENSE = 3000;
+const TICK_ATTACK = 6000;
 
 export class EnemyAISystem {
     private scene: MainScene;
@@ -149,7 +149,7 @@ export class EnemyAISystem {
     private lastThreatCheck: number = 0;
     private lastAttackTick: number = 0;
     private nextAttackTime: number = 0;
-    private ATTACK_INTERVAL_BASE = 90000; // 90 seconds between waves (adjusted by personality)
+    private ATTACK_INTERVAL_BASE = 180000; // 3 minutes between waves (adjusted by personality, cozier)
     private lastTauntTime: number = 0;
 
     public buildIndex: number = 0;
@@ -187,17 +187,17 @@ export class EnemyAISystem {
             case 'aggressor':
                 this.aggressionThreshold = 4;
                 this.unitPreference = UnitType.CAVALRY;
-                this.ATTACK_INTERVAL_BASE = 60000;
+                this.ATTACK_INTERVAL_BASE = 120000;
                 break;
             case 'defender':
                 this.aggressionThreshold = 12;
                 this.unitPreference = UnitType.PIKESMAN;
-                this.ATTACK_INTERVAL_BASE = 120000;
+                this.ATTACK_INTERVAL_BASE = 240000;
                 break;
             case 'economist':
                 this.aggressionThreshold = 10;
                 this.unitPreference = UnitType.ARCHER;
-                this.ATTACK_INTERVAL_BASE = 90000;
+                this.ATTACK_INTERVAL_BASE = 180000;
                 break;
             case 'balanced':
             default:
@@ -529,7 +529,7 @@ export class EnemyAISystem {
 
         // Count existing personality bonus buildings
         const bonusBuildings = this.personalityBonusBuildings ?? 0;
-        if (bonusBuildings >= 3) return; // Cap at 3 bonus buildings
+        if (bonusBuildings >= 0) return; // Cap at 0 bonus buildings (disabled for cozier pacing)
 
         let bonusType: BuildingType | null = null;
         let dx = 0, dy = 0;
@@ -608,7 +608,7 @@ export class EnemyAISystem {
         const shouldForceRam = hasRamAvailable && militaryCount >= 6 && barracksCount >= 1;
 
         // Scale recruitment rate with resources (burst recruit when rich)
-        const recruitCount = this.resources.food > 500 ? 3 : (this.resources.food > 200 ? 2 : 1);
+        const recruitCount = 1; // steady, fair recruitment (no burst)
 
         for (let i = 0; i < recruitCount; i++) {
             const spawnX = this.baseX + Phaser.Math.Between(-50, 50);

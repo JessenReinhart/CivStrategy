@@ -277,10 +277,10 @@ export class MainScene extends Phaser.Scene {
     }
     this.resources = { ...INITIAL_RESOURCES };
     this.population = 0;
-    this.maxPopulation = 5;
+    this.maxPopulation = 8;
     this.happiness = 100;
     this.taxRate = 0;
-    this.gameSpeed = 1;
+    this.gameSpeed = 0.75;
     this.aiDisabled = data.aiDisabled === true;
     this.currentAge = Age.VILLAGE;
     this.ageProgress = 0;
@@ -1316,11 +1316,10 @@ export class MainScene extends Phaser.Scene {
 
       if (this.gameResult === GameResult.PLAYING) {
         this.accumulatedPopTime += dt;
-        if (this.accumulatedPopTime >= 5000) {
+        if (this.accumulatedPopTime >= 8000) {
           this.economySystem.tickPopulation();
-          this.accumulatedPopTime -= 5000;
+          this.accumulatedPopTime -= 8000;
         }
-
 
         // Age advancement progress ticking (player only)
         if (this.isAdvancing && this.nextAge) {
