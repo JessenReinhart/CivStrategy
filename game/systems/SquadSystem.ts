@@ -55,17 +55,15 @@ const TEXTURE_KEY_MAP: Record<string, string> = {
 
 const POOL_INITIAL_SIZE = 200;
 
-interface SoldierState {
+export interface SoldierState {
     x: number;
     y: number;
     z: number;
     offset: { x: number; y: number };
-    /** Steering mode: formation slot vs combat melee. */
     mode?: SoldierSteeringMode;
-    /** Charge impulse timer (ms remaining). */
     chargeTimer?: number;
-    /** Crowd-push weight from rear ranks. */
     crowdPush?: number;
+    phase?: number;
 }
 
 export class SquadSystem {

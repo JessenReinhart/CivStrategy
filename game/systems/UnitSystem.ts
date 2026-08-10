@@ -3,6 +3,7 @@ import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
 import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
+import { SoldierState } from './SquadSystem';
 import { FormationSystem } from './FormationSystem';
 import {
   findResumePathStep,
