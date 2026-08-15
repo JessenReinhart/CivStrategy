@@ -19,15 +19,30 @@ export class FeedbackSystem {
     private nextId = 1;
     private static readonly MAX_NOTIFICATIONS = 50;
 
-    // ── Object pools for ephemeral damage/spark effects ──────────────────
+    // ── Object pools for ephemeral damage/spark/text/impact effects ─────
     private textPool: Phaser.GameObjects.Text[] = [];
     private sparkPool: Phaser.GameObjects.Arc[] = [];
+    private floatingTextPool: Phaser.GameObjects.Text[] = [];
+    private deathRingPool: Phaser.GameObjects.Arc[] = [];
+    private deathFlashPool: Phaser.GameObjects.Arc[] = [];
+
     private activeText = 0;
     private activeSpark = 0;
+    private activeFloatingText = 0;
+    private activeDeathRing = 0;
+    private activeDeathFlash = 0;
+
     private static readonly MAX_ACTIVE_TEXT = 80;
     private static readonly MAX_ACTIVE_SPARK = 120;
+    private static readonly MAX_ACTIVE_FLOATING_TEXT = 60;
+    private static readonly MAX_ACTIVE_DEATH_RING = 40;
+    private static readonly MAX_ACTIVE_DEATH_FLASH = 40;
+
     private static readonly MAX_POOL_TEXT = 80;
     private static readonly MAX_POOL_SPARK = 120;
+    private static readonly MAX_POOL_FLOATING_TEXT = 60;
+    private static readonly MAX_POOL_DEATH_RING = 40;
+    private static readonly MAX_POOL_DEATH_FLASH = 40;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -58,7 +73,7 @@ export class FeedbackSystem {
         this.notifications = this.notifications.filter(n => now - n.timestamp < n.duration);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────
+    // ── Notification helpers ─────────────────────────────────────────────
 
     notifyResearchComplete(techName: string): void {
         this.addNotification(`Research complete: ${techName}`, 'success');
@@ -108,6 +123,8 @@ export class FeedbackSystem {
         this.addNotification(`💬 ${message}`, 'warning', 6000, personality, senderName);
     }
 
+    // ── Pool helpers ──────────────────────────────────────────────────────
+
     private acquireText(): Phaser.GameObjects.Text | null {
         if (this.activeText >= FeedbackSystem.MAX_ACTIVE_TEXT) return null;
         const text = this.textPool.pop() ?? this.scene.add.text(0, 0, '', {
@@ -139,6 +156,58 @@ export class FeedbackSystem {
         if (this.sparkPool.length < FeedbackSystem.MAX_POOL_SPARK) this.sparkPool.push(spark);
     }
 
+    private acquireFloatingText(): Phaser.GameObjects.Text | null {
+        if (this.activeFloatingText >= FeedbackSystem.MAX_ACTIVE_FLOATING_TEXT) return null;
+        const text = this.floatingTextPool.pop() ?? this.scene.add.text(0, 0, '', {
+            fontFamily: 'Arial', fontSize: '14px', stroke: '#000000', strokeThickness: 3,
+        });
+        this.activeFloatingText++;
+        text.setActive(true).setVisible(true).setAlpha(1).setScale(1);
+        return text;
+    }
+
+    private releaseFloatingText(text: Phaser.GameObjects.Text): void {
+        text.setActive(false).setVisible(false).setAlpha(0);
+        this.activeFloatingText = Math.max(0, this.activeFloatingText - 1);
+        if (this.floatingTextPool.length < FeedbackSystem.MAX_POOL_FLOATING_TEXT) {
+            this.floatingTextPool.push(text);
+        }
+    }
+
+    private acquireDeathRing(): Phaser.GameObjects.Arc | null {
+        if (this.activeDeathRing >= FeedbackSystem.MAX_ACTIVE_DEATH_RING) return null;
+        const ring = this.deathRingPool.pop() ?? this.scene.add.circle(0, 0, 8, 0xffffff, 0.6);
+        this.activeDeathRing++;
+        ring.setActive(true).setVisible(true).setAlpha(0.6).setScale(1);
+        return ring;
+    }
+
+    private releaseDeathRing(ring: Phaser.GameObjects.Arc): void {
+        ring.setActive(false).setVisible(false).setAlpha(0);
+        this.activeDeathRing = Math.max(0, this.activeDeathRing - 1);
+        if (this.deathRingPool.length < FeedbackSystem.MAX_POOL_DEATH_RING) {
+            this.deathRingPool.push(ring);
+        }
+    }
+
+    private acquireDeathFlash(): Phaser.GameObjects.Arc | null {
+        if (this.activeDeathFlash >= FeedbackSystem.MAX_ACTIVE_DEATH_FLASH) return null;
+        const flash = this.deathFlashPool.pop() ?? this.scene.add.circle(0, 0, 12, 0xffffff, 0.8);
+        this.activeDeathFlash++;
+        flash.setActive(true).setVisible(true).setAlpha(0.8).setScale(1);
+        return flash;
+    }
+
+    private releaseDeathFlash(flash: Phaser.GameObjects.Arc): void {
+        flash.setActive(false).setVisible(false).setAlpha(0);
+        this.activeDeathFlash = Math.max(0, this.activeDeathFlash - 1);
+        if (this.deathFlashPool.length < FeedbackSystem.MAX_POOL_DEATH_FLASH) {
+            this.deathFlashPool.push(flash);
+        }
+    }
+
+    // ── Damage feedback ──────────────────────────────────────────────────
+
     showDamageNumber(x: number, y: number, damage: number, damageType?: string): void {
         const iso = toIso(x, y);
         const colorMap: Record<string, string> = { Hack: '#ef4444', Pierce: '#f97316', Crush: '#fbbf24' };
@@ -162,45 +231,51 @@ export class FeedbackSystem {
         }
     }
 
-    // ── Floating text (unchanged) ───────────────────────────────────────
+    // ── Floating text ────────────────────────────────────────────────────
 
-    showFloatingText(x: number, y: number, message: string, color: string = '#ffffff') {
+    showFloatingText(x: number, y: number, message: string, color: string = '#ffffff'): void {
         const iso = toIso(x, y);
-        const text = this.scene.add.text(iso.x, iso.y - 50, message, {
-            fontFamily: 'Arial', fontSize: '14px', color: color, stroke: '#000000', strokeThickness: 3
-        });
-        text.setOrigin(0.5).setDepth(Number.MAX_VALUE);
-        this.scene.tweens.add({ targets: text, y: iso.y - 100, alpha: 0, duration: 1500, onComplete: () => text.destroy() });
+        const text = this.acquireFloatingText();
+        if (!text) return;
+        text.setText(message).setColor(color);
+        text.setPosition(iso.x, iso.y - 50).setOrigin(0.5).setDepth(Number.MAX_VALUE);
+        this.scene.tweens.add({ targets: text, y: iso.y - 100, alpha: 0, duration: 1500, onComplete: () => this.releaseFloatingText(text) });
     }
 
-    showFloatingResource(x: number, y: number, amount: number, type: string) {
+    showFloatingResource(x: number, y: number, amount: number, type: string): void {
         const colorMap: Record<string, string> = { 'Wood': '#4ade80', 'Food': '#facc15', 'Gold': '#fbbf24' };
         this.showFloatingText(x, y, `+${amount} ${type}`, colorMap[type] || '#ffffff');
     }
+
     showDeathEffect(x: number, y: number, color: number = 0xff4444): void {
         const iso = toIso(x, y);
 
         // Expanding ring effect
-        const ring = this.scene.add.circle(iso.x, iso.y, 8, color, 0.6);
-        ring.setDepth(Number.MAX_VALUE - 1);
-        this.scene.tweens.add({
-            targets: ring,
-            scaleX: 2.5,
-            scaleY: 1.5, // Compressed for isometric perspective
-            alpha: 0,
-            duration: 500,
-            onComplete: () => ring.destroy()
-        });
+        const ring = this.acquireDeathRing();
+        if (ring) {
+            ring.setFillStyle(color, 0.6);
+            ring.setPosition(iso.x, iso.y).setScale(1, 1).setDepth(Number.MAX_VALUE - 1);
+            this.scene.tweens.add({
+                targets: ring,
+                scaleX: 2.5,
+                scaleY: 1.5,
+                alpha: 0,
+                duration: 500,
+                onComplete: () => this.releaseDeathRing(ring),
+            });
+        }
 
         // Flash
-        const flash = this.scene.add.circle(iso.x, iso.y, 12, 0xffffff, 0.8);
-        flash.setDepth(Number.MAX_VALUE);
-        this.scene.tweens.add({
-            targets: flash,
-            alpha: 0,
-            scale: 0.3,
-            duration: 200,
-            onComplete: () => flash.destroy()
-        });
+        const flash = this.acquireDeathFlash();
+        if (flash) {
+            flash.setPosition(iso.x, iso.y).setScale(1).setDepth(Number.MAX_VALUE);
+            this.scene.tweens.add({
+                targets: flash,
+                alpha: 0,
+                scale: 0.3,
+                duration: 200,
+                onComplete: () => this.releaseDeathFlash(flash),
+            });
+        }
     }
 }
