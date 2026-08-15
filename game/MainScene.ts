@@ -33,7 +33,6 @@ import villagerUnitImg from '../assets/textures/units/villager.png';
 import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
-import { createSeededRandom } from './utils/seededRandom';
 import { SpatialHash } from './utils/SpatialHash';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
@@ -58,6 +57,7 @@ import { TerrainSystem } from './systems/TerrainSystem';
 import { ResearchManager } from './systems/ResearchManager';
 import { LiquidCombatSystem } from './systems/LiquidCombatSystem';
 import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
+import { WorldBootstrap } from './bootstrap/WorldBootstrap';
 
 export class MainScene extends Phaser.Scene {
 
@@ -131,8 +131,8 @@ export class MainScene extends Phaser.Scene {
   public worldLayer!: Phaser.GameObjects.Layer;
 
   // Ground Layer
-  private groundLayer!: Phaser.GameObjects.TileSprite;
-  private readonly groundScale = 0.08;
+  public groundLayer!: Phaser.GameObjects.TileSprite;
+  public readonly groundScale = 0.08;
 
   // Systems
   public pathfinder!: Pathfinder;
@@ -355,76 +355,10 @@ export class MainScene extends Phaser.Scene {
       gRect.fillRect(0, 0, 4, 6);
       gRect.generateTexture('lod_rect', 4, 6);
     }
-    this.pathfinder = new Pathfinder(this.mapWidth, this.mapHeight);
-    this.treeSpatialHash = new SpatialHash(250); // 250px cells (approx 1-2 trees width)
-    this.unitSpatialHash = new SpatialHash(150); // 150px cells for unit queries
-    this.entityFactory = new EntityFactory(this);
-    this.squadSystem = new SquadSystem(this);
-
-    // Create World Layer for PostFX
-    this.worldLayer = this.add.layer();
-
-    this.groundLayer = this.add.tileSprite(0, 0, this.scale.width, this.scale.height, 'ground');
-    this.groundLayer.setOrigin(0, 0);
-    this.groundLayer.setDepth(-20000);
-    // Green multiply on brown ground tex → grass, not grey dirt
-    this.groundLayer.setTint(0xb4e070);
-    this.worldLayer.add(this.groundLayer);
-    this.groundLayer.setTileScale(this.groundScale);
-
-    this.units = this.add.group({ runChildUpdate: true });
-    // Hook into unit group to maintain spatial hash
-    this.units.on('create', (item: Phaser.GameObjects.GameObject) => this.unitSpatialHash.insert(item));
-    this.units.on('remove', (item: Phaser.GameObjects.GameObject) => this.unitSpatialHash.remove(item));
-    this.buildings = this.add.group();
-    this.trees = this.add.group();
-    this.treeVisuals = this.add.group(); // Visual pool
-    this.worldVisuals = this.add.group(); // General visuals (units, buildings)
-
-
-    // Hook into tree group to maintain spatial hash
-    this.trees.on('create', (item: Phaser.GameObjects.GameObject) => this.treeSpatialHash.insert(item));
-    this.trees.on('remove', (item: Phaser.GameObjects.GameObject) => this.treeSpatialHash.remove(item));
-
-
-    this.unitSystem = new UnitSystem(this);
-    this.buildingManager = new BuildingManager(this);
-    this.economySystem = new EconomySystem(this);
-    this.inputManager = new InputManager(this);
-    this.enemyAI = new EnemyAISystem(this);
-    const mapRng = createSeededRandom(this.mapSeed);
-    this.mapGenerationSystem = new MapGenerationSystem(this, mapRng);
-    this.cullingSystem = new CullingSystem(this);
-    this.feedbackSystem = new FeedbackSystem(this);
-    this.atmosphericSystem = new AtmosphericSystem(this);
-    this.villagerSystem = new VillagerSystem(this);
-    this.animalSystem = new AnimalSystem(this);
-    this.proceduralSound = new ProceduralSoundSystem(this);
-    this.clashSystem = new ClashSystem(this);
-    this.liquidCombat = new LiquidCombatSystem(this);
-    this.researchManager = new ResearchManager(this);
-    
-    this.terrainSystem = new TerrainSystem(this, this.mapWidth, this.mapHeight, this.mapSeed, this.mapPreset);
-    this.terrainSystem.generateHeightMap();
-    // Guarantee dry land at faction spawn points — raise terrain above water
-    const spawnSafeRadius = 150;
-    const spawnMinHeight = this.terrainSystem.getWaterLevel() + 0.05;
-    const cx = this.mapWidth / 2;
-    const cy = this.mapHeight / 2;
-    this.terrainSystem.flattenAroundWorld(cx, cy, spawnSafeRadius, spawnMinHeight);
-    // Flatten AI base corner
-    const aiBaseX = this.mapWidth * 0.15;
-    const aiBaseY = this.mapHeight * 0.15;
-    this.terrainSystem.flattenAroundWorld(aiBaseX, aiBaseY, spawnSafeRadius, spawnMinHeight);
-    this.terrainSystem.flattenAroundWorld(cx + 400, cy - 50, spawnSafeRadius, spawnMinHeight);
-    // Generate rivers that follow low terrain valleys (natural chokepoints)
-    this.terrainSystem.generateRivers();
-    this.terrainSystem.applyVisualTinting();
-    // Wire biome pathfinding costs to terrain
-    this.pathfinder.updateTerrainCosts(this.terrainSystem, this.currentSeason);
-
+    // Construct world infrastructure, systems, terrain, and map bounds
+    // in a single owner (see game/bootstrap/WorldBootstrap.ts).
+    new WorldBootstrap(this).initialize();
     if (this.mapMode === MapMode.FIXED) {
-      this.physics.world.setBounds(0, 0, this.mapWidth, this.mapHeight);
       // ── Water layer: smooth MS shoreline + foam texture ────────────────
       const dim = this.terrainSystem.getGridDimensions();
       const grid = this.terrainSystem.getHeightMapData();
@@ -693,9 +627,6 @@ export class MainScene extends Phaser.Scene {
       // eslint-disable-next-line no-console
       console.log('[Water] smooth MS polys + soft shore:', waterPolys.length, '/', grid.length);
       } // end waterPolys.length > 0
-    } else {
-      this.physics.world.setBounds(-100000, -100000, 200000, 200000);
-      this.infiniteMapSystem = new InfiniteMapSystem(this);
     }
 
     const centerX = this.mapMode === MapMode.FIXED ? this.mapWidth / 2 : 400;
