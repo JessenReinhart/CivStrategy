@@ -1,13 +1,6 @@
 import type { MainScene } from '../MainScene';
 
-/**
- * Capabilities consumed by the simulation coordinator.
- *
- * This is deliberately an adapter boundary for the first extraction pass.
- * The implementations remain the existing scene-owned systems, but the
- * runtime can now depend on a small service surface instead of reaching into
- * arbitrary MainScene state.
- */
+/** Capabilities consumed by the simulation coordinator. */
 export interface SimulationServices {
   readonly spatial: {
     readonly unitCount: () => number;
@@ -37,9 +30,8 @@ export interface SimulationServices {
 }
 
 /**
- * Temporary scene adapter. Keeping this conversion in one place makes the
- * next step mechanical: each capability can be moved out of MainScene and
- * replaced independently without changing SimulationRuntime.
+ * Temporary scene adapter. This is the only place the simulation boundary
+ * knows how the legacy MainScene-owned systems are assembled.
  */
 export function createSimulationServices(scene: MainScene): SimulationServices {
   return {
