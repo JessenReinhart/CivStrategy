@@ -30,7 +30,7 @@ import hopliteImg from '../assets/textures/units/hoplite.png';
 import chariotImg from '../assets/textures/units/chariot.png';
 import ramImg from '../assets/textures/units/ram.png';
 import villagerUnitImg from '../assets/textures/units/villager.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_DURATION_MS, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_FIRE_INTERVAL, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
@@ -61,6 +61,8 @@ import { createMainSceneSimulationBridge } from './runtime/MainSceneSimulationBr
 import type { SimulationRuntimeHost } from './runtime/SimulationRuntimeHost';
 import { createMainSceneWorldBridge } from './runtime/MainSceneWorldBridge';
 import type { WorldRuntimeHost } from './runtime/WorldRuntimeHost';
+import { createMainSceneProgressionBridge } from './runtime/MainSceneProgressionBridge';
+import type { ProgressionRuntimeHost } from './runtime/ProgressionRuntimeHost';
 import { WorldBootstrap } from './bootstrap/WorldBootstrap';
 
 export class MainScene extends Phaser.Scene {
@@ -114,15 +116,10 @@ export class MainScene extends Phaser.Scene {
   // Game Speed & Time
   public gameSpeed: number = 1;
   public gameTime: number = 0;
-  private accumulatedTime: number = 0;
-  private accumulatedPopTime: number = 0;
   // Seasonal Clock
   public currentSeason: Season = Season.SUMMER;
-  private seasonTimer: number = 0;
+  public seasonTimer: number = 0;
   private lastAnimalCallTime: number = 0;
-  // Auto-save
-  private autoSaveTickCounter: number = 0;
-  private lastGarrisonFireTime: number = 0;
   private minimapClickHandler: ((e: Event) => void) | null = null;
 
   // Core Groups
@@ -166,6 +163,8 @@ export class MainScene extends Phaser.Scene {
   public researchManager!: ResearchManager;
   // World runtime adapter — owns the per-frame world/environment pipeline
   private worldHost: WorldRuntimeHost | null = null;
+  // Progression runtime adapter — owns the time-based economy/progression ticks
+  private progressionHost: ProgressionRuntimeHost | null = null;
   public liquidCombat!: LiquidCombatSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
@@ -924,6 +923,11 @@ export class MainScene extends Phaser.Scene {
       work();
       this.profileEnd(label, start);
     });
+    // Progression pipeline adapter — owns the 1s economy/research/victory/season
+    // window, 8s population cadence, garrison fire interval, auto-save, and
+    // per-frame age advancement. Constructed after all systems exist so the
+    // services adapter can delegate to them.
+    this.progressionHost = createMainSceneProgressionBridge(this);
 
     // Lifecycle teardown: close the AudioContext and detach the clash listener
     // on scene shutdown so neither leaks across scene restarts (P2a / P3b).
@@ -1034,6 +1038,101 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  /** Advances the seasonal clock one 1s tick. Called by the progression
+   *  runtime when the season duration elapses. */
+  advanceSeason(): void {
+    const idx = SEASON_ORDER.indexOf(this.currentSeason);
+    this.currentSeason = SEASON_ORDER[(idx + 1) % SEASON_ORDER.length];
+    this.events.emit(EVENTS.SEASON_CHANGED, { season: this.currentSeason });
+    this.feedbackSystem.notifySeasonChanged(SEASON_CONFIG[this.currentSeason].label);
+    // Update pathfinding costs for new season
+    this.pathfinder.updateTerrainCosts(this.terrainSystem, this.currentSeason);
+  }
+
+  /** Respawns depleted gold mines once their cooldown elapses. Called by the
+   *  progression runtime on the 1s window. */
+  respawnGoldMines(now: number): void {
+    const MINES_FRESH_AFTER_MS = GOLD_MINE_RESPAWN_MS; // alias for clarity
+    this.trees.getChildren().forEach((t) => {
+      if (t.getData('isGoldMine') && t.getData('isDepleted')) {
+        const depletedAt = t.getData('depletedAt') || 0;
+        if (now - depletedAt >= MINES_FRESH_AFTER_MS) {
+          t.setData('isDepleted', false);
+          t.setData('goldRemaining', 200);
+          t.setData('isChopped', false);
+          t.setData('visualTexture', 'flare');
+          t.setData('visualTint', 0xFFD700);
+          t.setData('visualScale', 0.1);
+          t.setData('visualOriginY', 0.95);
+          // Update live visual if currently visible
+          const visual = (t as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+          if (visual && visual.active) {
+            visual.setTexture('flare');
+            visual.setScale(0.1);
+            visual.setTint(0xFFD700);
+          }
+        }
+      }
+    });
+  }
+
+  /** Fires all garrisoned castle units at the nearest enemy in range. Called
+   *  by the progression runtime on its 3s garrison interval. */
+  fireGarrison(): void {
+    this.buildings.getChildren().forEach((b) => {
+      const def = b.getData('def');
+      if (!def || def.type !== BuildingType.CASTLE) return;
+      const garrison: Record<string, number> = b.getData('garrison') || {};
+      const totalGarrisoned = Object.values(garrison).reduce((s, n) => s + n, 0);
+      if (totalGarrisoned === 0) return;
+
+      // Find nearest enemy unit within range
+      const cx = (b as Phaser.GameObjects.Image).x;
+      const cy = (b as Phaser.GameObjects.Image).y;
+      const range2 = CASTLE_GARRISON_RANGE * CASTLE_GARRISON_RANGE;
+      let nearest: Phaser.GameObjects.GameObject | null = null;
+      let nearestDist2 = Infinity;
+      this.units.getChildren().forEach((u) => {
+        if (u.getData('owner') === 0) return; // Skip player units
+        const dx = (u as Phaser.GameObjects.Image).x - cx;
+        const dy = (u as Phaser.GameObjects.Image).y - cy;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= range2 && d2 < nearestDist2) {
+          nearestDist2 = d2;
+          nearest = u;
+        }
+      });
+
+      if (nearest && (nearest as GameUnit).takeDamage) {
+        this.unitSystem.showProjectile(
+          { x: cx, y: cy },
+          { x: (nearest as Phaser.GameObjects.Image).x, y: (nearest as Phaser.GameObjects.Image).y, scene: this }
+        );
+        const dmg = totalGarrisoned * CASTLE_GARRISON_DAMAGE_PER_UNIT;
+        (nearest as GameUnit).takeDamage!(dmg);
+        this.feedbackSystem.showDamageNumber(
+          (nearest as Phaser.GameObjects.Image).x,
+          (nearest as Phaser.GameObjects.Image).y,
+          dmg, 'Pierce'
+        );
+      }
+    });
+  }
+
+  /** Advances the age-advancement progress bar. Called every frame by the
+   *  progression runtime while an advancement is in progress. */
+  advanceAgeProgress(dt: number): void {
+    if (this.isAdvancing && this.nextAge) {
+      const config = AGE_CONFIGS[this.nextAge];
+      if (config && config.advancementTime > 0) {
+        this.ageProgress += dt / config.advancementTime;
+        if (this.ageProgress >= 1) {
+          this.completeAgeAdvancement();
+        }
+      }
+    }
+  }
+
   // Performance profiling accumulators (reset every PROFILING_REPORT_INTERVAL frames)
   private profileFrameCount: number = 0;
   private _renderStart: number = 0;
@@ -1132,123 +1231,10 @@ export class MainScene extends Phaser.Scene {
         this.profileEnd('enemyAI', t0);
       }
 
-      this.accumulatedTime += dt;
-      if (this.accumulatedTime >= 1000) {
-        // Check win/lose conditions once per second
-        this.checkWinLose();
-        this.checkDominance();
-
-        if (this.gameResult === GameResult.PLAYING) {
-          this.economySystem.tickEconomy();
-          if (this.researchManager) this.researchManager.tick(1000);
-          this.economySystem.assignJobs();
-        }
-        this.accumulatedTime -= 1000;
-
-        // Seasonal clock (1-second tick aligned with economy)
-        this.seasonTimer += 1000;
-        if (this.seasonTimer >= SEASON_DURATION_MS) {
-          this.seasonTimer -= SEASON_DURATION_MS;
-          const idx = SEASON_ORDER.indexOf(this.currentSeason);
-          this.currentSeason = SEASON_ORDER[(idx + 1) % SEASON_ORDER.length];
-          this.events.emit(EVENTS.SEASON_CHANGED, { season: this.currentSeason });
-          this.feedbackSystem.notifySeasonChanged(SEASON_CONFIG[this.currentSeason].label);
-          // Update pathfinding costs for new season
-          this.pathfinder.updateTerrainCosts(this.terrainSystem, this.currentSeason);
-        }
-
-        // Respawn depleted gold mines
-        this.trees.getChildren().forEach((t) => {
-          if (t.getData('isGoldMine') && t.getData('isDepleted')) {
-            const depletedAt = t.getData('depletedAt') || 0;
-            if (this.gameTime - depletedAt >= GOLD_MINE_RESPAWN_MS) {
-              t.setData('isDepleted', false);
-              t.setData('goldRemaining', 200);
-              t.setData('isChopped', false);
-              t.setData('visualTexture', 'flare');
-              t.setData('visualTint', 0xFFD700);
-              t.setData('visualScale', 0.1);
-              t.setData('visualOriginY', 0.95);
-              // Update live visual if currently visible
-              const visual = (t as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
-              if (visual && visual.active) {
-                visual.setTexture('flare');
-                visual.setScale(0.1);
-                visual.setTint(0xFFD700);
-              }
-            }
-          }
-        });
-
-        // ─── Castle Garrison Firing ───────────────────────────────────────
-        if (this.gameResult === GameResult.PLAYING && this.gameTime - this.lastGarrisonFireTime >= CASTLE_GARRISON_FIRE_INTERVAL) {
-          this.lastGarrisonFireTime = this.gameTime;
-          this.buildings.getChildren().forEach((b) => {
-            const def = b.getData('def');
-            if (!def || def.type !== BuildingType.CASTLE) return;
-            const garrison: Record<string, number> = b.getData('garrison') || {};
-            const totalGarrisoned = Object.values(garrison).reduce((s, n) => s + n, 0);
-            if (totalGarrisoned === 0) return;
-
-            // Find nearest enemy unit within range
-            const cx = (b as Phaser.GameObjects.Image).x;
-            const cy = (b as Phaser.GameObjects.Image).y;
-            const range2 = CASTLE_GARRISON_RANGE * CASTLE_GARRISON_RANGE;
-            let nearest: Phaser.GameObjects.GameObject | null = null;
-            let nearestDist2 = Infinity;
-            this.units.getChildren().forEach((u) => {
-              if (u.getData('owner') === 0) return; // Skip player units
-              const dx = (u as Phaser.GameObjects.Image).x - cx;
-              const dy = (u as Phaser.GameObjects.Image).y - cy;
-              const d2 = dx * dx + dy * dy;
-              if (d2 <= range2 && d2 < nearestDist2) {
-                nearestDist2 = d2;
-                nearest = u;
-              }
-            });
-
-            if (nearest && (nearest as GameUnit).takeDamage) {
-              this.unitSystem.showProjectile(
-                { x: cx, y: cy },
-                { x: (nearest as Phaser.GameObjects.Image).x, y: (nearest as Phaser.GameObjects.Image).y, scene: this }
-              );
-              const dmg = totalGarrisoned * CASTLE_GARRISON_DAMAGE_PER_UNIT;
-              (nearest as GameUnit).takeDamage!(dmg);
-              this.feedbackSystem.showDamageNumber(
-                (nearest as Phaser.GameObjects.Image).x,
-                (nearest as Phaser.GameObjects.Image).y,
-                dmg, 'Pierce'
-              );
-            }
-          });
-        }
-
-        // Auto-save every 60 seconds
-        this.autoSaveTickCounter++;
-        if (this.autoSaveTickCounter >= 60) {
-          this.autoSaveTickCounter = 0;
-          this.saveGame();
-        }
-      }
-
-      if (this.gameResult === GameResult.PLAYING) {
-        this.accumulatedPopTime += dt;
-        if (this.accumulatedPopTime >= 8000) {
-          this.economySystem.tickPopulation();
-          this.accumulatedPopTime -= 8000;
-        }
-
-        // Age advancement progress ticking (player only)
-        if (this.isAdvancing && this.nextAge) {
-          const config = AGE_CONFIGS[this.nextAge];
-          if (config && config.advancementTime > 0) {
-            this.ageProgress += dt / config.advancementTime;
-            if (this.ageProgress >= 1) {
-              this.completeAgeAdvancement();
-            }
-          }
-        }
-      }
+      // Progression pipeline — 1s economy/research/victory/season/world ticks,
+      // 8s population window, garrison fire, auto-save, and age advancement
+      // progress. Cadence decisions and ordering live in the runtime adapter.
+      this.progressionHost?.update(this.gameTime, dt);
     }
 
     // World pipeline — infinite-map streaming → minimap → fog-of-war. Ordering
