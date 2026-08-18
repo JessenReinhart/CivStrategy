@@ -3,7 +3,7 @@ import type { MainScene } from '../MainScene';
 /** Capabilities consumed by the simulation coordinator. */
 export interface SimulationServices {
   readonly spatial: {
-    readonly unitCount: () => number;
+    readonly shouldUpdate: boolean;
     updateUnitSpatialHash(): void;
   };
 
@@ -32,11 +32,14 @@ export interface SimulationServices {
 /**
  * Temporary scene adapter. This is the only place the simulation boundary
  * knows how the legacy MainScene-owned systems are assembled.
+ *
+ * Keep behavior decisions here while the scene is still the source of truth.
+ * The runtime should coordinate work, not infer scene-specific modes.
  */
 export function createSimulationServices(scene: MainScene): SimulationServices {
   return {
     spatial: {
-      unitCount: () => scene.units.getLength(),
+      shouldUpdate: !scene.stressTestConfig || scene.units.getLength() < 2000,
       updateUnitSpatialHash: () => scene.updateUnitSpatialHash(),
     },
     villagers: scene.villagerSystem,
