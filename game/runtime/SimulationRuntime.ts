@@ -1,18 +1,25 @@
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
+import { createSimulationContext, type SimulationContext } from './SimulationContext';
 
 /**
  * Coordinates the per-frame simulation pipeline.
  *
- * MainScene remains the Phaser lifecycle owner, but simulation ordering lives
- * here so the scene does not also have to know how individual gameplay systems
- * are sequenced. The order is intentional: spatial data → world actors →
- * liquid combat pressure → unit simulation → squad presentation.
+ * The runtime now receives a SimulationContext instead of owning the scene
+ * reference directly. The context is the migration seam that lets us narrow
+ * dependencies as individual systems are extracted from MainScene.
  */
 export class SimulationRuntime {
-  constructor(private readonly scene: MainScene) {}
+  update(
+    scene: MainScene,
+    gameTime: number,
+    dt: number,
+    profile: (label: string, work: () => void) => void,
+  ): void {
+    this.updateContext(createSimulationContext(scene, gameTime, dt, profile));
+  }
 
-  update(gameTime: number, dt: number, profile: (label: string, work: () => void) => void): void {
-    const scene = this.scene;
+  updateContext(context: SimulationContext): void {
+    const { scene, now, dt, profile } = context;
 
     profile('updateUnitSpatialHash', () => {
       if (!scene.stressTestConfig || scene.units.getLength() < 2000) {
@@ -21,11 +28,11 @@ export class SimulationRuntime {
     });
 
     profile('villagerSystem', () => {
-      scene.villagerSystem.update(gameTime, dt);
+      scene.villagerSystem.update(now, dt);
     });
 
     profile('animalSystem', () => {
-      scene.animalSystem.update(gameTime, dt);
+      scene.animalSystem.update(now, dt);
     });
 
     // Liquid combat must see fresh spatial data before the unit bucket pass.
@@ -34,7 +41,7 @@ export class SimulationRuntime {
     });
 
     profile('unitSystem', () => {
-      scene.unitSystem.update(gameTime, dt);
+      scene.unitSystem.update(now, dt);
     });
 
     profile('squadSyncPositions', () => {
