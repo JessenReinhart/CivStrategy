@@ -57,6 +57,8 @@ import { TerrainSystem } from './systems/TerrainSystem';
 import { ResearchManager } from './systems/ResearchManager';
 import { LiquidCombatSystem } from './systems/LiquidCombatSystem';
 import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
+import { createMainSceneSimulationBridge } from './runtime/MainSceneSimulationBridge';
+import type { SimulationRuntimeHost } from './runtime/SimulationRuntimeHost';
 import { WorldBootstrap } from './bootstrap/WorldBootstrap';
 
 export class MainScene extends Phaser.Scene {
@@ -157,6 +159,8 @@ export class MainScene extends Phaser.Scene {
   public proceduralSound!: ProceduralSoundSystem;
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
+  // Simulation runtime adapter — owns the per-frame simulation pipeline
+  private simulationHost: SimulationRuntimeHost | null = null;
   public researchManager!: ResearchManager;
   public liquidCombat!: LiquidCombatSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
@@ -901,6 +905,13 @@ export class MainScene extends Phaser.Scene {
       // Normal game: no pending load, ready immediately after setup
       this.isReady = true;
     }
+    // Simulation pipeline adapter — constructed after WorldBootstrap so all
+    // systems exist; profile callback keeps the scene's timing accumulation.
+    this.simulationHost = createMainSceneSimulationBridge(this, (label, work) => {
+      const start = this.profileStart(label);
+      work();
+      this.profileEnd(label, start);
+    });
     this.proceduralSound.startAmbientWind();
 
     // Lifecycle teardown: close the AudioContext and detach the clash listener
@@ -1087,52 +1098,16 @@ export class MainScene extends Phaser.Scene {
     this.groundLayer.tilePositionX = topLeft.x / this.groundScale;
     this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
 
-    this.groundLayer.tilePositionY = topLeft.y / this.groundScale;
 
     t0 = this.profileStart('cullingSystem');
     this.cullingSystem.update(this.gameTime, dt);
+
     this.profileEnd('cullingSystem', t0);
 
-    // Optimized spatial hash: skip if no moving units
-    t0 = this.profileStart('updateUnitSpatialHash');
-    if (!this.stressTestConfig || this.units.getLength() < 2000) {
-      this.updateUnitSpatialHash();
-    } else {
-      // With 2000+ units in stress test, most are stationary at any given moment.
-      // Only update the hash for units that actually moved (their body velocity > 1).
-      // The spatial hash is only used for separation (which we already skip for flow field)
-      // and target scanning (which doesn't happen in peaceful stress test mode).
-      // So we can skip entirely for stress test with >2000 units.
-      // For smaller counts, still update to keep separation working.
-    }
-    this.profileEnd('updateUnitSpatialHash', t0);
-
-    t0 = this.profileStart('villagerSystem');
-    this.villagerSystem.update(this.gameTime, dt);
-    this.profileEnd('villagerSystem', t0);
-
-    t0 = this.profileStart('animalSystem');
-    this.animalSystem.update(this.gameTime, dt);
-    this.profileEnd('animalSystem', t0);
-
-    // Liquid combat: precompute pressure grid + contact lines before unit bucket pass.
-    // Must run after spatial hash update so `spatialKey` data is fresh for pressure cells.
-    t0 = this.profileStart('liquidCombat');
-    this.liquidCombat.precompute();
-    this.profileEnd('liquidCombat', t0);
-
-    t0 = this.profileStart('unitSystem');
-    this.unitSystem.update(this.gameTime, dt);
-    this.profileEnd('unitSystem', t0);
-
-    // Sync ALL squad container positions to physics body (cheap pass, prevents stutter)
-    t0 = this.profileStart('squadSyncPositions');
-    this.squadSystem.syncPositions();
-    this.profileEnd('squadSyncPositions', t0);
-
-    t0 = this.profileStart('squadSystem');
-    this.squadSystem.update(dt);
-    this.profileEnd('squadSystem', t0);
+    // Simulation pipeline — spatial data → world actors → liquid combat →
+    // unit simulation → squad synchronization/simulation. Ordering and the
+    // stress-test spatial-hash skip live in the runtime adapter.
+    this.simulationHost?.update(this.gameTime, dt);
 
     // Skip non-critical systems in stress test mode
     if (!this.stressTestConfig) {
