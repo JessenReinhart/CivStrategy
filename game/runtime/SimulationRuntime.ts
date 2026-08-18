@@ -5,11 +5,11 @@ export class SimulationRuntime {
   update(context: SimulationContext): void {
     const { services, now, dt, profile } = context;
 
-    profile('updateUnitSpatialHash', () => {
-      if (services.spatial.unitCount() < 2000) {
+    if (services.spatial.shouldUpdate) {
+      profile('updateUnitSpatialHash', () => {
         services.spatial.updateUnitSpatialHash();
-      }
-    });
+      });
+    }
 
     profile('villagerSystem', () => {
       services.villagers.update(now, dt);
