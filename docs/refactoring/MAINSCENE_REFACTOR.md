@@ -12,10 +12,10 @@ This refactor is intentionally incremental. New runtime modules are introduced b
 
 - [x] Introduce `game/runtime/SimulationRuntime.ts`
 - [x] Capture the existing simulation ordering
-- [ ] Wire `SimulationRuntime` into `MainScene`
-- [ ] Remove the duplicated simulation pipeline from `MainScene`
-- [ ] Build/typecheck
-- [ ] Run gameplay/stress verification
+- [x] Wire `SimulationRuntime` into `MainScene`
+- [x] Remove the duplicated simulation pipeline from `MainScene`
+- [x] Build/typecheck
+- [x] Run gameplay/stress verification
 
 ## Planned runtime boundaries
 

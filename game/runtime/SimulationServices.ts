@@ -39,7 +39,9 @@ export interface SimulationServices {
 export function createSimulationServices(scene: MainScene): SimulationServices {
   return {
     spatial: {
-      shouldUpdate: !scene.stressTestConfig || scene.units.getLength() < 2000,
+      get shouldUpdate() {
+        return !scene.stressTestConfig || scene.units.getLength() < 2000;
+      },
       updateUnitSpatialHash: () => scene.updateUnitSpatialHash(),
     },
     villagers: scene.villagerSystem,
