@@ -1,29 +1,8 @@
 import type { SimulationContext } from './SimulationContext';
-import { createSimulationServices } from './SimulationServices';
-import type { MainScene } from '../MainScene';
 
-/**
- * Coordinates the per-frame simulation pipeline.
- *
- * The runtime only consumes SimulationContext. MainScene is referenced solely
- * by the temporary adapter used while the scene is being dismantled.
- */
+/** Coordinates the per-frame simulation pipeline without depending on MainScene. */
 export class SimulationRuntime {
-  update(
-    scene: MainScene,
-    gameTime: number,
-    dt: number,
-    profile: (label: string, work: () => void) => void,
-  ): void {
-    this.updateContext({
-      services: createSimulationServices(scene),
-      now: gameTime,
-      dt,
-      profile,
-    });
-  }
-
-  updateContext(context: SimulationContext): void {
+  update(context: SimulationContext): void {
     const { services, now, dt, profile } = context;
 
     profile('updateUnitSpatialHash', () => {
