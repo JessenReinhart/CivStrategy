@@ -1259,6 +1259,11 @@ export class MainScene extends Phaser.Scene {
     this.atmosphericSystem.update(this.gameTime, dt);
     this.profileEnd('atmosphericSystem', t0);
 
+    // Update feedback/notification system
+    t0 = this.profileStart('feedbackSystem');
+    this.feedbackSystem.update(this.gameTime, dt);
+    this.profileEnd('feedbackSystem', t0);
+
     // Periodic ambient animal calls (every ~8 seconds if camera near animals)
     const seasonAnimalMod = this.currentSeason === Season.WINTER ? 0 : this.currentSeason === Season.AUTUMN ? 0.5 : 1;
     const animalCallInterval = seasonAnimalMod === 0 ? 999999 : Math.round(8000 / seasonAnimalMod);

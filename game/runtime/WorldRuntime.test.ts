@@ -224,16 +224,35 @@ describe('createMainSceneWorldBridge', () => {
 describe('WorldRuntimeHost — per-frame fog throttle boundary', () => {
   it('throttles exactly at 100ms boundary', () => {
     const services = createServices(true, true, true);
+    const labels: string[] = [];
+    const profile = (label: string, work: () => void) => {
+      labels.push(label);
+      work();
+    };
     const host = new WorldRuntimeHost(
       new WorldRuntime(),
       services,
-      (label, work) => work(),
+      profile,
     );
 
-    host.update(1000, 16); // initial
-    host.update(1050, 16); // 50ms — throttled
-    host.update(1099, 16); // 99ms — throttled
-    host.update(1100, 16); // 100ms — NOT throttled
+    // 1000ms — initial, all three run
+    host.update(1000, 16);
+    expect(labels).toEqual(['infiniteMapSystem', 'minimapSystem', 'fogOfWar']);
+
+    // 1050ms — 50ms elapsed, fog throttled
+    labels.length = 0;
+    host.update(1050, 16);
+    expect(labels).toEqual(['infiniteMapSystem', 'minimapSystem']);
+
+    // 1099ms — 99ms elapsed, fog throttled
+    labels.length = 0;
+    host.update(1099, 16);
+    expect(labels).toEqual(['infiniteMapSystem', 'minimapSystem']);
+
+    // 1100ms — 100ms elapsed, fog runs again
+    labels.length = 0;
+    host.update(1100, 16);
+    expect(labels).toEqual(['infiniteMapSystem', 'minimapSystem', 'fogOfWar']);
   });
 });
 
