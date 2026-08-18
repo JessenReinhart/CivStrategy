@@ -59,6 +59,8 @@ import { LiquidCombatSystem } from './systems/LiquidCombatSystem';
 import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
 import { createMainSceneSimulationBridge } from './runtime/MainSceneSimulationBridge';
 import type { SimulationRuntimeHost } from './runtime/SimulationRuntimeHost';
+import { createMainSceneWorldBridge } from './runtime/MainSceneWorldBridge';
+import type { WorldRuntimeHost } from './runtime/WorldRuntimeHost';
 import { WorldBootstrap } from './bootstrap/WorldBootstrap';
 
 export class MainScene extends Phaser.Scene {
@@ -162,13 +164,14 @@ export class MainScene extends Phaser.Scene {
   // Simulation runtime adapter — owns the per-frame simulation pipeline
   private simulationHost: SimulationRuntimeHost | null = null;
   public researchManager!: ResearchManager;
+  // World runtime adapter — owns the per-frame world/environment pipeline
+  private worldHost: WorldRuntimeHost | null = null;
   public liquidCombat!: LiquidCombatSystem;
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
   private waterMaskBounds: Phaser.Geom.Rectangle | null = null;
   private waterAnimFrame: number = 0;
-  private lastFogUpdateTime: number = -Infinity;
 
   // Precomputed spatial data for shore chains (normals + phase offsets)
   private waterShoreChainData: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[][] = [];
@@ -913,6 +916,14 @@ export class MainScene extends Phaser.Scene {
       this.profileEnd(label, start);
     });
     this.proceduralSound.startAmbientWind();
+    // World pipeline adapter — constructed after the simulation host so all
+    // world/environment systems exist; profile callback keeps the scene's
+    // timing accumulation.
+    this.worldHost = createMainSceneWorldBridge(this, (label, work) => {
+      const start = this.profileStart(label);
+      work();
+      this.profileEnd(label, start);
+    });
 
     // Lifecycle teardown: close the AudioContext and detach the clash listener
     // on scene shutdown so neither leaks across scene restarts (P2a / P3b).
@@ -1240,26 +1251,14 @@ export class MainScene extends Phaser.Scene {
       }
     }
 
-    if (this.infiniteMapSystem && !this.stressTestConfig) {
-      t0 = this.profileStart('infiniteMapSystem');
-      this.infiniteMapSystem.update();
-      this.profileEnd('infiniteMapSystem', t0);
-    }
-    if (this.minimapSystem && !this.stressTestConfig) {
-      t0 = this.profileStart('minimapSystem');
-      this.minimapSystem.update();
-      this.profileEnd('minimapSystem', t0);
-    }
-    if (this.fogOfWar && !this.stressTestConfig && this.gameTime - this.lastFogUpdateTime >= 100) {
-      t0 = this.profileStart('fogOfWar');
-      this.fogOfWar.update();
-      this.profileEnd('fogOfWar', t0);
-      this.lastFogUpdateTime = this.gameTime;
-    }
+    // World pipeline — infinite-map streaming → minimap → fog-of-war. Ordering
+    // and the stress-test/fog-throttle gates live in the runtime adapter.
+    this.worldHost?.update(this.gameTime, dt);
 
     t0 = this.profileStart('atmosphericSystem');
     this.atmosphericSystem.update(this.gameTime, dt);
     this.profileEnd('atmosphericSystem', t0);
+
     // Update feedback/notification system
     t0 = this.profileStart('feedbackSystem');
     this.feedbackSystem.update(this.gameTime, dt);
