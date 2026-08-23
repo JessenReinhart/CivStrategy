@@ -1,6 +1,10 @@
 name: Sync GitHub Project status
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/project-status.yml
   issues:
     types: [opened, reopened, closed]
   issue_comment:
@@ -34,7 +38,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
-      PROJECT_OWNER: JessenReinhart
       PROJECT_TITLE: CivStrategy
     steps:
       - name: Check project token
@@ -50,14 +53,15 @@ jobs:
         with:
           github-token: ${{ secrets.PROJECTS_TOKEN }}
           script: |
-            const owner = process.env.PROJECT_OWNER;
             const projectTitle = process.env.PROJECT_TITLE;
             const { owner: repoOwner, repo } = context.repo;
 
+            // Resolve through projects linked to this repository. This avoids
+            // Octokit reserved GraphQL variables and works for user/org projects.
             const projectResult = await github.graphql(`
-              query($login: String!, $query: String!) {
-                user(login: $login) {
-                  projectsV2(first: 50, query: $query) {
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  projectsV2(first: 50) {
                     nodes {
                       id
                       title
@@ -74,28 +78,71 @@ jobs:
                   }
                 }
               }
-            `, { login: owner, query: projectTitle });
+            `, { owner: repoOwner, repo });
 
-            const project = projectResult.user?.projectsV2?.nodes?.find(
+            const linkedProjects = projectResult.repository?.projectsV2?.nodes ?? [];
+            const exactProject = linkedProjects.find(
               (candidate) => candidate.title?.toLowerCase() === projectTitle.toLowerCase(),
             );
+            const project = exactProject ?? (linkedProjects.length === 1 ? linkedProjects[0] : null);
+
             if (!project) {
-              core.setFailed(`GitHub Project '${projectTitle}' was not found under @${owner}.`);
+              const linkedTitles = linkedProjects.map((candidate) => candidate.title).filter(Boolean);
+              core.setFailed(
+                linkedTitles.length === 0
+                  ? `No GitHub Projects are linked to ${repoOwner}/${repo}. Link the CivStrategy Project to this repository first.`
+                  : `GitHub Project '${projectTitle}' was not found among projects linked to ${repoOwner}/${repo}. Linked projects: ${linkedTitles.join(', ')}`,
+              );
               return;
             }
+
+            if (!exactProject && linkedProjects.length === 1) {
+              core.warning(`Project '${projectTitle}' was not found by title; using the only linked project '${project.title}'.`);
+            }
+            core.info(`Using GitHub Project '${project.title}' (${project.id}).`);
 
             const statusField = project.fields.nodes.find(
               (field) => field?.name?.toLowerCase() === 'status' && Array.isArray(field.options),
             );
             if (!statusField) {
-              core.setFailed(`Project '${projectTitle}' has no single-select Status field.`);
+              core.setFailed(`Project '${project.title}' has no single-select Status field.`);
               return;
             }
 
             const normalizeStatus = (status) => status.trim().toLowerCase();
-            const statusOption = (status) => statusField.options.find(
-              (option) => normalizeStatus(option.name) === normalizeStatus(status),
-            );
+            const statusAliases = {
+              Backlog: ['Backlog', 'Todo', 'To do', 'Ready'],
+              Ready: ['Ready', 'Backlog', 'Todo', 'To do'],
+              'In progress': ['In progress', 'In Progress', 'Doing', 'Active'],
+              'In review': ['In review', 'Review', 'In progress', 'In Progress'],
+              Done: ['Done', 'Completed', 'Closed'],
+            };
+            const availableStatuses = statusField.options.map((option) => option.name);
+            core.info(`Available project statuses: ${availableStatuses.join(', ')}`);
+
+            const statusOption = (status) => {
+              const aliases = statusAliases[status] ?? [status];
+              for (const alias of aliases) {
+                const option = statusField.options.find(
+                  (candidate) => normalizeStatus(candidate.name) === normalizeStatus(alias),
+                );
+                if (option) {
+                  if (normalizeStatus(option.name) !== normalizeStatus(status)) {
+                    core.info(`Mapping logical status '${status}' to project status '${option.name}'.`);
+                  }
+                  return option;
+                }
+              }
+              return null;
+            };
+            const markerNames = {
+              backlog: 'Backlog',
+              ready: 'Ready',
+              'in-progress': 'In progress',
+              'in-review': 'In review',
+              done: 'Done',
+            };
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
             async function findProjectItem(issueNodeId) {
               const result = await github.graphql(`
@@ -128,7 +175,6 @@ jobs:
                 `, { projectId: project.id, contentId: issueNodeId });
                 itemId = added.addProjectV2ItemById.item.id;
               } catch (error) {
-                // A project auto-add workflow can race this mutation. Re-query once.
                 await new Promise((resolve) => setTimeout(resolve, 1500));
                 itemId = await findProjectItem(issueNodeId);
                 if (!itemId) throw error;
@@ -139,7 +185,9 @@ jobs:
             async function setIssueStatus(issueNodeId, status) {
               const option = statusOption(status);
               if (!option) {
-                throw new Error(`Status '${status}' does not exist in project '${projectTitle}'.`);
+                throw new Error(
+                  `No compatible project status for logical status '${status}' in '${project.title}'. Available statuses: ${availableStatuses.join(', ')}`,
+                );
               }
               const itemId = await ensureProjectItem(issueNodeId);
               await github.graphql(`
@@ -159,7 +207,7 @@ jobs:
                 fieldId: statusField.id,
                 optionId: option.id,
               });
-              core.info(`Set project item ${itemId} to '${option.name}'.`);
+              core.info(`Set project item ${itemId} to '${option.name}' (logical: '${status}').`);
             }
 
             async function getIssueNodeId(number) {
@@ -186,14 +234,65 @@ jobs:
               return result.repository?.pullRequest?.closingIssuesReferences?.nodes ?? [];
             }
 
+            async function backfillOpenIssues() {
+              const items = await github.paginate(github.rest.issues.listForRepo, {
+                owner: repoOwner,
+                repo,
+                state: 'open',
+                per_page: 100,
+              });
+              const issues = items.filter((item) => !item.pull_request);
+              const statuses = new Map();
+
+              for (const issue of issues) {
+                let status = trustedAssociations.has(issue.author_association) ? 'Ready' : 'Backlog';
+                const comments = await github.paginate(github.rest.issues.listComments, {
+                  owner: repoOwner,
+                  repo,
+                  issue_number: issue.number,
+                  per_page: 100,
+                });
+                for (const comment of comments) {
+                  if (!trustedAssociations.has(comment.author_association)) continue;
+                  const marker = comment.body?.match(
+                    /<!--\s*project-status:(backlog|ready|in-progress|in-review|done)\s*-->/i,
+                  );
+                  if (marker) status = markerNames[marker[1].toLowerCase()];
+                }
+                statuses.set(issue.node_id, status);
+              }
+
+              const pulls = await github.paginate(github.rest.pulls.list, {
+                owner: repoOwner,
+                repo,
+                state: 'open',
+                per_page: 100,
+              });
+              for (const pr of pulls) {
+                const linkedIssues = await getClosingIssues(pr.number);
+                const status = pr.draft ? 'In progress' : 'In review';
+                for (const issue of linkedIssues) {
+                  if (issue.state === 'OPEN') statuses.set(issue.id, status);
+                }
+              }
+
+              core.info(`Backfilling ${statuses.size} open issue(s) into '${project.title}'.`);
+              for (const [id, status] of statuses) {
+                await setIssueStatus(id, status);
+              }
+            }
+
             const event = context.eventName;
             const action = context.payload.action;
             const updates = [];
 
+            if (event === 'push') {
+              await backfillOpenIssues();
+              return;
+            }
+
             if (event === 'issues') {
-              const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(
-                context.payload.issue.author_association,
-              );
+              const trusted = trustedAssociations.has(context.payload.issue.author_association);
               const status = action === 'closed'
                 ? 'Done'
                 : trusted ? 'Ready' : 'Backlog';
@@ -205,9 +304,7 @@ jobs:
                 core.info('Ignoring project-status marker on a pull request comment.');
                 return;
               }
-              const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(
-                context.payload.comment.author_association,
-              );
+              const trusted = trustedAssociations.has(context.payload.comment.author_association);
               if (!trusted) {
                 core.info('Ignoring project-status marker from an untrusted commenter.');
                 return;
@@ -220,14 +317,7 @@ jobs:
                 core.info('No project-status marker found.');
                 return;
               }
-              const names = {
-                backlog: 'Backlog',
-                ready: 'Ready',
-                'in-progress': 'In progress',
-                'in-review': 'In review',
-                done: 'Done',
-              };
-              updates.push({ id: context.payload.issue.node_id, status: names[marker[1].toLowerCase()] });
+              updates.push({ id: context.payload.issue.node_id, status: markerNames[marker[1].toLowerCase()] });
             }
 
             if (event === 'pull_request_target') {
