@@ -17,8 +17,13 @@ vi.mock('../MainScene', () => ({
 }));
 
 import { EconomySystem } from './EconomySystem';
-import { BuildingType, FactionType, UnitState, VillagerData } from '../../types';
-import { MainScene } from '../MainScene';
+import type { VillagerData } from '../../types';
+import type { MainScene } from '../MainScene';
+
+const TOWN_CENTER = 'Town Center';
+const FARM = 'Farm';
+const IDLE = 'idle';
+const MOVING_TO_WORK = 'moving_to_work';
 
 function makeDataObject(x: number, y: number, initialData: Record<string, unknown>) {
     const data = new Map<string, unknown>(Object.entries(initialData));
@@ -41,7 +46,7 @@ function makeVillager(id: string, x: number): VillagerData {
         x,
         y: 0,
         owner: 0,
-        state: UnitState.IDLE,
+        state: IDLE as VillagerData['state'],
         path: undefined,
         pathStep: 0,
         carryAmount: 0,
@@ -54,7 +59,7 @@ function makeAssignmentScene(villagers: VillagerData[], extraBuildings: ReturnTy
     const tc = makeDataObject(0, 0, {
         owner: 0,
         hp: 100,
-        def: { type: BuildingType.TOWN_CENTER },
+        def: { type: TOWN_CENTER },
     });
     const mine = makeDataObject(40, 0, {
         isGoldMine: true,
@@ -63,7 +68,7 @@ function makeAssignmentScene(villagers: VillagerData[], extraBuildings: ReturnTy
     const buildings = [tc, ...extraBuildings];
 
     const assignJob = vi.fn((villager: VillagerData, building: ReturnType<typeof makeDataObject>) => {
-        villager.state = UnitState.MOVING_TO_WORK;
+        villager.state = MOVING_TO_WORK as VillagerData['state'];
         villager.jobBuilding = building as never;
         building.setData('assignedWorker', villager);
     });
@@ -73,7 +78,7 @@ function makeAssignmentScene(villagers: VillagerData[], extraBuildings: ReturnTy
         treeSpatialHash: { query: () => [mine] },
         villagerSystem: {
             getIdleVillagers: (owner: number) => villagers.filter(v =>
-                v.owner === owner && (v.state === UnitState.IDLE || v.state === UnitState.MOVING_TO_RALLY)
+                v.owner === owner && (v.state === IDLE || v.state === 'moving_to_rally')
             ),
             getAllVillagers: () => villagers,
             assignJob,
@@ -93,7 +98,7 @@ describe('EconomySystem worker assignment', () => {
         economy.assignJobs();
 
         expect(assignJob).not.toHaveBeenCalled();
-        expect(villagers.every(v => v.state === UnitState.IDLE)).toBe(true);
+        expect(villagers.every(v => v.state === IDLE)).toBe(true);
     });
 
     it('uses only surplus idle labor for automatic gold mining', () => {
@@ -105,7 +110,7 @@ describe('EconomySystem worker assignment', () => {
 
         expect(assignJob).toHaveBeenCalledTimes(1);
         expect(assignJob.mock.calls[0][1]).toBe(mine);
-        expect(villagers.filter(v => v.state === UnitState.IDLE)).toHaveLength(2);
+        expect(villagers.filter(v => v.state === IDLE)).toHaveLength(2);
     });
 
     it('prioritizes a newly-built player farm before opportunistic gold work', () => {
@@ -113,7 +118,7 @@ describe('EconomySystem worker assignment', () => {
         const farm = makeDataObject(30, 0, {
             owner: 0,
             hp: 100,
-            def: { type: BuildingType.FARM, workerNeeds: 1 },
+            def: { type: FARM, workerNeeds: 1 },
             assignedWorker: undefined,
         });
         const { scene, assignJob } = makeAssignmentScene(villagers, [farm]);
@@ -131,7 +136,7 @@ describe('EconomySystem worker assignment', () => {
         const aiFarm = makeDataObject(30, 0, {
             owner: 1,
             hp: 100,
-            def: { type: BuildingType.FARM, workerNeeds: 1 },
+            def: { type: FARM, workerNeeds: 1 },
             assignedWorker: undefined,
         });
         const { scene, assignJob } = makeAssignmentScene(villagers, [aiFarm]);
@@ -150,8 +155,8 @@ describe('EconomySystem resource ownership', () => {
             resources: { wood: 100, food: 100, gold: 100 },
             enemyAI: { resources: { wood: 50, food: 50, gold: 50 } },
             researchManager: undefined,
-            faction: FactionType.ROMANS,
-            enemyFaction: FactionType.GAULS,
+            faction: 'Romans',
+            enemyFaction: 'Gauls',
         } as unknown as MainScene;
         const economy = new EconomySystem(scene);
 
