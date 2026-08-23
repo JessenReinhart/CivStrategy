@@ -25,10 +25,15 @@ vi.mock('../MainScene', () => ({
 }));
 
 import { VillagerSystem } from './VillagerSystem';
-import { BuildingType, UnitState, VillagerData } from '../../types';
-import { MainScene } from '../MainScene';
+import type { VillagerData } from '../../types';
+import type { MainScene } from '../MainScene';
 
-function makeBuilding(type: BuildingType, x: number, y: number) {
+const FARM = 'Farm';
+const IDLE = 'idle';
+const MOVING_TO_WORK = 'moving_to_work';
+const GATHERING = 'gathering';
+
+function makeBuilding(type: string, x: number, y: number) {
     const data = new Map<string, unknown>([
         ['def', { type }],
         ['owner', 0],
@@ -51,7 +56,7 @@ function makeVillager(x = 0, y = 0): VillagerData {
         x,
         y,
         owner: 0,
-        state: UnitState.IDLE,
+        state: IDLE as VillagerData['state'],
         path: undefined,
         pathStep: 0,
         carryAmount: 0,
@@ -70,14 +75,14 @@ function makeScene(findPath: ReturnType<typeof vi.fn>): MainScene {
 
 describe('VillagerSystem worker path handoff', () => {
     it('starts farm work immediately when a one-point path means already arrived', () => {
-        const farm = makeBuilding(BuildingType.FARM, 16, 16);
+        const farm = makeBuilding(FARM, 16, 16);
         const villager = makeVillager(10, 10);
         const findPath = vi.fn(() => [{ x: farm.x, y: farm.y }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.assignJob(villager, farm as never);
 
-        expect(villager.state).toBe(UnitState.GATHERING);
+        expect(villager.state).toBe(GATHERING);
         expect(villager.carryType).toBe('food');
         expect(villager.targetResource).toBe(farm);
         expect(villager.jobBuilding).toBe(farm);
@@ -85,20 +90,20 @@ describe('VillagerSystem worker path handoff', () => {
     });
 
     it('keeps MOVING_TO_WORK when a real multi-point route exists', () => {
-        const farm = makeBuilding(BuildingType.FARM, 160, 160);
+        const farm = makeBuilding(FARM, 160, 160);
         const villager = makeVillager(0, 0);
         const findPath = vi.fn(() => [{ x: 0, y: 0 }, { x: 160, y: 160 }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.assignJob(villager, farm as never);
 
-        expect(villager.state).toBe(UnitState.MOVING_TO_WORK);
+        expect(villager.state).toBe(MOVING_TO_WORK);
         expect(villager.path).toHaveLength(2);
         expect(villager.jobBuilding).toBe(farm);
     });
 
     it('releases an unreachable job instead of leaving the villager deadlocked', () => {
-        const farm = makeBuilding(BuildingType.FARM, 500, 500);
+        const farm = makeBuilding(FARM, 500, 500);
         const villager = makeVillager(0, 0);
         // Pathfinder's no-route sentinel is a one-point path at the start.
         const findPath = vi.fn(() => [{ x: villager.x, y: villager.y }]);
@@ -106,7 +111,7 @@ describe('VillagerSystem worker path handoff', () => {
 
         system.assignJob(villager, farm as never);
 
-        expect(villager.state).toBe(UnitState.IDLE);
+        expect(villager.state).toBe(IDLE);
         expect(villager.jobBuilding).toBeUndefined();
         expect(farm.getData('assignedWorker')).toBeUndefined();
     });
@@ -118,7 +123,7 @@ describe('VillagerSystem worker path handoff', () => {
 
         system.sendToRallyPoint(villager, 20, 20);
 
-        expect(villager.state).toBe(UnitState.IDLE);
+        expect(villager.state).toBe(IDLE);
         expect(villager.rallyPoint).toBeUndefined();
     });
 });
