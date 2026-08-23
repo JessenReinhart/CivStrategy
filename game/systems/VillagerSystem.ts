@@ -12,6 +12,9 @@ const CARRY_COLORS: Record<string, number> = {
 };
 
 const TREE_SEARCH_RADIUS = 300;
+const PATH_ARRIVAL_TOLERANCE = 64;
+
+type PathResult = 'moving' | 'arrived' | 'unreachable';
 
 export class VillagerSystem {
     private scene: MainScene;
@@ -140,7 +143,9 @@ export class VillagerSystem {
                 // Arrived at dropsite without a path — deposit immediately
                 this.depositCarry(villager);
                 break;
-            // IDLE, MOVING_TO_RALLY, MOVING_TO_WORK: wait for external assignment
+            // IDLE and MOVING_TO_RALLY wait for external assignment.
+            // MOVING_TO_WORK should always own a path; assignJob resolves the
+            // adjacent/unreachable one-point cases before entering this loop.
         }
     }
 
@@ -192,7 +197,9 @@ export class VillagerSystem {
         villager.carryType = 'wood';
         villager.gatherTimer = 0;
         villager.state = UnitState.GATHERING;
-        this.pathTo(villager, tree.x, tree.y);
+        if (this.pathTo(villager, tree.x, tree.y) === 'unreachable') {
+            this.abortJob(villager);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -219,7 +226,9 @@ export class VillagerSystem {
         villager.carryType = 'gold';
         villager.gatherTimer = 0;
         villager.state = UnitState.GATHERING;
-        this.pathTo(villager, mine.x, mine.y);
+        if (this.pathTo(villager, mine.x, mine.y) === 'unreachable') {
+            this.abortJob(villager);
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -235,13 +244,13 @@ export class VillagerSystem {
                 // Tree gone — find another or go idle
                 const next = this.findNearestTree(villager.x, villager.y);
                 if (!next) {
-                    this.clearJobBuilding(villager);
-                    villager.state = UnitState.IDLE;
-                    this.removeCarryVisual(villager);
+                    this.abortJob(villager);
                     return;
                 }
                 villager.targetResource = next;
-                this.pathTo(villager, next.x, next.y);
+                if (this.pathTo(villager, next.x, next.y) === 'unreachable') {
+                    this.abortJob(villager);
+                }
                 return;
             }
         }
@@ -253,17 +262,16 @@ export class VillagerSystem {
                 (mine as Phaser.GameObjects.Image).getData('isDepleted')) {
                 const next = this.findNearestGoldMine(villager.x, villager.y);
                 if (!next) {
-                    this.clearJobBuilding(villager);
-                    villager.state = UnitState.IDLE;
-                    this.removeCarryVisual(villager);
+                    this.abortJob(villager);
                     return;
                 }
                 villager.targetResource = next;
-                this.pathTo(villager, next.x, next.y);
+                if (this.pathTo(villager, next.x, next.y) === 'unreachable') {
+                    this.abortJob(villager);
+                }
                 return;
             }
         }
-
 
         // Accumulate gather time
         villager.gatherTimer += delta;
@@ -311,7 +319,15 @@ export class VillagerSystem {
                         // Already at dropsite (e.g. farm)
                         this.depositCarry(villager);
                     } else {
-                        this.pathToBuilding(villager, villager.jobBuilding);
+                        const result = this.pathToBuilding(villager, villager.jobBuilding);
+                        if (result === 'arrived') {
+                            this.depositCarry(villager);
+                        } else if (result === 'unreachable') {
+                            // Keep the carried resources instead of teleport-depositing.
+                            // The assignment is released so another job can be chosen.
+                            this.clearJobBuilding(villager);
+                            villager.state = UnitState.IDLE;
+                        }
                     }
                 } else {
                     this.depositCarry(villager);
@@ -397,20 +413,35 @@ export class VillagerSystem {
     //  PATH HELPERS
     // ──────────────────────────────────────────────────────────────────────
 
-    private pathTo(villager: VillagerData, tx: number, ty: number): void {
+    private pathTo(villager: VillagerData, tx: number, ty: number): PathResult {
+        // Never leave a stale path behind when a job retargets.
+        villager.path = undefined;
+        villager.pathStep = 0;
+
         const path = this.scene.pathfinder.findPath(
             new Phaser.Math.Vector2(villager.x, villager.y),
             new Phaser.Math.Vector2(tx, ty),
         );
         if (path && path.length > 1) {
             villager.path = path;
-            villager.pathStep = 0;
+            return 'moving';
         }
+
+        // Pathfinder intentionally returns a one-point path both when the
+        // target is already reached/adjacent and when no route exists. Treat
+        // it as arrival only when that returned point is actually near target.
+        if (path && path.length === 1) {
+            const point = path[0];
+            if (Phaser.Math.Distance.Between(point.x, point.y, tx, ty) <= PATH_ARRIVAL_TOLERANCE) {
+                return 'arrived';
+            }
+        }
+        return 'unreachable';
     }
 
-    private pathToBuilding(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
+    private pathToBuilding(villager: VillagerData, building: Phaser.GameObjects.GameObject): PathResult {
         const b = building as Phaser.GameObjects.Image;
-        this.pathTo(villager, b.x, b.y);
+        return this.pathTo(villager, b.x, b.y);
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -453,12 +484,30 @@ export class VillagerSystem {
         }
     }
 
+    private abortJob(villager: VillagerData): void {
+        this.clearJobBuilding(villager);
+        villager.path = undefined;
+        villager.pathStep = 0;
+        villager.targetResource = undefined;
+        villager.carryType = null;
+        villager.carryAmount = 0;
+        villager.gatherTimer = 0;
+        villager.state = UnitState.IDLE;
+        this.removeCarryVisual(villager);
+    }
+
     public assignJob(villager: VillagerData, building: Phaser.GameObjects.GameObject): void {
         this.clearJobBuilding(villager);
         villager.state = UnitState.MOVING_TO_WORK;
         villager.jobBuilding = building;
         building.setData('assignedWorker', villager);
-        this.pathToBuilding(villager, building);
+
+        const result = this.pathToBuilding(villager, building);
+        if (result === 'arrived') {
+            this.startWorking(villager);
+        } else if (result === 'unreachable') {
+            this.abortJob(villager);
+        }
     }
 
     public getIdleVillagers(owner: number): VillagerData[] {
@@ -497,6 +546,10 @@ export class VillagerSystem {
     public sendToRallyPoint(villager: VillagerData, rallyX: number, rallyY: number): void {
         this.clearJobBuilding(villager);
         villager.state = UnitState.MOVING_TO_RALLY;
-        this.pathTo(villager, rallyX, rallyY);
+        const result = this.pathTo(villager, rallyX, rallyY);
+        if (result !== 'moving') {
+            villager.state = UnitState.IDLE;
+            villager.rallyPoint = undefined;
+        }
     }
 }

@@ -25,6 +25,7 @@ import { InfiniteMapSystem } from '../systems/InfiniteMapSystem';
 import { SpatialHash } from '../utils/SpatialHash';
 import { createSeededRandom } from '../utils/seededRandom';
 import { MapMode } from '../../types';
+import { installLegacyVillagerSpawnBridge } from './VillagerSpawnBridge';
 
 /**
  * Owns the construction and dependency assembly of the world/system layer
@@ -94,6 +95,7 @@ export class WorldBootstrap {
     scene.feedbackSystem = new FeedbackSystem(scene);
     scene.atmosphericSystem = new AtmosphericSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
+    installLegacyVillagerSpawnBridge(scene);
     scene.animalSystem = new AnimalSystem(scene);
     // Render-only civilian crowd. It self-registers with scene UPDATE/SHUTDOWN
     // and never enters the units group, physics, spatial hash, or pathfinder.
