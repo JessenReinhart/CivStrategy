@@ -1,0 +1,256 @@
+name: Sync GitHub Project status
+
+on:
+  issues:
+    types: [opened, reopened, closed]
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, ready_for_review, converted_to_draft, closed]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to update
+        required: true
+        type: number
+      status:
+        description: Project status
+        required: true
+        type: choice
+        options:
+          - Backlog
+          - Ready
+          - In progress
+          - In review
+          - Done
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      PROJECTS_TOKEN: ${{ secrets.PROJECTS_TOKEN }}
+      PROJECT_OWNER: JessenReinhart
+      PROJECT_TITLE: CivStrategy
+    steps:
+      - name: Check project token
+        shell: bash
+        run: |
+          if [ -z "$PROJECTS_TOKEN" ]; then
+            echo "::error::Missing PROJECTS_TOKEN. Add a classic PAT with repo + project scopes as a repository secret named PROJECTS_TOKEN."
+            exit 1
+          fi
+
+      - name: Sync status
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PROJECTS_TOKEN }}
+          script: |
+            const owner = process.env.PROJECT_OWNER;
+            const projectTitle = process.env.PROJECT_TITLE;
+            const { owner: repoOwner, repo } = context.repo;
+
+            const projectResult = await github.graphql(`
+              query($login: String!, $query: String!) {
+                user(login: $login) {
+                  projectsV2(first: 50, query: $query) {
+                    nodes {
+                      id
+                      title
+                      fields(first: 100) {
+                        nodes {
+                          ... on ProjectV2SingleSelectField {
+                            id
+                            name
+                            options { id name }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { login: owner, query: projectTitle });
+
+            const project = projectResult.user?.projectsV2?.nodes?.find(
+              (candidate) => candidate.title?.toLowerCase() === projectTitle.toLowerCase(),
+            );
+            if (!project) {
+              core.setFailed(`GitHub Project '${projectTitle}' was not found under @${owner}.`);
+              return;
+            }
+
+            const statusField = project.fields.nodes.find(
+              (field) => field?.name?.toLowerCase() === 'status' && Array.isArray(field.options),
+            );
+            if (!statusField) {
+              core.setFailed(`Project '${projectTitle}' has no single-select Status field.`);
+              return;
+            }
+
+            const normalizeStatus = (status) => status.trim().toLowerCase();
+            const statusOption = (status) => statusField.options.find(
+              (option) => normalizeStatus(option.name) === normalizeStatus(status),
+            );
+
+            async function findProjectItem(issueNodeId) {
+              const result = await github.graphql(`
+                query($id: ID!) {
+                  node(id: $id) {
+                    ... on Issue {
+                      projectItems(first: 100, includeArchived: false) {
+                        nodes { id project { id } }
+                      }
+                    }
+                  }
+                }
+              `, { id: issueNodeId });
+              return result.node?.projectItems?.nodes?.find(
+                (item) => item.project?.id === project.id,
+              )?.id;
+            }
+
+            async function ensureProjectItem(issueNodeId) {
+              let itemId = await findProjectItem(issueNodeId);
+              if (itemId) return itemId;
+
+              try {
+                const added = await github.graphql(`
+                  mutation($projectId: ID!, $contentId: ID!) {
+                    addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+                      item { id }
+                    }
+                  }
+                `, { projectId: project.id, contentId: issueNodeId });
+                itemId = added.addProjectV2ItemById.item.id;
+              } catch (error) {
+                // A project auto-add workflow can race this mutation. Re-query once.
+                await new Promise((resolve) => setTimeout(resolve, 1500));
+                itemId = await findProjectItem(issueNodeId);
+                if (!itemId) throw error;
+              }
+              return itemId;
+            }
+
+            async function setIssueStatus(issueNodeId, status) {
+              const option = statusOption(status);
+              if (!option) {
+                throw new Error(`Status '${status}' does not exist in project '${projectTitle}'.`);
+              }
+              const itemId = await ensureProjectItem(issueNodeId);
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: { singleSelectOptionId: $optionId }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `, {
+                projectId: project.id,
+                itemId,
+                fieldId: statusField.id,
+                optionId: option.id,
+              });
+              core.info(`Set project item ${itemId} to '${option.name}'.`);
+            }
+
+            async function getIssueNodeId(number) {
+              const result = await github.graphql(`
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    issue(number: $number) { id }
+                  }
+                }
+              `, { owner: repoOwner, repo, number });
+              return result.repository?.issue?.id;
+            }
+
+            async function getClosingIssues(prNumber) {
+              const result = await github.graphql(`
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      closingIssuesReferences(first: 50) { nodes { id number state } }
+                    }
+                  }
+                }
+              `, { owner: repoOwner, repo, number: prNumber });
+              return result.repository?.pullRequest?.closingIssuesReferences?.nodes ?? [];
+            }
+
+            const event = context.eventName;
+            const action = context.payload.action;
+            const updates = [];
+
+            if (event === 'issues') {
+              const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(
+                context.payload.issue.author_association,
+              );
+              const status = action === 'closed'
+                ? 'Done'
+                : trusted ? 'Ready' : 'Backlog';
+              updates.push({ id: context.payload.issue.node_id, status });
+            }
+
+            if (event === 'issue_comment') {
+              if (context.payload.issue.pull_request) {
+                core.info('Ignoring project-status marker on a pull request comment.');
+                return;
+              }
+              const trusted = ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(
+                context.payload.comment.author_association,
+              );
+              if (!trusted) {
+                core.info('Ignoring project-status marker from an untrusted commenter.');
+                return;
+              }
+
+              const marker = context.payload.comment.body?.match(
+                /<!--\s*project-status:(backlog|ready|in-progress|in-review|done)\s*-->/i,
+              );
+              if (!marker) {
+                core.info('No project-status marker found.');
+                return;
+              }
+              const names = {
+                backlog: 'Backlog',
+                ready: 'Ready',
+                'in-progress': 'In progress',
+                'in-review': 'In review',
+                done: 'Done',
+              };
+              updates.push({ id: context.payload.issue.node_id, status: names[marker[1].toLowerCase()] });
+            }
+
+            if (event === 'pull_request_target') {
+              const pr = context.payload.pull_request;
+              const linkedIssues = await getClosingIssues(pr.number);
+              let status;
+              if (action === 'opened' || action === 'ready_for_review') status = 'In review';
+              if (action === 'converted_to_draft') status = 'In progress';
+              if (action === 'closed') status = pr.merged ? 'Done' : 'In progress';
+              for (const issue of linkedIssues) updates.push({ id: issue.id, status });
+              if (linkedIssues.length === 0) {
+                core.info(`PR #${pr.number} has no closing issue references; nothing to update.`);
+              }
+            }
+
+            if (event === 'workflow_dispatch') {
+              const number = Number(context.payload.inputs.issue_number);
+              const issueNodeId = await getIssueNodeId(number);
+              if (!issueNodeId) throw new Error(`Issue #${number} was not found.`);
+              updates.push({ id: issueNodeId, status: context.payload.inputs.status });
+            }
+
+            const deduped = new Map(updates.map((update) => [update.id, update.status]));
+            for (const [id, status] of deduped) {
+              await setIssueStatus(id, status);
+            }
