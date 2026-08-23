@@ -1,22 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 
-class Vector2 {
-    constructor(public x = 0, public y = 0) {}
-}
+vi.mock('phaser', () => {
+    class MockVector2 {
+        constructor(public x = 0, public y = 0) {}
+    }
 
-vi.mock('phaser', () => ({
-    default: {
-        Math: {
-            Vector2,
-            Distance: {
-                Between: (ax: number, ay: number, bx: number, by: number) => Math.hypot(bx - ax, by - ay),
-            },
-            Angle: {
-                Between: (ax: number, ay: number, bx: number, by: number) => Math.atan2(by - ay, bx - ax),
+    return {
+        default: {
+            Math: {
+                Vector2: MockVector2,
+                Distance: {
+                    Between: (ax: number, ay: number, bx: number, by: number) => Math.hypot(bx - ax, by - ay),
+                },
+                Angle: {
+                    Between: (ax: number, ay: number, bx: number, by: number) => Math.atan2(by - ay, bx - ax),
+                },
             },
         },
-    },
-}));
+    };
+});
 
 vi.mock('../MainScene', () => ({
     MainScene: class {},
@@ -70,7 +72,7 @@ describe('VillagerSystem worker path handoff', () => {
     it('starts farm work immediately when a one-point path means already arrived', () => {
         const farm = makeBuilding(BuildingType.FARM, 16, 16);
         const villager = makeVillager(10, 10);
-        const findPath = vi.fn(() => [new Vector2(farm.x, farm.y)]);
+        const findPath = vi.fn(() => [{ x: farm.x, y: farm.y }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.assignJob(villager, farm as never);
@@ -85,7 +87,7 @@ describe('VillagerSystem worker path handoff', () => {
     it('keeps MOVING_TO_WORK when a real multi-point route exists', () => {
         const farm = makeBuilding(BuildingType.FARM, 160, 160);
         const villager = makeVillager(0, 0);
-        const findPath = vi.fn(() => [new Vector2(0, 0), new Vector2(160, 160)]);
+        const findPath = vi.fn(() => [{ x: 0, y: 0 }, { x: 160, y: 160 }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.assignJob(villager, farm as never);
@@ -99,7 +101,7 @@ describe('VillagerSystem worker path handoff', () => {
         const farm = makeBuilding(BuildingType.FARM, 500, 500);
         const villager = makeVillager(0, 0);
         // Pathfinder's no-route sentinel is a one-point path at the start.
-        const findPath = vi.fn(() => [new Vector2(villager.x, villager.y)]);
+        const findPath = vi.fn(() => [{ x: villager.x, y: villager.y }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.assignJob(villager, farm as never);
@@ -111,7 +113,7 @@ describe('VillagerSystem worker path handoff', () => {
 
     it('does not leave an already-arrived rally move stuck in MOVING_TO_RALLY', () => {
         const villager = makeVillager(20, 20);
-        const findPath = vi.fn(() => [new Vector2(20, 20)]);
+        const findPath = vi.fn(() => [{ x: 20, y: 20 }]);
         const system = new VillagerSystem(makeScene(findPath));
 
         system.sendToRallyPoint(villager, 20, 20);
