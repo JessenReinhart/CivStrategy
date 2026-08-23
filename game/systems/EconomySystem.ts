@@ -4,9 +4,12 @@ import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData, AnimalData } from '../../types';
 import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
+const MIN_IDLE_WORKER_RESERVE = 2;
+
 export class EconomySystem {
     private scene: MainScene;
     private lastRates: ResourceRates = { wood: 0, food: 0, gold: 0, foodConsumption: 0 };
+    private depositedSinceLastTick = { wood: 0, food: 0, gold: 0 };
     private lastHappinessChange: number = 0;
     private lastHappinessWarning: number = 0;
     private lastEnemyCheck: number = 0;
@@ -17,7 +20,8 @@ export class EconomySystem {
 
     /**
      * Called by VillagerSystem when a villager reaches a dropsite.
-     * Deposits carried resources into the global pool with research multipliers applied.
+     * Deposits carried resources into the owning faction's pool with research
+     * and faction multipliers applied.
      */
     public depositResource(owner: number, type: 'wood' | 'food' | 'gold', amount: number) {
         let finalAmount = amount;
@@ -34,7 +38,14 @@ export class EconomySystem {
         const gatherMult = FACTION_BONUSES[gatherFaction]?.gatherRateMult ?? 1;
         if (gatherMult !== 1) finalAmount = Math.floor(finalAmount * gatherMult);
 
-        this.scene.resources[type] += finalAmount;
+        if (owner === 0) {
+            this.scene.resources[type] += finalAmount;
+            this.depositedSinceLastTick[type] += finalAmount;
+        } else if (owner === 1 && this.scene.enemyAI) {
+            // EnemyAISystem owns a separate resource pool. Never leak an AI
+            // villager deposit into the player's resources.
+            this.scene.enemyAI.resources[type] += finalAmount;
+        }
 
         // Show floating text at player's TC
         if (owner === 0) {
@@ -87,10 +98,12 @@ export class EconomySystem {
     }
 
     public assignJobs() {
+        // Player economy owns player worker assignment. EnemyAISystem uses its
+        // own abstract economy and must not compete for this worker pipeline.
         const vacantBuildings = this.scene.buildings.getChildren().filter((b) => {
             const def = b.getData('def') as BuildingDef;
             const assignedWorker = b.getData('assignedWorker');
-            return def.workerNeeds && !assignedWorker;
+            return b.getData('owner') === 0 && def.workerNeeds && !assignedWorker;
         });
 
         for (const building of vacantBuildings) {
@@ -119,9 +132,12 @@ export class EconomySystem {
             }
         }
 
-        // Assign idle villagers to gold mines near a Town Center
+        // Gold is opportunistic work, not a mandatory job. Keep a small pool
+        // of idle player workers available so newly-built farms/lumber camps
+        // can actually acquire labor instead of every starting peasant being
+        // permanently claimed by the guaranteed nearby gold mines.
         const idleForGold = this.scene.villagerSystem.getIdleVillagers(0);
-        if (idleForGold.length > 0) {
+        if (idleForGold.length > MIN_IDLE_WORKER_RESERVE) {
             // Find player TCs as potential dropsites
             const tcs = this.scene.buildings.getChildren().filter((b) => {
                 const def = b.getData('def') as BuildingDef;
@@ -136,7 +152,7 @@ export class EconomySystem {
                 );
 
                 for (const mine of activeMines) {
-                    if (idleForGold.length === 0) break;
+                    if (idleForGold.length <= MIN_IDLE_WORKER_RESERVE) break;
 
                     // Find closest idle villager to this mine
                     let bestVillager: VillagerData | null = null;
@@ -161,9 +177,9 @@ export class EconomySystem {
             }
         }
 
-        // Re-filter idle villagers to those who are still truly idle and job-less
+        // Re-filter player villagers to those who are still truly idle and job-less
         const remainingIdle = this.scene.villagerSystem.getAllVillagers().filter((villager) =>
-            villager.state === UnitState.IDLE && !villager.jobBuilding
+            villager.owner === 0 && villager.state === UnitState.IDLE && !villager.jobBuilding
         );
 
         if (remainingIdle.length > 0) {
@@ -232,11 +248,14 @@ export class EconomySystem {
 
             if (def.workerNeeds) {
                 const worker = b.getData('assignedWorker') as VillagerData | null;
-                if (worker && (worker.state === UnitState.WORKING || worker.state === UnitState.GATHERING)) {
-                    if (vacantIcon) vacantIcon.visible = false;
-                } else {
+                const hasAssignedWorker = !!(worker && worker.jobBuilding === b);
+                if (vacantIcon) vacantIcon.visible = !hasAssignedWorker;
+
+                // Assignment and production are different concepts: a worker
+                // walking to the site occupies the job, but does not produce yet.
+                if (!hasAssignedWorker || !worker ||
+                    (worker.state !== UnitState.WORKING && worker.state !== UnitState.GATHERING && worker.state !== UnitState.CARRYING)) {
                     isWorking = false;
-                    if (vacantIcon) vacantIcon.visible = true;
                 }
             }
 
@@ -351,7 +370,17 @@ export class EconomySystem {
         this.scene.resources.gold -= upkeepGold;
         if (this.scene.resources.food < 0) this.scene.resources.food = 0;
         if (this.scene.resources.gold < 0) this.scene.resources.gold = 0;
-        this.lastRates = { wood: woodGen, food: foodGen - foodConsumed - upkeepFood, gold: goldGen - upkeepGold, foodConsumption: foodConsumed + upkeepFood };
+
+        // Carried resources are deposited outside the 1s economy tick. Include
+        // them in the displayed rates so wood/food gathering is visible in UI.
+        const deposited = this.depositedSinceLastTick;
+        this.lastRates = {
+            wood: woodGen + deposited.wood,
+            food: foodGen + deposited.food - foodConsumed - upkeepFood,
+            gold: goldGen + deposited.gold - upkeepGold,
+            foodConsumption: foodConsumed + upkeepFood,
+        };
+        this.depositedSinceLastTick = { wood: 0, food: 0, gold: 0 };
 
         // ─── Happiness ───
         let happinessChange = 0;
@@ -455,7 +484,7 @@ export class EconomySystem {
             const def = selB.getData('def') as BuildingDef;
             if (def.effectRadius) {
                 const worker = selB.getData('assignedWorker') as VillagerData | null;
-                const hasWorker = !!(worker && worker.state === UnitState.WORKING);
+                const hasWorker = !!(worker && worker.jobBuilding === selB);
                 let nearbyResources = 0;
                 let resourceLabel = '';
                 if (def.type === BuildingType.LUMBER_CAMP) {
