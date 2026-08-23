@@ -3,6 +3,7 @@ import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
 import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
+import { releaseToBoundedPool } from '../utils/boundedPool';
 import { SoldierState } from './SquadSystem';
 import { FormationSystem } from './FormationSystem';
 import {
@@ -1423,9 +1424,8 @@ if (spatialHash) {
         p.arrow.setActive(false);
         p.emitter.setVisible?.(false);
 
-
-        if (this.arrowPool.length < this.projectilePoolMax) this.arrowPool.push(p.arrow);
-        if (this.emitterPool.length < this.projectilePoolMax) this.emitterPool.push(p.emitter);
+        releaseToBoundedPool(this.arrowPool, p.arrow, this.projectilePoolMax);
+        releaseToBoundedPool(this.emitterPool, p.emitter, this.projectilePoolMax);
     }
 
     private getPooledArrow(x: number, y: number): Phaser.GameObjects.Rectangle {
