@@ -56,7 +56,7 @@ describe('EconomySystem resource production regression #29', () => {
             carryAmount: 0,
             carryType: 'food',
             gatherTimer: 0,
-        } as VillagerData;
+        } as unknown as VillagerData;
         farm.setData('assignedWorker', worker);
 
         const scene = {
@@ -99,7 +99,8 @@ describe('EconomySystem resource production regression #29', () => {
         economy.tickEconomy();
 
         // User-facing requirement from #29: once a Farm is staffed and working,
-        // the visible food total must actually rise over time.
+        // the visible food total must actually rise over time. This is deliberately
+        // a regression assertion rather than an implementation-detail assertion.
         expect(scene.resources.food).toBeGreaterThan(100);
     });
 });
