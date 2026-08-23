@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { BuildingType } from '../../types';
+import { BuildingType, MapMode } from '../../types';
 import { MainScene } from '../MainScene';
 import { toIso, toIsoElev } from '../utils/iso';
 
@@ -265,7 +265,7 @@ export class AmbientPopulationSystem {
       const x = anchor.x + Math.cos(angle) * distance;
       const y = anchor.y + Math.sin(angle) * distance;
 
-      if (this.scene.mapMode === 'Fixed Map') {
+      if (this.scene.mapMode === MapMode.FIXED) {
         if (x < 0 || y < 0 || x > this.scene.mapWidth || y > this.scene.mapHeight) continue;
       }
       if (this.scene.terrainSystem.getHeightAt(x, y) > waterLevel + 0.01) {
@@ -299,10 +299,6 @@ export class AmbientPopulationSystem {
       default:
         return null;
     }
-  }
-
-  public getActiveCount(): number {
-    return this.desiredCitizenCount;
   }
 
   public destroy(): void {
