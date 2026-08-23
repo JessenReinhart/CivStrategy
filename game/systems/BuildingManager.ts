@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState } from '../../types';
+import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
@@ -271,9 +271,7 @@ export class BuildingManager {
             this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
-                // Houses intentionally grant one real gameplay peasant. Villagers
-                // live in VillagerSystem, so do not route this through EntityFactory.
-                this.scene.villagerSystem.spawnVillager(cx + 30, cy + 30, 0);
+                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
                 this.scene.feedbackSystem.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
 
