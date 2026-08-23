@@ -15,6 +15,7 @@ import { FeedbackSystem } from '../systems/FeedbackSystem';
 import { AtmosphericSystem } from '../systems/AtmosphericSystem';
 import { VillagerSystem } from '../systems/VillagerSystem';
 import { AnimalSystem } from '../systems/AnimalSystem';
+import { AmbientPopulationSystem } from '../systems/AmbientPopulationSystem';
 import { ProceduralSoundSystem } from '../systems/ProceduralSoundSystem';
 import { ClashSystem } from '../systems/ClashSystem';
 import { LiquidCombatSystem } from '../systems/LiquidCombatSystem';
@@ -94,6 +95,9 @@ export class WorldBootstrap {
     scene.atmosphericSystem = new AtmosphericSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
     scene.animalSystem = new AnimalSystem(scene);
+    // Render-only civilian crowd. It self-registers with scene UPDATE/SHUTDOWN
+    // and never enters the units group, physics, spatial hash, or pathfinder.
+    new AmbientPopulationSystem(scene);
     scene.proceduralSound = new ProceduralSoundSystem(scene);
     scene.clashSystem = new ClashSystem(scene);
     scene.liquidCombat = new LiquidCombatSystem(scene);
