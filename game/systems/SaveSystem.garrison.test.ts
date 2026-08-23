@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
 import { deserializeGame } from './SaveSystem';
-import { Age, BuildingType, UnitStance, UnitState, UnitType } from '../../types';
+import { Age, BuildingType, UnitType } from '../../types';
 import type { MainScene } from '../MainScene';
 import type { SaveGame } from '../../types';
 
