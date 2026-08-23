@@ -83,9 +83,9 @@ This table preserves the Cycle 3 discoveries, but its status is reconciled again
 |---|-----|-----------|----------|----------|----------------|
 | 1 | Animal attacks: no damage numbers/sparks | `AnimalSystem.ts:263-285` | Combat | Medium | ✅ Resolved on `main`: unit-target hits emit damage number + hit spark |
 | 2 | Animal-on-animal attacks: no feedback | `AnimalSystem.ts:289-300` | Combat | Low | ✅ Resolved on `main`: animal-target hits emit damage number + hit spark |
-| 3 | Castle garrison: no projectile/spark visual | `MainScene.ts:1283-1290` | Visual FX | Medium | ⏳ Unverified / remaining |
-| 4 | Melee vs animal: damage numbers skipped | `UnitSystem.ts:1126` | Combat | Low | ⏳ Unverified / remaining |
-| 5 | Forest concealment FOW inconsistency | `FogOfWarSystem.ts:161-200` | Systems | Medium | ⏳ Unverified / remaining |
+| 3 | Castle garrison: no projectile/spark visual | `MainScene.ts:1283-1290` | Visual FX | Medium | ✅ Resolved on `main`: garrison fire launches a projectile and emits impact spark feedback |
+| 4 | Melee vs animal: damage numbers skipped | `UnitSystem.ts:1126` | Combat | Low | ✅ Resolved on `main`: melee animal hits emit damage number + hit spark before AnimalSystem damage routing |
+| 5 | Forest concealment FOW inconsistency | `FogOfWarSystem.ts:161-200` | Systems | Medium | ✅ Resolved on `main`: forest vision reduction is applied to units, herbivore animals, and buildings |
 | 6 | Rain of Fire: duplicate 0-damage numbers | `UnitSystem.ts:1576-1579` | Visual FX | Medium | ⏳ Unverified / remaining |
 | 7 | FeedbackSystem: no object pooling or cap | `FeedbackSystem.ts:101-155` | Performance | **High** | ✅ Resolved on `main`: bounded active counts + reusable effect pools |
 | 8 | Stress projectiles: unbounded allocation | `UnitSystem.ts:1305, 1397` | Performance | **High** | ⏳ Unverified / remaining |
