@@ -4,6 +4,8 @@
 
 **Primary Objective:** Deliver a playable, visually coherent, and performant RTS that meets quality bars for both content completeness and 60 FPS at 5,000 active units.
 
+**North Star:** Before major gameplay, UI, visual, or performance work, read `NORTH_STAR.md`. It is the persistent product-quality reference. This file defines the execution loop; `NORTH_STAR.md` defines what "AAA-level" means for CivStrategy and should be used by builders and fresh critics when judging whether a result is actually done.
+
 ---
 
 ## The Prompt
@@ -15,6 +17,8 @@ in Phaser 3 + React that is fun to play and runs at 60 FPS with 5,000 active uni
 The current codebase exists at ~/CivStrategy. It has systems for terrain, units,
 buildings, economy, combat, pathfinding, and UI — but it is missing visual effects,
 has gameplay bugs, and fails performance targets.
+
+Before selecting or judging work, read NORTH_STAR.md and use it as the product-quality bar.
 
 ## Quality Bars (These are the reference standards — compare against them)
 
@@ -91,7 +95,7 @@ Known bugs to start with (verify each, then fix):
 **Step 4 — Independent critics with fresh context:** After each builder finishes,
 spawn a separate critic that has never seen the builder's reasoning. The critic:
 - Inspects the real artifact (runs the code, takes screenshots, runs the profiler)
-- Compares directly against the quality bars above
+- Compares directly against NORTH_STAR.md and the quality bars above
 - Uses scripts/profile-stress.mjs for performance; npm run test for logic
 - Names the largest remaining gap with evidence
 - Reports ALL gaps found, even ones outside the original scope
@@ -121,6 +125,9 @@ Finish with a summary: what was fixed, what still fails, and by how much each me
 ---
 
 ## Supporting Artifacts
+
+### Product Quality Reference
+Read `NORTH_STAR.md` before selecting major gameplay/UI work and again during critic review.
 
 ### Gauntlet Progress Tracker
 Maintain GAUNTLET_PROGRESS.md throughout the run. One section per cycle.
