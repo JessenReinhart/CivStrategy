@@ -12,6 +12,25 @@ export const PENDING_LOAD_KEY = 'civstrategy-pending-load';
 
 const SAVE_VERSION = 1;
 
+const VILLAGER_TRANSIENT_STATES = new Set<UnitState>([
+  UnitState.MOVING_TO_WORK,
+  UnitState.WORKING,
+  UnitState.GATHERING,
+  UnitState.CARRYING,
+  UnitState.MOVING_TO_RALLY,
+]);
+
+/**
+ * Villager work/navigation states depend on runtime-only references such as a
+ * path, jobBuilding, targetResource, or rallyPoint. Those references are not
+ * part of the save format, so restoring the state without them can leave the
+ * villager pathless and stuck. Restart those states from IDLE after a round
+ * trip while preserving states that do not require transient work context.
+ */
+export function normalizeVillagerStateForSaveLoad(state: UnitState): UnitState {
+  return VILLAGER_TRANSIENT_STATES.has(state) ? UnitState.IDLE : state;
+}
+
 // ─── Serialize ──────────────────────────────────────────────────────────
 
 export function serializeGame(scene: MainScene): SaveGame {
@@ -80,33 +99,20 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
     });
   }
 
-  // Villagers from VillagerSystem
+  // Villagers from VillagerSystem. Work/navigation references are runtime-only,
+  // so persist a state that can safely restart without those references.
   const villagers = scene.villagerSystem?.getAllVillagers() ?? [];
   for (const v of villagers) {
-    if (v.state === UnitState.GATHERING || v.state === UnitState.CARRYING) {
-      // Reset transient work state to IDLE for clean reload
-      units.push({
-        type: UnitType.VILLAGER,
-        owner: v.owner,
-        x: v.x,
-        y: v.y,
-        hp: 100,
-        maxHp: 100,
-        state: UnitState.IDLE,
-        stance: UnitStance.HOLD,
-      });
-    } else {
-      units.push({
-        type: UnitType.VILLAGER,
-        owner: v.owner,
-        x: v.x,
-        y: v.y,
-        hp: 100,
-        maxHp: 100,
-        state: v.state,
-        stance: UnitStance.HOLD,
-      });
-    }
+    units.push({
+      type: UnitType.VILLAGER,
+      owner: v.owner,
+      x: v.x,
+      y: v.y,
+      hp: 100,
+      maxHp: 100,
+      state: normalizeVillagerStateForSaveLoad(v.state),
+      stance: UnitStance.HOLD,
+    });
   }
 
   return units;
@@ -312,7 +318,9 @@ function respawnUnits(scene: MainScene, save: SaveGame): void {
   for (const u of save.units) {
     if (u.type === UnitType.VILLAGER) {
       const villager = scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
-      villager.state = u.state;
+      // Sanitize old saves too: transient work/navigation references are not
+      // restored, so their dependent states cannot safely resume after load.
+      villager.state = normalizeVillagerStateForSaveLoad(u.state);
       // VillagerData doesn't have hp or stance, skip
     } else {
       const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);
