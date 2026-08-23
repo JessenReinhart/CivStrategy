@@ -75,19 +75,21 @@ Tracker for the Gauntlet Loop. One section per cycle.
 | Save/load round-trip | Systems | 2 |
 | Stress-mode rendering cost | Performance | 3 |
 
-### Gaps Discovered (9, unfixed)
+### Gaps Discovered at Cycle 3 close
 
-| # | Gap | File:Line | Category | Priority |
-|---|-----|-----------|----------|----------|
-| 1 | Animal attacks: no damage numbers/sparks | `AnimalSystem.ts:263-285` | Combat | Medium |
-| 2 | Animal-on-animal attacks: no feedback | `AnimalSystem.ts:289-300` | Combat | Low |
-| 3 | Castle garrison: no projectile/spark visual | `MainScene.ts:1283-1290` | Visual FX | Medium |
-| 4 | Melee vs animal: damage numbers skipped | `UnitSystem.ts:1126` | Combat | Low |
-| 5 | Forest concealment FOW inconsistency | `FogOfWarSystem.ts:161-200` | Systems | Medium |
-| 6 | Rain of Fire: duplicate 0-damage numbers | `UnitSystem.ts:1576-1579` | Visual FX | Medium |
-| 7 | FeedbackSystem: no object pooling or cap | `FeedbackSystem.ts:101-155` | Performance | **High** |
-| 8 | Stress projectiles: unbounded allocation | `UnitSystem.ts:1305, 1397` | Performance | **High** |
-| 9 | Stress peaceful orbit: setPosition on disabled bodies | `UnitSystem.ts:213-230` | Performance | Medium |
+This table preserves the Cycle 3 discoveries, but its status is reconciled against current `main` so later Gauntlet runs do not re-select already-landed work.
+
+| # | Gap | File:Line | Category | Priority | Current status |
+|---|-----|-----------|----------|----------|----------------|
+| 1 | Animal attacks: no damage numbers/sparks | `AnimalSystem.ts:263-285` | Combat | Medium | ✅ Resolved on `main`: unit-target hits emit damage number + hit spark |
+| 2 | Animal-on-animal attacks: no feedback | `AnimalSystem.ts:289-300` | Combat | Low | ✅ Resolved on `main`: animal-target hits emit damage number + hit spark |
+| 3 | Castle garrison: no projectile/spark visual | `MainScene.ts:1283-1290` | Visual FX | Medium | ⏳ Unverified / remaining |
+| 4 | Melee vs animal: damage numbers skipped | `UnitSystem.ts:1126` | Combat | Low | ⏳ Unverified / remaining |
+| 5 | Forest concealment FOW inconsistency | `FogOfWarSystem.ts:161-200` | Systems | Medium | ⏳ Unverified / remaining |
+| 6 | Rain of Fire: duplicate 0-damage numbers | `UnitSystem.ts:1576-1579` | Visual FX | Medium | ⏳ Unverified / remaining |
+| 7 | FeedbackSystem: no object pooling or cap | `FeedbackSystem.ts:101-155` | Performance | **High** | ✅ Resolved on `main`: bounded active counts + reusable effect pools |
+| 8 | Stress projectiles: unbounded allocation | `UnitSystem.ts:1305, 1397` | Performance | **High** | ⏳ Unverified / remaining |
+| 9 | Stress peaceful orbit: setPosition on disabled bodies | `UnitSystem.ts:213-230` | Performance | Medium | ✅ Resolved on `main`: disabled bodies are skipped and normal peaceful-stress unit work is gated |
 
 ### Performance Metrics
 
@@ -101,4 +103,4 @@ Tracker for the Gauntlet Loop. One section per cycle.
 
 **Bottleneck:** Phaser WebGL rendering (~17 ms). All CPU-side work optimized (~3 ms). Further gains require architectural changes (instanced meshes, draw call batching, terrain baking).
 
-**Next:** High-priority items 7 + 8 (object pooling in FeedbackSystem and projectile emitters) would unlock the remaining gap to 60 FPS. Item 9 (skip orbit loop in stress) is a cheap win.
+**Next:** Re-verify the remaining open entries above against current `main` before selecting implementation work. The historical Cycle 3 recommendation to prioritize FeedbackSystem pooling is now satisfied; stress projectile allocation remains unverified.
