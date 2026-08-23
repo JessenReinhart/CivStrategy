@@ -86,9 +86,9 @@ This table preserves the Cycle 3 discoveries, but its status is reconciled again
 | 3 | Castle garrison: no projectile/spark visual | `MainScene.ts:1283-1290` | Visual FX | Medium | ✅ Resolved on `main`: garrison fire launches a projectile and emits impact spark feedback |
 | 4 | Melee vs animal: damage numbers skipped | `UnitSystem.ts:1126` | Combat | Low | ✅ Resolved on `main`: melee animal hits emit damage number + hit spark before AnimalSystem damage routing |
 | 5 | Forest concealment FOW inconsistency | `FogOfWarSystem.ts:161-200` | Systems | Medium | ✅ Resolved on `main`: forest vision reduction is applied to units, herbivore animals, and buildings |
-| 6 | Rain of Fire: duplicate 0-damage numbers | `UnitSystem.ts:1576-1579` | Visual FX | Medium | ⏳ Unverified / remaining |
+| 6 | Rain of Fire: duplicate 0-damage numbers | `UnitSystem.ts:1576-1579` | Visual FX | Medium | ✅ Resolved on `main`: projectile impacts only emit damage numbers when `dmg > 0` |
 | 7 | FeedbackSystem: no object pooling or cap | `FeedbackSystem.ts:101-155` | Performance | **High** | ✅ Resolved on `main`: bounded active counts + reusable effect pools |
-| 8 | Stress projectiles: unbounded allocation | `UnitSystem.ts:1305, 1397` | Performance | **High** | ⏳ Unverified / remaining |
+| 8 | Stress projectiles: unbounded allocation | `UnitSystem.ts:1305, 1397` | Performance | **High** | ✅ Resolved on `main`: arrow/emitter reuse is bounded and overflow resources are destroyed instead of retained |
 | 9 | Stress peaceful orbit: setPosition on disabled bodies | `UnitSystem.ts:213-230` | Performance | Medium | ✅ Resolved on `main`: disabled bodies are skipped and normal peaceful-stress unit work is gated |
 
 ### Performance Metrics
@@ -103,4 +103,4 @@ This table preserves the Cycle 3 discoveries, but its status is reconciled again
 
 **Bottleneck:** Phaser WebGL rendering (~17 ms). All CPU-side work optimized (~3 ms). Further gains require architectural changes (instanced meshes, draw call batching, terrain baking).
 
-**Next:** Re-verify the remaining open entries above against current `main` before selecting implementation work. The historical Cycle 3 recommendation to prioritize FeedbackSystem pooling is now satisfied; stress projectile allocation remains unverified.
+**Next:** All Cycle 3 discovered gaps above are now reconciled as resolved on current `main`. Future Gauntlet runs should discover against current code and measured runtime evidence rather than re-selecting this historical list.
