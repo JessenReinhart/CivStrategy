@@ -1,7 +1,7 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, UnitType } from '../../types';
+import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
@@ -271,7 +271,10 @@ export class BuildingManager {
             this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
 
             if (this.previewBuildingType === BuildingType.HOUSE) {
-                this.scene.entityFactory.spawnUnit(UnitType.VILLAGER, cx + 30, cy + 30);
+                // Villagers are no longer EntityFactory units. Spawn through the
+                // dedicated worker system so houses really add the peasant the
+                // UI announces and the economy can use that labor immediately.
+                this.scene.villagerSystem.spawnVillager(cx + 30, cy + 30, 0);
                 this.scene.feedbackSystem.showFloatingText(cx, cy, "Peasant spawned!", "#00ff00");
             }
 
@@ -415,10 +418,14 @@ export class BuildingManager {
 
         const worker = b.getData('assignedWorker');
         if (worker) {
+            // Villagers are data-driven workers, not Arcade bodies. Release the
+            // assignment without touching the legacy `body` field.
             worker.state = UnitState.IDLE;
-            worker.jobBuilding = null;
-            worker.path = null;
-            worker.body.setVelocity(0, 0);
+            worker.jobBuilding = undefined;
+            worker.path = undefined;
+            worker.pathStep = 0;
+            worker.targetResource = undefined;
+            b.setData('assignedWorker', undefined);
         }
 
         const logic = b as Phaser.GameObjects.Rectangle;
