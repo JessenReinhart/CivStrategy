@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { MainScene } from '../game/MainScene';
 import { FactionType, MapMode, MapSize, MapPreset } from '../types';
+import { attachPhaserGameProbe } from '../utils/phaserGameProbe';
 
 interface PhaserGameProps {
   faction: FactionType;
@@ -46,8 +47,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
 
     const game = new Phaser.Game(config);
     // DEV-ONLY-PROBE: remove before release (PathCritic profiling hook)
-    const probeTarget = window as unknown as { __civStrategyGame?: Phaser.Game };
-    probeTarget.__civStrategyGame = game;
+    const removeGameProbe = attachPhaserGameProbe(window, game);
     gameRef.current = game;
 
     // Manually add the scene class
@@ -74,6 +74,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     });
 
     return () => {
+      removeGameProbe();
       game.destroy(true);
       gameRef.current = null;
     };
