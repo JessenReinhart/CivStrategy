@@ -97,10 +97,7 @@ const [selectedCount, setSelectedCount] = useState(0);
 
   const handleQuit = () => {
     loadingCompletionDelayRef.current.cancel();
-    if (gameInstance) {
-      gameInstance.destroy(true);
-      setGameInstance(null);
-    }
+    setGameInstance(null);
     setGameState('menu');
     setIsGameLoading(true);
     setSelectedCount(0);
