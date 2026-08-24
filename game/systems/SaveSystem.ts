@@ -373,6 +373,7 @@ export function getSaveMeta(): { timestamp: number; faction: FactionType; mapSee
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const save = JSON.parse(raw) as SaveGame;
+    if (save.version !== SAVE_VERSION) return null;
     return {
       timestamp: save.timestamp,
       faction: save.faction,
