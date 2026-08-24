@@ -1606,11 +1606,11 @@ if (spatialHash) {
     private drawDebugLines(): void {
         this.debugGraphics.clear();
         for (const u of this.scene.units.getChildren() as GameUnit[]) {
-            const startIso = toIso(u.x, u.y);
+            const startIso = toIsoElev(u.x, u.y, this.scene.terrainSystem.getHeightAt(u.x, u.y));
 
             if (u.target && u.target.scene) {
                 const tgt = u.target as Phaser.GameObjects.Image;
-                const endIso = toIso(tgt.x, tgt.y);
+                const endIso = toIsoElev(tgt.x, tgt.y, this.scene.terrainSystem.getHeightAt(tgt.x, tgt.y));
                 this.debugGraphics.lineStyle(2, 0xff0000, 0.7);
                 this.debugGraphics.beginPath();
                 this.debugGraphics.moveTo(startIso.x, startIso.y);
@@ -1620,7 +1620,7 @@ if (spatialHash) {
 
             if (u.path && u.path.length > 0) {
                 const dest = u.path[u.path.length - 1];
-                const endIso = toIso(dest.x, dest.y);
+                const endIso = toIsoElev(dest.x, dest.y, this.scene.terrainSystem.getHeightAt(dest.x, dest.y));
                 this.debugGraphics.lineStyle(1, 0xffffff, 0.5);
                 this.debugGraphics.beginPath();
                 this.debugGraphics.moveTo(startIso.x, startIso.y);
@@ -1641,11 +1641,11 @@ if (spatialHash) {
                 if (age < fadeDuration && u.path.length > u.pathStep) {
                     const alpha = Phaser.Math.Clamp(1 - (age / fadeDuration), 0, 1);
                     this.pathGraphics.beginPath();
-                    const startIso = toIso(u.x, u.y);
+                    const startIso = toIsoElev(u.x, u.y, this.scene.terrainSystem.getHeightAt(u.x, u.y));
                     this.pathGraphics.moveTo(startIso.x, startIso.y);
                     for (let i = u.pathStep; i < u.path.length; i++) {
                         const pt = u.path[i];
-                        const iso = toIso(pt.x, pt.y);
+                        const iso = toIsoElev(pt.x, pt.y, this.scene.terrainSystem.getHeightAt(pt.x, pt.y));
                         this.pathGraphics.lineTo(iso.x, iso.y);
                     }
                     this.pathGraphics.lineStyle(2, 0xffffff, alpha);

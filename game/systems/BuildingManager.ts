@@ -205,7 +205,7 @@ export class BuildingManager {
                 const tx = tree.x;
                 const ty = tree.y;
                 if (Phaser.Math.Distance.Between(cx, cy, tx, ty) <= range) {
-                    const isoT = toIso(tx, ty);
+                    const isoT = toIsoElev(tx, ty, this.scene.terrainSystem.getHeightAt(tx, ty));
 
                     // Draw glowing effect on tree
                     const glowRadius = 20;
@@ -542,7 +542,7 @@ export class BuildingManager {
         this.scene.buildings.getChildren().forEach((bObj: Phaser.GameObjects.GameObject) => {
             const b = bObj as Phaser.GameObjects.Rectangle;
             const def = b.getData('def') as BuildingDef;
-            const iso = toIso(b.x, b.y);
+            const iso = toIsoElev(b.x, b.y, this.scene.terrainSystem.getHeightAt(b.x, b.y));
             if (def.territoryRadius) {
                 const color = this.scene.getFactionColor(b.getData('owner'));
                 this.territoryGraphics.fillStyle(color, 0.08);
@@ -611,7 +611,7 @@ export class BuildingManager {
 
         // Create the light cylinder effect for selected building
         const b = selected as Phaser.GameObjects.Rectangle;
-        const iso = toIso(b.x, b.y);
+        const iso = toIsoElev(b.x, b.y, this.scene.terrainSystem.getHeightAt(b.x, b.y));
         const radius = def.effectRadius;
         const wallHeight = 150;
         const segments = 48;
