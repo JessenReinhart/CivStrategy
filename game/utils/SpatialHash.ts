@@ -33,6 +33,7 @@ export class SpatialHash {
                 this.buckets.delete(key);
             }
         }
+        entity.setData('spatialKey', undefined);
     }
 
     public update(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
