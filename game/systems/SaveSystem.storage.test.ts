@@ -44,7 +44,7 @@ describe('SaveSystem storage helpers', () => {
   });
 
   it('does not throw when storage access is blocked', () => {
-    const blocked = new DOMException('blocked', 'SecurityError');
+    const blocked = new Error('storage blocked');
     vi.stubGlobal('localStorage', {
       getItem: () => { throw blocked; },
       setItem: () => { throw blocked; },
