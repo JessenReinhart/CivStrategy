@@ -253,6 +253,7 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
       window.removeEventListener('request-set-formation-ui', formationHandler);
       window.removeEventListener('request-set-stance-ui', stanceHandler);
+      window.removeEventListener('request-start-research', researchHandler);
       window.removeEventListener('clear-selection', clearSelectionHandler);
       window.removeEventListener('save-game', saveGameHandler);
       window.removeEventListener('load-game', loadGameHandler);
