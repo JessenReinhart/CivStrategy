@@ -34,17 +34,10 @@ function makeGraphics() {
 }
 
 function makeScene(overrides: Record<string, unknown> = {}) {
-    const createdGraphics: ReturnType<typeof makeGraphics>[] = [];
+    const selectionGraphics = makeGraphics();
     const scene = {
-        add: {
-            graphics: vi.fn(() => {
-                const graphics = makeGraphics();
-                createdGraphics.push(graphics);
-                return graphics;
-            }),
-        },
+        add: { graphics: vi.fn(() => selectionGraphics) },
         worldLayer: { add: vi.fn() },
-        game: { events: { on: vi.fn() } },
         terrainSystem: { getHeightAt: vi.fn(() => 0.8) },
         getFactionColor: vi.fn(() => 0xffffff),
         trees: { getChildren: vi.fn(() => []) },
@@ -52,16 +45,36 @@ function makeScene(overrides: Record<string, unknown> = {}) {
         inputManager: { selectedBuilding: null },
         ...overrides,
     };
-    return { scene: scene as unknown as MainScene, createdGraphics };
+    return { scene: scene as unknown as MainScene, selectionGraphics };
+}
+
+function makeManager(
+    scene: MainScene,
+    treeHighlightGraphics = makeGraphics(),
+    territoryGraphics = makeGraphics(),
+) {
+    const manager = Object.create(BuildingManager.prototype) as BuildingManager;
+    Object.assign(manager as unknown as Record<string, unknown>, {
+        scene,
+        treeHighlightGraphics,
+        territoryGraphics,
+        isTerritoryDirty: false,
+        activeSelectionBeam: null,
+        previewBuildingType: null,
+        previewBuilding: null,
+        isDemolishMode: false,
+        previewText: null,
+    });
+    return { manager, treeHighlightGraphics, territoryGraphics };
 }
 
 describe('BuildingManager terrain-elevated overlays', () => {
     it('centers lumber-camp tree highlights on the elevated tree visual position', () => {
         const tree = { x: 120, y: 80 };
-        const { scene, createdGraphics } = makeScene({
+        const { scene } = makeScene({
             trees: { getChildren: vi.fn(() => [tree]) },
         });
-        const manager = new BuildingManager(scene);
+        const { manager, treeHighlightGraphics } = makeManager(scene);
         manager.previewBuildingType = BuildingType.LUMBER_CAMP;
         const height = 0.8;
 
@@ -69,7 +82,7 @@ describe('BuildingManager terrain-elevated overlays', () => {
             .updateHighlights(120, 80, { effectRadius: 200 });
 
         const expected = toIsoElev(tree.x, tree.y, height);
-        expect(createdGraphics[0].fillEllipse).toHaveBeenCalledWith(expected.x, expected.y, 50, 25);
+        expect(treeHighlightGraphics.fillEllipse).toHaveBeenCalledWith(expected.x, expected.y, 50, 25);
         expect(scene.terrainSystem.getHeightAt).toHaveBeenCalledWith(tree.x, tree.y);
     });
 
@@ -80,16 +93,15 @@ describe('BuildingManager terrain-elevated overlays', () => {
             y: 96,
             getData: vi.fn((key: string) => key === 'def' ? def : 0),
         };
-        const { scene, createdGraphics } = makeScene({
+        const { scene } = makeScene({
             buildings: { getChildren: vi.fn(() => [building]) },
         });
-        const manager = new BuildingManager(scene);
+        const { manager, territoryGraphics } = makeManager(scene);
         const height = 0.8;
 
         (manager as unknown as { drawTerritory(): void }).drawTerritory();
 
         const expected = toIsoElev(building.x, building.y, height);
-        const territoryGraphics = createdGraphics[1];
         expect(territoryGraphics.fillEllipse).toHaveBeenCalledWith(expected.x, expected.y, 440, 220);
         expect(territoryGraphics.strokeEllipse).toHaveBeenCalledWith(expected.x, expected.y, 280, 140);
         expect(scene.terrainSystem.getHeightAt).toHaveBeenCalledWith(building.x, building.y);
@@ -102,17 +114,16 @@ describe('BuildingManager terrain-elevated overlays', () => {
             y: 110,
             getData: vi.fn((key: string) => key === 'def' ? def : 0),
         };
-        const { scene, createdGraphics } = makeScene({
+        const { scene, selectionGraphics } = makeScene({
             inputManager: { selectedBuilding: building },
         });
-        const manager = new BuildingManager(scene);
+        const { manager } = makeManager(scene);
         const height = 0.8;
 
         (manager as unknown as { handleBuildingSelection(): void }).handleBuildingSelection();
 
         const expected = toIsoElev(building.x, building.y, height);
-        const beam = createdGraphics[2];
-        expect(beam.setPosition).toHaveBeenCalledWith(expected.x, expected.y);
+        expect(selectionGraphics.setPosition).toHaveBeenCalledWith(expected.x, expected.y);
         expect(scene.terrainSystem.getHeightAt).toHaveBeenCalledWith(building.x, building.y);
     });
 });
