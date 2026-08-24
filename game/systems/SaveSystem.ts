@@ -231,10 +231,15 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 6. Respawn units (after buildings and AI state)
   respawnUnits(scene, save);
 
-  // 7. Recompute economy stats
+  // 7. Reconnect idle villagers to worker buildings now that both sides exist.
+  // Runtime job references are intentionally not serialized, so without this
+  // pass loaded farms/lumber camps stay vacant until the next scheduler tick.
+  scene.economySystem?.assignJobs?.();
+
+  // 8. Recompute economy stats
   scene.economySystem?.updateStats();
 
-  // 8. Force a full update cycle so everything is consistent
+  // 9. Force a full update cycle so everything is consistent
   const center = getIsoCenter(scene);
   scene.cameras.main.centerOn(center.x, center.y);
 }
