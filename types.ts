@@ -338,7 +338,7 @@ export interface ActiveResearch {
 export interface PlayerTechSnapshot {
   completed: Set<TechId>;
   active: ActiveResearch | null;
-  gatherMult: { wood: number; food: number; gold: number };
+  gatherMult: { wood: 1, food: 1, gold: 1 };
   damageMult: number;
   armorAdd: number;
   movementSpeedMult: number;
@@ -385,6 +385,7 @@ export interface SaveGame {
     completedPlayer: TechId[];
     activePlayer: { techId: TechId; remainingMs: number } | null;
     completedAI: TechId[];
+    activeAI?: { techId: TechId; remainingMs: number } | null;
   };
   // AI
   aiState: SerializedAIState;
