@@ -161,6 +161,9 @@ describe('VillagerSystem resource production', () => {
         const findPath = vi.fn((_start, end) => [{ x: end.x, y: end.y }]);
         const system = new VillagerSystem(makeScene(findPath, [tree], depositResource));
 
+        // This test constructs the villager without spawnVillager() to avoid Phaser
+        // rendering dependencies, so register it with the system's update set explicitly.
+        (system as unknown as { villagers: VillagerData[] }).villagers.push(villager);
         system.assignJob(villager, camp as never);
         expect(villager.state).toBe(GATHERING);
         expect(villager.carryType).toBe('wood');
