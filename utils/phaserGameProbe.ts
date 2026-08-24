@@ -2,15 +2,16 @@ export interface PhaserGameProbeTarget<TGame> {
   __civStrategyGame?: TGame;
 }
 
-export const attachPhaserGameProbe = <TGame>(
-  target: PhaserGameProbeTarget<TGame>,
+export const attachPhaserGameProbe = <TGame, TTarget extends object>(
+  target: TTarget,
   game: TGame,
 ) => {
-  target.__civStrategyGame = game;
+  const probeTarget = target as TTarget & PhaserGameProbeTarget<TGame>;
+  probeTarget.__civStrategyGame = game;
 
   return () => {
-    if (target.__civStrategyGame === game) {
-      delete target.__civStrategyGame;
+    if (probeTarget.__civStrategyGame === game) {
+      delete probeTarget.__civStrategyGame;
     }
   };
 };
