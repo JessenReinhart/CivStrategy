@@ -142,11 +142,19 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
 
 function serializeResearch(scene: MainScene) {
   const rm = scene.researchManager;
-  if (!rm) return { completedPlayer: [] as TechId[], activePlayer: null, completedAI: [] as TechId[] };
+  if (!rm) {
+    return {
+      completedPlayer: [] as TechId[],
+      activePlayer: null,
+      completedAI: [] as TechId[],
+      activeAI: null,
+    };
+  }
 
   const playerSnap = rm.getSnapshot(0);
   const aiSnap = rm.getSnapshot(1);
   const activePlayer = rm.getActive(0);
+  const activeAI = rm.getActive(1);
 
   return {
     completedPlayer: [...playerSnap.completed],
@@ -154,6 +162,9 @@ function serializeResearch(scene: MainScene) {
       ? { techId: activePlayer.techId, remainingMs: activePlayer.remainingMs }
       : null,
     completedAI: [...aiSnap.completed],
+    activeAI: activeAI
+      ? { techId: activeAI.techId, remainingMs: activeAI.remainingMs }
+      : null,
   };
 }
 
@@ -302,6 +313,13 @@ function restoreResearch(scene: MainScene, save: SaveGame): void {
   }
   // AI research
   rm.setCompleted(1, save.research.completedAI);
+  if (save.research.activeAI) {
+    rm.setActiveResearch(1, save.research.activeAI.techId, save.research.activeAI.remainingMs);
+  } else {
+    // `activeAI` is optional so older version-1 saves remain loadable. Treat a
+    // missing field the same as no active AI research and clear stale runtime state.
+    rm.clearActiveResearch(1);
+  }
   rm.rebuildSnapshotPublic(0);
   rm.rebuildSnapshotPublic(1);
 }
