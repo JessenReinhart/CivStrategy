@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
@@ -7,6 +7,8 @@ import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import { addResearchWindowListener } from './utils/researchWindowListener';
+import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
+import { scheduleStressUrlBootstrap } from './utils/stressUrlBootstrap';
 import Phaser from 'phaser';
 
 interface StressTestConfig {
@@ -18,6 +20,9 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
   const [loadProgress, setLoadProgress] = useState<number>(0);
+  const loadingCompletionDelayRef = useRef(
+    createLoadingCompletionDelay(() => setIsGameLoading(false), 500),
+  );
 
   const [faction, setFaction] = useState<FactionType>(FactionType.ROMANS);
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
@@ -59,6 +64,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
   const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, disableAI: boolean, seed: number = 0, preset: MapPreset = MapPreset.STANDARD) => {
+    loadingCompletionDelayRef.current.cancel();
     setFaction(selectedFaction);
     setMapMode(mode);
     setMapSize(size);
@@ -75,6 +81,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   const handleStressTestStart = (config: StressTestConfig) => {
+    loadingCompletionDelayRef.current.cancel();
     setFaction(FactionType.ROMANS);
     setMapMode(MapMode.FIXED);
     setMapSize(MapSize.LARGE);
@@ -89,6 +96,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   const handleQuit = () => {
+    loadingCompletionDelayRef.current.cancel();
     if (gameInstance) {
       gameInstance.destroy(true);
       setGameInstance(null);
@@ -125,23 +133,14 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const stressCount = parseInt(params.get('stress') || '0', 10);
-    if (stressCount > 0) {
-      // Defer to next tick to avoid react-hooks/set-state-in-effect
-      const id = setTimeout(() => {
-        handleStressTestStart({ unitCount: stressCount, enableEnemies: params.get('enemies') === 'true' });
-      }, 0);
-      return () => clearTimeout(id);
-    }
-
+    const loadingCompletionDelay = loadingCompletionDelayRef.current;
     const progressHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
       setLoadProgress(customEvent.detail);
     };
     const completeHandler = () => {
       // Add a slight artificial delay for smooth transition
-      setTimeout(() => setIsGameLoading(false), 500);
+      loadingCompletionDelay.schedule();
     };
     const stressTestHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -152,7 +151,15 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('game-load-complete', completeHandler);
     window.addEventListener('stressTestStart', stressTestHandler);
 
+    // Defer URL-driven stress mode until after this effect has installed loading listeners.
+    const cancelStressUrlBootstrap = scheduleStressUrlBootstrap(
+      window.location.search,
+      handleStressTestStart,
+    );
+
     return () => {
+      cancelStressUrlBootstrap();
+      loadingCompletionDelay.cancel();
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
       window.removeEventListener('stressTestStart', stressTestHandler);
