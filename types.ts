@@ -338,7 +338,7 @@ export interface ActiveResearch {
 export interface PlayerTechSnapshot {
   completed: Set<TechId>;
   active: ActiveResearch | null;
-  gatherMult: { wood: 1, food: 1, gold: 1 };
+  gatherMult: { wood: number; food: number; gold: number };
   damageMult: number;
   armorAdd: number;
   movementSpeedMult: number;
