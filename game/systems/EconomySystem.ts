@@ -5,6 +5,7 @@ import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, Village
 import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
 const MIN_IDLE_WORKER_RESERVE = 2;
+const FARM_BASE_FOOD_PER_TICK = 3;
 
 export class EconomySystem {
     private scene: MainScene;
@@ -266,10 +267,12 @@ export class EconomySystem {
             }
 
             if (isWorking) {
-                // Farm terrain affinity: passive bonus per working farm scaled by terrain yield
+                // Farm terrain affinity: passive bonus per working farm scaled by terrain yield.
+                // Keep the baseline above the two-villager opening consumption so a staffed
+                // farm has an immediately visible positive effect before its carry deposit lands.
                 if (def.type === BuildingType.FARM) {
                     const terrainYield = b.getData('terrainYield') as number ?? 1.0;
-                    foodGen += Math.floor(terrainYield * 2 * efficiency);
+                    foodGen += Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * efficiency);
                 }
 
                 // Hunter's Lodge: passive food from nearby animals (hunting mechanic preserved)
