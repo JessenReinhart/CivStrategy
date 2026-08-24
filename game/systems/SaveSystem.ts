@@ -12,6 +12,25 @@ export const PENDING_LOAD_KEY = 'civstrategy-pending-load';
 
 const SAVE_VERSION = 1;
 
+const VILLAGER_TRANSIENT_STATES = new Set<UnitState>([
+  UnitState.MOVING_TO_WORK,
+  UnitState.WORKING,
+  UnitState.GATHERING,
+  UnitState.CARRYING,
+  UnitState.MOVING_TO_RALLY,
+]);
+
+/**
+ * Villager work/navigation states depend on runtime-only references such as a
+ * path, jobBuilding, targetResource, or rallyPoint. Those references are not
+ * part of the save format, so restoring the state without them can leave the
+ * villager pathless and stuck. Restart those states from IDLE after a round
+ * trip while preserving states that do not require transient work context.
+ */
+export function normalizeVillagerStateForSaveLoad(state: UnitState): UnitState {
+  return VILLAGER_TRANSIENT_STATES.has(state) ? UnitState.IDLE : state;
+}
+
 // ─── Serialize ──────────────────────────────────────────────────────────
 
 export function serializeGame(scene: MainScene): SaveGame {
@@ -80,33 +99,20 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
     });
   }
 
-  // Villagers from VillagerSystem
+  // Villagers from VillagerSystem. Work/navigation references are runtime-only,
+  // so persist a state that can safely restart without those references.
   const villagers = scene.villagerSystem?.getAllVillagers() ?? [];
   for (const v of villagers) {
-    if (v.state === UnitState.GATHERING || v.state === UnitState.CARRYING) {
-      // Reset transient work state to IDLE for clean reload
-      units.push({
-        type: UnitType.VILLAGER,
-        owner: v.owner,
-        x: v.x,
-        y: v.y,
-        hp: 100,
-        maxHp: 100,
-        state: UnitState.IDLE,
-        stance: UnitStance.HOLD,
-      });
-    } else {
-      units.push({
-        type: UnitType.VILLAGER,
-        owner: v.owner,
-        x: v.x,
-        y: v.y,
-        hp: 100,
-        maxHp: 100,
-        state: v.state,
-        stance: UnitStance.HOLD,
-      });
-    }
+    units.push({
+      type: UnitType.VILLAGER,
+      owner: v.owner,
+      x: v.x,
+      y: v.y,
+      hp: 100,
+      maxHp: 100,
+      state: normalizeVillagerStateForSaveLoad(v.state),
+      stance: UnitStance.HOLD,
+    });
   }
 
   return units;
@@ -203,6 +209,12 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 4. Respawn buildings (before units, so pathfinder grid is correct)
   respawnBuildings(scene, save);
 
+  // Normal building spawn intentionally applies live construction bonuses.
+  // During load, keep those side effects for derived state (for example max
+  // population), but restore the authoritative serialized happiness afterward
+  // so repeated save/load cycles do not compound building happiness bonuses.
+  scene.happiness = save.happiness;
+
   // 5. Restore AI state (after buildings are respawned so AI building array repopulates)
   restoreAIState(scene, save);
   // 6. Respawn units (after buildings and AI state)
@@ -266,6 +278,7 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.gameSpeed = save.gameSpeed;
   scene.taxRate = save.taxRate ?? 0;
   scene.bloomIntensity = save.bloomIntensity ?? 1.0;
+  scene.enemyFaction = save.enemyFaction;
   scene.dominanceProgress = save.dominanceProgress;
   scene.playerTerritoryPercent = save.playerTerritoryPercent;
   scene.gameResult = save.gameResult;
@@ -284,6 +297,8 @@ function restoreResearch(scene: MainScene, save: SaveGame): void {
   // Player active research
   if (save.research.activePlayer) {
     rm.setActiveResearch(0, save.research.activePlayer.techId, save.research.activePlayer.remainingMs);
+  } else {
+    rm.clearActiveResearch(0);
   }
   // AI research
   rm.setCompleted(1, save.research.completedAI);
@@ -305,6 +320,9 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     if (b.workers !== undefined) {
       building.setData('workers', b.workers);
     }
+    if (b.type === BuildingType.CASTLE && b.garrison !== undefined) {
+      building.setData('garrison', b.garrison);
+    }
     // restore assignedWorker reference will be restored by VillagerSystem state
   }
 }
@@ -312,7 +330,9 @@ function respawnUnits(scene: MainScene, save: SaveGame): void {
   for (const u of save.units) {
     if (u.type === UnitType.VILLAGER) {
       const villager = scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
-      villager.state = u.state;
+      // Sanitize old saves too: transient work/navigation references are not
+      // restored, so their dependent states cannot safely resume after load.
+      villager.state = normalizeVillagerStateForSaveLoad(u.state);
       // VillagerData doesn't have hp or stance, skip
     } else {
       const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);
@@ -365,6 +385,7 @@ export function getSaveMeta(): { timestamp: number; faction: FactionType; mapSee
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const save = JSON.parse(raw) as SaveGame;
+    if (save.version !== SAVE_VERSION) return null;
     return {
       timestamp: save.timestamp,
       faction: save.faction,
