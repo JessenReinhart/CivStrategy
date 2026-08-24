@@ -70,49 +70,65 @@ function makeSaveWithoutActiveResearch(): SaveGame {
   } as unknown as SaveGame;
 }
 
+function makeSceneWithResearch(active: { techId: string; remainingMs: number } | null = null) {
+  let activeResearch = active;
+  const researchManager = {
+    setCompleted: vi.fn(),
+    setActiveResearch: vi.fn((playerId: number, techId: string, remainingMs: number) => {
+      if (playerId === 0) activeResearch = { techId, remainingMs };
+    }),
+    clearActiveResearch: vi.fn((playerId: number) => {
+      if (playerId === 0) activeResearch = null;
+    }),
+    rebuildSnapshotPublic: vi.fn(),
+    getActive: vi.fn(() => activeResearch),
+  };
+
+  const scene = {
+    faction: 'Romans',
+    enemyFaction: 'Gauls',
+    units: { getChildren: () => [], remove: vi.fn() },
+    buildings: { getChildren: () => [], remove: vi.fn() },
+    villagerSystem: { getAllVillagers: () => [], destroyVillager: vi.fn(), spawnVillager: vi.fn() },
+    unitSpatialHash: { remove: vi.fn() },
+    pathfinder: { markGrid: vi.fn(), updateTerrainCosts: vi.fn() },
+    terrainSystem: {},
+    researchManager,
+    enemyAI: undefined,
+    entityFactory: { spawnBuilding: vi.fn(), spawnUnit: vi.fn() },
+    economySystem: { updateStats: vi.fn() },
+    cameras: { main: { centerOn: vi.fn() } },
+    mapWidth: 1024,
+    mapHeight: 1024,
+    resources: { wood: 999, food: 999, gold: 999 },
+  } as unknown as MainScene;
+
+  return { scene, researchManager };
+}
+
 describe('SaveSystem research restoration', () => {
   it('clears stale active research when the loaded save has none without changing restored resources', () => {
-    let activeResearch: { techId: string; remainingMs: number } | null = {
-      techId: 'stale-tech',
-      remainingMs: 9999,
-    };
-
-    const researchManager = {
-      setCompleted: vi.fn(),
-      setActiveResearch: vi.fn((playerId: number, techId: string, remainingMs: number) => {
-        if (playerId === 0) activeResearch = { techId, remainingMs };
-      }),
-      clearActiveResearch: vi.fn((playerId: number) => {
-        if (playerId === 0) activeResearch = null;
-      }),
-      rebuildSnapshotPublic: vi.fn(),
-      getActive: vi.fn(() => activeResearch),
-    };
-
-    const scene = {
-      faction: 'Romans',
-      enemyFaction: 'Gauls',
-      units: { getChildren: () => [], remove: vi.fn() },
-      buildings: { getChildren: () => [], remove: vi.fn() },
-      villagerSystem: { getAllVillagers: () => [], destroyVillager: vi.fn(), spawnVillager: vi.fn() },
-      unitSpatialHash: { remove: vi.fn() },
-      pathfinder: { markGrid: vi.fn(), updateTerrainCosts: vi.fn() },
-      terrainSystem: {},
-      researchManager,
-      enemyAI: undefined,
-      entityFactory: { spawnBuilding: vi.fn(), spawnUnit: vi.fn() },
-      economySystem: { updateStats: vi.fn() },
-      cameras: { main: { centerOn: vi.fn() } },
-      mapWidth: 1024,
-      mapHeight: 1024,
-      resources: { wood: 999, food: 999, gold: 999 },
-    } as unknown as MainScene;
-
+    const { scene, researchManager } = makeSceneWithResearch({ techId: 'stale-tech', remainingMs: 9999 });
     const save = makeSaveWithoutActiveResearch();
+
     deserializeGame(scene, save);
 
     expect(researchManager.clearActiveResearch).toHaveBeenCalledWith(0);
+    expect(researchManager.setActiveResearch).not.toHaveBeenCalled();
     expect(researchManager.getActive(0)).toBeNull();
+    expect(scene.resources).toEqual(save.resources);
+  });
+
+  it('restores serialized active research instead of clearing it', () => {
+    const { scene, researchManager } = makeSceneWithResearch({ techId: 'stale-tech', remainingMs: 9999 });
+    const save = makeSaveWithoutActiveResearch();
+    save.research.activePlayer = { techId: 'saved-tech', remainingMs: 4321 } as never;
+
+    deserializeGame(scene, save);
+
+    expect(researchManager.clearActiveResearch).not.toHaveBeenCalled();
+    expect(researchManager.setActiveResearch).toHaveBeenCalledWith(0, 'saved-tech', 4321);
+    expect(researchManager.getActive(0)).toEqual({ techId: 'saved-tech', remainingMs: 4321 });
     expect(scene.resources).toEqual(save.resources);
   });
 });
