@@ -103,6 +103,9 @@ const [selectedCount, setSelectedCount] = useState(0);
     }
     setGameState('menu');
     setIsGameLoading(true);
+    setSelectedCount(0);
+    setSelectedCounts({});
+    setSelectedBuildingType(null);
     setStats({
       population: 0,
       maxPopulation: 10,
