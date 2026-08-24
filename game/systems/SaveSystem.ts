@@ -296,6 +296,8 @@ function restoreResearch(scene: MainScene, save: SaveGame): void {
   // Player active research
   if (save.research.activePlayer) {
     rm.setActiveResearch(0, save.research.activePlayer.techId, save.research.activePlayer.remainingMs);
+  } else {
+    rm.clearActiveResearch(0);
   }
   // AI research
   rm.setCompleted(1, save.research.completedAI);
