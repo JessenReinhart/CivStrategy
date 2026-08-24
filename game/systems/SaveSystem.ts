@@ -278,6 +278,7 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.gameSpeed = save.gameSpeed;
   scene.taxRate = save.taxRate ?? 0;
   scene.bloomIntensity = save.bloomIntensity ?? 1.0;
+  scene.enemyFaction = save.enemyFaction;
   scene.dominanceProgress = save.dominanceProgress;
   scene.playerTerritoryPercent = save.playerTerritoryPercent;
   scene.gameResult = save.gameResult;
