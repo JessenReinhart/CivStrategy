@@ -6,6 +6,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
+import { addResearchWindowListener } from './utils/researchWindowListener';
 import Phaser from 'phaser';
 
 interface StressTestConfig {
@@ -235,7 +236,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('set-bloom-intensity-ui', bloomHandler);
     window.addEventListener('request-set-formation-ui', formationHandler);
     window.addEventListener('request-set-stance-ui', stanceHandler);
-    window.addEventListener('request-start-research', researchHandler);
+    const removeResearchListener = addResearchWindowListener(window, researchHandler);
     window.addEventListener('clear-selection', clearSelectionHandler);
     window.addEventListener('save-game', saveGameHandler);
     window.addEventListener('load-game', loadGameHandler);
@@ -253,7 +254,7 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
       window.removeEventListener('request-set-formation-ui', formationHandler);
       window.removeEventListener('request-set-stance-ui', stanceHandler);
-      window.removeEventListener('request-start-research', researchHandler);
+      removeResearchListener();
       window.removeEventListener('clear-selection', clearSelectionHandler);
       window.removeEventListener('save-game', saveGameHandler);
       window.removeEventListener('load-game', loadGameHandler);
