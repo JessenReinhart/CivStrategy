@@ -320,6 +320,9 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     if (b.workers !== undefined) {
       building.setData('workers', b.workers);
     }
+    if (b.type === BuildingType.CASTLE && b.garrison !== undefined) {
+      building.setData('garrison', b.garrison);
+    }
     // restore assignedWorker reference will be restored by VillagerSystem state
   }
 }
