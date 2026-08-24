@@ -8,6 +8,7 @@ import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, Unit
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import { addResearchWindowListener } from './utils/researchWindowListener';
 import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
+import { scheduleStressUrlBootstrap } from './utils/stressUrlBootstrap';
 import Phaser from 'phaser';
 
 interface StressTestConfig {
@@ -133,16 +134,6 @@ const [selectedCount, setSelectedCount] = useState(0);
 
   useEffect(() => {
     const loadingCompletionDelay = loadingCompletionDelayRef.current;
-    const params = new URLSearchParams(window.location.search);
-    const stressCount = parseInt(params.get('stress') || '0', 10);
-    if (stressCount > 0) {
-      // Defer to next tick to avoid react-hooks/set-state-in-effect
-      const id = setTimeout(() => {
-        handleStressTestStart({ unitCount: stressCount, enableEnemies: params.get('enemies') === 'true' });
-      }, 0);
-      return () => clearTimeout(id);
-    }
-
     const progressHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
       setLoadProgress(customEvent.detail);
@@ -160,7 +151,14 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('game-load-complete', completeHandler);
     window.addEventListener('stressTestStart', stressTestHandler);
 
+    // Defer URL-driven stress mode until after this effect has installed loading listeners.
+    const cancelStressUrlBootstrap = scheduleStressUrlBootstrap(
+      window.location.search,
+      handleStressTestStart,
+    );
+
     return () => {
+      cancelStressUrlBootstrap();
       loadingCompletionDelay.cancel();
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
