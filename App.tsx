@@ -132,6 +132,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   useEffect(() => {
+    const loadingCompletionDelay = loadingCompletionDelayRef.current;
     const params = new URLSearchParams(window.location.search);
     const stressCount = parseInt(params.get('stress') || '0', 10);
     if (stressCount > 0) {
@@ -148,7 +149,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
     const completeHandler = () => {
       // Add a slight artificial delay for smooth transition
-      loadingCompletionDelayRef.current.schedule();
+      loadingCompletionDelay.schedule();
     };
     const stressTestHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -160,7 +161,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('stressTestStart', stressTestHandler);
 
     return () => {
-      loadingCompletionDelayRef.current.cancel();
+      loadingCompletionDelay.cancel();
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
       window.removeEventListener('stressTestStart', stressTestHandler);
