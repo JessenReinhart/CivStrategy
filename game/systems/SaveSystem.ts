@@ -209,6 +209,12 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 4. Respawn buildings (before units, so pathfinder grid is correct)
   respawnBuildings(scene, save);
 
+  // Normal building spawn intentionally applies live construction bonuses.
+  // During load, keep those side effects for derived state (for example max
+  // population), but restore the authoritative serialized happiness afterward
+  // so repeated save/load cycles do not compound building happiness bonuses.
+  scene.happiness = save.happiness;
+
   // 5. Restore AI state (after buildings are respawned so AI building array repopulates)
   restoreAIState(scene, save);
   // 6. Respawn units (after buildings and AI state)
