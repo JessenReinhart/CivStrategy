@@ -284,7 +284,7 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   (scene as any).seasonTimer = save.seasonTimer;
   scene.resources = { ...save.resources };
   scene.population = 0; // Will be rebuilt by spawning units
-  scene.maxPopulation = 5; // Base, will be rebuilt by spawning buildings
+  scene.maxPopulation = 8; // Match MainScene.init(); buildings rebuild derived bonuses.
   scene.happiness = save.happiness;
   scene.gameSpeed = save.gameSpeed;
   scene.taxRate = save.taxRate ?? 0;

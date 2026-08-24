@@ -18,7 +18,7 @@ function makeDataObject() {
 }
 
 describe('SaveSystem happiness restore', () => {
-  it('preserves serialized happiness after happiness-affecting buildings respawn', () => {
+  it('preserves serialized happiness and rebuilds max population from the normal base', () => {
     const savedHappiness = 61;
     const happinessBonus = 8;
     const populationBonus = 4;
@@ -48,8 +48,7 @@ describe('SaveSystem happiness restore', () => {
       enemyAI: undefined,
       entityFactory: {
         spawnBuilding: vi.fn(() => {
-          // Match the live EntityFactory side effects that make the current
-          // load path drift away from the serialized scalar state.
+          // Match the live EntityFactory side effects used during restoration.
           scene.maxPopulation += populationBonus;
           scene.happiness += happinessBonus;
           return building;
@@ -103,7 +102,7 @@ describe('SaveSystem happiness restore', () => {
     deserializeGame(scene, save);
 
     expect(scene.happiness).toBe(savedHappiness);
-    expect(scene.maxPopulation).toBe(5 + populationBonus);
+    expect(scene.maxPopulation).toBe(8 + populationBonus);
     expect(scene.entityFactory.spawnBuilding).toHaveBeenCalledTimes(1);
   });
 });
