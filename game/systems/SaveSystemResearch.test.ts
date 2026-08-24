@@ -81,7 +81,7 @@ function makeSceneWithResearch(active: { techId: string; remainingMs: number } |
       if (playerId === 0) activeResearch = null;
     }),
     rebuildSnapshotPublic: vi.fn(),
-    getActive: vi.fn(() => activeResearch),
+    getActive: vi.fn((_playerId: number) => activeResearch),
   };
 
   const scene = {
