@@ -237,6 +237,11 @@ export class ResearchManager {
     });
   }
 
+  /** Clear active research during state restoration without refunding escrow. */
+  public clearActiveResearch(playerId: number): void {
+    this.active.delete(playerId);
+  }
+
   public rebuildSnapshotPublic(playerId: number): void {
     this.rebuildSnapshot(playerId);
   }

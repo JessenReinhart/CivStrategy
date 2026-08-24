@@ -5,6 +5,7 @@ import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, Village
 import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
 const MIN_IDLE_WORKER_RESERVE = 2;
+const FARM_BASE_FOOD_PER_TICK = 5;
 
 export class EconomySystem {
     private scene: MainScene;
@@ -266,10 +267,12 @@ export class EconomySystem {
             }
 
             if (isWorking) {
-                // Farm terrain affinity: passive bonus per working farm scaled by terrain yield
+                // Farm terrain affinity: passive bonus per working farm scaled by terrain yield.
+                // Keep the baseline above the modest opening-village consumption so a staffed
+                // farm has an immediately visible positive effect before its carry deposit lands.
                 if (def.type === BuildingType.FARM) {
                     const terrainYield = b.getData('terrainYield') as number ?? 1.0;
-                    foodGen += Math.floor(terrainYield * 2 * efficiency);
+                    foodGen += Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * efficiency);
                 }
 
                 // Hunter's Lodge: passive food from nearby animals (hunting mechanic preserved)
@@ -371,12 +374,13 @@ export class EconomySystem {
         if (this.scene.resources.food < 0) this.scene.resources.food = 0;
         if (this.scene.resources.gold < 0) this.scene.resources.gold = 0;
 
-        // Carried resources are deposited outside the 1s economy tick. Include
-        // them in the displayed rates so wood/food gathering is visible in UI.
+        // Carried resources are deposited outside the 1s economy tick. Keep
+        // production and consumption separate so UI can derive the same net
+        // delta that the simulation applies instead of subtracting twice.
         const deposited = this.depositedSinceLastTick;
         this.lastRates = {
             wood: woodGen + deposited.wood,
-            food: foodGen + deposited.food - foodConsumed - upkeepFood,
+            food: foodGen + deposited.food,
             gold: goldGen + deposited.gold - upkeepGold,
             foodConsumption: foodConsumed + upkeepFood,
         };
