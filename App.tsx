@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
@@ -7,6 +7,7 @@ import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
 import { addResearchWindowListener } from './utils/researchWindowListener';
+import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
 import Phaser from 'phaser';
 
 interface StressTestConfig {
@@ -18,6 +19,9 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
   const [loadProgress, setLoadProgress] = useState<number>(0);
+  const loadingCompletionDelayRef = useRef(
+    createLoadingCompletionDelay(() => setIsGameLoading(false), 500),
+  );
 
   const [faction, setFaction] = useState<FactionType>(FactionType.ROMANS);
   const [mapMode, setMapMode] = useState<MapMode>(MapMode.FIXED);
@@ -59,6 +63,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   const [selectedCounts, setSelectedCounts] = useState<Record<string, number>>({});
   const [selectedBuildingType, setSelectedBuildingType] = useState<BuildingType | null>(null);
   const handleStart = (selectedFaction: FactionType, mode: MapMode, size: MapSize, fow: boolean, peaceful: boolean, treaty: number, disableAI: boolean, seed: number = 0, preset: MapPreset = MapPreset.STANDARD) => {
+    loadingCompletionDelayRef.current.cancel();
     setFaction(selectedFaction);
     setMapMode(mode);
     setMapSize(size);
@@ -75,6 +80,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   const handleStressTestStart = (config: StressTestConfig) => {
+    loadingCompletionDelayRef.current.cancel();
     setFaction(FactionType.ROMANS);
     setMapMode(MapMode.FIXED);
     setMapSize(MapSize.LARGE);
@@ -89,6 +95,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   const handleQuit = () => {
+    loadingCompletionDelayRef.current.cancel();
     if (gameInstance) {
       gameInstance.destroy(true);
       setGameInstance(null);
@@ -141,7 +148,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
     const completeHandler = () => {
       // Add a slight artificial delay for smooth transition
-      setTimeout(() => setIsGameLoading(false), 500);
+      loadingCompletionDelayRef.current.schedule();
     };
     const stressTestHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -153,6 +160,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('stressTestStart', stressTestHandler);
 
     return () => {
+      loadingCompletionDelayRef.current.cancel();
       window.removeEventListener('game-load-progress', progressHandler);
       window.removeEventListener('game-load-complete', completeHandler);
       window.removeEventListener('stressTestStart', stressTestHandler);
