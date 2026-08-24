@@ -400,7 +400,11 @@ export function loadFromLocalStorage(): SaveGame | null {
 }
 
 export function hasSave(): boolean {
-  return localStorage.getItem(SAVE_KEY) !== null;
+  try {
+    return localStorage.getItem(SAVE_KEY) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export function getSaveMeta(): { timestamp: number; faction: FactionType; mapSeed: number; mapPreset: MapPreset; currentAge: Age } | null {
@@ -422,18 +426,34 @@ export function getSaveMeta(): { timestamp: number; faction: FactionType; mapSee
 }
 
 export function clearSave(): void {
-  localStorage.removeItem(SAVE_KEY);
-  localStorage.removeItem(PENDING_LOAD_KEY);
+  try {
+    localStorage.removeItem(SAVE_KEY);
+    localStorage.removeItem(PENDING_LOAD_KEY);
+  } catch {
+    // Storage can be unavailable under browser privacy/security policies.
+  }
 }
 
 export function setPendingLoad(): void {
-  localStorage.setItem(PENDING_LOAD_KEY, 'true');
+  try {
+    localStorage.setItem(PENDING_LOAD_KEY, 'true');
+  } catch {
+    // Loading cannot be queued when storage is unavailable.
+  }
 }
 
 export function isPendingLoad(): boolean {
-  return localStorage.getItem(PENDING_LOAD_KEY) === 'true';
+  try {
+    return localStorage.getItem(PENDING_LOAD_KEY) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 export function clearPendingLoad(): void {
-  localStorage.removeItem(PENDING_LOAD_KEY);
+  try {
+    localStorage.removeItem(PENDING_LOAD_KEY);
+  } catch {
+    // Nothing to clear when storage is unavailable.
+  }
 }
