@@ -385,6 +385,7 @@ export interface SaveGame {
     completedPlayer: TechId[];
     activePlayer: { techId: TechId; remainingMs: number } | null;
     completedAI: TechId[];
+    activeAI?: { techId: TechId; remainingMs: number } | null;
   };
   // AI
   aiState: SerializedAIState;
