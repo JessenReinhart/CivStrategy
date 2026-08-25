@@ -38,7 +38,7 @@ import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import type { MainScene } from '../MainScene';
 import { toIsoElev } from '../utils/iso';
-import { BuildingManager } from './BuildingManager';
+import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
 import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
 
 function makeGraphics() {
@@ -229,6 +229,20 @@ describe('BuildingManager player build territory', () => {
 });
 
 describe('BuildingManager dense footprint placement', () => {
+    it('uses a placement grid that can represent exact Farm and House edge adjacency', () => {
+        for (const type of [BuildingType.FARM, BuildingType.HOUSE]) {
+            const def = BUILDINGS[type];
+            const firstOrigin = 320;
+            const secondOrigin = firstOrigin + def.width;
+            const firstCenter = firstOrigin + def.width / 2;
+            const secondCenter = secondOrigin + def.width / 2;
+
+            expect(firstOrigin % BUILD_PLACEMENT_GRID_SIZE).toBe(0);
+            expect(secondOrigin % BUILD_PLACEMENT_GRID_SIZE).toBe(0);
+            expect(secondCenter - firstCenter).toBe(def.width);
+        }
+    });
+
     it('allows a house footprint to touch an existing building edge without overlapping area', () => {
         const playerTownCenter = makeTerritoryBuilding(0, 100, 100);
         const house = BUILDINGS[BuildingType.HOUSE];
