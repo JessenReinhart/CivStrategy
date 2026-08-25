@@ -44,3 +44,17 @@ jobs:
       
       - name: Build check
         run: npm run build
+
+      - name: Install Chromium for gameplay acceptance
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser placement journey
+        run: npm run test:placement-journey
+
+      - name: Upload placement journey evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: placement-journey
+          path: artifacts/placement-journey.png
+          if-no-files-found: ignore
