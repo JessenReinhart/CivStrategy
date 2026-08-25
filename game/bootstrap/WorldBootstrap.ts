@@ -5,7 +5,7 @@ import { Pathfinder } from '../systems/Pathfinder';
 import { EntityFactory } from '../systems/EntityFactory';
 import { SquadSystem } from '../systems/SquadSystem';
 import { UnitSystem } from '../systems/UnitSystem';
-import { BuildingManager } from '../systems/BuildingManager';
+import { SpriteGhostBuildingManager } from '../systems/SpriteGhostBuildingManager';
 import { EconomySystem } from '../systems/EconomySystem';
 import { InputManager } from '../systems/InputManager';
 import { EnemyAISystem } from '../systems/EnemyAISystem';
@@ -84,7 +84,7 @@ export class WorldBootstrap {
     scene.entityFactory = new EntityFactory(scene);
     scene.squadSystem = new SquadSystem(scene);
     scene.unitSystem = new UnitSystem(scene);
-    scene.buildingManager = new BuildingManager(scene);
+    scene.buildingManager = new SpriteGhostBuildingManager(scene);
     scene.economySystem = new EconomySystem(scene);
     scene.inputManager = new InputManager(scene);
     scene.enemyAI = new EnemyAISystem(scene);
