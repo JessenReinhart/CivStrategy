@@ -82,7 +82,9 @@ export function shouldRepathChase(input: ChaseRepathInput): boolean {
   const hasP = hasPath(path);
   const exhausted = !hasP || pathStep >= (path?.length ?? 0);
 
-  if (exhausted) return true;
+  // Failed or exhausted chase paths still need retries, but not every update.
+  // While this backoff is active UnitSystem keeps using its direct-closing fallback.
+  if (exhausted) return timeSinceRecalc >= CHASE_REPATH_MIN_MS;
 
   // Keep an existing path alive while closing the final approach. Repathing
   // here can replace a nearly-complete path with a cell-center endpoint and
