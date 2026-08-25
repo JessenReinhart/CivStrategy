@@ -55,7 +55,7 @@ try {
     const game = window.__civStrategyGame;
     const scene = game?.scene?.getScene?.('MainScene');
     return Boolean(scene?.buildingManager && scene?.buildings?.getChildren?.().length);
-  }, { timeout: 45_000 });
+  }, undefined, { timeout: 45_000 });
 
   const result = await page.evaluate(() => {
     const game = window.__civStrategyGame;
