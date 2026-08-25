@@ -11,10 +11,11 @@ describe('InputManager player command selection', () => {
         const commandAttack = vi.fn();
         const playUIClick = vi.fn();
         const playCommandAck = vi.fn();
+        const setSelected = vi.fn();
 
         const unit = {
             unitType: UnitType.PIKESMAN,
-            setSelected: vi.fn(),
+            setSelected,
             getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
         } as unknown as Phaser.GameObjects.GameObject;
 
@@ -54,7 +55,7 @@ describe('InputManager player command selection', () => {
         select(pointer);
 
         expect(manager.selectedUnits).toEqual([unit]);
-        expect(unit.setSelected).toHaveBeenCalledWith(true);
+        expect(setSelected).toHaveBeenCalledWith(true);
         expect(playUIClick).toHaveBeenCalledOnce();
         expect(emit).toHaveBeenLastCalledWith(EVENTS.SELECTION_CHANGED, {
             count: 1,
