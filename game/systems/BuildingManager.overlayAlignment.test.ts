@@ -34,6 +34,7 @@ vi.mock('phaser', () => ({
 
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
+import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import type { MainScene } from '../MainScene';
 import { toIsoElev } from '../utils/iso';
@@ -114,6 +115,25 @@ function makeTerritoryBuilding(owner: number, x = 100, y = 100) {
         getData: vi.fn((key: string) => {
             if (key === 'owner') return owner;
             if (key === 'def') return def;
+            return undefined;
+        }),
+    };
+}
+
+function makeOccupiedHouse(boundsX: number, boundsY: number) {
+    return {
+        x: boundsX + BUILDINGS[BuildingType.HOUSE].width / 2,
+        y: boundsY + BUILDINGS[BuildingType.HOUSE].height / 2,
+        scene: {},
+        getBounds: vi.fn(() => ({
+            x: boundsX,
+            y: boundsY,
+            width: BUILDINGS[BuildingType.HOUSE].width,
+            height: BUILDINGS[BuildingType.HOUSE].height,
+        })),
+        getData: vi.fn((key: string) => {
+            if (key === 'owner') return 0;
+            if (key === 'def') return BUILDINGS[BuildingType.HOUSE];
             return undefined;
         }),
     };
@@ -204,5 +224,43 @@ describe('BuildingManager player build territory', () => {
         const { manager } = makeManager(scene);
 
         expect(buildValidity(manager, 300, 300)).toEqual({ valid: true });
+    });
+});
+
+describe('BuildingManager dense footprint placement', () => {
+    it('allows a house footprint to touch an existing building edge without overlapping area', () => {
+        const playerTownCenter = makeTerritoryBuilding(0, 100, 100);
+        const house = BUILDINGS[BuildingType.HOUSE];
+        const candidateX = 300;
+        const candidateY = 300;
+        const candidateRight = candidateX + house.width / 2;
+        const existingHouse = makeOccupiedHouse(candidateRight, candidateY - house.height / 2);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [playerTownCenter, existingHouse]),
+                getLength: vi.fn(() => 2),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, candidateX, candidateY)).toEqual({ valid: true });
+    });
+
+    it('rejects placement when the candidate footprint overlaps an existing building by real area', () => {
+        const playerTownCenter = makeTerritoryBuilding(0, 100, 100);
+        const house = BUILDINGS[BuildingType.HOUSE];
+        const candidateX = 300;
+        const candidateY = 300;
+        const candidateRight = candidateX + house.width / 2;
+        const existingHouse = makeOccupiedHouse(candidateRight - 1, candidateY - house.height / 2);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [playerTownCenter, existingHouse]),
+                getLength: vi.fn(() => 2),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, candidateX, candidateY)).toEqual({ valid: false, reason: 'Space Occupied' });
     });
 });
