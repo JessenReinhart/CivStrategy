@@ -1,7 +1,19 @@
-import Phaser from 'phaser';
 import { describe, expect, it, vi } from 'vitest';
 import { EVENTS } from '../../constants';
 import { UnitType } from '../../types';
+
+vi.mock('phaser', () => ({
+    default: {
+        Math: {
+            Vector2: class Vector2 {
+                constructor(public x: number, public y: number) {}
+            },
+        },
+    },
+}));
+
+vi.mock('../MainScene', () => ({ MainScene: class MainScene {} }));
+
 import { InputManager } from './InputManager';
 
 describe('InputManager player command selection', () => {
@@ -17,11 +29,11 @@ describe('InputManager player command selection', () => {
             unitType: UnitType.PIKESMAN,
             setSelected,
             getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
-        } as unknown as Phaser.GameObjects.GameObject;
+        };
 
         const unitVisual = {
             getData: vi.fn((key: string) => key === 'unit' ? unit : undefined),
-        } as unknown as Phaser.GameObjects.GameObject;
+        };
 
         const hitTestPointer = vi.fn()
             .mockReturnValueOnce([unitVisual])
@@ -40,17 +52,17 @@ describe('InputManager player command selection', () => {
         manager.selectedBuilding = null;
 
         const select = (manager as unknown as {
-            handleSingleSelection(pointer: Phaser.Input.Pointer): void;
+            handleSingleSelection(pointer: unknown): void;
         }).handleSingleSelection.bind(manager);
         const rightClick = (manager as unknown as {
-            handleRightClick(pointer: Phaser.Input.Pointer): void;
+            handleRightClick(pointer: unknown): void;
         }).handleRightClick.bind(manager);
 
         const pointer = {
             worldX: 640,
             worldY: 360,
             event: { shiftKey: false },
-        } as unknown as Phaser.Input.Pointer;
+        };
 
         select(pointer);
 
