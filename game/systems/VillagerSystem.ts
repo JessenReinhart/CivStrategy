@@ -18,7 +18,7 @@ const PATH_ARRIVAL_TOLERANCE = 64;
 // cadence, but make each chop worth more and amortize travel over a larger load.
 // Food and gold retain their existing rates and carry capacities.
 const WOOD_GATHER_AMOUNT_PER_TICK = 2;
-const WOOD_CARRY_CAPACITY = 16;
+const WOOD_CARRY_CAPACITY = 20;
 
 type PathResult = 'moving' | 'arrived' | 'unreachable';
 
