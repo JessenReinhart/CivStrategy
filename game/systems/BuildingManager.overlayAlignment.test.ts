@@ -7,6 +7,28 @@ vi.mock('phaser', () => ({
                 Between: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
             },
         },
+        Geom: {
+            Rectangle: class {
+                x: number;
+                y: number;
+                width: number;
+                height: number;
+
+                constructor(x: number, y: number, width: number, height: number) {
+                    this.x = x;
+                    this.y = y;
+                    this.width = width;
+                    this.height = height;
+                }
+
+                contains(x: number, y: number) {
+                    return x >= this.x && x <= this.x + this.width && y >= this.y && y <= this.y + this.height;
+                }
+            },
+            Intersects: {
+                RectangleToRectangle: vi.fn(() => false),
+            },
+        },
     },
 }));
 
@@ -40,10 +62,16 @@ function makeScene(overrides: Record<string, unknown> = {}) {
     const scene = {
         add: { graphics: vi.fn(() => selectionGraphics) },
         worldLayer: { add: vi.fn() },
-        terrainSystem: { getHeightAt: vi.fn(() => 0.8) },
+        terrainSystem: {
+            getHeightAt: vi.fn(() => 0.8),
+            getSlopeAt: vi.fn(() => ({ slope: 0, isBuildable: true })),
+        },
         getFactionColor: vi.fn(() => 0xffffff),
+        resources: { wood: 10_000, food: 10_000, gold: 10_000 },
         trees: { getChildren: vi.fn(() => []) },
-        buildings: { getChildren: vi.fn(() => []) },
+        buildings: { getChildren: vi.fn(() => []), getLength: vi.fn(() => 0) },
+        units: { getChildren: vi.fn(() => []) },
+        villagerSystem: { getAllVillagers: vi.fn(() => []) },
         inputManager: { selectedBuilding: null },
         ...overrides,
     };
@@ -68,6 +96,27 @@ function makeManager(
         previewText: null,
     });
     return { manager, treeHighlightGraphics, territoryGraphics };
+}
+
+function buildValidity(manager: BuildingManager, x: number, y: number) {
+    return (manager as unknown as {
+        getBuildValidity(x: number, y: number, type: BuildingType): { valid: boolean; reason?: string };
+    }).getBuildValidity(x, y, BuildingType.HOUSE);
+}
+
+function makeTerritoryBuilding(owner: number, x = 100, y = 100) {
+    const def = { territoryRadius: 400 };
+    return {
+        x,
+        y,
+        scene: {},
+        getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1, height: 1 })),
+        getData: vi.fn((key: string) => {
+            if (key === 'owner') return owner;
+            if (key === 'def') return def;
+            return undefined;
+        }),
+    };
 }
 
 describe('BuildingManager terrain-elevated overlays', () => {
@@ -127,5 +176,33 @@ describe('BuildingManager terrain-elevated overlays', () => {
         const expected = toIsoElev(building.x, building.y, height);
         expect(selectionGraphics.setPosition).toHaveBeenCalledWith(expected.x, expected.y);
         expect(scene.terrainSystem.getHeightAt).toHaveBeenCalledWith(building.x, building.y);
+    });
+});
+
+describe('BuildingManager player build territory', () => {
+    it('rejects placement when only enemy territory covers the target', () => {
+        const enemyTownCenter = makeTerritoryBuilding(1);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [enemyTownCenter]),
+                getLength: vi.fn(() => 1),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, 200, 200)).toEqual({ valid: false, reason: 'Outside Territory' });
+    });
+
+    it('keeps placement valid inside player-owned territory', () => {
+        const playerTownCenter = makeTerritoryBuilding(0);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [playerTownCenter]),
+                getLength: vi.fn(() => 1),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, 300, 300)).toEqual({ valid: true });
     });
 });
