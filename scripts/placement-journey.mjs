@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdir } from 'node:fs/promises';
 
 const PORT = 4173;
@@ -7,8 +8,8 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
 
 const server = spawn(
-  process.platform === 'win32' ? 'npm.cmd' : 'npm',
-  ['run', 'dev', '--', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
+  process.execPath,
+  ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
   { stdio: ['ignore', 'pipe', 'pipe'] },
 );
 
@@ -32,8 +33,11 @@ async function waitForServer(timeoutMs = 30_000) {
   throw new Error(`Vite did not become ready.\n${serverOutput}`);
 }
 
-function stopServer() {
-  if (!server.killed) server.kill('SIGTERM');
+async function stopServer() {
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  server.kill('SIGTERM');
+  await Promise.race([once(server, 'exit'), sleep(2_000)]);
+  if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
 }
 
 await mkdir(ARTIFACT_DIR, { recursive: true });
@@ -178,5 +182,5 @@ try {
   }
 } finally {
   if (browser) await browser.close();
-  stopServer();
+  await stopServer();
 }
