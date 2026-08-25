@@ -17,6 +17,7 @@ import { VillagerSystem } from '../systems/VillagerSystem';
 import { AnimalSystem } from '../systems/AnimalSystem';
 import { AmbientPopulationSystem } from '../systems/AmbientPopulationSystem';
 import { ProceduralSoundSystem } from '../systems/ProceduralSoundSystem';
+import { DynamicMusicSystem } from '../systems/DynamicMusicSystem';
 import { ClashSystem } from '../systems/ClashSystem';
 import { LiquidCombatSystem } from '../systems/LiquidCombatSystem';
 import { ResearchManager } from '../systems/ResearchManager';
@@ -101,6 +102,7 @@ export class WorldBootstrap {
     // and never enters the units group, physics, spatial hash, or pathfinder.
     new AmbientPopulationSystem(scene);
     scene.proceduralSound = new ProceduralSoundSystem(scene);
+    new DynamicMusicSystem(scene);
     scene.clashSystem = new ClashSystem(scene);
     scene.liquidCombat = new LiquidCombatSystem(scene);
     scene.researchManager = new ResearchManager(scene);
