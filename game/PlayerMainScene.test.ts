@@ -3,6 +3,27 @@ import { UnitType } from '../types';
 import { MainScene } from './MainScene';
 import { PlayerMainScene } from './PlayerMainScene';
 
+function createTrainingScene(population: number, maxPopulation: number) {
+  const scene = Object.create(PlayerMainScene.prototype) as PlayerMainScene;
+  const showFloatingText = vi.fn();
+
+  Object.defineProperties(scene, {
+    population: { value: population, writable: true, configurable: true },
+    maxPopulation: { value: maxPopulation, writable: true, configurable: true },
+    feedbackSystem: {
+      value: { showFloatingText },
+      writable: true,
+      configurable: true,
+    },
+    cameras: {
+      value: { main: { worldView: { centerX: 320, centerY: 180 } } },
+      configurable: true,
+    },
+  });
+
+  return { scene, showFloatingText };
+}
+
 describe('PlayerMainScene training requests', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -10,15 +31,7 @@ describe('PlayerMainScene training requests', () => {
 
   it('blocks military training at the population cap without delegating to MainScene', () => {
     const baseHandler = vi.spyOn(MainScene.prototype, 'handleUnitSpawnRequest').mockImplementation(() => undefined);
-    const showFloatingText = vi.fn();
-    const scene = Object.create(PlayerMainScene.prototype) as PlayerMainScene;
-
-    scene.population = 8;
-    scene.maxPopulation = 8;
-    scene.feedbackSystem = { showFloatingText } as unknown as PlayerMainScene['feedbackSystem'];
-    scene.cameras = {
-      main: { worldView: { centerX: 320, centerY: 180 } },
-    } as unknown as PlayerMainScene['cameras'];
+    const { scene, showFloatingText } = createTrainingScene(8, 8);
 
     scene.handleUnitSpawnRequest(UnitType.PIKESMAN);
 
@@ -33,10 +46,7 @@ describe('PlayerMainScene training requests', () => {
 
   it('delegates training normally when population capacity is available', () => {
     const baseHandler = vi.spyOn(MainScene.prototype, 'handleUnitSpawnRequest').mockImplementation(() => undefined);
-    const scene = Object.create(PlayerMainScene.prototype) as PlayerMainScene;
-
-    scene.population = 7;
-    scene.maxPopulation = 8;
+    const { scene } = createTrainingScene(7, 8);
 
     scene.handleUnitSpawnRequest(UnitType.ARCHER);
 
