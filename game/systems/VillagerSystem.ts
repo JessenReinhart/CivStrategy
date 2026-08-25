@@ -14,6 +14,12 @@ const CARRY_COLORS: Record<string, number> = {
 const TREE_SEARCH_RADIUS = 300;
 const PATH_ARRIVAL_TOLERANCE = 64;
 
+// Wood is the opening construction bottleneck. Keep the shared 2.5s gather
+// cadence, but make each chop worth more and amortize travel over a larger load.
+// Food and gold retain their existing rates and carry capacities.
+const WOOD_GATHER_AMOUNT_PER_TICK = 2;
+const WOOD_CARRY_CAPACITY = 20;
+
 type PathResult = 'moving' | 'arrived' | 'unreachable';
 
 export class VillagerSystem {
@@ -278,7 +284,11 @@ export class VillagerSystem {
 
         if (villager.gatherTimer >= VILLAGER_GATHER_RATE_MS) {
             villager.gatherTimer -= VILLAGER_GATHER_RATE_MS;
-            villager.carryAmount++;
+            const cap = villager.carryType === 'wood'
+                ? WOOD_CARRY_CAPACITY
+                : VILLAGER_CARRY_CAPACITY[villager.carryType!] ?? 5;
+            const gatherAmount = villager.carryType === 'wood' ? WOOD_GATHER_AMOUNT_PER_TICK : 1;
+            villager.carryAmount = Math.min(cap, villager.carryAmount + gatherAmount);
             // Play resource gather sound
             this.scene.proceduralSound.playResourceGather(villager.x, villager.y);
 
@@ -305,7 +315,6 @@ export class VillagerSystem {
                 }
             }
 
-            const cap = VILLAGER_CARRY_CAPACITY[villager.carryType!] ?? 5;
             if (villager.carryAmount >= cap) {
                 // Full — transition to CARRYING
                 villager.state = UnitState.CARRYING;

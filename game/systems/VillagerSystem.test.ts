@@ -168,15 +168,14 @@ describe('VillagerSystem resource production', () => {
         expect(villager.state).toBe(GATHERING);
         expect(villager.carryType).toBe('wood');
 
-        // Wood capacity is 8 and gathering produces one unit per 2500 ms.
-        // Drive the complete gather -> carry -> deposit cycle rather than only
-        // asserting that the worker entered the correct state.
-        for (let i = 0; i < 8; i++) {
+        // The opening-economy balance uses a 20-wood load at 2 wood per
+        // gather tick. Drive one complete gather -> carry -> deposit cycle.
+        for (let i = 0; i < 10; i++) {
             system.update(i * 2500, 2500);
         }
 
         expect(depositResource).toHaveBeenCalledTimes(1);
-        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 8);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20);
         expect(villager.carryAmount).toBe(0);
         expect(villager.state).toBe(GATHERING);
         expect(villager.jobBuilding).toBe(camp);

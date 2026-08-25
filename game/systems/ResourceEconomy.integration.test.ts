@@ -28,6 +28,7 @@ vi.mock('../MainScene', () => ({
 
 import { EconomySystem } from './EconomySystem';
 import { VillagerSystem } from './VillagerSystem';
+import { BUILDINGS, INITIAL_RESOURCES } from '../../constants';
 import { BuildingType, UnitState } from '../../types';
 import type { GameStats, VillagerData } from '../../types';
 import type { MainScene } from '../MainScene';
@@ -212,9 +213,9 @@ describe('lumber camp real-time production loop', () => {
 
         const before = resources.wood;
         let elapsed = 0;
-        // 35 seconds at ~60 FPS. A wood carry currently needs 20 seconds of
-        // gathering plus outbound/return travel, so this is deliberately long
-        // enough to prove the player-visible resource count changes.
+        // 35 seconds at ~60 FPS. A wood carry needs 20 seconds of gathering
+        // plus outbound/return travel, so this is deliberately long enough to
+        // prove the player-visible resource count changes.
         while (elapsed < 35_000 && resources.wood === before) {
             villagerSystem.update(elapsed, 16);
             elapsed += 16;
@@ -224,5 +225,65 @@ describe('lumber camp real-time production loop', () => {
         expect(elapsed).toBeLessThan(35_000);
         expect(villager.jobBuilding).toBe(camp);
         expect(findPath).toHaveBeenCalled();
+    });
+
+    it('lets one opening woodcutter close the core build-order wood deficit within three simulated minutes', () => {
+        const camp = makeDataObject(128, 128, {
+            owner: 0,
+            def: { type: BuildingType.LUMBER_CAMP, workerNeeds: 1, effectRadius: 200 },
+            assignedWorker: undefined,
+        });
+        const tree = makeDataObject(224, 128, {
+            isChopped: false,
+            isGoldMine: false,
+        });
+        const villager = makeVillager('opening-woodcutter', 64, 128);
+        const findPath = vi.fn((start: { x: number; y: number }, end: { x: number; y: number }) => [
+            { x: start.x, y: start.y },
+            { x: end.x, y: end.y },
+        ]);
+
+        const lumberCampCost = BUILDINGS[BuildingType.LUMBER_CAMP].cost.wood;
+        const coreBuildOrderCost =
+            BUILDINGS[BuildingType.FARM].cost.wood +
+            BUILDINGS[BuildingType.HOUSE].cost.wood +
+            BUILDINGS[BuildingType.BARRACKS].cost.wood;
+        const resources = {
+            wood: INITIAL_RESOURCES.wood - lumberCampCost,
+            food: INITIAL_RESOURCES.food,
+            gold: INITIAL_RESOURCES.gold,
+        };
+        const scene = {
+            resources,
+            population: 1,
+            pathfinder: { findPath },
+            treeSpatialHash: { query: () => [tree] },
+            buildings: { getChildren: () => [camp] },
+            researchManager: undefined,
+            faction: 'Romans',
+            enemyFaction: 'Gauls',
+            feedbackSystem: { showFloatingResource: vi.fn() },
+            proceduralSound: { playResourceGather: vi.fn() },
+            add: { rectangle: vi.fn() },
+        } as unknown as MainScene;
+
+        const villagerSystem = new VillagerSystem(scene);
+        (villagerSystem as unknown as { villagers: VillagerData[] }).villagers.push(villager);
+        scene.villagerSystem = villagerSystem;
+        const economy = new EconomySystem(scene);
+        scene.economySystem = economy;
+
+        economy.assignJobs();
+        expect(villager.jobBuilding).toBe(camp);
+        expect(resources.wood).toBeLessThan(coreBuildOrderCost);
+
+        let elapsed = 0;
+        while (elapsed < 180_000 && resources.wood < coreBuildOrderCost) {
+            villagerSystem.update(elapsed, 16);
+            elapsed += 16;
+        }
+
+        expect(resources.wood).toBeGreaterThanOrEqual(coreBuildOrderCost);
+        expect(elapsed).toBeLessThan(180_000);
     });
 });
