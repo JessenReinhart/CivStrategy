@@ -282,6 +282,13 @@ export class BuildingManager {
         return this.getBuildValidity(x, y, type).valid;
     }
 
+    private rectanglesHaveAreaOverlap(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean {
+        return a.x < b.x + b.width
+            && a.x + a.width > b.x
+            && a.y < b.y + b.height
+            && a.y + a.height > b.y;
+    }
+
     private getBuildValidity(x: number, y: number, type: BuildingType): { valid: boolean; reason?: string } {
         const def = BUILDINGS[type];
 
@@ -304,7 +311,7 @@ export class BuildingManager {
         let overlaps = false;
         this.scene.buildings.getChildren().forEach((b) => {
             if (!b || !b.scene) return;
-            if (Phaser.Geom.Intersects.RectangleToRectangle(bounds, (b as Phaser.GameObjects.Image).getBounds())) {
+            if (this.rectanglesHaveAreaOverlap(bounds, (b as Phaser.GameObjects.Image).getBounds())) {
                 overlaps = true;
             }
         });
