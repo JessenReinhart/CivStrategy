@@ -18,6 +18,10 @@ export class SpatialHash {
 
     public insert(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const key = this.getKey(entity.x, entity.y);
+        const oldKey = entity.getData('spatialKey');
+        if (oldKey && oldKey !== key) {
+            this.remove(entity);
+        }
         if (!this.buckets.has(key)) {
             this.buckets.set(key, new Set());
         }
