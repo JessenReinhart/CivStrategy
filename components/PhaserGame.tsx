@@ -53,8 +53,11 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       : () => undefined;
     gameRef.current = game;
 
-    // Manually add the scene class
-    game.scene.add('MainScene', MainScene);
+    // Seed the explicit React stress config before MainScene.init() runs. The
+    // scene's legacy development URL fallback only executes when this is null.
+    const mainScene = new MainScene();
+    mainScene.stressTestConfig = stressTestConfig;
+    game.scene.add('MainScene', mainScene);
 
     // Start the scene with data immediately
     // We don't need to wait for 'ready' if we are manually managing the scene lifecycle here
