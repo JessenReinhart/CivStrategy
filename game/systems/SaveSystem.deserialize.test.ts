@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
-import { deserializeGame } from './SaveSystem';
-import { UnitState, UnitType } from '../../types';
+import { deserializeGame, serializeGame } from './SaveSystem';
+import { BuildingType, UnitState, UnitType } from '../../types';
 import type { MainScene } from '../MainScene';
 import type { SaveGame } from '../../types';
 
@@ -121,5 +121,69 @@ describe('SaveSystem load continuity', () => {
     expect(removeBuilding).toHaveBeenCalledTimes(1);
     expect(clearSelection.mock.invocationCallOrder[0]).toBeLessThan(removeUnit.mock.invocationCallOrder[0]);
     expect(deselectBuilding.mock.invocationCallOrder[0]).toBeLessThan(removeBuilding.mock.invocationCallOrder[0]);
+  });
+
+  it('preserves a Barracks rally waypoint through a save/load round trip', () => {
+    const waypoint = { x: 640, y: 720 };
+    const sourceBarracks = {
+      x: 300,
+      y: 320,
+      getData: vi.fn((key: string) => ({
+        def: { type: BuildingType.BARRACKS },
+        owner: 0,
+        hp: 500,
+        maxHp: 500,
+        workers: 0,
+        waypoint,
+      })[key]),
+    };
+    const sourceScene = createScene({
+      faction: 'Romans',
+      enemyFaction: 'Gauls',
+      mapMode: 'Fixed Map',
+      isFowEnabled: true,
+      peacefulMode: false,
+      treatyLength: 300_000,
+      aiDisabled: false,
+      mapSeed: 42,
+      mapPreset: 'standard',
+      gameTime: 12_000,
+      currentAge: 'Village',
+      ageProgress: 0,
+      isAdvancing: false,
+      nextAge: null,
+      currentSeason: 'Spring',
+      seasonTimer: 500,
+      resources: { wood: 100, food: 100, gold: 100 },
+      population: 4,
+      happiness: 70,
+      gameSpeed: 1,
+      taxRate: 0,
+      bloomIntensity: 1,
+      dominanceProgress: 0,
+      playerTerritoryPercent: 0,
+      gameResult: null,
+      victoryType: null,
+      buildings: { getChildren: () => [sourceBarracks], remove: vi.fn() },
+    });
+
+    const save = serializeGame(sourceScene);
+    const savedBarracks = save.buildings[0] as SaveGame['buildings'][number] & {
+      waypoint?: { x: number; y: number };
+    };
+    expect(savedBarracks.waypoint).toEqual(waypoint);
+
+    const setData = vi.fn();
+    const restoredBarracks = { setData };
+    const loadScene = createScene({
+      entityFactory: {
+        spawnBuilding: vi.fn(() => restoredBarracks),
+        spawnUnit: vi.fn(),
+      },
+    });
+
+    deserializeGame(loadScene, save);
+
+    expect(setData).toHaveBeenCalledWith('waypoint', waypoint);
   });
 });

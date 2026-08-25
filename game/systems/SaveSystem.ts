@@ -12,6 +12,10 @@ export const PENDING_LOAD_KEY = 'civstrategy-pending-load';
 
 const SAVE_VERSION = 1;
 
+type SerializedBuildingWithWaypoint = SerializedBuilding & {
+  waypoint?: { x: number; y: number };
+};
+
 const VILLAGER_TRANSIENT_STATES = new Set<UnitState>([
   UnitState.MOVING_TO_WORK,
   UnitState.WORKING,
@@ -126,6 +130,9 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
     if (!def) continue;
     const hp: number = b.getData('hp') ?? 0;
     if (hp <= 0) continue;
+    const waypoint = def.type === BuildingType.BARRACKS
+      ? b.getData('waypoint') as { x: number; y: number } | undefined
+      : undefined;
     buildings.push({
       type: def.type as BuildingType,
       owner: b.getData('owner') ?? 0,
@@ -135,7 +142,8 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
       maxHp: b.getData('maxHp') ?? hp,
       workers: b.getData('workers') ?? 0,
       garrison: def.type === BuildingType.CASTLE ? (b.getData('garrison') ?? {}) : undefined,
-    });
+      waypoint: waypoint ? { x: waypoint.x, y: waypoint.y } : undefined,
+    } as SerializedBuildingWithWaypoint);
   }
   return buildings;
 }
@@ -350,6 +358,10 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     }
     if (b.type === BuildingType.CASTLE && b.garrison !== undefined) {
       building.setData('garrison', b.garrison);
+    }
+    const waypoint = (b as SerializedBuildingWithWaypoint).waypoint;
+    if (b.type === BuildingType.BARRACKS && waypoint) {
+      building.setData('waypoint', { x: waypoint.x, y: waypoint.y });
     }
     // restore assignedWorker reference will be restored by VillagerSystem state
   }
