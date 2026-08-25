@@ -208,6 +208,11 @@ function getMapSizeFromDimensions(width: number, _height: number): MapSize {
 // ─── Deserialize ────────────────────────────────────────────────────────
 
 export function deserializeGame(scene: MainScene, save: SaveGame): void {
+  // Selection owns live Phaser object references. Release them before replacing
+  // the world so post-load commands cannot target entities from the old session.
+  scene.inputManager?.clearSelection();
+  scene.inputManager?.deselectBuilding();
+
   // 1. Destroy all existing entities
   destroyAllEntities(scene);
 
