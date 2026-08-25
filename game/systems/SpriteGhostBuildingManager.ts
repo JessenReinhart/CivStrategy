@@ -1,9 +1,9 @@
 import type Phaser from 'phaser';
 import type { MainScene } from '../MainScene';
 import { BuildingType } from '../../types';
-import { BUILDINGS, TILE_SIZE } from '../../constants';
+import { BUILDINGS } from '../../constants';
 import { toCartesian } from '../utils/iso';
-import { BuildingManager } from './BuildingManager';
+import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
 
 type SpriteVisualConfig = {
     key: string;
@@ -61,8 +61,8 @@ export class SpriteGhostBuildingManager extends BuildingManager {
 
         const cart = toCartesian(worldX, worldY);
         const def = BUILDINGS[this.previewBuildingType];
-        const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
-        const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
+        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
         const cx = gx + def.width / 2;
         const cy = gy + def.height / 2;
         const managerValidity = this as unknown as {
