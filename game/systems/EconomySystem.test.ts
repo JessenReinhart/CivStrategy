@@ -16,11 +16,13 @@ vi.mock('../MainScene', () => ({
     MainScene: class {},
 }));
 
+import { POPULATION_FOOD_COST } from '../../constants';
 import { EconomySystem } from './EconomySystem';
 import type { VillagerData } from '../../types';
 import type { MainScene } from '../MainScene';
 
 const TOWN_CENTER = 'Town Center';
+const HOUSE = 'House';
 const FARM = 'Farm';
 const IDLE = 'idle';
 const MOVING_TO_WORK = 'moving_to_work';
@@ -146,6 +148,36 @@ describe('EconomySystem worker assignment', () => {
 
         expect(assignJob).not.toHaveBeenCalled();
         expect(aiFarm.getData('assignedWorker')).toBeUndefined();
+    });
+});
+
+describe('EconomySystem population growth', () => {
+    it('spends food and uses VillagerSystem when House capacity allows growth', () => {
+        const house = makeDataObject(100, 100, {
+            owner: 0,
+            hp: 300,
+            def: { type: HOUSE },
+        });
+        const spawnVillager = vi.fn();
+        const message = vi.fn();
+        const startingFood = POPULATION_FOOD_COST + 25;
+        const scene = {
+            population: 4,
+            maxPopulation: 12,
+            happiness: 100,
+            resources: { wood: 100, food: startingFood, gold: 100 },
+            researchManager: undefined,
+            buildings: { getChildren: () => [house] },
+            villagerSystem: { spawnVillager },
+            events: { emit: message },
+        } as unknown as MainScene;
+        const economy = new EconomySystem(scene);
+
+        economy.tickPopulation();
+
+        expect(scene.resources.food).toBe(25);
+        expect(spawnVillager).toHaveBeenCalledTimes(1);
+        expect(message).toHaveBeenCalledWith('message', 'A new peasant has arrived.');
     });
 });
 
