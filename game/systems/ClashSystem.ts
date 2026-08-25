@@ -8,6 +8,9 @@ import { triggerMeatGrinder } from '../utils/MeatGrinderEffect';
 
 export class ClashSystem {
     private scene: Phaser.Scene;
+    private readonly clashStartHandler = (data: { x: number; y: number }): void => {
+        this.handleClash(data.x, data.y);
+    };
 
     constructor(scene: Phaser.Scene) {
         this.scene = scene;
@@ -15,9 +18,7 @@ export class ClashSystem {
     }
 
     private registerListeners(): void {
-        this.scene.events.on(EVENTS.CLASH_START, (data: { x: number; y: number }) => {
-            this.handleClash(data.x, data.y);
-        });
+        this.scene.events.on(EVENTS.CLASH_START, this.clashStartHandler);
     }
 
     private handleClash(x: number, y: number): void {
@@ -30,9 +31,9 @@ export class ClashSystem {
     }
 
     /**
-     * Remove the CLASH_START listener so it cannot leak across scene restarts.
+     * Remove only this system's CLASH_START listener so other event consumers survive teardown.
      */
     public destroy(): void {
-        this.scene.events.off(EVENTS.CLASH_START);
+        this.scene.events.off(EVENTS.CLASH_START, this.clashStartHandler);
     }
 }
