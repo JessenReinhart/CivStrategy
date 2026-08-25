@@ -47,8 +47,10 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     };
 
     const game = new Phaser.Game(config);
-    // DEV-ONLY-PROBE: remove before release (PathCritic profiling hook)
-    const removeGameProbe = attachPhaserGameProbe(window, game);
+    // DEV-ONLY-PROBE: PathCritic profiling hook. Keep it out of production builds.
+    const removeGameProbe = import.meta.env.DEV
+      ? attachPhaserGameProbe(window, game)
+      : () => undefined;
     gameRef.current = game;
 
     // Manually add the scene class
