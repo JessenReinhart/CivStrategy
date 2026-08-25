@@ -291,6 +291,7 @@ export class BuildingManager {
 
         let inTerritory = false;
         this.scene.buildings.getChildren().forEach((b) => {
+            if (b.getData('owner') !== 0) return;
             const bDef = b.getData('def') as BuildingDef;
             if (bDef.territoryRadius) {
                 const dist = Phaser.Math.Distance.Between(x, y, (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
