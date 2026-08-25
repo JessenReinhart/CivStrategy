@@ -5,6 +5,8 @@ import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
+export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
+
 export class BuildingManager {
     private scene: MainScene;
     public previewBuilding: Phaser.GameObjects.Container | null = null;
@@ -102,8 +104,8 @@ export class BuildingManager {
         this.previewBuilding.setVisible(true);
 
         const cart = toCartesian(worldX, worldY);
-        const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
-        const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
+        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
         const cx = gx + def.width / 2;
         const cy = gy + def.height / 2;
@@ -243,8 +245,8 @@ export class BuildingManager {
         if (!this.previewBuildingType) return;
 
         const cart = toCartesian(worldX, worldY);
-        const gx = Math.floor(cart.x / TILE_SIZE) * TILE_SIZE;
-        const gy = Math.floor(cart.y / TILE_SIZE) * TILE_SIZE;
+        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
         const cx = gx + def.width / 2;
         const cy = gy + def.height / 2;
