@@ -19,7 +19,6 @@ describe('findResumePathStep', () => {
   ];
 
   it('does not force step 0 when unit is mid-path', () => {
-    // Unit is near waypoint 2
     const step = findResumePathStep(path, 60, 2);
     expect(step).toBeGreaterThanOrEqual(2);
     expect(step).toBeLessThan(path.length);
@@ -43,7 +42,6 @@ describe('shouldRepathChase', () => {
   ];
 
   it('does not repath every 150ms while path is valid and target steady', () => {
-    // Old bug: dist<200 used 150ms recalc → thrash
     expect(
       shouldRepathChase({
         path: basePath,
@@ -55,6 +53,7 @@ describe('shouldRepathChase', () => {
       }),
     ).toBe(false);
   });
+
   it('does not repath when just outside attack range', () => {
     expect(shouldRepathChase({
       path: basePath,
@@ -66,12 +65,23 @@ describe('shouldRepathChase', () => {
     })).toBe(false);
   });
 
-  it('repaths when path exhausted while still out of range', () => {
+  it('backs off exhausted-path retries until the minimum interval', () => {
     expect(
       shouldRepathChase({
         path: basePath,
         pathStep: 3,
-        timeSinceRecalc: 50,
+        timeSinceRecalc: CHASE_REPATH_MIN_MS - 1,
+        targetMoved: 0,
+        distToTarget: 200,
+        range: 40,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRepathChase({
+        path: basePath,
+        pathStep: 3,
+        timeSinceRecalc: CHASE_REPATH_MIN_MS,
         targetMoved: 0,
         distToTarget: 200,
         range: 40,
@@ -79,12 +89,23 @@ describe('shouldRepathChase', () => {
     ).toBe(true);
   });
 
-  it('repaths when no path', () => {
+  it('backs off failed no-path retries until the minimum interval', () => {
     expect(
       shouldRepathChase({
         path: null,
         pathStep: 0,
         timeSinceRecalc: 0,
+        targetMoved: 0,
+        distToTarget: 400,
+        range: 40,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldRepathChase({
+        path: null,
+        pathStep: 0,
+        timeSinceRecalc: CHASE_REPATH_MIN_MS,
         targetMoved: 0,
         distToTarget: 400,
         range: 40,
@@ -150,12 +171,12 @@ describe('shouldRepathChase', () => {
         path: [
           { x: 0, y: 0 },
           { x: 50, y: 0 },
-          { x: 80, y: 0 }, // 30 px from target at 110,0 — within range slack but far enough to need repath
+          { x: 80, y: 0 },
         ],
         pathStep: 1,
         timeSinceRecalc: CHASE_REPATH_FAR_MS,
         targetMoved: 0,
-        distToTarget: 70, // outside 40 range
+        distToTarget: 70,
         range: 40,
       }),
     ).toBe(true);
@@ -167,12 +188,12 @@ describe('shouldRepathChase', () => {
         path: [
           { x: 0, y: 0 },
           { x: 50, y: 0 },
-          { x: 70, y: 0 }, // 20 px from target at 90,0
+          { x: 70, y: 0 },
         ],
         pathStep: 1,
         timeSinceRecalc: CHASE_REPATH_FAR_MS,
         targetMoved: 0,
-        distToTarget: 45, // only 5 past range, final approach guard keeps path alive
+        distToTarget: 45,
         range: 40,
       }),
     ).toBe(false);
