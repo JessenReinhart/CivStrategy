@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { EVENTS, UNIT_ABILITIES } from '../../constants';
 import { UnitType, BuildingType, GameUnit } from '../../types';
+import { addAbilityWindowListener } from '../../utils/abilityWindowListener';
 import { toCartesian, toIso } from '../utils/iso';
 
 export class InputManager {
@@ -128,8 +129,8 @@ export class InputManager {
             }
         });
 
-        // Listen for ability activation from UI button
-        window.addEventListener('activate-ability', ((e: CustomEvent) => {
+        // Listen for ability activation from UI button and release the global listener with the scene.
+        const removeAbilityListener = addAbilityWindowListener(window, ((e: CustomEvent) => {
             const unitType = e.detail as UnitType;
             for (const unitObj of this.selectedUnits) {
                 const unit = unitObj as GameUnit;
@@ -138,6 +139,7 @@ export class InputManager {
                 }
             }
         }) as EventListener);
+        this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, removeAbilityListener);
     }
 
     public update(delta: number) {
@@ -477,7 +479,6 @@ export class InputManager {
         });
         this.emitSelectionChanged();
     }
-
     private isSelectable(type: UnitType) {
         const combatTypes = [UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION, UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT, UnitType.VILLAGER];
         return combatTypes.includes(type);
