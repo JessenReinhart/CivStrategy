@@ -65,7 +65,7 @@ export class EconomySystem {
         // Civil Service: +50% pop growth = lower effective food cost
         const growthMult = this.scene.researchManager?.getSnapshot(0).popGrowthMult ?? 1;
         const effectiveFoodCost = Math.round(POPULATION_FOOD_COST / growthMult);
-        if (this.scene.population < this.scene.maxPopulation && this.scene.happiness > 50) {
+        if (this.scene.population < this.scene.maxPopulation && this.scene.happiness >= 50) {
             // Food cost gate: must have enough food to grow
             if (this.scene.resources.food < effectiveFoodCost) return;
 

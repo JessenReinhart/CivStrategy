@@ -179,6 +179,44 @@ describe('EconomySystem population growth', () => {
         expect(spawnVillager).toHaveBeenCalledTimes(1);
         expect(message).toHaveBeenCalledWith('message', 'A new peasant has arrived.');
     });
+
+    it.each([
+        [49, false],
+        [50, true],
+        [51, true],
+    ])('uses the same 50%% happiness boundary as the revolt-risk UI at %d%%', (happiness, shouldGrow) => {
+        const house = makeDataObject(100, 100, {
+            owner: 0,
+            hp: 300,
+            def: { type: HOUSE },
+        });
+        const spawnVillager = vi.fn();
+        const message = vi.fn();
+        const startingFood = POPULATION_FOOD_COST + 25;
+        const scene = {
+            population: 4,
+            maxPopulation: 12,
+            happiness,
+            resources: { wood: 100, food: startingFood, gold: 100 },
+            researchManager: undefined,
+            buildings: { getChildren: () => [house] },
+            villagerSystem: { spawnVillager },
+            events: { emit: message },
+        } as unknown as MainScene;
+        const economy = new EconomySystem(scene);
+
+        economy.tickPopulation();
+
+        if (shouldGrow) {
+            expect(scene.resources.food).toBe(25);
+            expect(spawnVillager).toHaveBeenCalledTimes(1);
+            expect(message).toHaveBeenCalledWith('message', 'A new peasant has arrived.');
+        } else {
+            expect(scene.resources.food).toBe(startingFood);
+            expect(spawnVillager).not.toHaveBeenCalled();
+            expect(message).not.toHaveBeenCalled();
+        }
+    });
 });
 
 describe('EconomySystem resource ownership', () => {
