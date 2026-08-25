@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
-import { MainScene } from '../game/MainScene';
+import { PlayerMainScene } from '../game/PlayerMainScene';
 import { FactionType, MapMode, MapSize, MapPreset } from '../types';
 import { attachPhaserGameProbe } from '../utils/phaserGameProbe';
 import { attachPhaserReadyHandler } from '../utils/phaserReadyLifecycle';
@@ -55,7 +55,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
 
     // Seed the explicit React stress config before MainScene.init() runs. The
     // scene's legacy development URL fallback only executes when this is null.
-    const mainScene = new MainScene();
+    const mainScene = new PlayerMainScene();
     mainScene.stressTestConfig = stressTestConfig;
     game.scene.add('MainScene', mainScene);
 
