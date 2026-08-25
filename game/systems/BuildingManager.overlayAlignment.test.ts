@@ -39,6 +39,7 @@ import { BuildingType } from '../../types';
 import type { MainScene } from '../MainScene';
 import { toIsoElev } from '../utils/iso';
 import { BuildingManager } from './BuildingManager';
+import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
 
 function makeGraphics() {
     return {
@@ -262,5 +263,46 @@ describe('BuildingManager dense footprint placement', () => {
         const { manager } = makeManager(scene);
 
         expect(buildValidity(manager, candidateX, candidateY)).toEqual({ valid: false, reason: 'Space Occupied' });
+    });
+});
+
+describe('BuildingManager placement ghost visual', () => {
+    it('adds the placed-house sprite with matching scale and origin to the preview container', () => {
+        const previewChildren: unknown[] = [];
+        const previewContainer = {
+            add: vi.fn((child: unknown) => { previewChildren.push(child); return previewContainer; }),
+            setDepth: vi.fn().mockReturnThis(),
+            setVisible: vi.fn().mockReturnThis(),
+            destroy: vi.fn(),
+        };
+        const sprite = {
+            width: 100,
+            setOrigin: vi.fn().mockReturnThis(),
+            setScale: vi.fn().mockReturnThis(),
+            setAlpha: vi.fn().mockReturnThis(),
+            setData: vi.fn().mockReturnThis(),
+        };
+        const graphics = makeGraphics();
+        const scene = {
+            add: {
+                graphics: vi.fn(() => graphics),
+                container: vi.fn(() => previewContainer),
+                image: vi.fn(() => sprite),
+            },
+            textures: { exists: vi.fn((key: string) => key === 'house') },
+            worldLayer: { add: vi.fn() },
+            game: { events: { on: vi.fn(), emit: vi.fn() } },
+            entityFactory: { drawIsoBuilding: vi.fn() },
+            inputManager: { clearSelection: vi.fn() },
+        } as unknown as MainScene;
+        const manager = new SpriteGhostBuildingManager(scene);
+
+        manager.enterBuildMode(BuildingType.HOUSE);
+
+        expect(scene.add.image).toHaveBeenCalledWith(0, 0, 'house');
+        expect(sprite.setOrigin).toHaveBeenCalledWith(0.5, 0.85);
+        expect(sprite.setScale).toHaveBeenCalledWith((BUILDINGS[BuildingType.HOUSE].width * 1.6) / sprite.width);
+        expect(sprite.setAlpha).toHaveBeenCalledWith(0.62);
+        expect(previewChildren).toContain(sprite);
     });
 });
