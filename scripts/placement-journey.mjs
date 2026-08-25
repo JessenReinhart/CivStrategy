@@ -168,10 +168,39 @@ try {
       };
     }
 
+    function verifyPathAroundPair(pair) {
+      const def = dims[pair.type];
+      const halfWidth = def.width / 2;
+      const halfHeight = def.height / 2;
+      const minX = Math.min(pair.first.x, pair.second.x) - halfWidth;
+      const maxX = Math.max(pair.first.x, pair.second.x) + halfWidth;
+      const minY = Math.min(pair.first.y, pair.second.y) - halfHeight;
+      const maxY = Math.max(pair.first.y, pair.second.y) + halfHeight;
+      const margin = 64;
+      const candidates = [
+        [{ x: minX - margin, y: minY - margin }, { x: maxX + margin, y: maxY + margin }],
+        [{ x: minX - margin, y: maxY + margin }, { x: maxX + margin, y: minY - margin }],
+        [{ x: minX - margin, y: (minY + maxY) / 2 }, { x: maxX + margin, y: (minY + maxY) / 2 }],
+        [{ x: (minX + maxX) / 2, y: minY - margin }, { x: (minX + maxX) / 2, y: maxY + margin }],
+      ];
+
+      for (const [start, end] of candidates) {
+        if (scene.pathfinder.isBlocked(start.x, start.y) || scene.pathfinder.isBlocked(end.x, end.y)) continue;
+        const path = scene.pathfinder.findPath(start, end);
+        if (path?.length > 1) {
+          return { pathLength: path.length, start, end };
+        }
+      }
+
+      throw new Error(`${pair.type} dense pair left no usable route around its occupied footprint.`);
+    }
+
     const houses = verifyPair('House');
+    const houseNavigation = verifyPathAroundPair(houses);
     const farms = verifyPair('Farm');
+    const farmNavigation = verifyPathAroundPair(farms);
     manager.cancelBuildMode();
-    return { houses, farms, buildingCount: buildings().length };
+    return { houses, houseNavigation, farms, farmNavigation, buildingCount: buildings().length };
   });
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/placement-journey.png`, fullPage: true });
