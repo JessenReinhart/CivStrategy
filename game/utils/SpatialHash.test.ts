@@ -51,4 +51,17 @@ describe('SpatialHash', () => {
         expect(hash.query(25, 25, 10)).not.toContain(entity);
         expect(hash.query(125, 25, 10)).toContain(entity);
     });
+
+    it('moves an existing registration when the entity is inserted again', () => {
+        const hash = new SpatialHash(100);
+        const entity = createEntity(25, 25);
+
+        hash.insert(entity);
+        entity.x = 125;
+        hash.insert(entity);
+
+        expect(hash.query(25, 25, 10)).not.toContain(entity);
+        expect(hash.query(125, 25, 10)).toContain(entity);
+        expect(entity.getData('spatialKey')).toBe('1,0');
+    });
 });
