@@ -4,6 +4,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../game/MainScene';
 import { FactionType, MapMode, MapSize, MapPreset } from '../types';
 import { attachPhaserGameProbe } from '../utils/phaserGameProbe';
+import { attachPhaserReadyHandler } from '../utils/phaserReadyLifecycle';
 
 interface PhaserGameProps {
   faction: FactionType;
@@ -56,7 +57,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     // Start the scene with data immediately
     // We don't need to wait for 'ready' if we are manually managing the scene lifecycle here
     // but wrapping in a small timeout or ready check is safer for asset loading manager initialization
-    game.events.once('ready', () => {
+    const removeReadyHandler = attachPhaserReadyHandler(game.events, () => {
       // console.log("Phaser Ready. Starting MainScene with:", { faction, peacefulMode, treatyLength, aiDisabled });
       game.scene.start('MainScene', {
         faction,
@@ -74,6 +75,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     });
 
     return () => {
+      removeReadyHandler();
       removeGameProbe();
       game.destroy(true);
       gameRef.current = null;
