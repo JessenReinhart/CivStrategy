@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EVENTS } from '../../constants';
+import { triggerMeatGrinder } from '../utils/MeatGrinderEffect';
 import { ClashSystem } from './ClashSystem';
 
 vi.mock('../utils/MeatGrinderEffect', () => ({
@@ -38,12 +39,19 @@ describe('ClashSystem listener ownership', () => {
     events.on(EVENTS.CLASH_START, unrelatedListener);
 
     const clashSystem = new ClashSystem({ events } as never);
+    const beforeTeardown = { x: 12, y: 34 };
+    events.emit(EVENTS.CLASH_START, beforeTeardown);
+
+    expect(triggerMeatGrinder).toHaveBeenCalledOnce();
+    expect(unrelatedListener).toHaveBeenCalledWith(beforeTeardown);
+
     clashSystem.destroy();
 
-    const payload = { x: 12, y: 34 };
-    events.emit(EVENTS.CLASH_START, payload);
+    const afterTeardown = { x: 56, y: 78 };
+    events.emit(EVENTS.CLASH_START, afterTeardown);
 
-    expect(unrelatedListener).toHaveBeenCalledOnce();
-    expect(unrelatedListener).toHaveBeenCalledWith(payload);
+    expect(triggerMeatGrinder).toHaveBeenCalledOnce();
+    expect(unrelatedListener).toHaveBeenCalledTimes(2);
+    expect(unrelatedListener).toHaveBeenLastCalledWith(afterTeardown);
   });
 });
