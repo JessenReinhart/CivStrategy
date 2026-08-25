@@ -1,5 +1,3 @@
-import Phaser from 'phaser';
-
 import type { MainScene } from '../MainScene';
 import { BuildingType } from '../../types';
 import { BUILDINGS } from '../../constants';
@@ -48,8 +46,4 @@ export class SpriteGhostBuildingManager extends BuildingManager {
         sprite.setData('placementGhostSprite', true);
         preview.add(sprite);
     }
-}
-
-export function getPlacementGhostSpriteConfig(buildingType: BuildingType): SpriteVisualConfig | undefined {
-    return SPRITE_VISUALS[buildingType];
 }
