@@ -46,7 +46,12 @@ async function waitForMainScene(page) {
   await page.waitForFunction(() => {
     const game = window.__civStrategyGame;
     const scene = game?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.buildings?.getChildren?.().length && scene?.resources);
+    return Boolean(
+      scene?.isReady
+      && scene?.resources
+      && scene?.inputManager
+      && scene?.buildings?.getChildren?.().length,
+    );
   }, undefined, { timeout: 45_000 });
 }
 
@@ -100,7 +105,7 @@ try {
   await page.waitForFunction((markerWood) => {
     const game = window.__civStrategyGame;
     const scene = game?.scene?.getScene?.('MainScene');
-    return scene?.resources?.wood === markerWood;
+    return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
 
   const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime }) => {
