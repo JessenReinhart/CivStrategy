@@ -13,6 +13,7 @@ import { MapGenerationSystem } from '../systems/MapGenerationSystem';
 import { CullingSystem } from '../systems/CullingSystem';
 import { FeedbackSystem } from '../systems/FeedbackSystem';
 import { AtmosphericSystem } from '../systems/AtmosphericSystem';
+import { DayNightSystem } from '../systems/DayNightSystem';
 import { VillagerSystem } from '../systems/VillagerSystem';
 import { AnimalSystem } from '../systems/AnimalSystem';
 import { AmbientPopulationSystem } from '../systems/AmbientPopulationSystem';
@@ -95,6 +96,9 @@ export class WorldBootstrap {
     scene.cullingSystem = new CullingSystem(scene);
     scene.feedbackSystem = new FeedbackSystem(scene);
     scene.atmosphericSystem = new AtmosphericSystem(scene);
+    // Render-only day/night lighting. It self-registers with scene UPDATE/SHUTDOWN
+    // and batches all visible building shadows into one Graphics layer.
+    new DayNightSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
     installLegacyVillagerSpawnBridge(scene);
     scene.animalSystem = new AnimalSystem(scene);
