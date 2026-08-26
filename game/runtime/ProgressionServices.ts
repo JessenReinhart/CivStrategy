@@ -1,6 +1,7 @@
 import type { MainScene } from '../MainScene';
 import { GameResult } from '../../types';
 import type { Age } from '../../types';
+import { checkSpatialDominance } from './DominanceControl';
 
 /** Capabilities consumed by the progression coordinator. */
 export interface ProgressionServices {
@@ -86,7 +87,7 @@ export function createProgressionServices(scene: MainScene): ProgressionServices
     victory: {
       check: () => {
         scene.checkWinLose();
-        scene.checkDominance();
+        checkSpatialDominance(scene);
       },
     },
     season: {
