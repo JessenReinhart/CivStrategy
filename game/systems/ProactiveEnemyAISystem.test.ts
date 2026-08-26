@@ -155,7 +155,7 @@ describe('ProactiveEnemyAISystem build rules', () => {
     expect(ai.buildings[0]).toBeNull();
   });
 
-  it('continues personality-driven expansion after the unlocked core blueprint is complete', () => {
+  it('continues personality-driven expansion and keeps it in AI simulation accounting', () => {
     const { scene, buildings, spawnBuilding } = makeScene();
     const ai = new ProactiveEnemyAISystem(scene);
     const internals = getInternals(ai);
@@ -172,6 +172,7 @@ describe('ProactiveEnemyAISystem build rules', () => {
     expect(spawnBuilding).toHaveBeenCalledTimes(1);
     const expansion = buildings.at(-1);
     expect(expansion?.getData('aiExpansion')).toBe(true);
+    expect(ai.buildings).toContain(expansion);
     const expansionType = (expansion?.getData('def') as BuildingDef).type;
     expect([BuildingType.FARM, BuildingType.LUMBER_CAMP, BuildingType.HOUSE]).toContain(expansionType);
   });
