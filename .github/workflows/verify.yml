@@ -60,7 +60,7 @@ jobs:
       - name: Browser camera overlay journey
         run: npm run test:camera-overlay-journey
 
-      # Canonical pointer-input proof for select army -> move -> fight -> resolve.
+      # Player-visible proof for select army -> move -> fight -> resolve.
       - name: Browser army combat journey
         run: npm run test:army-combat-journey
 
