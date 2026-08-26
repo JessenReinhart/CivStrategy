@@ -138,8 +138,24 @@ try {
     throw new Error('Town Center position changed across reload.');
   }
 
+  const cameraBeforeInput = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.cameras.main.scrollX;
+  });
+  await page.keyboard.down('ArrowRight');
+  await sleep(300);
+  await page.keyboard.up('ArrowRight');
+  await page.waitForFunction((initialScrollX) => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    return scene?.cameras?.main?.scrollX > initialScrollX;
+  }, cameraBeforeInput, { timeout: 5_000 });
+  const cameraAfterInput = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.cameras.main.scrollX;
+  });
+
   await page.screenshot({ path: `${ARTIFACT_DIR}/save-reload-journey.png`, fullPage: true });
-  console.log(JSON.stringify({ beforeSave, afterLoad }, null, 2));
+  console.log(JSON.stringify({ beforeSave, afterLoad, cameraBeforeInput, cameraAfterInput }, null, 2));
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during save/reload journey:\n${browserErrors.join('\n')}`);
