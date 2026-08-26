@@ -408,42 +408,69 @@ export class BuildingManager {
         }
     }
 
-    private demolishBuilding(b: Phaser.GameObjects.GameObject) {
-        const def = b.getData('def') as BuildingDef;
+    private demolishBuilding(b: Phaser.GameObjects.GameObject): boolean {
+        // A stale/destroyed building must never be able to mint another refund.
+        if (!b.scene || !this.scene.buildings.getChildren().includes(b)) return false;
+
+        const def = b.getData('def') as BuildingDef | undefined;
         const owner = b.getData('owner');
+        if (owner !== 0 || !def || b.getData('isDemolishing')) return false;
 
-        if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
-
-        // FIX: Only reduce maxPopulation if it was a player building
-        if (owner === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
-        if (owner === 0 && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
-
-        const worker = b.getData('assignedWorker');
-        if (worker) {
-            worker.state = UnitState.IDLE;
-            worker.jobBuilding = null;
-            worker.path = null;
-            worker.body.setVelocity(0, 0);
-        }
+        b.setData('isDemolishing', true);
 
         const logic = b as Phaser.GameObjects.Rectangle;
-        this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
+        const worker = b.getData('assignedWorker');
+        const visual = (b as any).visual as Phaser.GameObjects.GameObject | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const refundWood = def.cost.wood > 0 ? Math.floor(def.cost.wood * 0.75) : 0;
 
-        // Explosion Effect
-        const iso = toIso(logic.x, logic.y);
-        this.emitExplosionParticles(iso.x, iso.y, def.width);
-        this.scene.proceduralSound.playDemolition(logic.x, logic.y);
+        try {
+            // Clear selection while the building and its visual are still alive.
+            if (this.scene.inputManager.selectedBuilding === b) {
+                this.scene.inputManager.deselectBuilding();
+            }
 
-        const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (visual) visual.destroy();
-        b.destroy();
+            // Free pathfinding occupancy before the logic entity leaves the scene.
+            this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
 
-        if (this.scene.inputManager.selectedBuilding === b) {
-            this.scene.inputManager.deselectBuilding();
+            // The villager system is data-driven; VillagerData has no Arcade Physics body.
+            if (worker) {
+                worker.state = UnitState.IDLE;
+                worker.jobBuilding = undefined;
+                worker.path = undefined;
+                worker.pathStep = 0;
+                worker.targetResource = undefined;
+            }
+
+            // Entity teardown is the commit point. Economy mutations happen only after it succeeds.
+            b.destroy();
+            if (b.scene) {
+                throw new Error('Building remained attached to the scene after destroy()');
+            }
+        } catch (error) {
+            if (b.scene && this.scene.buildings.getChildren().includes(b)) {
+                b.setData('isDemolishing', false);
+            }
+            console.error('[BuildingManager] Failed to demolish building', error);
+            return false;
+        }
+
+        if (refundWood > 0) this.scene.resources.wood += refundWood;
+        if (def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+        if (def.happinessBonus) this.scene.happiness -= def.happinessBonus;
+
+        // Visual/audio effects are cosmetic and must not determine whether the refund is valid.
+        try {
+            if (visual) visual.destroy();
+            const iso = toIso(logic.x, logic.y);
+            this.emitExplosionParticles(iso.x, iso.y, def.width);
+            this.scene.proceduralSound.playDemolition(logic.x, logic.y);
+        } catch (error) {
+            console.warn('[BuildingManager] Demolition visual cleanup failed', error);
         }
 
         this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
+        return true;
     }
 
     public emitExplosionParticles(isoX: number, isoY: number, _buildingWidth: number) {
@@ -497,7 +524,6 @@ export class BuildingManager {
             this.demolishBuilding(selected);
         }
     }
-
     private handleRegrowForest() {
         const b = this.scene.inputManager.selectedBuilding as Phaser.GameObjects.Rectangle;
         if (!b) return;
