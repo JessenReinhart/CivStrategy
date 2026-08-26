@@ -51,10 +51,13 @@ jobs:
       - name: Browser placement journey
         run: npm run test:placement-journey
 
-      - name: Upload placement journey evidence
+      - name: Browser save reload journey
+        run: npm run test:save-reload-journey
+
+      - name: Upload gameplay journey evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: placement-journey
-          path: artifacts/placement-journey.png
+          name: gameplay-journeys
+          path: artifacts/*.png
           if-no-files-found: ignore
