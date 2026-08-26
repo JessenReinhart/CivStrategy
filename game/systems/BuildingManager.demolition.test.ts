@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type Phaser from 'phaser';
 
 vi.mock('phaser', () => ({
     default: {
