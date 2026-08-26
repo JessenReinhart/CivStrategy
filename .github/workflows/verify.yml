@@ -54,10 +54,15 @@ jobs:
       - name: Browser save reload journey
         run: npm run test:save-reload-journey
 
+      - name: Browser day night journey
+        run: npm run test:day-night-journey
+
       - name: Upload gameplay journey evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gameplay-journeys
-          path: artifacts/*.png
+          path: |
+            artifacts/*.png
+            artifacts/*.json
           if-no-files-found: ignore
