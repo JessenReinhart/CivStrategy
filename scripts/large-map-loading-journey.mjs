@@ -121,7 +121,7 @@ try {
   }, undefined, { timeout: 90_000 });
 
   phase = 'measurement';
-  const result = await page.evaluate(() => {
+  const measured = await page.evaluate(() => {
     const telemetry = window.__largeMapLoadingTelemetry;
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
@@ -142,9 +142,32 @@ try {
       hasRealtimeCounters: structuredProgress.some((entry) => (
         typeof entry.processed === 'number' && typeof entry.total === 'number' && entry.total > 1
       )),
-      browserErrors,
     };
   });
+
+  phase = 'camera-input';
+  const cameraBeforeInput = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.cameras.main.scrollX;
+  });
+  await page.keyboard.down('ArrowRight');
+  await sleep(300);
+  await page.keyboard.up('ArrowRight');
+  await page.waitForFunction((initialScrollX) => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    return scene?.cameras?.main?.scrollX > initialScrollX;
+  }, cameraBeforeInput, { timeout: 5_000 });
+  const cameraAfterInput = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.cameras.main.scrollX;
+  });
+
+  const result = {
+    ...measured,
+    cameraBeforeInput,
+    cameraAfterInput,
+    browserErrors,
+  };
 
   await writeFile(
     `${ARTIFACT_DIR}/large-map-loading.json`,
@@ -184,6 +207,9 @@ try {
       `Large map loading blocked the browser main thread for ${result.maxGapMs.toFixed(1)}ms ` +
       `(limit ${MAX_MAIN_THREAD_GAP_MS}ms).`,
     );
+  }
+  if (result.cameraAfterInput <= result.cameraBeforeInput) {
+    throw new Error('Camera did not respond to ArrowRight after the Large map became ready.');
   }
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during Large map loading:\n${browserErrors.join('\n')}`);
