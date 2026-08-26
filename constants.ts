@@ -254,7 +254,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   [BuildingType.LUMBER_CAMP]: {
     type: BuildingType.LUMBER_CAMP,
     name: 'Lumber Camp',
-    cost: { wood: 100, food: 0, gold: 0 },
+    cost: { wood: 25, food: 0, gold: 0 },
     width: 48,
     height: 48,
     color: 0x166534,
