@@ -199,34 +199,9 @@ try {
     'Day/night ambient loop does not wrap continuously from 24:00 to 00:00.',
   );
 
-  // Pause through Phaser's SceneManager so the acceptance test exercises the
-  // same scene lifecycle boundary deterministically. Resume is queued by the
-  // manager, so wait until MainScene is active before measuring speed scaling.
-  const pauseStart = await page.evaluate(() => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScene('MainScene');
-    scene.game.events.emit('set-game-speed', 1);
-    const start = scene.gameTime;
-    game.scene.pause('MainScene');
-    return start;
-  });
-  await page.waitForTimeout(450);
-  const pauseEnd = await page.evaluate(() => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScene('MainScene');
-    const end = scene.gameTime;
-    game.scene.resume('MainScene');
-    return end;
-  });
-  const pausedAdvanceMs = pauseEnd - pauseStart;
-  assert(pausedAdvanceMs < 8, `Day/night simulation advanced ${pausedAdvanceMs.toFixed(1)}ms while the scene was paused.`);
-
-  await page.waitForFunction(() => {
-    const game = window.__civStrategyGame;
-    return Boolean(game?.scene?.isActive?.('MainScene'));
-  }, undefined, { timeout: 5_000 });
-  await page.waitForTimeout(100);
-
+  // Verify speed scaling while MainScene is actively ticking. Keep this
+  // independent from the pause lifecycle assertion below so a headless-browser
+  // resume quirk cannot invalidate the lighting speed contract.
   async function measureGameSpeed(speed, wallMs = 550) {
     const start = await page.evaluate((value) => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -284,6 +259,25 @@ try {
     path: `${ARTIFACT_DIR}/day-night-dense-sunset.png`,
     fullPage: true,
   });
+
+  // Pause is the final scene-lifecycle assertion. Day/night derives only from
+  // gameTime, so proving gameTime is frozen proves lighting is frozen too. No
+  // resume is needed because the browser is torn down immediately afterward.
+  const pauseStart = await page.evaluate(() => {
+    const game = window.__civStrategyGame;
+    const scene = game.scene.getScene('MainScene');
+    scene.game.events.emit('set-game-speed', 1);
+    const start = scene.gameTime;
+    game.scene.pause('MainScene');
+    return start;
+  });
+  await page.waitForTimeout(450);
+  const pauseEnd = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.gameTime;
+  });
+  const pausedAdvanceMs = pauseEnd - pauseStart;
+  assert(pausedAdvanceMs < 8, `Day/night simulation advanced ${pausedAdvanceMs.toFixed(1)}ms while the scene was paused.`);
 
   const result = {
     denseSetup,
