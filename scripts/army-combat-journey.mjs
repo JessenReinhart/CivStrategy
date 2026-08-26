@@ -50,6 +50,43 @@ async function persistEvidence() {
   }
 }
 
+const readRuntimeProbe = () => page.evaluate(() => {
+  const scene = window.__civStrategyGame.scene.getScene('MainScene');
+  const probe = window.__armyCombatProbe;
+  const player = probe?.player;
+  const body = player?.body;
+  const flags = (value) => value ? {
+    left: Boolean(value.left),
+    right: Boolean(value.right),
+    up: Boolean(value.up),
+    down: Boolean(value.down),
+    none: Boolean(value.none),
+  } : null;
+  return {
+    gameTime: scene.gameTime,
+    actualFps: scene.game.loop.actualFps,
+    perfFps: window.__perf?.latest?.fps ?? null,
+    physics: {
+      isPaused: scene.physics.world.isPaused,
+      timeScale: scene.physics.world.timeScale,
+    },
+    player: player ? {
+      x: player.x,
+      y: player.y,
+      body: body ? {
+        enable: body.enable,
+        moves: body.moves,
+        immovable: body.immovable,
+        velocity: { x: body.velocity.x, y: body.velocity.y },
+        position: { x: body.position.x, y: body.position.y },
+        center: { x: body.center.x, y: body.center.y },
+        blocked: flags(body.blocked),
+        touching: flags(body.touching),
+      } : null,
+    } : null,
+  };
+});
+
 try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
@@ -122,6 +159,8 @@ try {
     window.__armyCombatProbe = { player, enemy };
     return {
       arena,
+      gameTime: scene.gameTime,
+      actualFps: scene.game.loop.actualFps,
       playerStart: { x: player.x, y: player.y, hp: player.getData('hp') },
       enemyStart: { x: enemy.x, y: enemy.y, hp: enemy.getData('hp') },
     };
@@ -165,6 +204,7 @@ try {
   telemetry.phase = 'attack-command';
   const enemyPoint = await screenPoint('enemy');
   await page.mouse.click(canvasBox.x + enemyPoint.x, canvasBox.y + enemyPoint.y, { button: 'right' });
+  telemetry.attackStarted = await readRuntimeProbe();
 
   telemetry.observation = await page.waitForFunction(() => {
     const { player, enemy } = window.__armyCombatProbe;
@@ -182,6 +222,7 @@ try {
       enemyActive: enemy.active,
     };
   }, undefined, { timeout: 12_000 }).then((handle) => handle.jsonValue());
+  telemetry.afterMovement = await readRuntimeProbe();
 
   telemetry.phase = 'resolve-combat';
   await page.waitForFunction(() => {
@@ -197,6 +238,8 @@ try {
       player: { active: player.active, x: player.x, y: player.y, state: player.state },
       enemy: { active: enemy.active, x: enemy.x, y: enemy.y, hp: enemy.getData('hp'), state: enemy.state },
       distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
+      gameTime: scene.gameTime,
+      actualFps: scene.game.loop.actualFps,
     };
   });
   telemetry.movedDistance = Math.hypot(
@@ -225,6 +268,8 @@ try {
 } catch (error) {
   if (page) {
     try {
+      const runtime = await readRuntimeProbe();
+      telemetry.failureRuntime = runtime;
       telemetry.failureState = await page.evaluate(() => {
         const probe = window.__armyCombatProbe;
         if (!probe) return null;
@@ -243,6 +288,9 @@ try {
           distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
         };
       });
+      if (telemetry.attackStarted) {
+        telemetry.simulationElapsedMs = runtime.gameTime - telemetry.attackStarted.gameTime;
+      }
     } catch {
       // Preserve the original failure if the page is already unavailable.
     }
