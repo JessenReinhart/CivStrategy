@@ -93,6 +93,7 @@ export class DayNightSystem {
 
   public getDiagnostics(): DayNightDiagnostics {
     const uiCamera = this.scene.uiCamera;
+    const worldLayerIgnored = Boolean(uiCamera && (this.scene.worldLayer.cameraFilter & uiCamera.id) !== 0);
     return {
       shadowRefreshMs: SHADOW_REFRESH_MS,
       shadowRefreshCount: this.shadowRefreshCount,
@@ -105,8 +106,8 @@ export class DayNightSystem {
       lastShadowLength: this.currentState.shadowLength,
       ambientColor: this.currentState.ambientColor,
       ambientAlpha: this.currentState.ambientAlpha,
-      uiCameraIgnoresAmbient: Boolean(uiCamera && (this.ambientOverlay.cameraFilter & uiCamera.id) !== 0),
-      uiCameraIgnoresShadows: Boolean(uiCamera && (this.shadowGraphics.cameraFilter & uiCamera.id) !== 0),
+      uiCameraIgnoresAmbient: worldLayerIgnored || Boolean(uiCamera && (this.ambientOverlay.cameraFilter & uiCamera.id) !== 0),
+      uiCameraIgnoresShadows: worldLayerIgnored || Boolean(uiCamera && (this.shadowGraphics.cameraFilter & uiCamera.id) !== 0),
     };
   }
 
