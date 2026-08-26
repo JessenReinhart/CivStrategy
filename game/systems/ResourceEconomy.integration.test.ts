@@ -260,6 +260,7 @@ describe('lumber camp real-time production loop', () => {
         expect(spendBuilding(BuildingType.HOUSE)).toBe(true);
         expect(spendBuilding(BuildingType.FARM)).toBe(true);
         expect(spendBuilding(BuildingType.BARRACKS)).toBe(false);
+        const woodBeforeGathering = resources.wood;
 
         const scene = {
             resources,
@@ -290,12 +291,14 @@ describe('lumber camp real-time production loop', () => {
             elapsed += 16;
         }
 
+        const gatheredWood = resources.wood + BUILDINGS[BuildingType.BARRACKS].cost.wood - woodBeforeGathering;
         expect(built).toEqual([
             BuildingType.LUMBER_CAMP,
             BuildingType.HOUSE,
             BuildingType.FARM,
             BuildingType.BARRACKS,
         ]);
+        expect(gatheredWood).toBeGreaterThan(0);
         expect(elapsed).toBeGreaterThan(0);
         expect(elapsed).toBeLessThan(180_000);
         expect(resources.wood).toBeGreaterThanOrEqual(0);
