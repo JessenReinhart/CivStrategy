@@ -72,18 +72,56 @@ try {
     if (!existing) throw new Error('No player unit available to anchor combat scenario.');
 
     const bounds = scene.physics.world.bounds;
-    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-    const baseX = clamp(existing.x + 220, bounds.x + 180, bounds.right - 360);
-    const baseY = clamp(existing.y + 120, bounds.y + 180, bounds.bottom - 180);
-    const player = scene.entityFactory.spawnUnit('Pikesman', baseX, baseY, 0);
-    const enemy = scene.entityFactory.spawnUnit('Pikesman', baseX + 180, baseY, 1);
+    const insideWorld = (x, y) => (
+      x >= bounds.x + 96 && x <= bounds.right - 96
+      && y >= bounds.y + 96 && y <= bounds.bottom - 96
+    );
+    const originOffsets = [
+      [240, 0], [-240, 0], [0, 240], [0, -240],
+      [240, 240], [240, -240], [-240, 240], [-240, -240],
+      [360, 0], [-360, 0], [0, 360], [0, -360],
+    ];
+    const enemyOffsets = [[160, 0], [-160, 0], [0, 160], [0, -160]];
+    let arena = null;
+
+    for (const [originX, originY] of originOffsets) {
+      const playerX = existing.x + originX;
+      const playerY = existing.y + originY;
+      if (!insideWorld(playerX, playerY) || scene.pathfinder.isBlocked(playerX, playerY)) continue;
+
+      for (const [enemyXOffset, enemyYOffset] of enemyOffsets) {
+        const enemyX = playerX + enemyXOffset;
+        const enemyY = playerY + enemyYOffset;
+        if (!insideWorld(enemyX, enemyY) || scene.pathfinder.isBlocked(enemyX, enemyY)) continue;
+
+        const path = scene.pathfinder.findPath(
+          { x: playerX, y: playerY },
+          { x: enemyX, y: enemyY },
+        );
+        const endpoint = path?.[path.length - 1];
+        if (!path || path.length < 2 || !endpoint) continue;
+        if (Math.hypot(endpoint.x - enemyX, endpoint.y - enemyY) > 32) continue;
+
+        arena = { playerX, playerY, enemyX, enemyY, pathLength: path.length };
+        break;
+      }
+      if (arena) break;
+    }
+
+    if (!arena) throw new Error('Could not find a connected walkable arena for the combat journey.');
+
+    const player = scene.entityFactory.spawnUnit('Pikesman', arena.playerX, arena.playerY, 0);
+    const enemy = scene.entityFactory.spawnUnit('Pikesman', arena.enemyX, arena.enemyY, 1);
     if (!player || !enemy) throw new Error('Could not spawn deterministic combat units.');
 
     enemy.setData('hp', Math.min(enemy.getData('hp'), 40));
+    enemy.setData('stance', 'Hold');
+    enemy.setData('anchor', { x: enemy.x, y: enemy.y });
     player.setData('__journeyStartX', player.x);
     player.setData('__journeyStartY', player.y);
     window.__armyCombatProbe = { player, enemy };
     return {
+      arena,
       playerStart: { x: player.x, y: player.y, hp: player.getData('hp') },
       enemyStart: { x: enemy.x, y: enemy.y, hp: enemy.getData('hp') },
     };
@@ -157,7 +195,8 @@ try {
     return {
       selected: scene.inputManager.selectedUnits.includes(player),
       player: { active: player.active, x: player.x, y: player.y, state: player.state },
-      enemy: { active: enemy.active, hp: enemy.getData('hp'), state: enemy.state },
+      enemy: { active: enemy.active, x: enemy.x, y: enemy.y, hp: enemy.getData('hp'), state: enemy.state },
+      distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
     };
   });
   telemetry.movedDistance = Math.hypot(
@@ -184,6 +223,30 @@ try {
   await persistEvidence();
   console.log(JSON.stringify(telemetry, null, 2));
 } catch (error) {
+  if (page) {
+    try {
+      telemetry.failureState = await page.evaluate(() => {
+        const probe = window.__armyCombatProbe;
+        if (!probe) return null;
+        const { player, enemy } = probe;
+        return {
+          player: {
+            active: player.active,
+            x: player.x,
+            y: player.y,
+            state: player.state,
+            pathStep: player.pathStep,
+            pathLength: player.path?.length ?? 0,
+            velocity: { x: player.body?.velocity?.x ?? 0, y: player.body?.velocity?.y ?? 0 },
+          },
+          enemy: { active: enemy.active, x: enemy.x, y: enemy.y, hp: enemy.getData('hp'), state: enemy.state },
+          distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
+        };
+      });
+    } catch {
+      // Preserve the original failure if the page is already unavailable.
+    }
+  }
   telemetry.phase = `failed:${telemetry.phase}`;
   telemetry.error = error instanceof Error ? error.stack ?? error.message : String(error);
   await persistEvidence();
