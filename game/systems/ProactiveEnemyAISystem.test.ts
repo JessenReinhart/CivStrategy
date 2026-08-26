@@ -170,7 +170,7 @@ describe('ProactiveEnemyAISystem build rules', () => {
     internals.tickTownBuild();
 
     expect(spawnBuilding).toHaveBeenCalledTimes(1);
-    const expansion = buildings.at(-1);
+    const expansion = buildings[buildings.length - 1];
     expect(expansion?.getData('aiExpansion')).toBe(true);
     expect(ai.buildings).toContain(expansion);
     const expansionType = (expansion?.getData('def') as BuildingDef).type;
