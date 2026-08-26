@@ -393,11 +393,7 @@ function getIsoCenter(scene: MainScene): { x: number; y: number } {
 // ─── localStorage ───────────────────────────────────────────────────────
 
 export function saveToLocalStorage(save: SaveGame): void {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(save));
-  } catch (e) {
-    console.error('[SaveSystem] Failed to save:', e);
-  }
+  localStorage.setItem(SAVE_KEY, JSON.stringify(save));
 }
 
 export function loadFromLocalStorage(): SaveGame | null {
