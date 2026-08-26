@@ -227,7 +227,7 @@ describe('lumber camp real-time production loop', () => {
         expect(findPath).toHaveBeenCalled();
     });
 
-    it('lets one opening woodcutter close the core build-order wood deficit within three simulated minutes', () => {
+    it('keeps the opening build order progressing after paying for the wood economy', () => {
         const camp = makeDataObject(128, 128, {
             owner: 0,
             def: { type: BuildingType.LUMBER_CAMP, workerNeeds: 1, effectRadius: 200 },
@@ -243,16 +243,25 @@ describe('lumber camp real-time production loop', () => {
             { x: end.x, y: end.y },
         ]);
 
-        const lumberCampCost = BUILDINGS[BuildingType.LUMBER_CAMP].cost.wood;
-        const coreBuildOrderCost =
-            BUILDINGS[BuildingType.FARM].cost.wood +
-            BUILDINGS[BuildingType.HOUSE].cost.wood +
-            BUILDINGS[BuildingType.BARRACKS].cost.wood;
-        const resources = {
-            wood: INITIAL_RESOURCES.wood - lumberCampCost,
-            food: INITIAL_RESOURCES.food,
-            gold: INITIAL_RESOURCES.gold,
+        const resources = { ...INITIAL_RESOURCES };
+        const built: BuildingType[] = [];
+        const spendBuilding = (type: BuildingType) => {
+            const cost = BUILDINGS[type].cost;
+            if (resources.wood < cost.wood || resources.food < cost.food || resources.gold < cost.gold) return false;
+            resources.wood -= cost.wood;
+            resources.food -= cost.food;
+            resources.gold -= cost.gold;
+            built.push(type);
+            return true;
         };
+
+        expect(spendBuilding(BuildingType.LUMBER_CAMP)).toBe(true);
+        const woodAfterCamp = resources.wood;
+        expect(spendBuilding(BuildingType.HOUSE)).toBe(true);
+        expect(spendBuilding(BuildingType.FARM)).toBe(true);
+        expect(spendBuilding(BuildingType.BARRACKS)).toBe(false);
+        const woodBeforeGathering = resources.wood;
+
         const scene = {
             resources,
             population: 1,
@@ -275,15 +284,27 @@ describe('lumber camp real-time production loop', () => {
 
         economy.assignJobs();
         expect(villager.jobBuilding).toBe(camp);
-        expect(resources.wood).toBeLessThan(coreBuildOrderCost);
 
         let elapsed = 0;
-        while (elapsed < 180_000 && resources.wood < coreBuildOrderCost) {
+        while (elapsed < 180_000 && !spendBuilding(BuildingType.BARRACKS)) {
             villagerSystem.update(elapsed, 16);
             elapsed += 16;
         }
 
-        expect(resources.wood).toBeGreaterThanOrEqual(coreBuildOrderCost);
+        const gatheredWood = resources.wood + BUILDINGS[BuildingType.BARRACKS].cost.wood - woodBeforeGathering;
+        expect(built).toEqual([
+            BuildingType.LUMBER_CAMP,
+            BuildingType.HOUSE,
+            BuildingType.FARM,
+            BuildingType.BARRACKS,
+        ]);
+        expect(gatheredWood).toBeGreaterThan(0);
+        expect(elapsed).toBeGreaterThan(0);
         expect(elapsed).toBeLessThan(180_000);
+        expect(resources.wood).toBeGreaterThanOrEqual(0);
+        expect(resources.food).toBeGreaterThanOrEqual(0);
+        expect(resources.gold).toBeGreaterThanOrEqual(0);
+        expect(woodAfterCamp).toBe(INITIAL_RESOURCES.wood - BUILDINGS[BuildingType.LUMBER_CAMP].cost.wood);
+        expect(findPath).toHaveBeenCalled();
     });
 });
