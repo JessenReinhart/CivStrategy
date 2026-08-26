@@ -6,12 +6,12 @@ import {
 } from './gameLoading';
 
 describe('game loading progress', () => {
-  it('keeps legacy numeric progress compatible and clamped', () => {
+  it('maps legacy Phaser asset progress into the first loading phase', () => {
     expect(normalizeGameLoadProgress(0.42)).toMatchObject({
-      progress: 0.42,
+      progress: 0.0672,
       phase: 'Loading assets',
     });
-    expect(normalizeGameLoadProgress(2).progress).toBe(1);
+    expect(normalizeGameLoadProgress(2).progress).toBe(0.16);
     expect(normalizeGameLoadProgress(-1).progress).toBe(0);
   });
 
