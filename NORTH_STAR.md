@@ -178,6 +178,7 @@ The target is their quality discipline and readability, expressed through CivStr
 - `GAUNTLET_PROMPT.md` defines the execution pattern and performance-oriented development loop.
 - `GAUNTLET_PROGRESS.md` records measured gaps and cycle evidence.
 - `AGENTS.md` defines repository architecture and engineering constraints.
+- `docs/LIVING_CITY_NORTH_STAR.md` defines the long-term city-builder, population, logistics, urban-combat, and sprite-generation direction.
 - This file defines the product-quality bar those workflows should optimize toward.
 
 The desired outcome is simple: a player can build, manage, command, fight, save, reload, and continue without thinking about the implementation underneath.
