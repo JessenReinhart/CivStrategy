@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 const PORT = 4176;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
@@ -43,12 +43,29 @@ async function stopServer() {
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
+let page;
+const telemetry = { phase: 'boot', browserErrors: [] };
+
+async function persistEvidence() {
+  await writeFile(
+    `${ARTIFACT_DIR}/camera-overlay-telemetry.json`,
+    `${JSON.stringify(telemetry, null, 2)}\n`,
+    'utf8',
+  );
+  if (page) {
+    try {
+      await page.screenshot({ path: `${ARTIFACT_DIR}/camera-overlay-journey.png`, fullPage: true });
+    } catch {
+      // Preserve JSON telemetry even if the page has already closed.
+    }
+  }
+}
+
 try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const browserErrors = [];
-  page.on('pageerror', (error) => browserErrors.push(error.message));
+  page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  page.on('pageerror', (error) => telemetry.browserErrors.push(error.message));
 
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Start Game' }).click();
@@ -98,8 +115,9 @@ try {
     };
   });
 
-  const initial = await readSnapshot();
-  if (!initial.minimap.viewportVisible) {
+  telemetry.phase = 'initial';
+  telemetry.initial = await readSnapshot();
+  if (!telemetry.initial.minimap.viewportVisible) {
     throw new Error('Minimap viewport is not a live visible overlay.');
   }
 
@@ -110,27 +128,30 @@ try {
   await page.keyboard.up('ArrowRight');
   await sleep(50);
 
-  const afterPan = await readSnapshot();
-  const cameraPan = Math.hypot(
-    afterPan.camera.scrollX - initial.camera.scrollX,
-    afterPan.camera.scrollY - initial.camera.scrollY,
+  telemetry.phase = 'after-pan';
+  telemetry.afterPan = await readSnapshot();
+  telemetry.cameraPan = Math.hypot(
+    telemetry.afterPan.camera.scrollX - telemetry.initial.camera.scrollX,
+    telemetry.afterPan.camera.scrollY - telemetry.initial.camera.scrollY,
   );
-  if (cameraPan < 5) throw new Error(`Real keyboard pan did not move the camera enough (${cameraPan}px).`);
+  telemetry.viewportPan = Math.hypot(
+    telemetry.afterPan.minimap.viewportX - telemetry.initial.minimap.viewportX,
+    telemetry.afterPan.minimap.viewportY - telemetry.initial.minimap.viewportY,
+  );
+  telemetry.panFogError = Math.hypot(
+    telemetry.afterPan.fog.topLeftX - telemetry.afterPan.camera.topLeftX,
+    telemetry.afterPan.fog.topLeftY - telemetry.afterPan.camera.topLeftY,
+  );
+  await persistEvidence();
 
-  const viewportPan = Math.hypot(
-    afterPan.minimap.viewportX - initial.minimap.viewportX,
-    afterPan.minimap.viewportY - initial.minimap.viewportY,
-  );
-  if (viewportPan < 0.01) {
+  if (telemetry.cameraPan < 5) {
+    throw new Error(`Real keyboard pan did not move the camera enough (${telemetry.cameraPan}px).`);
+  }
+  if (telemetry.viewportPan < 0.01) {
     throw new Error('Minimap viewport did not move with the real camera pan.');
   }
-
-  const panFogError = Math.hypot(
-    afterPan.fog.topLeftX - afterPan.camera.topLeftX,
-    afterPan.fog.topLeftY - afterPan.camera.topLeftY,
-  );
-  if (panFogError > 1) {
-    throw new Error(`Fog camera state lagged real pan by ${panFogError.toFixed(2)} world pixels.`);
+  if (telemetry.panFogError > 1) {
+    throw new Error(`Fog camera state lagged real pan by ${telemetry.panFogError.toFixed(2)} world pixels.`);
   }
 
   const box = await canvas.boundingBox();
@@ -139,41 +160,47 @@ try {
   await page.mouse.wheel(0, -500);
   await sleep(80);
 
-  const afterZoom = await readSnapshot();
-  if (Math.abs(afterZoom.camera.zoom - afterPan.camera.zoom) < 0.01) {
+  telemetry.phase = 'after-zoom';
+  telemetry.afterZoom = await readSnapshot();
+  telemetry.zoomDelta = Math.abs(telemetry.afterZoom.camera.zoom - telemetry.afterPan.camera.zoom);
+  telemetry.expectedMinimapScale = 1 / telemetry.afterZoom.camera.zoom;
+  telemetry.expectedFogScale = 4 / telemetry.afterZoom.camera.zoom;
+  telemetry.expectedFogX = (telemetry.afterZoom.camera.width * 0.5) * (1 - 1 / telemetry.afterZoom.camera.zoom);
+  telemetry.expectedFogY = (telemetry.afterZoom.camera.height * 0.5) * (1 - 1 / telemetry.afterZoom.camera.zoom);
+  telemetry.zoomFogError = Math.hypot(
+    telemetry.afterZoom.fog.topLeftX - telemetry.afterZoom.camera.topLeftX,
+    telemetry.afterZoom.fog.topLeftY - telemetry.afterZoom.camera.topLeftY,
+  );
+  await persistEvidence();
+
+  if (telemetry.zoomDelta < 0.01) {
     throw new Error('Real mouse-wheel zoom did not change the camera zoom.');
   }
-
-  const expectedMinimapScale = 1 / afterZoom.camera.zoom;
-  if (Math.abs(afterZoom.minimap.textureScaleX - expectedMinimapScale) > 0.01) {
-    throw new Error(`Minimap scale ${afterZoom.minimap.textureScaleX} did not match camera zoom ${afterZoom.camera.zoom}.`);
+  if (Math.abs(telemetry.afterZoom.minimap.textureScaleX - telemetry.expectedMinimapScale) > 0.01) {
+    throw new Error(`Minimap scale ${telemetry.afterZoom.minimap.textureScaleX} did not match expected ${telemetry.expectedMinimapScale} for camera zoom ${telemetry.afterZoom.camera.zoom}.`);
+  }
+  if (Math.abs(telemetry.afterZoom.fog.textureScaleX - telemetry.expectedFogScale) > 0.02) {
+    throw new Error(`Fog scale ${telemetry.afterZoom.fog.textureScaleX} did not match expected ${telemetry.expectedFogScale} for camera zoom ${telemetry.afterZoom.camera.zoom}.`);
+  }
+  if (Math.abs(telemetry.afterZoom.fog.textureX - telemetry.expectedFogX) > 1 || Math.abs(telemetry.afterZoom.fog.textureY - telemetry.expectedFogY) > 1) {
+    throw new Error(`Fog render texture did not remain screen-aligned after real zoom input: actual (${telemetry.afterZoom.fog.textureX}, ${telemetry.afterZoom.fog.textureY}), expected (${telemetry.expectedFogX}, ${telemetry.expectedFogY}).`);
+  }
+  if (telemetry.zoomFogError > 1) {
+    throw new Error(`Fog camera state lagged real zoom by ${telemetry.zoomFogError.toFixed(2)} world pixels.`);
+  }
+  if (telemetry.browserErrors.length > 0) {
+    throw new Error(`Browser page errors during camera overlay journey:\n${telemetry.browserErrors.join('\n')}`);
   }
 
-  const expectedFogScale = 4 / afterZoom.camera.zoom;
-  if (Math.abs(afterZoom.fog.textureScaleX - expectedFogScale) > 0.02) {
-    throw new Error(`Fog scale ${afterZoom.fog.textureScaleX} did not counter-scale camera zoom ${afterZoom.camera.zoom}.`);
-  }
-
-  const expectedFogX = (afterZoom.camera.width * 0.5) * (1 - 1 / afterZoom.camera.zoom);
-  const expectedFogY = (afterZoom.camera.height * 0.5) * (1 - 1 / afterZoom.camera.zoom);
-  if (Math.abs(afterZoom.fog.textureX - expectedFogX) > 1 || Math.abs(afterZoom.fog.textureY - expectedFogY) > 1) {
-    throw new Error('Fog render texture did not remain screen-aligned after real zoom input.');
-  }
-
-  const zoomFogError = Math.hypot(
-    afterZoom.fog.topLeftX - afterZoom.camera.topLeftX,
-    afterZoom.fog.topLeftY - afterZoom.camera.topLeftY,
-  );
-  if (zoomFogError > 1) {
-    throw new Error(`Fog camera state lagged real zoom by ${zoomFogError.toFixed(2)} world pixels.`);
-  }
-
-  await page.screenshot({ path: `${ARTIFACT_DIR}/camera-overlay-journey.png`, fullPage: true });
-  console.log(JSON.stringify({ initial, afterPan, afterZoom, cameraPan, viewportPan, panFogError, zoomFogError }, null, 2));
-
-  if (browserErrors.length > 0) {
-    throw new Error(`Browser page errors during camera overlay journey:\n${browserErrors.join('\n')}`);
-  }
+  telemetry.phase = 'passed';
+  await persistEvidence();
+  console.log(JSON.stringify(telemetry, null, 2));
+} catch (error) {
+  telemetry.phase = `failed:${telemetry.phase}`;
+  telemetry.error = error instanceof Error ? error.stack ?? error.message : String(error);
+  await persistEvidence();
+  console.error(JSON.stringify(telemetry, null, 2));
+  throw error;
 } finally {
   if (browser) await browser.close();
   await stopServer();
