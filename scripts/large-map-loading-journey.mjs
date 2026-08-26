@@ -44,20 +44,27 @@ async function stopServer() {
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
+let page;
+let phase = 'server-start';
+const browserErrors = [];
+
 try {
   await waitForServer();
+  phase = 'browser-launch';
   browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-
-  const browserErrors = [];
+  page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
+  phase = 'navigation';
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+  phase = 'start-game';
   await page.getByRole('button', { name: 'Start Game' }).click();
 
+  phase = 'map-size';
   const mapSizeGroup = page.getByRole('group', { name: 'Map size' });
   await mapSizeGroup.getByRole('button', { name: /large/i }).click();
 
+  phase = 'telemetry';
   await page.evaluate(() => {
     const telemetry = {
       tracking: false,
@@ -102,8 +109,10 @@ try {
     telemetry.lastHeartbeatAt = telemetry.startedAt;
   });
 
+  phase = 'commence';
   await page.getByRole('button', { name: 'Commence' }).click();
 
+  phase = 'world-ready';
   await page.waitForFunction(() => {
     const telemetry = window.__largeMapLoadingTelemetry;
     const game = window.__civStrategyGame;
@@ -111,6 +120,7 @@ try {
     return Boolean(telemetry?.ready && scene?.isReady);
   }, undefined, { timeout: 90_000 });
 
+  phase = 'measurement';
   const result = await page.evaluate(() => {
     const telemetry = window.__largeMapLoadingTelemetry;
     const game = window.__civStrategyGame;
@@ -136,8 +146,6 @@ try {
     };
   });
 
-  // Persist measurement evidence before assertions so a red journey still
-  // explains whether the blocker was responsiveness, progress, readiness, or rendering.
   await writeFile(
     `${ARTIFACT_DIR}/large-map-loading.json`,
     `${JSON.stringify(result, null, 2)}\n`,
@@ -153,7 +161,7 @@ try {
     'Growing world',
     'Realm ready',
   ];
-  const missingPhases = requiredPhases.filter((phase) => !result.phases.includes(phase));
+  const missingPhases = requiredPhases.filter((requiredPhase) => !result.phases.includes(requiredPhase));
 
   if (result.mapWidth !== 4096 || result.mapHeight !== 4096) {
     throw new Error(`Large map did not initialize at 4096×4096: ${result.mapWidth}×${result.mapHeight}`);
@@ -180,6 +188,43 @@ try {
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during Large map loading:\n${browserErrors.join('\n')}`);
   }
+} catch (error) {
+  let telemetry = null;
+  let url = null;
+  if (page) {
+    try {
+      url = page.url();
+    } catch {
+      // The page may already be gone after a browser-level failure.
+    }
+    try {
+      telemetry = await page.evaluate(() => window.__largeMapLoadingTelemetry ?? null);
+    } catch {
+      // Preserve the rest of the diagnostics even if the page is no longer evaluable.
+    }
+    try {
+      await page.screenshot({ path: `${ARTIFACT_DIR}/large-map-loading-failure.png`, fullPage: true });
+    } catch {
+      // A screenshot is best-effort evidence only.
+    }
+  }
+
+  const failure = {
+    phase,
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    serverOutput: serverOutput.slice(-8_000),
+    browserErrors,
+    url,
+    telemetry,
+  };
+  await writeFile(
+    `${ARTIFACT_DIR}/large-map-loading-failure.json`,
+    `${JSON.stringify(failure, null, 2)}\n`,
+    'utf8',
+  );
+  console.error(JSON.stringify(failure, null, 2));
+  throw error;
 } finally {
   if (browser) await browser.close();
   await stopServer();
