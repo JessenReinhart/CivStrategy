@@ -88,20 +88,48 @@ try {
     if (!townCenter) throw new Error('Player Town Center missing for combat journey setup.');
 
     const bounds = scene.physics.world.bounds;
-    const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-    const centerX = clamp(townCenter.x + 360, bounds.x + 160, bounds.right - 160);
-    const centerY = clamp(townCenter.y + 260, bounds.y + 160, bounds.bottom - 160);
+    const insideBounds = (x, y) => (
+      x > bounds.x + 80
+      && x < bounds.right - 80
+      && y > bounds.y + 80
+      && y < bounds.bottom - 80
+    );
+    const segmentIsWalkable = (startX, startY, endX, endY) => {
+      for (let step = 0; step <= 4; step++) {
+        const t = step / 4;
+        const x = startX + (endX - startX) * t;
+        const y = startY + (endY - startY) * t;
+        if (scene.pathfinder.isBlocked(x, y)) return false;
+      }
+      return true;
+    };
 
-    const player = scene.entityFactory.spawnUnit('Pikesman', centerX - 70, centerY, 0);
-    const enemy = scene.entityFactory.spawnUnit('Pikesman', centerX + 70, centerY, 1);
+    let pair = null;
+    for (let radius = 180; radius <= 520 && !pair; radius += 40) {
+      for (let index = 0; index < 16 && !pair; index++) {
+        const angle = (index / 16) * Math.PI * 2;
+        const playerX = townCenter.x + Math.cos(angle) * radius;
+        const playerY = townCenter.y + Math.sin(angle) * radius;
+        const enemyX = playerX + Math.cos(angle + Math.PI / 2) * 80;
+        const enemyY = playerY + Math.sin(angle + Math.PI / 2) * 80;
+        if (!insideBounds(playerX, playerY) || !insideBounds(enemyX, enemyY)) continue;
+        if (!segmentIsWalkable(playerX, playerY, enemyX, enemyY)) continue;
+        pair = { playerX, playerY, enemyX, enemyY };
+      }
+    }
+    if (!pair) throw new Error('Could not find a short walkable combat lane near the player base.');
+
+    const player = scene.entityFactory.spawnUnit('Pikesman', pair.playerX, pair.playerY, 0);
+    const enemy = scene.entityFactory.spawnUnit('Pikesman', pair.enemyX, pair.enemyY, 1);
     if (!player || !enemy) throw new Error('Could not spawn deterministic combat pair.');
 
     player.setData('journeyRole', 'player');
     enemy.setData('journeyRole', 'enemy');
-    enemy.setData('hp', Math.min(enemy.getData('hp'), 30));
+    enemy.setData('hp', Math.min(enemy.getData('hp'), 20));
     scene.cameras.main.setZoom(1.5);
 
     return {
+      pair,
       playerStart: { x: player.x, y: player.y },
       enemyStartHp: enemy.getData('hp'),
     };
@@ -155,6 +183,15 @@ try {
 
   await page.mouse.click(enemyScreen.x, enemyScreen.y, { button: 'right' });
 
+  // Prove the browser click hit the enemy entity rather than merely issuing a move nearby.
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const units = scene?.units?.getChildren?.() ?? [];
+    const player = units.find((unit) => unit.getData('journeyRole') === 'player');
+    const enemy = units.find((unit) => unit.getData('journeyRole') === 'enemy');
+    return Boolean(player && enemy && player.target === enemy && player.getData('explicitTarget') === true);
+  }, undefined, { timeout: 5_000 });
+
   await page.waitForFunction(({ startX, startY, startHp }) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     const units = scene?.units?.getChildren?.() ?? [];
@@ -172,7 +209,7 @@ try {
     const units = scene?.units?.getChildren?.() ?? [];
     const enemy = units.find((unit) => unit.getData('journeyRole') === 'enemy');
     return !enemy || enemy.getData('hp') < startHp;
-  }, setup.enemyStartHp, { timeout: 15_000 });
+  }, setup.enemyStartHp, { timeout: 10_000 });
 
   const result = await page.evaluate(({ startX, startY, startHp }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -181,6 +218,7 @@ try {
     const enemy = units.find((unit) => unit.getData('journeyRole') === 'enemy');
     return {
       selectedCount: scene.inputManager.selectedUnits.length,
+      explicitTarget: Boolean(player && enemy && player.target === enemy && player.getData('explicitTarget') === true),
       playerMovedPx: player ? Math.hypot(player.x - startX, player.y - startY) : null,
       playerState: player?.state ?? 'destroyed',
       enemyStartHp: startHp,
@@ -200,6 +238,7 @@ try {
   await page.screenshot({ path: `${ARTIFACT_DIR}/army-combat-journey.png`, fullPage: true });
 
   if (result.selectedCount < 1) throw new Error('Player army selection was lost before combat resolved.');
+  if (!result.explicitTarget) throw new Error('Right-click did not remain bound to the intended enemy target.');
   if ((result.playerMovedPx ?? 0) <= 8 && result.enemyHp >= result.enemyStartHp) {
     throw new Error('Selected unit neither moved nor damaged the enemy after right-click attack.');
   }
