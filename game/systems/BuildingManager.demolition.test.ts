@@ -80,7 +80,8 @@ function makeFixture(options: { owner?: number; destroyFails?: boolean; selected
         }),
     };
 
-    const building = {
+    let building: MockBuilding;
+    building = {
         x: 100,
         y: 100,
         scene: {},
@@ -98,7 +99,7 @@ function makeFixture(options: { owner?: number; destroyFails?: boolean; selected
             const index = children.indexOf(building);
             if (index >= 0) children.splice(index, 1);
         }),
-    } satisfies MockBuilding;
+    };
     worker.jobBuilding = building as unknown as Phaser.GameObjects.GameObject;
     children.push(building);
 
