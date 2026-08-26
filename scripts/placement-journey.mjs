@@ -58,7 +58,12 @@ try {
   await page.waitForFunction(() => {
     const game = window.__civStrategyGame;
     const scene = game?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.buildingManager && scene?.buildings?.getChildren?.().length);
+    return Boolean(
+      scene?.isReady
+      && scene?.buildingManager
+      && scene?.pathfinder
+      && scene?.buildings?.getChildren?.().length,
+    );
   }, undefined, { timeout: 45_000 });
 
   const result = await page.evaluate(() => {

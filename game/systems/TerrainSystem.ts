@@ -1,10 +1,10 @@
-
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { Noise } from '../utils/Noise';
 import { TERRAIN_CONFIG, MAP_PRESETS } from '../../constants';
 import { TerrainModifiers, SlopeInfo, MapPreset } from '../../types';
 import { toIso, toIsoElev } from '../utils/iso';
+import { LoadingWorkProgress, runBudgetedWork } from '../../utils/gameLoading';
 
 export class TerrainSystem {
   private scene: MainScene;
@@ -28,6 +28,16 @@ export class TerrainSystem {
   }
 
   generateHeightMap(): void {
+    for (const _progress of this.generateHeightMapWork()) {
+      // Consume synchronously for callers that require the legacy API.
+    }
+  }
+
+  async generateHeightMapAsync(onProgress?: (progress: LoadingWorkProgress) => void): Promise<void> {
+    await runBudgetedWork(this.generateHeightMapWork(), onProgress);
+  }
+
+  private *generateHeightMapWork(): Generator<LoadingWorkProgress, void, void> {
     const w = this.gridWidth;
     const h = this.gridHeight;
     const baseScale = TERRAIN_CONFIG.BASE_SCALE;
@@ -89,6 +99,12 @@ export class TerrainSystem {
 
         this.heightGrid[gy * w + gx] = height;
       }
+
+      yield {
+        processed: gy + 1,
+        total: h,
+        detail: 'Generating elevation noise',
+      };
     }
   }
 
@@ -211,6 +227,16 @@ export class TerrainSystem {
   }
 
   applyVisualTinting(): void {
+    for (const _progress of this.applyVisualTintingWork()) {
+      // Consume synchronously for callers that require the legacy API.
+    }
+  }
+
+  async applyVisualTintingAsync(onProgress?: (progress: LoadingWorkProgress) => void): Promise<void> {
+    await runBudgetedWork(this.applyVisualTintingWork(), onProgress);
+  }
+
+  private *applyVisualTintingWork(): Generator<LoadingWorkProgress, void, void> {
     if (this.visualSprite) { this.visualSprite.destroy(); this.visualSprite = null; }
     if (this.scene.textures.exists('_terrainTint')) this.scene.textures.remove('_terrainTint');
 
@@ -319,10 +345,14 @@ export class TerrainSystem {
     const cw = w + 1;
     const ch = h + 1;
     const cornerH = new Float32Array(cw * ch);
+    const totalWork = ch + h * 3;
+    let completedWork = 0;
     for (let cy = 0; cy < ch; cy++) {
       for (let cx = 0; cx < cw; cx++) {
         cornerH[cy * cw + cx] = this.getHeightInterpolated(cx * CS, cy * CS);
       }
+      completedWork++;
+      yield { processed: completedWork, total: totalWork, detail: 'Sampling terrain corners' };
     }
 
     let maxGridHeight = 0;
@@ -387,6 +417,8 @@ export class TerrainSystem {
         lit *= 1 - rockGrid[gy * w + gx] * 0.18;
         litGrid[gy * w + gx] = Math.max(0.2, Math.min(1.12, lit));
       }
+      completedWork++;
+      yield { processed: completedWork, total: totalWork, detail: 'Computing terrain lighting' };
     }
     // Box-blur lighting once to kill hard cell boundaries.
     const litSmooth = new Float32Array(w * h);
@@ -403,6 +435,8 @@ export class TerrainSystem {
         }
         litSmooth[gy * w + gx] = sum / n;
       }
+      completedWork++;
+      yield { processed: completedWork, total: totalWork, detail: 'Smoothing terrain lighting' };
     }
 
     // Land cells: draw if center OR any corner is above water (seals shoreline holes).
@@ -571,6 +605,9 @@ export class TerrainSystem {
           ctx.fill();
         }
       }
+
+      completedWork++;
+      yield { processed: completedWork, total: totalWork, detail: 'Painting terrain biomes' };
     }
 
     this.scene.textures.addCanvas('_terrainTint', cvs);

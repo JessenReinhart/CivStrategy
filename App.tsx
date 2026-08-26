@@ -9,6 +9,11 @@ import { EVENTS, INITIAL_RESOURCES } from './constants';
 import { addResearchWindowListener } from './utils/researchWindowListener';
 import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
 import { scheduleStressUrlBootstrap } from './utils/stressUrlBootstrap';
+import {
+  GAME_LOADING_EVENTS,
+  INITIAL_GAME_LOAD_PROGRESS,
+  normalizeGameLoadProgress,
+} from './utils/gameLoading';
 import Phaser from 'phaser';
 
 interface StressTestConfig {
@@ -19,7 +24,7 @@ interface StressTestConfig {
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
-  const [loadProgress, setLoadProgress] = useState<number>(0);
+  const [loadStatus, setLoadStatus] = useState(INITIAL_GAME_LOAD_PROGRESS);
   const loadingCompletionDelayRef = useRef(
     createLoadingCompletionDelay(() => setIsGameLoading(false), 500),
   );
@@ -76,7 +81,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     setMapPreset(preset);
     setStressTestConfig(null);
     setIsGameLoading(true);
-    setLoadProgress(0);
+    setLoadStatus(INITIAL_GAME_LOAD_PROGRESS);
     setGameState('playing');
   };
 
@@ -91,7 +96,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     setAiDisabled(false);
     setStressTestConfig(config);
     setIsGameLoading(true);
-    setLoadProgress(0);
+    setLoadStatus(INITIAL_GAME_LOAD_PROGRESS);
     setGameState('stress-test');
   };
 
@@ -100,6 +105,7 @@ const [selectedCount, setSelectedCount] = useState(0);
     setGameInstance(null);
     setGameState('menu');
     setIsGameLoading(true);
+    setLoadStatus(INITIAL_GAME_LOAD_PROGRESS);
     setSelectedCount(0);
     setSelectedCounts({});
     setSelectedBuildingType(null);
@@ -135,11 +141,15 @@ const [selectedCount, setSelectedCount] = useState(0);
   useEffect(() => {
     const loadingCompletionDelay = loadingCompletionDelayRef.current;
     const progressHandler = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      setLoadProgress(customEvent.detail);
+      const next = normalizeGameLoadProgress((e as CustomEvent).detail);
+      setLoadStatus((previous) => (
+        next.progress < previous.progress
+          ? { ...next, progress: previous.progress }
+          : next
+      ));
     };
     const completeHandler = () => {
-      // Add a slight artificial delay for smooth transition
+      // Keep the final state visible briefly so the 100% transition reads cleanly.
       loadingCompletionDelay.schedule();
     };
     const stressTestHandler = (e: Event) => {
@@ -147,8 +157,8 @@ const [selectedCount, setSelectedCount] = useState(0);
       handleStressTestStart(customEvent.detail);
     };
 
-    window.addEventListener('game-load-progress', progressHandler);
-    window.addEventListener('game-load-complete', completeHandler);
+    window.addEventListener(GAME_LOADING_EVENTS.PROGRESS, progressHandler);
+    window.addEventListener(GAME_LOADING_EVENTS.COMPLETE, completeHandler);
     window.addEventListener('stressTestStart', stressTestHandler);
 
     // Defer URL-driven stress mode until after this effect has installed loading listeners.
@@ -160,8 +170,8 @@ const [selectedCount, setSelectedCount] = useState(0);
     return () => {
       cancelStressUrlBootstrap();
       loadingCompletionDelay.cancel();
-      window.removeEventListener('game-load-progress', progressHandler);
-      window.removeEventListener('game-load-complete', completeHandler);
+      window.removeEventListener(GAME_LOADING_EVENTS.PROGRESS, progressHandler);
+      window.removeEventListener(GAME_LOADING_EVENTS.COMPLETE, completeHandler);
       window.removeEventListener('stressTestStart', stressTestHandler);
     };
   }, []);
@@ -301,7 +311,7 @@ const [selectedCount, setSelectedCount] = useState(0);
 
       {(gameState === 'playing' || gameState === 'stress-test') && (
         <>
-          {isGameLoading && <LoadingScreen progress={loadProgress} />}
+          {isGameLoading && <LoadingScreen status={loadStatus} />}
           <PhaserGame
             faction={faction}
             mapMode={mapMode}
