@@ -1,11 +1,15 @@
 import React from 'react';
 import { Crown } from 'lucide-react';
+import { GameLoadProgressDetail } from '../utils/gameLoading';
 
 interface LoadingScreenProps {
-    progress: number;
+    status: GameLoadProgressDetail;
 }
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ progress }) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ status }) => {
+    const percentage = Math.floor(status.progress * 100);
+    const hasWorkCounter = status.total !== undefined && status.processed !== undefined && status.total > 0;
+
     return (
         <div className="absolute inset-0 bg-stone-900 flex flex-col items-center justify-center z-[100] transition-opacity duration-500">
             <div className="relative flex flex-col items-center gap-8 w-full max-w-md px-6">
@@ -23,34 +27,50 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ progress }) => {
 
                 {/* Progress Content */}
                 <div className="w-full space-y-4">
-                    <div className="flex justify-between items-end">
-                        <div className="space-y-1">
+                    <div className="flex justify-between items-end gap-6">
+                        <div className="space-y-1 min-w-0">
                             <h2 className="text-2xl font-serif text-stone-100 font-bold tracking-widest uppercase">Forging Realm</h2>
-                            <p className="text-xs text-stone-500 font-bold tracking-[0.2em] uppercase">Constructing ancient foundations</p>
+                            <p className="text-xs text-amber-500/90 font-bold tracking-[0.16em] uppercase truncate">{status.phase}</p>
                         </div>
-                        <div className="text-3xl font-mono text-amber-500 font-bold">
-                            {Math.floor(progress * 100)}%
+                        <div className="text-3xl font-mono text-amber-500 font-bold tabular-nums">
+                            {percentage}%
                         </div>
                     </div>
 
                     {/* Progress Bar Container */}
                     <div className="h-2 w-full bg-stone-800 rounded-full overflow-hidden border border-white/5 shadow-inner">
                         <div 
-                            className="h-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600 transition-all duration-300 ease-out relative"
-                            style={{ width: `${progress * 100}%` }}
+                            className="h-full bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600 transition-all duration-150 ease-out relative"
+                            style={{ width: `${status.progress * 100}%` }}
                         >
                             {/* Shine Effect */}
                             <div className="absolute inset-0 bg-white/20 blur-sm" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
                         </div>
                     </div>
+
+                    <div className="min-h-12 rounded-lg border border-white/5 bg-black/20 px-3 py-2 flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                            <p className="text-[10px] text-stone-500 font-bold tracking-widest uppercase">Current process</p>
+                            <p className="text-sm text-stone-300 truncate">{status.detail}</p>
+                        </div>
+                        {hasWorkCounter && (
+                            <div className="shrink-0 text-right font-mono tabular-nums">
+                                <p className="text-sm text-stone-200">{status.processed} / {status.total}</p>
+                                <p className="text-[9px] text-stone-600 uppercase tracking-wider">work units</p>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Aesthetic Footer */}
                 <div className="flex items-center gap-4 text-stone-600">
-                    <div className="h-px w-12 bg-stone-800" />
-                    <span className="text-[10px] font-bold tracking-widest uppercase">Ancient Strategy</span>
-                    <div className="h-px w-12 bg-stone-800" />
+                    <div className="h-px w-10 bg-stone-800" />
+                    <span className="text-[10px] font-bold tracking-widest uppercase flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Live world generation
+                    </span>
+                    <div className="h-px w-10 bg-stone-800" />
                 </div>
             </div>
         </div>
