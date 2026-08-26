@@ -51,10 +51,16 @@ jobs:
       - name: Browser placement journey
         run: npm run test:placement-journey
 
-      - name: Upload placement journey evidence
+      - name: Large map loading responsiveness
+        run: npm run test:large-map-loading
+
+      - name: Upload browser journey evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: placement-journey
-          path: artifacts/placement-journey.png
+          name: browser-journeys
+          path: |
+            artifacts/placement-journey.png
+            artifacts/large-map-loaded.png
+            artifacts/large-map-loading.json
           if-no-files-found: ignore
