@@ -80,8 +80,7 @@ function makeFixture(options: { owner?: number; destroyFails?: boolean; selected
         }),
     };
 
-    let building: MockBuilding;
-    building = {
+    const building: MockBuilding = {
         x: 100,
         y: 100,
         scene: {},
