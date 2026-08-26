@@ -64,7 +64,7 @@ function makeScene(options: { blockedBase?: boolean; spawnSucceeds?: boolean } =
     terrainSystem: {
       getWaterLevel: vi.fn(() => 0.38),
       getHeightAt: vi.fn((x: number, y: number) => options.blockedBase && x === 300 && y === 300 ? 0.2 : 0.55),
-      getBiomeAt: vi.fn((x: number, y: number) => options.blockedBase && x === 300 && y === 300 ? 'deep' : 'grass'),
+      getBiomeLabel: vi.fn((x: number, y: number) => options.blockedBase && x === 300 && y === 300 ? 'deep' : 'grass'),
       getSlopeAt: vi.fn(() => ({ slope: 0, isBuildable: true })),
     },
     buildings: { getChildren: () => buildings },
