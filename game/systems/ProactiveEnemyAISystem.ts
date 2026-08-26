@@ -1,8 +1,8 @@
 import Phaser from 'phaser';
 
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { AGE_CONFIGS, BUILDINGS, TERRAIN_CONFIG } from '../../constants';
-import { Age, BuildingDef, BuildingType, MapMode, Resources } from '../../types';
+import { Age, BuildingDef, BuildingType, GameResult, MapMode, Resources } from '../../types';
 import { EnemyAISystem } from './EnemyAISystem';
 
 const PROACTIVE_BUILD_INTERVAL_MS = 4000;
@@ -84,7 +84,7 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
     legacyInternals.lastBuildTick = time;
     super.update(time, delta);
 
-    if (this.mainScene.aiDisabled || this.mainScene.gameResult !== 'playing') return;
+    if (this.mainScene.aiDisabled || this.mainScene.gameResult !== GameResult.PLAYING) return;
     if (time - this.lastProactiveBuildTick < PROACTIVE_BUILD_INTERVAL_MS) return;
 
     this.lastProactiveBuildTick = time;
