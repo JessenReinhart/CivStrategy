@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { BUILDINGS } from '../../constants';
-import { Age, BuildingType } from '../../types';
+import { Age, BuildingType, Resources } from '../../types';
 import {
   canAffordBuilding,
   generateBuildSearchOffsets,
   isBuildingUnlockedForAI,
-} from './ProactiveEnemyAISystem';
+} from './EnemyAIBuildRules';
 
 describe('ProactiveEnemyAISystem build rules', () => {
   it('keeps advanced buildings locked until the matching age', () => {
@@ -28,9 +28,16 @@ describe('ProactiveEnemyAISystem build rules', () => {
 
   it('requires the full building resource cost', () => {
     const market = BUILDINGS[BuildingType.MARKET];
+    const enough: Resources = { ...market.cost };
 
-    expect(canAffordBuilding({ wood: 150, food: 0, gold: 100 }, market)).toBe(true);
-    expect(canAffordBuilding({ wood: 149, food: 999, gold: 999 }, market)).toBe(false);
-    expect(canAffordBuilding({ wood: 999, food: 999, gold: 99 }, market)).toBe(false);
+    expect(canAffordBuilding(enough, market)).toBe(true);
+
+    for (const resource of ['wood', 'food', 'gold'] as const) {
+      if (market.cost[resource] <= 0) continue;
+      expect(canAffordBuilding({
+        ...enough,
+        [resource]: market.cost[resource] - 1,
+      }, market)).toBe(false);
+    }
   });
 });
