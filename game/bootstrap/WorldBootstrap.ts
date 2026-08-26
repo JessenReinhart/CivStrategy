@@ -8,7 +8,7 @@ import { UnitSystem } from '../systems/UnitSystem';
 import { SpriteGhostBuildingManager } from '../systems/SpriteGhostBuildingManager';
 import { EconomySystem } from '../systems/EconomySystem';
 import { InputManager } from '../systems/InputManager';
-import { EnemyAISystem } from '../systems/EnemyAISystem';
+import { ProactiveEnemyAISystem } from '../systems/ProactiveEnemyAISystem';
 import { MapGenerationSystem } from '../systems/MapGenerationSystem';
 import { CullingSystem } from '../systems/CullingSystem';
 import { FeedbackSystem } from '../systems/FeedbackSystem';
@@ -87,7 +87,7 @@ export class WorldBootstrap {
     scene.buildingManager = new SpriteGhostBuildingManager(scene);
     scene.economySystem = new EconomySystem(scene);
     scene.inputManager = new InputManager(scene);
-    scene.enemyAI = new EnemyAISystem(scene);
+    scene.enemyAI = new ProactiveEnemyAISystem(scene);
 
     const mapRng = createSeededRandom(scene.mapSeed);
     scene.mapGenerationSystem = new MapGenerationSystem(scene, mapRng);
