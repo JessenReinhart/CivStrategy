@@ -111,15 +111,20 @@ try {
       return building.getData('owner') === 0 && def?.type === 'Town Center';
     });
     if (!townCenter) throw new Error('Player Town Center missing after load.');
+
+    const loadedWood = scene.resources.wood;
+    const loadedPopulation = scene.population;
     const loadedGameTime = scene.gameTime;
+    if (loadedWood !== markerWood) throw new Error('Saved resources were not restored at the load boundary.');
+    if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
+
     await new Promise((resolve) => setTimeout(resolve, 500));
     const resumedGameTime = scene.gameTime;
-    if (scene.resources.wood !== markerWood) throw new Error('Loaded resources changed unexpectedly.');
     if (resumedGameTime <= loadedGameTime) throw new Error('Simulation did not resume after load.');
-    if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
+
     return {
-      wood: scene.resources.wood,
-      population: scene.population,
+      wood: loadedWood,
+      population: loadedPopulation,
       townCenter: { x: townCenter.x, y: townCenter.y },
       loadedGameTime,
       resumedGameTime,
