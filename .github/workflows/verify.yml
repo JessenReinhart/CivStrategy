@@ -55,7 +55,7 @@ jobs:
         run: npm run test:save-reload-journey
 
       - name: Browser day night journey
-        run: npm run test:day-night-journey
+        run: npm run test:day-night-journey 2>&1 | tee artifacts/day-night-journey.log
 
       - name: Upload gameplay journey evidence
         if: always()
@@ -65,4 +65,5 @@ jobs:
           path: |
             artifacts/*.png
             artifacts/*.json
+            artifacts/*.log
           if-no-files-found: ignore
