@@ -60,6 +60,9 @@ jobs:
       - name: Browser camera overlay journey
         run: npm run test:camera-overlay-journey
 
+      - name: Browser army combat journey
+        run: npm run test:army-combat-journey
+
       - name: Upload gameplay journey evidence
         if: always()
         uses: actions/upload-artifact@v4
