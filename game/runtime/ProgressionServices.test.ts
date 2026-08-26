@@ -70,6 +70,21 @@ describe('ProgressionServices victory boundary', () => {
     expect(scene.gameResult).toBe(GameResult.PLAYING);
   });
 
+  it('keeps the existing minimum-expansion gate before dominance can progress', () => {
+    const scene = createScene([
+      building(180, 180, 0, 900),
+      building(840, 180, 0, 900),
+      building(180, 840, 0, 900),
+      building(840, 840, 0, 900),
+    ]);
+
+    createProgressionServices(scene).victory.check();
+
+    expect(scene.playerTerritoryPercent).toBe(0);
+    expect(scene.dominanceProgress).toBe(0);
+    expect(scene.gameResult).toBe(GameResult.PLAYING);
+  });
+
   it('lets distributed land control complete the existing dominance hold flow', () => {
     const scene = createScene(
       [
@@ -97,7 +112,13 @@ describe('ProgressionServices victory boundary', () => {
 
   it('excludes water from controllable land', () => {
     const scene = createScene(
-      [building(240, 512, 0, 700), building(900, 512, 1, 256)],
+      [
+        building(240, 512, 0, 700),
+        building(260, 240, 0, 256),
+        building(260, 400, 0, 256),
+        building(260, 624, 0, 256),
+        building(900, 512, 1, 256),
+      ],
       {
         terrainHeightAt: (x) => (x < 512 ? 1 : 0),
       },
