@@ -1,5 +1,10 @@
-import { DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, MAP_PRESETS } from '../../constants';
-import { GameResult, MapMode, VictoryType } from '../../types';
+import {
+  DOMINANCE_CONTROL_THRESHOLD,
+  DOMINANCE_HOLD_TIME_MS,
+  DOMINANCE_MIN_BUILDINGS,
+  MAP_PRESETS,
+} from '../../constants';
+import { BuildingType, GameResult, MapMode, VictoryType } from '../../types';
 import type { MainScene } from '../MainScene';
 
 const DOMINANCE_SAMPLE_SIZE = 128;
@@ -13,6 +18,7 @@ type InfluenceBuilding = {
 };
 
 type BuildingDefinition = {
+  type?: BuildingType;
   territoryRadius?: number;
 };
 
@@ -39,13 +45,32 @@ export function checkSpatialDominance(scene: MainScene): void {
     return;
   }
 
-  const buildings = (scene.buildings.getChildren() as unknown as InfluenceBuilding[]).filter((building) => {
+  // Progression can be exercised by lightweight bridge hosts before world groups
+  // exist. An incomplete world must never be able to advance a victory state.
+  const buildingGroup = scene.buildings;
+  if (!buildingGroup) {
+    resetDominance(scene);
+    return;
+  }
+
+  const buildings = (buildingGroup.getChildren() as unknown as InfluenceBuilding[]).filter((building) => {
     const owner = building.getData('owner');
     const hp = building.getData('hp');
     return (owner === 0 || owner === 1) && typeof hp === 'number' && hp > 0;
   });
 
   if (buildings.length === 0) {
+    resetDominance(scene);
+    return;
+  }
+
+  // Preserve the existing anti-rush gate: geographical control only becomes a
+  // victory condition after the realm contains enough non-Town-Center expansion.
+  const expansionBuildingCount = buildings.filter((building) => {
+    const def = building.getData('def') as BuildingDefinition | undefined;
+    return def?.type !== BuildingType.TOWN_CENTER;
+  }).length;
+  if (expansionBuildingCount < DOMINANCE_MIN_BUILDINGS) {
     resetDominance(scene);
     return;
   }
