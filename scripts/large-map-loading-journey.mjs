@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdir, writeFile } from 'node:fs/promises';
 
-const PORT = 4174;
+const PORT = 4175;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
 const MAX_MAIN_THREAD_GAP_MS = 1_500;
