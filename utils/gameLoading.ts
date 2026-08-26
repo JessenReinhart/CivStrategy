@@ -1,7 +1,9 @@
 export const GAME_LOADING_EVENTS = {
   PROGRESS: 'game-load-progress',
-  COMPLETE: 'game-load-complete',
+  COMPLETE: 'game-world-ready',
 } as const;
+
+const ASSET_PROGRESS_WEIGHT = 0.16;
 
 export interface GameLoadProgressDetail {
   progress: number;
@@ -26,16 +28,17 @@ export const INITIAL_GAME_LOAD_PROGRESS: GameLoadProgressDetail = {
 const clampProgress = (progress: number): number => Math.min(1, Math.max(0, progress));
 
 /**
- * Accept both the new structured payload and the legacy numeric payload so
- * loading remains compatible with older scene code while the bootstrap is
- * progressively decomposed.
+ * MainScene's legacy Phaser loader still emits numeric 0..1 asset progress.
+ * Assets are only the first part of startup, so map those events into the
+ * first 16% instead of letting asset completion masquerade as world readiness.
  */
 export const normalizeGameLoadProgress = (detail: unknown): GameLoadProgressDetail => {
   if (typeof detail === 'number') {
+    const assetProgress = clampProgress(detail);
     return {
-      progress: clampProgress(detail),
-      phase: detail >= 1 ? 'Finalizing realm' : 'Loading assets',
-      detail: detail >= 1 ? 'Preparing simulation' : 'Loading textures and sprites',
+      progress: assetProgress * ASSET_PROGRESS_WEIGHT,
+      phase: 'Loading assets',
+      detail: assetProgress >= 1 ? 'Textures and sprites loaded' : 'Loading textures and sprites',
     };
   }
 
