@@ -43,7 +43,9 @@ const CONTEST_MARGIN = 0.08;
 
 function mapRadiusScale(mapWidth: number, mapHeight: number): number {
   const scale = Math.min(mapWidth, mapHeight) / 2048;
-  return Math.max(0.8, Math.min(2, scale));
+  // Small maps get a slight accessibility boost. Large/Huge keep equivalent
+  // normalized influence instead of becoming disproportionately hard to hold.
+  return Math.max(0.8, Math.min(4, scale));
 }
 
 /**
