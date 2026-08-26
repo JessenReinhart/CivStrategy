@@ -132,8 +132,19 @@ try {
       hasRealtimeCounters: structuredProgress.some((entry) => (
         typeof entry.processed === 'number' && typeof entry.total === 'number' && entry.total > 1
       )),
+      browserErrors,
     };
   });
+
+  // Persist measurement evidence before assertions so a red journey still
+  // explains whether the blocker was responsiveness, progress, readiness, or rendering.
+  await writeFile(
+    `${ARTIFACT_DIR}/large-map-loading.json`,
+    `${JSON.stringify(result, null, 2)}\n`,
+    'utf8',
+  );
+  await page.screenshot({ path: `${ARTIFACT_DIR}/large-map-loaded.png`, fullPage: true });
+  console.log(JSON.stringify(result, null, 2));
 
   const requiredPhases = [
     'Generating terrain',
@@ -169,14 +180,6 @@ try {
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during Large map loading:\n${browserErrors.join('\n')}`);
   }
-
-  await writeFile(
-    `${ARTIFACT_DIR}/large-map-loading.json`,
-    `${JSON.stringify(result, null, 2)}\n`,
-    'utf8',
-  );
-  await page.screenshot({ path: `${ARTIFACT_DIR}/large-map-loaded.png`, fullPage: true });
-  console.log(JSON.stringify(result, null, 2));
 } finally {
   if (browser) await browser.close();
   await stopServer();
