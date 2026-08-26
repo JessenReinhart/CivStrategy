@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:placement-journey": "node scripts/placement-journey.mjs",
     "test:save-reload-journey": "node scripts/save-reload-journey.mjs",
+    "test:large-map-loading": "node scripts/large-map-loading-journey.mjs",
     "verify": "bash scripts/verify.sh",
     "test:worker-assign": "node scripts/worker-assignment-test.mjs",
     "prepare": "husky"
