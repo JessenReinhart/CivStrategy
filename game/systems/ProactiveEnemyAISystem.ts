@@ -189,7 +189,7 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
     const height = terrain.getHeightAt(x, y);
     if (height <= terrain.getWaterLevel() + 0.005) return false;
 
-    const biome = terrain.getBiomeAt(x, y);
+    const biome = terrain.getBiomeLabel(x, y);
     if (biome === 'deep' || biome === 'stone') return false;
 
     const slope = terrain.getSlopeAt(x, y).slope;
