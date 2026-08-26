@@ -2,7 +2,6 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { TILE_SIZE, GOLD_MINE_COUNT, MAP_PRESETS } from '../../constants';
 import { MapMode, AnimalSpecies } from '../../types';
-import { LoadingWorkProgress, runBudgetedWork } from '../../utils/gameLoading';
 import { toIso } from '../utils/iso';
 import { randomBetween } from '../utils/seededRandom';
 
@@ -68,16 +67,6 @@ export class MapGenerationSystem {
     }
 
     generateForestsAndAnimals() {
-        for (const _progress of this.generateForestsAndAnimalsWork()) {
-            // Consume synchronously for legacy callers.
-        }
-    }
-
-    async generateForestsAndAnimalsAsync(onProgress?: (progress: LoadingWorkProgress) => void): Promise<void> {
-        await runBudgetedWork(this.generateForestsAndAnimalsWork(), onProgress);
-    }
-
-    private *generateForestsAndAnimalsWork(): Generator<LoadingWorkProgress, void, void> {
         const mult = MAP_PRESETS[this.scene.mapPreset]?.resourceMultiplier ?? 1.0;
         const forestCount = Math.floor(((this.scene.mapWidth * this.scene.mapHeight) / (800 * 800)) * mult);
         for (let i = 0; i < forestCount; i++) {
@@ -109,12 +98,6 @@ export class MapGenerationSystem {
                     }
                 }
             }
-
-            yield {
-                processed: i + 1,
-                total: forestCount,
-                detail: 'Planting forests and spawning wildlife',
-            };
         }
     }
 
