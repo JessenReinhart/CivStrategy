@@ -126,6 +126,7 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
       if (!building) continue;
 
       building.setData('aiExpansion', true);
+      this.buildings.push(building);
       this.pay(def);
       return;
     }
