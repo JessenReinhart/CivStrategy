@@ -1,3 +1,4 @@
+import type Phaser from 'phaser';
 import type { MainScene } from '../MainScene';
 import {
   DOMINANCE_CONTROL_THRESHOLD,
