@@ -32,6 +32,15 @@ export class FogOfWarSystem {
     private _viewTop = 0;
     private _viewBottom = 0;
 
+    // Last camera transform that the screen-space fog texture was rendered against.
+    // MainScene intentionally throttles regular fog redraws, so camera motion must
+    // force a same-frame refresh or the fog holes visibly lag behind the world.
+    private _lastCameraScrollX = Number.NaN;
+    private _lastCameraScrollY = Number.NaN;
+    private _lastCameraZoom = Number.NaN;
+    private _lastCameraWidth = Number.NaN;
+    private _lastCameraHeight = Number.NaN;
+
     // Internal profiling counters (per-update snapshot)
     private _profileSnapshot: FogProfSnapshot = {
         totalMs: 0,
@@ -71,6 +80,11 @@ export class FogOfWarSystem {
         // 2. Initialize Render Texture
         this.createRenderTexture();
         this.scene.scale.on('resize', this.handleResize, this);
+
+        // Camera input is processed during MainScene.update(). Running this check
+        // at POST_UPDATE lets camera-bound fog catch up in the same frame, before
+        // Phaser renders, while idle fog updates can remain throttled in MainScene.
+        this.scene.events.on(Phaser.Scenes.Events.POST_UPDATE, this.syncCameraOnPostUpdate, this);
     }
 
     private createRenderTexture() {
@@ -106,6 +120,7 @@ export class FogOfWarSystem {
         const zoom = cam.zoom;
         const width = cam.width;
         const height = cam.height;
+        this.captureCameraTransform(cam);
 
         // --- FIX FOR ZOOM SCALING ---
         // We want the Fog RT to always cover the screen exactly, regardless of zoom.
@@ -125,17 +140,22 @@ export class FogOfWarSystem {
         this.screenRT.setPosition(offsetX, offsetY);
 
         // --- Prepare cached state for drawVision ---
-        const topLeft = cam.getWorldPoint(0, 0);
-        this._topLeftX = topLeft.x;
-        this._topLeftY = topLeft.y;
+        // POST_UPDATE runs before Phaser refreshes camera matrices/worldView for the
+        // render pass. Derive the live view directly from scroll + zoom so a zoom
+        // performed in MainScene.update() cannot leave vision holes one frame behind.
+        const visibleWidth = width / zoom;
+        const visibleHeight = height / zoom;
+        const topLeftX = cam.scrollX + (width - visibleWidth) * 0.5;
+        const topLeftY = cam.scrollY + (height - visibleHeight) * 0.5;
+        this._topLeftX = topLeftX;
+        this._topLeftY = topLeftY;
         this._globalScale = zoom * this.RES_SCALE;
 
-        const viewRect = cam.worldView;
         const padding = 1000 / zoom;
-        this._viewLeft = viewRect.x - padding;
-        this._viewRight = viewRect.right + padding;
-        this._viewTop = viewRect.y - padding;
-        this._viewBottom = viewRect.bottom + padding;
+        this._viewLeft = topLeftX - padding;
+        this._viewRight = topLeftX + visibleWidth + padding;
+        this._viewTop = topLeftY - padding;
+        this._viewBottom = topLeftY + visibleHeight + padding;
 
         // Reset erase counter
         let eraseCalls = 0;
@@ -225,6 +245,32 @@ export class FogOfWarSystem {
         };
     }
 
+    private captureCameraTransform(cam: Phaser.Cameras.Scene2D.Camera): void {
+        this._lastCameraScrollX = cam.scrollX;
+        this._lastCameraScrollY = cam.scrollY;
+        this._lastCameraZoom = cam.zoom;
+        this._lastCameraWidth = cam.width;
+        this._lastCameraHeight = cam.height;
+    }
+
+    private hasCameraTransformChanged(cam: Phaser.Cameras.Scene2D.Camera): boolean {
+        const epsilon = 0.001;
+        return !Number.isFinite(this._lastCameraZoom)
+            || Math.abs(cam.scrollX - this._lastCameraScrollX) > epsilon
+            || Math.abs(cam.scrollY - this._lastCameraScrollY) > epsilon
+            || Math.abs(cam.zoom - this._lastCameraZoom) > epsilon
+            || cam.width !== this._lastCameraWidth
+            || cam.height !== this._lastCameraHeight;
+    }
+
+    private syncCameraOnPostUpdate(): void {
+        if (!this.screenRT || !this.isVisible || this.scene.stressTestConfig) return;
+        const cam = this.scene.cameras.main;
+        if (this.hasCameraTransformChanged(cam)) {
+            this.update();
+        }
+    }
+
     /** Draw a single vision hole at world (iso) coordinates */
     private drawVision(worldX: number, worldY: number, worldRadius: number) {
         // 1. Calculate World Delta from Camera Top-Left
@@ -258,5 +304,6 @@ export class FogOfWarSystem {
     public destroy() {
         if (this.screenRT) this.screenRT.destroy();
         this.scene.scale.off('resize', this.handleResize, this);
+        this.scene.events.off(Phaser.Scenes.Events.POST_UPDATE, this.syncCameraOnPostUpdate, this);
     }
 }

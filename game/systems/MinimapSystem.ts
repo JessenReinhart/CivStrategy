@@ -46,7 +46,7 @@ export class MinimapSystem {
 
         // Fog Layer
         this.fogRT = this.scene.add.renderTexture(0, 0, this.mapSize, this.mapSize);
-        this.fogRT.setOrigin(0, 0).setScrollFactor(0).setDepth(20002); // Above map, below border
+        this.fogRT.setOrigin(0, 0).setScrollFactor(0).setDepth(20002); // Above map, below viewport/border
         this.fogRT.setAlpha(1.0); // Full black
 
         // 2. Create Reusable 'Brushes'
@@ -56,8 +56,10 @@ export class MinimapSystem {
         this.buildingRect = this.scene.make.graphics({});
         this.buildingRect.setVisible(false);
 
-        this.viewportGraphics = this.scene.make.graphics({});
-        this.viewportGraphics.setVisible(false);
+        // The viewport outline is a cheap live overlay. Keep it separate from the
+        // throttled minimap RenderTexture so camera pan/zoom is represented every frame.
+        this.viewportGraphics = this.scene.add.graphics();
+        this.viewportGraphics.setScrollFactor(0).setDepth(20003);
 
         this.fogBrush = this.scene.make.graphics({});
         this.fogBrush.setVisible(false);
@@ -74,10 +76,11 @@ export class MinimapSystem {
         const mask = this.maskGraphics.createGeometryMask();
         this.renderTexture.setMask(mask);
         this.fogRT.setMask(mask);
+        this.viewportGraphics.setMask(mask);
 
         // 4. Border
         this.borderGraphics = this.scene.add.graphics();
-        this.borderGraphics.setScrollFactor(0).setDepth(20003); // Top most
+        this.borderGraphics.setScrollFactor(0).setDepth(20004); // Top most
 
         // Initial Layout
         this.updateLayout();
@@ -113,6 +116,7 @@ export class MinimapSystem {
         this.renderTexture.setPosition(x, y).setScale(invZoom);
         this.fogRT.setPosition(x, y).setScale(invZoom);
         this.maskGraphics.setPosition(x, y).setScale(invZoom);
+        this.viewportGraphics.setPosition(x, y).setScale(invZoom);
 
         this.borderGraphics.setPosition(x, y).setScale(invZoom);
         this.borderGraphics.clear();
@@ -166,13 +170,15 @@ export class MinimapSystem {
     }
 
     public update() {
+        // Screen-space placement and camera viewport must follow the camera every frame.
+        // Only the expensive minimap content redraw remains throttled below.
+        this.updateLayout();
+        const scalar = this.getMapScalar();
+        this.drawViewport(scalar);
 
         this.frameCount++;
         if (this.frameCount < this.updateInterval) return;
         this.frameCount = 0;
-        this.updateLayout();
-
-        const scalar = this.getMapScalar();
 
         // 1. Update Static Layer if needed
         if (this.dirtyStatic) {
@@ -227,9 +233,6 @@ export class MinimapSystem {
 
         // 5. Update Fog of War
         this.updateFog(scalar);
-
-        // 6. Viewport
-        this.drawViewport(scalar);
     }
 
     private drawTerritory(scalar: number) {
@@ -340,8 +343,6 @@ export class MinimapSystem {
         this.viewportGraphics.lineTo(mBl.x, mBl.y);
         this.viewportGraphics.closePath();
         this.viewportGraphics.strokePath();
-
-        this.renderTexture.draw(this.viewportGraphics, 0, 0);
     }
 
     public getWorldFromMinimap(miniX: number, miniY: number): { x: number, y: number } {
