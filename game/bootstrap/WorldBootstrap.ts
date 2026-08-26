@@ -26,7 +26,13 @@ import { InfiniteMapSystem } from '../systems/InfiniteMapSystem';
 import { SpatialHash } from '../utils/SpatialHash';
 import { createSeededRandom } from '../utils/seededRandom';
 import { MapMode } from '../../types';
+import { LoadingWorkProgress, yieldToBrowser } from '../../utils/gameLoading';
 import { installLegacyVillagerSpawnBridge } from './VillagerSpawnBridge';
+
+export interface WorldBootstrapProgress extends LoadingWorkProgress {
+  progress: number;
+  phase: string;
+}
 
 /**
  * Owns the construction and dependency assembly of the world/system layer
@@ -44,6 +50,40 @@ export class WorldBootstrap {
     this.createSystems();
     this.initializeTerrain();
     this.initializeMapBounds();
+  }
+
+  async initializeAsync(onProgress?: (progress: WorldBootstrapProgress) => void): Promise<void> {
+    this.createWorldInfrastructure();
+    onProgress?.({
+      progress: 0.04,
+      phase: 'Building world systems',
+      detail: 'Allocating world layers and spatial indexes',
+      processed: 1,
+      total: 4,
+    });
+    await yieldToBrowser();
+
+    this.createSystems();
+    onProgress?.({
+      progress: 0.10,
+      phase: 'Building world systems',
+      detail: 'Starting simulation systems',
+      processed: 2,
+      total: 4,
+    });
+    await yieldToBrowser();
+
+    await this.initializeTerrainAsync(onProgress);
+
+    this.initializeMapBounds();
+    onProgress?.({
+      progress: 1,
+      phase: 'Terrain ready',
+      detail: 'World bounds and pathfinding are ready',
+      processed: 4,
+      total: 4,
+    });
+    await yieldToBrowser();
   }
 
   private createWorldInfrastructure(): void {
@@ -114,6 +154,58 @@ export class WorldBootstrap {
     const scene = this.scene;
 
     scene.terrainSystem.generateHeightMap();
+    this.prepareTerrainSpawnAreas();
+    scene.terrainSystem.generateRivers();
+    scene.terrainSystem.applyVisualTinting();
+    // Wire biome pathfinding costs to terrain
+    scene.pathfinder.updateTerrainCosts(scene.terrainSystem, scene.currentSeason);
+  }
+
+  private async initializeTerrainAsync(onProgress?: (progress: WorldBootstrapProgress) => void): Promise<void> {
+    const scene = this.scene;
+
+    await scene.terrainSystem.generateHeightMapAsync((work) => {
+      const ratio = work.total > 0 ? work.processed / work.total : 0;
+      onProgress?.({
+        ...work,
+        progress: 0.10 + ratio * 0.24,
+        phase: 'Generating terrain',
+      });
+    });
+
+    this.prepareTerrainSpawnAreas();
+    scene.terrainSystem.generateRivers();
+    onProgress?.({
+      progress: 0.38,
+      phase: 'Carving terrain',
+      detail: 'Flattening spawn areas and tracing river valleys',
+      processed: 1,
+      total: 1,
+    });
+    await yieldToBrowser();
+
+    await scene.terrainSystem.applyVisualTintingAsync((work) => {
+      const ratio = work.total > 0 ? work.processed / work.total : 0;
+      onProgress?.({
+        ...work,
+        progress: 0.38 + ratio * 0.52,
+        phase: 'Painting terrain',
+      });
+    });
+
+    onProgress?.({
+      progress: 0.94,
+      phase: 'Preparing navigation',
+      detail: 'Applying biome movement costs',
+      processed: 1,
+      total: 1,
+    });
+    await yieldToBrowser();
+    scene.pathfinder.updateTerrainCosts(scene.terrainSystem, scene.currentSeason);
+  }
+
+  private prepareTerrainSpawnAreas(): void {
+    const scene = this.scene;
 
     // Guarantee dry land at faction spawn points — raise terrain above water
     const spawnSafeRadius = 150;
@@ -126,11 +218,6 @@ export class WorldBootstrap {
     const aiBaseY = scene.mapHeight * 0.15;
     scene.terrainSystem.flattenAroundWorld(aiBaseX, aiBaseY, spawnSafeRadius, spawnMinHeight);
     scene.terrainSystem.flattenAroundWorld(cx + 400, cy - 50, spawnSafeRadius, spawnMinHeight);
-    // Generate rivers that follow low terrain valleys (natural chokepoints)
-    scene.terrainSystem.generateRivers();
-    scene.terrainSystem.applyVisualTinting();
-    // Wire biome pathfinding costs to terrain
-    scene.pathfinder.updateTerrainCosts(scene.terrainSystem, scene.currentSeason);
   }
 
   private initializeMapBounds(): void {
