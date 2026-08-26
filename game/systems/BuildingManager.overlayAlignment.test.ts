@@ -34,10 +34,12 @@ vi.mock('phaser', () => ({
 
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
+import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import type { MainScene } from '../MainScene';
 import { toIsoElev } from '../utils/iso';
-import { BuildingManager } from './BuildingManager';
+import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
+import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
 
 function makeGraphics() {
     return {
@@ -114,6 +116,25 @@ function makeTerritoryBuilding(owner: number, x = 100, y = 100) {
         getData: vi.fn((key: string) => {
             if (key === 'owner') return owner;
             if (key === 'def') return def;
+            return undefined;
+        }),
+    };
+}
+
+function makeOccupiedHouse(boundsX: number, boundsY: number) {
+    return {
+        x: boundsX + BUILDINGS[BuildingType.HOUSE].width / 2,
+        y: boundsY + BUILDINGS[BuildingType.HOUSE].height / 2,
+        scene: {},
+        getBounds: vi.fn(() => ({
+            x: boundsX,
+            y: boundsY,
+            width: BUILDINGS[BuildingType.HOUSE].width,
+            height: BUILDINGS[BuildingType.HOUSE].height,
+        })),
+        getData: vi.fn((key: string) => {
+            if (key === 'owner') return 0;
+            if (key === 'def') return BUILDINGS[BuildingType.HOUSE];
             return undefined;
         }),
     };
@@ -204,5 +225,98 @@ describe('BuildingManager player build territory', () => {
         const { manager } = makeManager(scene);
 
         expect(buildValidity(manager, 300, 300)).toEqual({ valid: true });
+    });
+});
+
+describe('BuildingManager dense footprint placement', () => {
+    it('uses a placement grid that can represent exact Farm and House edge adjacency', () => {
+        for (const type of [BuildingType.FARM, BuildingType.HOUSE]) {
+            const def = BUILDINGS[type];
+            const firstOrigin = 320;
+            const secondOrigin = firstOrigin + def.width;
+            const firstCenter = firstOrigin + def.width / 2;
+            const secondCenter = secondOrigin + def.width / 2;
+
+            expect(firstOrigin % BUILD_PLACEMENT_GRID_SIZE).toBe(0);
+            expect(secondOrigin % BUILD_PLACEMENT_GRID_SIZE).toBe(0);
+            expect(secondCenter - firstCenter).toBe(def.width);
+        }
+    });
+
+    it('allows a house footprint to touch an existing building edge without overlapping area', () => {
+        const playerTownCenter = makeTerritoryBuilding(0, 100, 100);
+        const house = BUILDINGS[BuildingType.HOUSE];
+        const candidateX = 300;
+        const candidateY = 300;
+        const candidateRight = candidateX + house.width / 2;
+        const existingHouse = makeOccupiedHouse(candidateRight, candidateY - house.height / 2);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [playerTownCenter, existingHouse]),
+                getLength: vi.fn(() => 2),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, candidateX, candidateY)).toEqual({ valid: true });
+    });
+
+    it('rejects placement when the candidate footprint overlaps an existing building by real area', () => {
+        const playerTownCenter = makeTerritoryBuilding(0, 100, 100);
+        const house = BUILDINGS[BuildingType.HOUSE];
+        const candidateX = 300;
+        const candidateY = 300;
+        const candidateRight = candidateX + house.width / 2;
+        const existingHouse = makeOccupiedHouse(candidateRight - 1, candidateY - house.height / 2);
+        const { scene } = makeScene({
+            buildings: {
+                getChildren: vi.fn(() => [playerTownCenter, existingHouse]),
+                getLength: vi.fn(() => 2),
+            },
+        });
+        const { manager } = makeManager(scene);
+
+        expect(buildValidity(manager, candidateX, candidateY)).toEqual({ valid: false, reason: 'Space Occupied' });
+    });
+});
+
+describe('BuildingManager placement ghost visual', () => {
+    it('adds the placed-house sprite with matching scale and origin to the preview container', () => {
+        const previewChildren: unknown[] = [];
+        const previewContainer = {
+            add: vi.fn((child: unknown) => { previewChildren.push(child); return previewContainer; }),
+            setDepth: vi.fn().mockReturnThis(),
+            setVisible: vi.fn().mockReturnThis(),
+            destroy: vi.fn(),
+        };
+        const sprite = {
+            width: 100,
+            setOrigin: vi.fn().mockReturnThis(),
+            setScale: vi.fn().mockReturnThis(),
+            setAlpha: vi.fn().mockReturnThis(),
+            setData: vi.fn().mockReturnThis(),
+        };
+        const graphics = makeGraphics();
+        const scene = {
+            add: {
+                graphics: vi.fn(() => graphics),
+                container: vi.fn(() => previewContainer),
+                image: vi.fn(() => sprite),
+            },
+            textures: { exists: vi.fn((key: string) => key === 'house') },
+            worldLayer: { add: vi.fn() },
+            game: { events: { on: vi.fn(), emit: vi.fn() } },
+            entityFactory: { drawIsoBuilding: vi.fn() },
+            inputManager: { clearSelection: vi.fn() },
+        } as unknown as MainScene;
+        const manager = new SpriteGhostBuildingManager(scene);
+
+        manager.enterBuildMode(BuildingType.HOUSE);
+
+        expect(scene.add.image).toHaveBeenCalledWith(0, 0, 'house');
+        expect(sprite.setOrigin).toHaveBeenCalledWith(0.5, 0.85);
+        expect(sprite.setScale).toHaveBeenCalledWith((BUILDINGS[BuildingType.HOUSE].width * 1.6) / sprite.width);
+        expect(sprite.setAlpha).toHaveBeenCalledWith(0.62);
+        expect(previewChildren).toContain(sprite);
     });
 });
