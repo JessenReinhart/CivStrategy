@@ -17,6 +17,7 @@ export class BuildingManager {
     private isTerritoryDirty: boolean = true;
     private activeSelectionBeam: Phaser.GameObjects.Graphics | null = null;
     private previewText: Phaser.GameObjects.Text | null = null;
+    private demolitionsInProgress = new WeakSet<Phaser.GameObjects.GameObject>();
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -409,41 +410,55 @@ export class BuildingManager {
     }
 
     private demolishBuilding(b: Phaser.GameObjects.GameObject) {
-        const def = b.getData('def') as BuildingDef;
-        const owner = b.getData('owner');
+        const buildings = this.scene.buildings.getChildren();
+        if (!b.active || b.getData('owner') !== 0 || !buildings.includes(b) || this.demolitionsInProgress.has(b)) return;
 
-        if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
+        const def = b.getData('def') as BuildingDef | undefined;
+        if (!def) return;
 
-        // FIX: Only reduce maxPopulation if it was a player building
-        if (owner === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
-        if (owner === 0 && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
-
-        const worker = b.getData('assignedWorker');
-        if (worker) {
-            worker.state = UnitState.IDLE;
-            worker.jobBuilding = null;
-            worker.path = null;
-            worker.body.setVelocity(0, 0);
-        }
-
+        this.demolitionsInProgress.add(b);
         const logic = b as Phaser.GameObjects.Rectangle;
-        this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
+        const worker = b.getData('assignedWorker');
+        const wasSelected = this.scene.inputManager.selectedBuilding === b;
 
-        // Explosion Effect
-        const iso = toIso(logic.x, logic.y);
-        this.emitExplosionParticles(iso.x, iso.y, def.width);
-        this.scene.proceduralSound.playDemolition(logic.x, logic.y);
-
-        const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
-        if (visual) visual.destroy();
-        b.destroy();
-
-        if (this.scene.inputManager.selectedBuilding === b) {
+        if (wasSelected) {
             this.scene.inputManager.deselectBuilding();
         }
 
+        try {
+            if (worker) {
+                worker.state = UnitState.IDLE;
+                worker.jobBuilding = null;
+                worker.path = null;
+                worker.body.setVelocity(0, 0);
+            }
+
+            this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
+
+            const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (visual) visual.destroy();
+            b.destroy();
+        } catch {
+            this.demolitionsInProgress.delete(b);
+            return;
+        }
+
+        if (b.active || this.scene.buildings.getChildren().includes(b)) {
+            this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, true);
+            this.demolitionsInProgress.delete(b);
+            return;
+        }
+
+        if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
+        if (def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+        if (def.happinessBonus) this.scene.happiness -= def.happinessBonus;
+
         this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
+
+        const iso = toIso(logic.x, logic.y);
+        this.emitExplosionParticles(iso.x, iso.y, def.width);
+        this.scene.proceduralSound.playDemolition(logic.x, logic.y);
     }
 
     public emitExplosionParticles(isoX: number, isoY: number, _buildingWidth: number) {
