@@ -140,17 +140,22 @@ export class FogOfWarSystem {
         this.screenRT.setPosition(offsetX, offsetY);
 
         // --- Prepare cached state for drawVision ---
-        const topLeft = cam.getWorldPoint(0, 0);
-        this._topLeftX = topLeft.x;
-        this._topLeftY = topLeft.y;
+        // POST_UPDATE runs before Phaser refreshes camera matrices/worldView for the
+        // render pass. Derive the live view directly from scroll + zoom so a zoom
+        // performed in MainScene.update() cannot leave vision holes one frame behind.
+        const visibleWidth = width / zoom;
+        const visibleHeight = height / zoom;
+        const topLeftX = cam.scrollX + (width - visibleWidth) * 0.5;
+        const topLeftY = cam.scrollY + (height - visibleHeight) * 0.5;
+        this._topLeftX = topLeftX;
+        this._topLeftY = topLeftY;
         this._globalScale = zoom * this.RES_SCALE;
 
-        const viewRect = cam.worldView;
         const padding = 1000 / zoom;
-        this._viewLeft = viewRect.x - padding;
-        this._viewRight = viewRect.right + padding;
-        this._viewTop = viewRect.y - padding;
-        this._viewBottom = viewRect.bottom + padding;
+        this._viewLeft = topLeftX - padding;
+        this._viewRight = topLeftX + visibleWidth + padding;
+        this._viewTop = topLeftY - padding;
+        this._viewBottom = topLeftY + visibleHeight + padding;
 
         // Reset erase counter
         let eraseCalls = 0;
