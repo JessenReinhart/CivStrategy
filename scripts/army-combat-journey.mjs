@@ -6,17 +6,13 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const PORT = 4177;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
-const server = spawn(
-  process.execPath,
-  ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'],
-  { stdio: ['ignore', 'pipe', 'pipe'] },
-);
-
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const server = spawn(process.execPath, [
+  'node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort',
+], { stdio: ['ignore', 'pipe', 'pipe'] });
 let serverOutput = '';
 server.stdout.on('data', (chunk) => { serverOutput += chunk.toString(); });
 server.stderr.on('data', (chunk) => { serverOutput += chunk.toString(); });
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitForServer(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
@@ -45,17 +41,12 @@ let page;
 const telemetry = { phase: 'boot', browserErrors: [] };
 
 async function persistEvidence() {
-  await writeFile(
-    `${ARTIFACT_DIR}/army-combat-telemetry.json`,
-    `${JSON.stringify(telemetry, null, 2)}\n`,
-    'utf8',
-  );
-  if (page) {
-    try {
-      await page.screenshot({ path: `${ARTIFACT_DIR}/army-combat-journey.png`, fullPage: true });
-    } catch {
-      // Preserve telemetry even if the browser has already closed.
-    }
+  await writeFile(`${ARTIFACT_DIR}/army-combat-telemetry.json`, `${JSON.stringify(telemetry, null, 2)}\n`, 'utf8');
+  if (!page) return;
+  try {
+    await page.screenshot({ path: `${ARTIFACT_DIR}/army-combat-journey.png`, fullPage: true });
+  } catch {
+    // JSON telemetry is still useful when Chromium has already closed.
   }
 }
 
@@ -77,7 +68,6 @@ try {
   telemetry.setup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = false;
-
     const existing = scene.units.getChildren().find((unit) => unit.getData?.('owner') === 0);
     if (!existing) throw new Error('No player unit available to anchor combat scenario.');
 
@@ -90,13 +80,8 @@ try {
     if (!player || !enemy) throw new Error('Could not spawn deterministic combat units.');
 
     enemy.setData('hp', Math.min(enemy.getData('hp'), 40));
-    enemy.setData('maxHp', Math.max(enemy.getData('maxHp'), enemy.getData('hp')));
-
-    const midX = (player.visual.x + enemy.visual.x) / 2;
-    const midY = (player.visual.y + enemy.visual.y) / 2;
-    scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn(midX, midY);
-
+    player.setData('__journeyStartX', player.x);
+    player.setData('__journeyStartY', player.y);
     window.__armyCombatProbe = { player, enemy };
     return {
       playerStart: { x: player.x, y: player.y, hp: player.getData('hp') },
@@ -104,12 +89,20 @@ try {
     };
   });
 
-  await sleep(100);
+  await sleep(150);
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__armyCombatProbe;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) / 2, (player.visual.y + enemy.visual.y) / 2);
+  });
+  await sleep(50);
+
   const canvas = page.locator('canvas').first();
   const canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable.');
 
-  const getScreenPoint = (which) => page.evaluate((key) => {
+  const screenPoint = (which) => page.evaluate((key) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__armyCombatProbe[key];
     const camera = scene.cameras.main;
@@ -121,7 +114,7 @@ try {
   }, which);
 
   telemetry.phase = 'select-player';
-  const playerPoint = await getScreenPoint('player');
+  const playerPoint = await screenPoint('player');
   await page.mouse.click(canvasBox.x + playerPoint.x, canvasBox.y + playerPoint.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -132,38 +125,26 @@ try {
   ));
 
   telemetry.phase = 'attack-command';
-  const enemyPoint = await getScreenPoint('enemy');
+  const enemyPoint = await screenPoint('enemy');
   await page.mouse.click(canvasBox.x + enemyPoint.x, canvasBox.y + enemyPoint.y, { button: 'right' });
 
-  const observation = await page.waitForFunction(() => {
+  telemetry.observation = await page.waitForFunction(() => {
     const { player, enemy } = window.__armyCombatProbe;
-    if (!player?.active || !enemy?.active) {
-      return {
-        playerActive: Boolean(player?.active),
-        enemyActive: Boolean(enemy?.active),
-        playerX: player?.x ?? null,
-        playerY: player?.y ?? null,
-        enemyHp: enemy?.getData?.('hp') ?? 0,
-        playerState: player?.state ?? null,
-      };
-    }
-    const start = window.__armyCombatStart;
-    const moved = start ? Math.hypot(player.x - start.x, player.y - start.y) > 5 : false;
-    const damaged = enemy.getData('hp') < 40;
+    const moved = Math.hypot(
+      player.x - player.getData('__journeyStartX'),
+      player.y - player.getData('__journeyStartY'),
+    ) > 5;
+    const damaged = !enemy.active || enemy.getData('hp') < 40;
     if (!moved && !damaged) return false;
     return {
-      playerActive: player.active,
-      enemyActive: enemy.active,
-      playerX: player.x,
-      playerY: player.y,
-      enemyHp: enemy.getData('hp'),
-      playerState: player.state,
       moved,
       damaged,
+      playerState: player.state,
+      enemyHp: enemy.getData('hp'),
+      enemyActive: enemy.active,
     };
   }, undefined, { timeout: 12_000 }).then((handle) => handle.jsonValue());
 
-  telemetry.observation = observation;
   telemetry.phase = 'resolve-combat';
   await page.waitForFunction(() => {
     const { enemy } = window.__armyCombatProbe;
@@ -179,20 +160,18 @@ try {
       enemy: { active: enemy.active, hp: enemy.getData('hp'), state: enemy.state },
     };
   });
-
-  telemetry.phase = 'assert';
-  await persistEvidence();
-  const movedDistance = Math.hypot(
+  telemetry.movedDistance = Math.hypot(
     telemetry.final.player.x - telemetry.setup.playerStart.x,
     telemetry.final.player.y - telemetry.setup.playerStart.y,
   );
-  telemetry.movedDistance = movedDistance;
 
+  telemetry.phase = 'assert';
+  await persistEvidence();
   if (telemetry.selectedCount < 1 || !telemetry.final.selected) {
-    throw new Error('Real pointer selection did not keep the spawned player military unit selected.');
+    throw new Error('Real pointer selection did not keep the player military unit selected.');
   }
-  if (movedDistance <= 5) {
-    throw new Error(`Right-click attack did not move the selected unit (${movedDistance.toFixed(2)}px).`);
+  if (telemetry.movedDistance <= 5) {
+    throw new Error(`Right-click attack did not move the selected unit (${telemetry.movedDistance.toFixed(2)}px).`);
   }
   if (telemetry.final.enemy.active && telemetry.final.enemy.hp >= telemetry.setup.enemyStart.hp) {
     throw new Error(`Combat did not change enemy HP/state (HP ${telemetry.final.enemy.hp}).`);
