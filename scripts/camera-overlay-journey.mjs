@@ -77,14 +77,37 @@ try {
     return Boolean(scene?.isReady && scene?.minimapSystem && scene?.fogOfWar && scene?.inputManager);
   }, undefined, { timeout: 45_000 });
 
+  // Phaser Graphics has no intrinsic bounds. Observe the actual live viewport path
+  // that MinimapSystem sends to Graphics instead of asserting against a fake box.
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const viewport = scene.minimapSystem.viewportGraphics;
+    const probe = { viewportPath: [] };
+    window.__cameraOverlayProbe = probe;
+
+    const originalMoveTo = viewport.moveTo.bind(viewport);
+    const originalLineTo = viewport.lineTo.bind(viewport);
+    viewport.moveTo = (x, y) => {
+      probe.viewportPath = [{ x, y }];
+      return originalMoveTo(x, y);
+    };
+    viewport.lineTo = (x, y) => {
+      probe.viewportPath.push({ x, y });
+      return originalLineTo(x, y);
+    };
+  });
+  await sleep(50);
+
   const readSnapshot = () => page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const camera = scene.cameras.main;
     const minimap = scene.minimapSystem;
     const fog = scene.fogOfWar;
-    const viewport = minimap.viewportGraphics;
-    const viewportBounds = viewport.getBounds();
     const topLeft = camera.getWorldPoint(0, 0);
+    const viewportPath = (window.__cameraOverlayProbe?.viewportPath ?? []).map(({ x, y }) => ({ x, y }));
+    const viewportCenter = viewportPath.length > 0
+      ? viewportPath.reduce((acc, point) => ({ x: acc.x + point.x / viewportPath.length, y: acc.y + point.y / viewportPath.length }), { x: 0, y: 0 })
+      : null;
     return {
       camera: {
         scrollX: camera.scrollX,
@@ -96,11 +119,9 @@ try {
         topLeftY: topLeft.y,
       },
       minimap: {
-        viewportVisible: viewport.visible,
-        viewportX: viewportBounds.x,
-        viewportY: viewportBounds.y,
-        viewportWidth: viewportBounds.width,
-        viewportHeight: viewportBounds.height,
+        viewportVisible: minimap.viewportGraphics.visible,
+        viewportPath,
+        viewportCenter,
         textureX: minimap.renderTexture.x,
         textureY: minimap.renderTexture.y,
         textureScaleX: minimap.renderTexture.scaleX,
@@ -117,8 +138,8 @@ try {
 
   telemetry.phase = 'initial';
   telemetry.initial = await readSnapshot();
-  if (!telemetry.initial.minimap.viewportVisible) {
-    throw new Error('Minimap viewport is not a live visible overlay.');
+  if (!telemetry.initial.minimap.viewportVisible || telemetry.initial.minimap.viewportPath.length !== 4) {
+    throw new Error(`Minimap viewport did not render a four-corner live path: ${JSON.stringify(telemetry.initial.minimap.viewportPath)}.`);
   }
 
   const canvas = page.locator('canvas').first();
@@ -135,8 +156,8 @@ try {
     telemetry.afterPan.camera.scrollY - telemetry.initial.camera.scrollY,
   );
   telemetry.viewportPan = Math.hypot(
-    telemetry.afterPan.minimap.viewportX - telemetry.initial.minimap.viewportX,
-    telemetry.afterPan.minimap.viewportY - telemetry.initial.minimap.viewportY,
+    telemetry.afterPan.minimap.viewportCenter.x - telemetry.initial.minimap.viewportCenter.x,
+    telemetry.afterPan.minimap.viewportCenter.y - telemetry.initial.minimap.viewportCenter.y,
   );
   telemetry.panFogError = Math.hypot(
     telemetry.afterPan.fog.topLeftX - telemetry.afterPan.camera.topLeftX,
@@ -148,7 +169,7 @@ try {
     throw new Error(`Real keyboard pan did not move the camera enough (${telemetry.cameraPan}px).`);
   }
   if (telemetry.viewportPan < 0.01) {
-    throw new Error('Minimap viewport did not move with the real camera pan.');
+    throw new Error(`Rendered minimap viewport path did not move with the real camera pan (${telemetry.viewportPan}px).`);
   }
   if (telemetry.panFogError > 1) {
     throw new Error(`Fog camera state lagged real pan by ${telemetry.panFogError.toFixed(2)} world pixels.`);
