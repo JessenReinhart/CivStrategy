@@ -2,5 +2,6 @@
 
 ## 2026-08-26
 
+- **Demolishing buildings can no longer give free wood (#137):** Resources, population, happiness, worker state, and blocked map space now change only after the building is actually removed. Failed or repeated demolition attempts leave the live building and economy untouched.
 - **Early wood economy is easier to get started (#134):** The Lumber Camp now costs much less wood, so players can establish wood income without spending most of their starting wood on the first camp.
 - **Early wood progression now has gameplay evidence (#136):** The economy test now follows a real woodcutter through assignment, travel, gathering, returning, and depositing wood, and verifies that the opening can still progress through a Lumber Camp, House, Farm, and Barracks without running resources below zero.
