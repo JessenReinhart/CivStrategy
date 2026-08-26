@@ -99,11 +99,7 @@ try {
     player.setData('journeyRole', 'player');
     enemy.setData('journeyRole', 'enemy');
     enemy.setData('hp', Math.min(enemy.getData('hp'), 30));
-
     scene.cameras.main.setZoom(1.5);
-    const midVisualX = (player.visual.x + enemy.visual.x) / 2;
-    const midVisualY = (player.visual.y + enemy.visual.y) / 2;
-    scene.cameras.main.centerOn(midVisualX, midVisualY);
 
     return {
       playerStart: { x: player.x, y: player.y },
@@ -111,7 +107,21 @@ try {
     };
   });
 
+  // EntityFactory creates combat visuals before UnitSystem projects them into iso space.
+  // Let a real frame settle first, then center the camera on the rendered pair we will click.
   await sleep(250);
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const units = scene.units.getChildren();
+    const player = units.find((unit) => unit.getData('journeyRole') === 'player');
+    const enemy = units.find((unit) => unit.getData('journeyRole') === 'enemy');
+    if (!player?.visual || !enemy?.visual) throw new Error('Combat visuals did not settle.');
+    scene.cameras.main.centerOn(
+      (player.visual.x + enemy.visual.x) / 2,
+      (player.visual.y + enemy.visual.y) / 2,
+    );
+  });
+  await sleep(100);
 
   const playerScreen = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
