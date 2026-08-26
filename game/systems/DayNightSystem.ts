@@ -18,6 +18,22 @@ type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
 };
 
+export interface DayNightDiagnostics {
+  shadowRefreshMs: number;
+  shadowRefreshCount: number;
+  totalShadowRenderMs: number;
+  lastShadowRenderMs: number;
+  maxShadowRenderMs: number;
+  lastScannedBuildings: number;
+  lastDrawnBuildings: number;
+  lastShadowAngleRad: number;
+  lastShadowLength: number;
+  ambientColor: number;
+  ambientAlpha: number;
+  uiCameraIgnoresAmbient: boolean;
+  uiCameraIgnoresShadows: boolean;
+}
+
 /**
  * Lightweight 2D day/night renderer.
  *
@@ -33,6 +49,12 @@ export class DayNightSystem {
   private lastShadowRefresh = Number.NEGATIVE_INFINITY;
   private lastStatePublish = Number.NEGATIVE_INFINITY;
   private currentState: DayNightState;
+  private shadowRefreshCount = 0;
+  private totalShadowRenderMs = 0;
+  private lastShadowRenderMs = 0;
+  private maxShadowRenderMs = 0;
+  private lastScannedBuildings = 0;
+  private lastDrawnBuildings = 0;
   private destroyed = false;
 
   constructor(scene: MainScene) {
@@ -69,6 +91,25 @@ export class DayNightSystem {
     return { ...this.currentState };
   }
 
+  public getDiagnostics(): DayNightDiagnostics {
+    const uiCamera = this.scene.uiCamera;
+    return {
+      shadowRefreshMs: SHADOW_REFRESH_MS,
+      shadowRefreshCount: this.shadowRefreshCount,
+      totalShadowRenderMs: this.totalShadowRenderMs,
+      lastShadowRenderMs: this.lastShadowRenderMs,
+      maxShadowRenderMs: this.maxShadowRenderMs,
+      lastScannedBuildings: this.lastScannedBuildings,
+      lastDrawnBuildings: this.lastDrawnBuildings,
+      lastShadowAngleRad: this.currentState.shadowAngleRad,
+      lastShadowLength: this.currentState.shadowLength,
+      ambientColor: this.currentState.ambientColor,
+      ambientAlpha: this.currentState.ambientAlpha,
+      uiCameraIgnoresAmbient: Boolean(uiCamera && (this.ambientOverlay.cameraFilter & uiCamera.id) !== 0),
+      uiCameraIgnoresShadows: Boolean(uiCamera && (this.shadowGraphics.cameraFilter & uiCamera.id) !== 0),
+    };
+  }
+
   private update(time: number): void {
     if (this.destroyed || this.scene.stressTestConfig) return;
 
@@ -83,6 +124,7 @@ export class DayNightSystem {
     if (time - this.lastStatePublish >= STATE_PUBLISH_MS) {
       this.lastStatePublish = time;
       this.scene.data.set('dayNightState', { ...this.currentState });
+      this.scene.data.set('dayNightDiagnostics', this.getDiagnostics());
     }
   }
 
@@ -101,52 +143,65 @@ export class DayNightSystem {
   }
 
   private redrawBuildingShadows(state: DayNightState): void {
+    const startedAt = performance.now();
+    this.shadowRefreshCount++;
     this.shadowGraphics.clear();
-    if (state.shadowAlpha <= 0.005 || state.shadowLength <= 0) return;
 
-    const cameraView = this.scene.cameras.main.worldView;
-    const minX = cameraView.left - VIEW_PADDING;
-    const maxX = cameraView.right + VIEW_PADDING;
-    const minY = cameraView.top - VIEW_PADDING;
-    const maxY = cameraView.bottom + VIEW_PADDING;
+    const buildings = this.scene.buildings.getChildren();
+    this.lastScannedBuildings = buildings.length;
+    this.lastDrawnBuildings = 0;
 
-    const angle = state.shadowAngleRad;
-    const directionX = Math.cos(angle);
-    const directionY = Math.sin(angle) * 0.55; // isometric vertical compression
-    const perpendicularX = -Math.sin(angle);
-    const perpendicularY = Math.cos(angle) * 0.35;
+    if (state.shadowAlpha > 0.005 && state.shadowLength > 0) {
+      const cameraView = this.scene.cameras.main.worldView;
+      const minX = cameraView.left - VIEW_PADDING;
+      const maxX = cameraView.right + VIEW_PADDING;
+      const minY = cameraView.top - VIEW_PADDING;
+      const maxY = cameraView.bottom + VIEW_PADDING;
 
-    this.shadowGraphics.fillStyle(0x07101d, state.shadowAlpha);
+      const angle = state.shadowAngleRad;
+      const directionX = Math.cos(angle);
+      const directionY = Math.sin(angle) * 0.55; // isometric vertical compression
+      const perpendicularX = -Math.sin(angle);
+      const perpendicularY = Math.cos(angle) * 0.35;
 
-    for (const building of this.scene.buildings.getChildren()) {
-      if (!building.active || building.getData('hp') <= 0) continue;
+      this.shadowGraphics.fillStyle(0x07101d, state.shadowAlpha);
 
-      const visual = (building as BuildingWithVisual).visual;
-      if (!visual?.active || !visual.visible) continue;
-      if (visual.x < minX || visual.x > maxX || visual.y < minY || visual.y > maxY) continue;
+      for (const building of buildings) {
+        if (!building.active || building.getData('hp') <= 0) continue;
 
-      const def = building.getData('def') as ShadowBuildingDef | undefined;
-      if (!def) continue;
+        const visual = (building as BuildingWithVisual).visual;
+        if (!visual?.active || !visual.visible) continue;
+        if (visual.x < minX || visual.x > maxX || visual.y < minY || visual.y > maxY) continue;
 
-      const footprint = Math.max(16, Math.max(def.width, def.height));
-      const widthScale = Phaser.Math.Clamp(footprint / 80, 0.55, 1.55);
-      const halfWidth = Phaser.Math.Clamp(footprint * 0.30, 7, 42);
-      const length = state.shadowLength * widthScale;
-      const dx = directionX * length;
-      const dy = directionY * length;
-      const px = perpendicularX * halfWidth;
-      const py = perpendicularY * halfWidth;
-      const endTaper = 0.62;
+        const def = building.getData('def') as ShadowBuildingDef | undefined;
+        if (!def) continue;
 
-      const baseX = visual.x;
-      const baseY = visual.y + 4;
-      this.shadowGraphics.fillPoints([
-        { x: baseX + px, y: baseY + py },
-        { x: baseX - px, y: baseY - py },
-        { x: baseX + dx - px * endTaper, y: baseY + dy - py * endTaper },
-        { x: baseX + dx + px * endTaper, y: baseY + dy + py * endTaper },
-      ], true);
+        const footprint = Math.max(16, Math.max(def.width, def.height));
+        const widthScale = Phaser.Math.Clamp(footprint / 80, 0.55, 1.55);
+        const halfWidth = Phaser.Math.Clamp(footprint * 0.30, 7, 42);
+        const length = state.shadowLength * widthScale;
+        const dx = directionX * length;
+        const dy = directionY * length;
+        const px = perpendicularX * halfWidth;
+        const py = perpendicularY * halfWidth;
+        const endTaper = 0.62;
+
+        const baseX = visual.x;
+        const baseY = visual.y + 4;
+        this.shadowGraphics.fillPoints([
+          { x: baseX + px, y: baseY + py },
+          { x: baseX - px, y: baseY - py },
+          { x: baseX + dx - px * endTaper, y: baseY + dy - py * endTaper },
+          { x: baseX + dx + px * endTaper, y: baseY + dy + py * endTaper },
+        ], true);
+        this.lastDrawnBuildings++;
+      }
     }
+
+    const elapsed = performance.now() - startedAt;
+    this.lastShadowRenderMs = elapsed;
+    this.totalShadowRenderMs += elapsed;
+    this.maxShadowRenderMs = Math.max(this.maxShadowRenderMs, elapsed);
   }
 
   public destroy(): void {
@@ -158,6 +213,7 @@ export class DayNightSystem {
     if (this.scene.data.get('dayNightSystem') === this) {
       this.scene.data.remove('dayNightSystem');
       this.scene.data.remove('dayNightState');
+      this.scene.data.remove('dayNightDiagnostics');
     }
   }
 }
