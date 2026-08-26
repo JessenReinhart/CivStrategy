@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:placement-journey": "node scripts/placement-journey.mjs",
     "test:save-reload-journey": "node scripts/save-reload-journey.mjs",
+    "test:day-night-journey": "node scripts/day-night-journey.mjs",
     "verify": "bash scripts/verify.sh",
     "test:worker-assign": "node scripts/worker-assignment-test.mjs",
     "prepare": "husky"
