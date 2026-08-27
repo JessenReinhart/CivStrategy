@@ -140,9 +140,9 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   scene.input.on('pointerdown', handleRightPointerDown);
   scene.game.events.on('clear-selection', clearWorkforceAndEmit);
   keyboard?.on('keydown-ESC', clearWorkforceAndEmit);
-  // Loading replaces every live villager object synchronously. Release the
-  // workforce owner at the player load boundary instead of polling visuals.
-  window.addEventListener('load-game', clearWorkforceAndEmit);
+  // Load replaces live villager objects. Capture the player event before React
+  // forwards it to Phaser so workforce ownership is released before replacement.
+  window.addEventListener('load-game', clearWorkforceAndEmit, { capture: true });
 
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
     clearWorkforceSelection();
@@ -150,6 +150,6 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.input.off('pointerdown', handleRightPointerDown);
     scene.game.events.off('clear-selection', clearWorkforceAndEmit);
     keyboard?.off('keydown-ESC', clearWorkforceAndEmit);
-    window.removeEventListener('load-game', clearWorkforceAndEmit);
+    window.removeEventListener('load-game', clearWorkforceAndEmit, { capture: true });
   });
 }
