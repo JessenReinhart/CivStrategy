@@ -373,27 +373,23 @@ export async function applyAdaptiveTerrainVisuals(
             ctx.closePath();
           };
 
-          const fillSeal = (style: string | CanvasPattern, alpha = 1, sealColor?: string) => {
+          // Fill only. Per-cell seam strokes become a visible diamond grid when
+          // this bounded raster is scaled back to world size; the native detail
+          // pass performs a subtle texture-aligned crack seal afterwards.
+          const fillSurface = (style: string | CanvasPattern, alpha = 1) => {
             path();
             ctx.globalCompositeOperation = 'source-over';
             ctx.globalAlpha = alpha;
             ctx.fillStyle = style;
             ctx.fill();
-            if (sealColor) {
-              ctx.strokeStyle = sealColor;
-              ctx.lineWidth = Math.max(0.12, 0.6 * scale);
-              ctx.lineJoin = 'round';
-              ctx.globalAlpha = Math.min(0.25, alpha * 0.25);
-              ctx.stroke();
-            }
           };
 
-          fillSeal(basePattern as string | CanvasPattern, 1, solid(baseIndex));
+          fillSurface(basePattern as string | CanvasPattern, 1);
           if (t > 0.001 && topIndex !== baseIndex) {
-            fillSeal(topPattern as string | CanvasPattern, t);
+            fillSurface(topPattern as string | CanvasPattern, t);
           }
           if (rockT > 0.02) {
-            fillSeal(stonePattern as string | CanvasPattern, rockT);
+            fillSurface(stonePattern as string | CanvasPattern, rockT);
           }
 
           const lit = litSmooth[gy * w + gx];
@@ -403,10 +399,6 @@ export async function applyAdaptiveTerrainVisuals(
           ctx.globalCompositeOperation = 'multiply';
           ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
           ctx.fill();
-          ctx.strokeStyle = `rgb(${shade},${shade},${shade})`;
-          ctx.lineWidth = Math.max(0.12, 0.6 * scale);
-          ctx.globalAlpha = 0.15;
-          ctx.stroke();
 
           const hL = gx > 0 ? heightGrid[gy * w + gx - 1] : height;
           const hR = gx < w - 1 ? heightGrid[gy * w + gx + 1] : height;
