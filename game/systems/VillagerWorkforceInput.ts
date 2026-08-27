@@ -136,8 +136,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   };
 
   const handleSceneUpdate = () => {
-    if (!selectedVillager) return;
-    if (!scene.villagerSystem.getAllVillagers().includes(selectedVillager)) {
+    if (selectedVillager && !selectedVillager.visual?.active) {
       clearWorkforceAndEmit();
     }
   };
