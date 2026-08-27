@@ -79,6 +79,7 @@ try {
     const dims = {
       House: { width: 48, height: 48 },
       Farm: { width: 48, height: 48 },
+      Barracks: { width: 72, height: 72 },
     };
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
     const snap = (value) => Math.floor(value / GRID) * GRID;
@@ -110,6 +111,22 @@ try {
         }
       }
       throw new Error(`Could not find an adjacent valid ${type} pair inside player territory.`);
+    }
+
+    function findSinglePlacement(type) {
+      const def = dims[type];
+      const baseX = snap(tc.x - 280);
+      const baseY = snap(tc.y - 280);
+      for (let oy = 0; oy <= 560; oy += GRID) {
+        for (let ox = 0; ox <= 560; ox += GRID) {
+          const center = {
+            x: baseX + ox + def.width / 2,
+            y: baseY + oy + def.height / 2,
+          };
+          if (validity(center.x, center.y, type).valid) return center;
+        }
+      }
+      throw new Error(`Could not find a valid ${type} placement inside player territory.`);
     }
 
     function inputForCenter(center, type) {
@@ -204,9 +221,110 @@ try {
     const houseNavigation = verifyPathAroundPair(houses);
     const farms = verifyPair('Farm');
     const farmNavigation = verifyPathAroundPair(farms);
+    const barracksPlacement = findSinglePlacement('Barracks');
+    const barracks = buildAt('Barracks', barracksPlacement);
+    window.__placementJourneyBarracks = barracks.built;
     manager.cancelBuildMode();
-    return { houses, houseNavigation, farms, farmNavigation, buildingCount: buildings().length };
+
+    return {
+      houses,
+      houseNavigation,
+      farms,
+      farmNavigation,
+      barracks: {
+        x: barracks.built.x,
+        y: barracks.built.y,
+        previewDelta: Math.hypot(
+          barracks.snapshot.previewX - barracks.built.visual.x,
+          barracks.snapshot.previewY - barracks.built.visual.y,
+        ),
+      },
+      buildingCount: buildings().length,
+    };
   });
+
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const barracks = window.__placementJourneyBarracks;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
+  });
+  await sleep(50);
+
+  const canvas = page.locator('canvas').first();
+  const canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error('Game canvas was not measurable for Barracks selection.');
+
+  const barracksPoint = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const barracks = window.__placementJourneyBarracks;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (barracks.visual.x - topLeft.x) * camera.zoom,
+      y: (barracks.visual.y - 18 - topLeft.y) * camera.zoom,
+    };
+  });
+
+  await page.mouse.click(canvasBox.x + barracksPoint.x, canvasBox.y + barracksPoint.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedBuilding === window.__placementJourneyBarracks;
+  }, undefined, { timeout: 3_000 });
+
+  const beforeTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      playerMilitary: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+
+  const pikesmanButton = page.getByRole('button', { name: /Pikesman/i });
+  await pikesmanButton.waitFor({ state: 'visible', timeout: 3_000 });
+  await pikesmanButton.click();
+
+  await page.waitForFunction((before) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
+    return military === before.playerMilitary + 1 && scene.population === before.population + 1;
+  }, beforeTraining, { timeout: 5_000 });
+
+  const afterTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const units = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+    const newest = units[units.length - 1];
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      playerMilitary: units.length,
+      newestType: newest?.unitType ?? newest?.getData('unitType') ?? null,
+    };
+  });
+
+  result.training = { before: beforeTraining, after: afterTraining };
+
+  if (result.barracks.previewDelta > 0.01) {
+    throw new Error(`Barracks ghost/final visual position drifted by ${result.barracks.previewDelta}px.`);
+  }
+  if (afterTraining.playerMilitary !== beforeTraining.playerMilitary + 1) {
+    throw new Error('Pikesman training did not create exactly one player military unit.');
+  }
+  if (afterTraining.population !== beforeTraining.population + 1) {
+    throw new Error('Pikesman training did not increment player population by one.');
+  }
+  if (afterTraining.food !== beforeTraining.food - 100 || afterTraining.gold !== beforeTraining.gold - 50) {
+    throw new Error(`Pikesman training cost mismatch: food ${beforeTraining.food} -> ${afterTraining.food}, gold ${beforeTraining.gold} -> ${afterTraining.gold}.`);
+  }
+  if (afterTraining.food < 0 || afterTraining.gold < 0) {
+    throw new Error('Pikesman training produced negative resources.');
+  }
+  if (afterTraining.newestType !== 'Pikesman') {
+    throw new Error(`Expected trained unit to be Pikesman, got ${afterTraining.newestType ?? 'unknown'}.`);
+  }
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/placement-journey.png`, fullPage: true });
   console.log(JSON.stringify(result, null, 2));
