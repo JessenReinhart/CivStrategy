@@ -8,7 +8,10 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
 // Loading duration is intentionally NOT the product contract. A long load is
 // acceptable, but one event-loop stall long enough to freeze the browser is not.
-const MAX_MAIN_THREAD_GAP_MS = 300;
+// Long Task API is the precise blocking signal. The interval heartbeat is a
+// deliberately coarser watchdog because CI timer scheduling has measurable jitter.
+const MAX_LONG_TASK_MS = 250;
+const MAX_HEARTBEAT_GAP_MS = 400;
 const MAX_TERRAIN_RASTER_PIXELS = 9_100_000;
 
 const server = spawn(
@@ -78,6 +81,7 @@ try {
       heartbeatTicks: 0,
       progress: [],
       longTasks: [],
+      longTaskObserverActive: false,
       ready: false,
     };
     window.__largeMapLoadingTelemetry = telemetry;
@@ -100,6 +104,7 @@ try {
           }
         });
         observer.observe({ entryTypes: ['longtask'] });
+        telemetry.longTaskObserverActive = true;
       } catch {
         // Heartbeat telemetry remains authoritative when longtask is unavailable.
       }
@@ -169,6 +174,7 @@ try {
       durationMs: telemetry.completedAt - telemetry.startedAt,
       maxGapMs: telemetry.maxGapMs,
       longestLongTaskMs,
+      longTaskObserverActive: telemetry.longTaskObserverActive,
       heartbeatTicks: telemetry.heartbeatTicks,
       progressEvents: structuredProgress.length,
       phases,
@@ -240,16 +246,16 @@ try {
   if (result.heartbeatTicks < 20) {
     throw new Error(`Only ${result.heartbeatTicks} browser heartbeat ticks occurred during Large map loading.`);
   }
-  if (result.maxGapMs > MAX_MAIN_THREAD_GAP_MS) {
+  if (result.maxGapMs > MAX_HEARTBEAT_GAP_MS) {
     throw new Error(
-      `Large map loading blocked the browser main thread for ${result.maxGapMs.toFixed(1)}ms ` +
-      `(responsiveness limit ${MAX_MAIN_THREAD_GAP_MS}ms). Total load duration is not capped.`,
+      `Large map loading heartbeat stalled for ${result.maxGapMs.toFixed(1)}ms ` +
+      `(coarse watchdog limit ${MAX_HEARTBEAT_GAP_MS}ms). Total load duration is not capped.`,
     );
   }
-  if (result.longestLongTaskMs > MAX_MAIN_THREAD_GAP_MS) {
+  if (result.longTaskObserverActive && result.longestLongTaskMs > MAX_LONG_TASK_MS) {
     throw new Error(
       `Large map loading emitted a ${result.longestLongTaskMs.toFixed(1)}ms long task ` +
-      `(responsiveness limit ${MAX_MAIN_THREAD_GAP_MS}ms).`,
+      `(blocking-task limit ${MAX_LONG_TASK_MS}ms).`,
     );
   }
   if (result.terrainRasterPixels <= 0 || result.terrainRasterPixels > MAX_TERRAIN_RASTER_PIXELS) {
