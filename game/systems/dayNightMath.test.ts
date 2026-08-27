@@ -19,7 +19,8 @@ describe('calculateDayNightState', () => {
         expect(state.hour).toBeCloseTo(8, 5);
         expect(state.sunIntensity).toBeGreaterThan(0.5);
         expect(state.shadowLength).toBeGreaterThan(0);
-        expect(state.ambientAlpha).toBeLessThan(0.15);
+        expect(state.ambientAlpha).toBeGreaterThan(0.1);
+        expect(state.ambientAlpha).toBeLessThan(0.2);
     });
 
     it('produces its shortest, strongest daylight shadows at noon', () => {
@@ -28,8 +29,9 @@ describe('calculateDayNightState', () => {
         expect(state.hour).toBeCloseTo(12, 5);
         expect(state.sunIntensity).toBeCloseTo(1, 5);
         expect(state.sunElevation).toBeCloseTo(1, 5);
-        expect(state.shadowLength).toBeLessThan(35);
-        expect(state.shadowAlpha).toBeGreaterThan(0.1);
+        expect(state.shadowLength).toBeGreaterThanOrEqual(50);
+        expect(state.shadowLength).toBeLessThan(60);
+        expect(state.shadowAlpha).toBeGreaterThanOrEqual(0.3);
     });
 
     it('lengthens and rotates shadows toward sunset', () => {

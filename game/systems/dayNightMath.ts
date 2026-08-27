@@ -25,10 +25,10 @@ const AMBIENT_KEYFRAMES: readonly AmbientKeyframe[] = [
     { hour: 0, color: 0x07172f, alpha: 0.48 },
     { hour: 4.8, color: 0x0b1d38, alpha: 0.44 },
     { hour: 6, color: 0x3b2a38, alpha: 0.30 },
-    { hour: 7.2, color: 0xe07a45, alpha: 0.12 },
-    { hour: 10, color: 0xfff1cf, alpha: 0.02 },
-    { hour: 16.5, color: 0xffdfb0, alpha: 0.03 },
-    { hour: 18, color: 0xc95a3d, alpha: 0.16 },
+    { hour: 7.2, color: 0xe07a45, alpha: 0.18 },
+    { hour: 10, color: 0xfff1cf, alpha: 0.07 },
+    { hour: 16.5, color: 0xffdfb0, alpha: 0.08 },
+    { hour: 18, color: 0xc95a3d, alpha: 0.22 },
     { hour: 19.4, color: 0x24334f, alpha: 0.33 },
     { hour: 21, color: 0x091a34, alpha: 0.46 },
     { hour: 24, color: 0x07172f, alpha: 0.48 },
@@ -97,10 +97,10 @@ export function calculateDayNightState(
     const sunAzimuthRad = -0.2 * Math.PI + daylightProgress * 1.4 * Math.PI;
     const shadowAngleRad = sunAzimuthRad + Math.PI;
     const shadowLength = sunIntensity > 0.01
-        ? lerp(190, 26, Math.sqrt(sunElevation))
+        ? lerp(210, 54, Math.sqrt(sunElevation))
         : 0;
     const shadowAlpha = sunIntensity > 0.01
-        ? (0.16 + (1 - sunElevation) * 0.10) * clamp01(sunIntensity * 1.5)
+        ? (0.30 + (1 - sunElevation) * 0.16) * clamp01(sunIntensity * 1.8)
         : 0;
 
     return {

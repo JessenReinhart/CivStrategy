@@ -274,12 +274,16 @@ export class DayNightSystem {
     const maxY = cameraView.bottom + VIEW_PADDING;
 
     const angle = state.shadowAngleRad;
-    const directionX = Math.cos(angle);
-    const directionY = Math.sin(angle) * 0.55;
-    const perpendicularX = -Math.sin(angle);
-    const perpendicularY = Math.cos(angle) * 0.35;
-
-    graphics.fillStyle(0x07101d, state.shadowAlpha);
+    const projectedX = Math.cos(angle);
+    // Building art rises above its ground anchor. Folding the solar Y vector
+    // onto the lower half of the isometric screen plane keeps the shadow on
+    // visible ground instead of hiding it underneath the building sprite.
+    const projectedY = Math.abs(Math.sin(angle)) * 0.55 + 0.12;
+    const projectedMagnitude = Math.hypot(projectedX, projectedY);
+    const directionX = projectedX / projectedMagnitude;
+    const directionY = projectedY / projectedMagnitude;
+    const perpendicularX = -directionY;
+    const perpendicularY = directionX * 0.55;
 
     for (const building of buildings) {
       if (!building.active || building.getData('hp') <= 0) continue;
@@ -293,7 +297,7 @@ export class DayNightSystem {
 
       const footprint = Math.max(16, Math.max(def.width, def.height));
       const widthScale = Phaser.Math.Clamp(footprint / 80, 0.55, 1.55);
-      const halfWidth = Phaser.Math.Clamp(footprint * 0.30, 7, 42);
+      const halfWidth = Phaser.Math.Clamp(footprint * 0.36, 9, 48);
       const length = state.shadowLength * widthScale;
       const dx = directionX * length;
       const dy = directionY * length;
@@ -301,7 +305,13 @@ export class DayNightSystem {
       const py = perpendicularY * halfWidth;
       const endTaper = 0.62;
       const baseX = visual.x;
-      const baseY = visual.y + 4;
+      const baseY = visual.y + 6;
+
+      // A compact contact shadow makes the building feel grounded even when
+      // the high midday sun produces the shortest projected silhouette.
+      graphics.fillStyle(0x020711, state.shadowAlpha * 0.72);
+      graphics.fillEllipse(baseX, baseY, halfWidth * 2.1, halfWidth * 0.72);
+      graphics.fillStyle(0x020711, state.shadowAlpha);
 
       graphics.fillPoints([
         { x: baseX + px, y: baseY + py },
