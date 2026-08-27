@@ -55,6 +55,16 @@ export class WorldBootstrap {
   }
 
   async initializeAsync(onProgress?: (progress: WorldBootstrapProgress) => void): Promise<void> {
+    const mainCamera = this.scene.cameras.main;
+    const wasCameraVisible = mainCamera.visible;
+
+    // React owns the loading UI. Rendering a partially generated 4K/8K world
+    // on every cooperative yield can cost more than the generation slice itself,
+    // especially with software or integrated-GPU rendering. Keep the world camera
+    // dormant until terrain/navigation are complete, while browser yields still
+    // allow the loading UI and heartbeat to paint normally.
+    mainCamera.visible = false;
+
     this.createWorldInfrastructure();
     onProgress?.({
       progress: 0.04,
@@ -86,6 +96,8 @@ export class WorldBootstrap {
       total: 4,
     });
     await yieldToBrowser();
+
+    mainCamera.visible = wasCameraVisible;
   }
 
   private createWorldInfrastructure(): void {
