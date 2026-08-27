@@ -134,8 +134,10 @@ try {
     const dx = nearestTree.x - villager.x;
     const dy = nearestTree.y - villager.y;
     const length = Math.max(1, Math.hypot(dx, dy));
-    const campX = villager.x + (dx / length) * 72;
-    const campY = villager.y + (dy / length) * 72;
+    // Keep the drop site beside the villager→tree corridor. A camp placed on
+    // that corridor can legitimately block the same worker's later resource path.
+    const campX = villager.x + (-dy / length) * 64;
+    const campY = villager.y + (dx / length) * 64;
     const camp = scene.entityFactory.spawnBuilding('Lumber Camp', campX, campY, 0);
     camp.setData('__journeyCamp', true);
 
