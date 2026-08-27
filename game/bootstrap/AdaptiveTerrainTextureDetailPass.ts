@@ -129,24 +129,14 @@ export async function applyAdaptiveTerrainTextureDetailPass(
     return raw * raw * (3 - 2 * raw);
   };
 
-  const litGrid = new Float32Array(w * h);
-  const litSmooth = new Float32Array(w * h);
   const rockGrid = new Float32Array(w * h);
-  const lightLength = Math.hypot(
-    TERRAIN_CONFIG.LIGHT_DIR_X,
-    TERRAIN_CONFIG.LIGHT_DIR_Y,
-    TERRAIN_CONFIG.LIGHT_DIR_Z,
-  ) || 1;
-  const lx = TERRAIN_CONFIG.LIGHT_DIR_X / lightLength;
-  const ly = TERRAIN_CONFIG.LIGHT_DIR_Y / lightLength;
-  const lz = TERRAIN_CONFIG.LIGHT_DIR_Z / lightLength;
 
   const biomeCells: Record<string, number> = {};
   let paintedCells = 0;
   let completed = 0;
   const batchSize = 16;
   const paintBatches = Math.ceil((w * h) / batchSize);
-  const total = h + h + paintBatches;
+  const total = h + paintBatches;
 
   const toRasterPoint = (point: { x: number; y: number }) => ({
     x: (point.x - visual.x) * rasterScaleX,
@@ -154,6 +144,10 @@ export async function applyAdaptiveTerrainTextureDetailPass(
   });
 
   const work = function* (): Generator<LoadingWorkProgress, void, void> {
+    // Keep only the slope-derived rock mask here. Per-cell lighting is deliberately
+    // not repainted in this final native-texture pass: a constant light value per
+    // terrain cell becomes a visible checkerboard after the bounded raster is
+    // enlarged. The first pass still owns geometry, cliffs and macro relief.
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
         const index = gy * w + gx;
@@ -164,40 +158,10 @@ export async function applyAdaptiveTerrainTextureDetailPass(
         const hD = gy < h - 1 ? heightGrid[index + w] : height;
         const dx = Math.max(Math.abs(hR - height), Math.abs(height - hL));
         const dy = Math.max(Math.abs(hD - height), Math.abs(height - hU));
-        const rock = rockFromSlope(Math.hypot(dx, dy));
-        rockGrid[index] = rock;
-
-        const nx = -(hR - hL) * 0.5 * TERRAIN_CONFIG.NORMAL_STRENGTH;
-        const ny = -(hD - hU) * 0.5 * TERRAIN_CONFIG.NORMAL_STRENGTH;
-        const normalLength = Math.hypot(nx, ny, 1) || 1;
-        const ndotl = Math.max(0, (nx * lx + ny * ly + lz) / normalLength);
-        let lit = TERRAIN_CONFIG.LIGHT_AMBIENT + TERRAIN_CONFIG.LIGHT_DIFFUSE * ndotl;
-        const heightTerm = (height - waterLevel) / Math.max(1e-6, 1 - waterLevel);
-        lit *= 1 + (heightTerm - 0.35) * (TERRAIN_CONFIG.HEIGHT_SHADE ?? 0.28);
-        lit *= 1 - rock * 0.18;
-        litGrid[index] = Math.max(0.35, Math.min(1.1, lit));
+        rockGrid[index] = rockFromSlope(Math.hypot(dx, dy));
       }
       completed++;
-      yield { processed: completed, total, detail: 'Computing texture-preserving terrain light' };
-    }
-
-    for (let gy = 0; gy < h; gy++) {
-      for (let gx = 0; gx < w; gx++) {
-        let sum = 0;
-        let count = 0;
-        for (let oy = -1; oy <= 1; oy++) {
-          for (let ox = -1; ox <= 1; ox++) {
-            const x = gx + ox;
-            const y = gy + oy;
-            if (x < 0 || y < 0 || x >= w || y >= h) continue;
-            sum += litGrid[y * w + x];
-            count++;
-          }
-        }
-        litSmooth[gy * w + gx] = sum / count;
-      }
-      completed++;
-      yield { processed: completed, total, detail: 'Smoothing terrain texture lighting' };
+      yield { processed: completed, total, detail: 'Computing terrain texture slope mask' };
     }
 
     let cellsInBatch = 0;
@@ -238,8 +202,9 @@ export async function applyAdaptiveTerrainTextureDetailPass(
             throw new Error(`Missing adaptive detail pattern for biome ${baseBiome.label}/${topBiome.label}`);
           }
 
-          // Full native texture surface. This intentionally replaces the flat
-          // baked top colour from the first adaptive pass.
+          // Full native texture surface with globally aligned pattern coordinates.
+          // Adjacent cells in the same biome therefore read as one continuous
+          // material instead of individually shaded isometric tiles.
           path();
           ctx.globalCompositeOperation = 'source-over';
           ctx.globalAlpha = 1;
@@ -271,13 +236,6 @@ export async function applyAdaptiveTerrainTextureDetailPass(
           ctx.lineJoin = 'round';
           ctx.stroke();
 
-          const shade = Math.round(Math.min(255, litSmooth[index] * 255));
-          path();
-          ctx.globalCompositeOperation = 'multiply';
-          ctx.globalAlpha = 0.72;
-          ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
-          ctx.fill();
-
           if (terrain.isRiverAt(wx + CS * 0.5, wy + CS * 0.5)) {
             path();
             ctx.globalCompositeOperation = 'multiply';
@@ -297,7 +255,7 @@ export async function applyAdaptiveTerrainTextureDetailPass(
           yield {
             processed: completed,
             total,
-            detail: 'Painting native biome texture surfaces',
+            detail: 'Painting continuous native biome textures',
           };
         }
       }
