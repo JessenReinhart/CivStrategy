@@ -67,10 +67,20 @@ jobs:
       - name: Browser army combat journey
         run: npm run test:army-combat-journey
 
+      - name: Browser day night journey
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          npm run test:day-night-journey 2>&1 | tee artifacts/day-night-journey.log
+
       - name: Upload gameplay journey evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: gameplay-journeys
-          path: artifacts/*
+          path: |
+            artifacts/*.png
+            artifacts/*.json
+            artifacts/*.log
           if-no-files-found: ignore
