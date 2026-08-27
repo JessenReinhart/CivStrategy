@@ -112,6 +112,21 @@ const waitForCameraSync = () => page.waitForFunction(() => {
     && Math.abs(mainCamera.zoom - uiCamera.zoom) < 0.001;
 }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
 
+const pressRightButtonThroughGameFrame = async (canvasBox, point) => {
+  const frameBefore = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.mouse.move(canvasBox.x + point.x, canvasBox.y + point.y);
+  await page.mouse.down({ button: 'right' });
+  try {
+    // Phaser samples DOM pointer state during its game step. On SwiftShader a
+    // complete Playwright click can press and release between two such steps.
+    await page.waitForFunction((previousFrame) => (
+      window.__civStrategyGame?.loop?.frame > previousFrame
+    ), frameBefore, { timeout: POINTER_STATE_TIMEOUT_MS });
+  } finally {
+    await page.mouse.up({ button: 'right' });
+  }
+};
+
 try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
@@ -203,11 +218,7 @@ try {
   telemetry.afterEscape = await readProbe();
 
   const campPointWhileDeselected = await visualScreenPoint('camp');
-  await page.mouse.click(
-    canvasBox.x + campPointWhileDeselected.x,
-    canvasBox.y + campPointWhileDeselected.y,
-    { button: 'right' },
-  );
+  await pressRightButtonThroughGameFrame(canvasBox, campPointWhileDeselected);
   await sleep(100);
   telemetry.afterDeselectedCommand = await readProbe();
 
@@ -228,7 +239,7 @@ try {
   });
   await waitForCameraSync();
   const campPoint = await visualScreenPoint('camp');
-  await page.mouse.click(canvasBox.x + campPoint.x, canvasBox.y + campPoint.y, { button: 'right' });
+  await pressRightButtonThroughGameFrame(canvasBox, campPoint);
 
   await page.waitForFunction(() => {
     const { villager, camp } = window.__villagerGatherProbe;
