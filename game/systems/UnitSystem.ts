@@ -597,7 +597,6 @@ if (spatialHash) {
             if (body) body.setVelocity(0, 0);
             return;
         }
-
         // Blend flow (70%) + direct bias (30%); zero bias if it points into blocked/water
         const toTargetLen = dist;
         let biasX = 0;
@@ -1497,7 +1496,6 @@ if (spatialHash) {
                 this.activeStressLunges.splice(i, 1);
                 continue;
             }
-
             const elapsed = time - l.startAt;
             const t = elapsed / l.duration;
 
@@ -1633,9 +1631,10 @@ if (spatialHash) {
     private drawUnitPaths(time: number): void {
         this.pathGraphics.clear();
         for (const u of this.scene.units.getChildren() as GameUnit[]) {
+            const isPlayerUnit = u.getData('owner') === 0;
             const isSelectable = COMBAT_UNIT_TYPES.includes(u.unitType);
 
-            if (isSelectable && u.path && u.pathCreatedAt) {
+            if (isPlayerUnit && isSelectable && u.path && u.pathCreatedAt) {
                 const age = time - u.pathCreatedAt;
                 const fadeDuration = 1500;
                 if (age < fadeDuration && u.path.length > u.pathStep) {
