@@ -4,7 +4,7 @@ import { LoadingWorkProgress, runBudgetedWork, yieldToBrowser } from '../../util
 import type { MainScene } from '../MainScene';
 import { toIso, toIsoElev } from '../utils/iso';
 
-export const MAX_ADAPTIVE_TERRAIN_RASTER_PIXELS = 9_000_000;
+export const MAX_ADAPTIVE_TERRAIN_RASTER_PIXELS = 4_000_000;
 
 export interface AdaptiveTerrainVisualProfile {
   renderScale: number;
@@ -43,10 +43,13 @@ export function getAdaptiveTerrainVisualProfile(scene: MainScene): AdaptiveTerra
   const fullHeight = Math.ceil(maxY - minY) + 2;
 
   const isHuge = scene.mapWidth >= MAP_SIZES[MapSize.HUGE];
-  const preferredScale = isHuge ? 0.25 : 0.5;
+  // Large-map terrain is a background visual, not gameplay state. Keeping its
+  // backing canvas much smaller avoids duplicating tens of megapixels across
+  // CPU canvas storage, Phaser textures, and the GPU on memory-constrained browsers.
+  const preferredScale = isHuge ? 0.125 : 0.25;
   const budgetScale = Math.sqrt(MAX_ADAPTIVE_TERRAIN_RASTER_PIXELS / Math.max(1, fullWidth * fullHeight));
   const renderScale = Math.min(preferredScale, budgetScale, 1);
-  const sampleScale = isHuge ? 4 : 2;
+  const sampleScale = isHuge ? 8 : 4;
   const sampleStep = TERRAIN_CONFIG.CELL_SIZE * sampleScale;
 
   return {
@@ -90,9 +93,13 @@ export async function applyAdaptiveTerrainVisuals(
   minX -= 1;
   minY -= (1 - waterLevel) * TERRAIN_CONFIG.HEIGHT_LIFT + 1;
 
+  const columns = Math.ceil(scene.mapWidth / profile.sampleStep);
+  const rows = Math.ceil(scene.mapHeight / profile.sampleStep);
+  const totalSamples = rows * columns;
+
   onProgress?.({
     processed: 0,
-    total: Math.ceil(scene.mapHeight / profile.sampleStep),
+    total: totalSamples,
     detail: `Allocating bounded terrain raster ${profile.canvasWidth}×${profile.canvasHeight}`,
   });
   await yieldToBrowser();
@@ -147,78 +154,86 @@ export async function applyAdaptiveTerrainVisuals(
     fills.set(biome, ctx.createPattern(tile, 'repeat') ?? fallback);
   }
 
-  const rows = Math.ceil(scene.mapHeight / profile.sampleStep);
   const work = function* (): Generator<LoadingWorkProgress, void, void> {
     const step = profile.sampleStep;
     const scale = profile.renderScale;
+    let processed = 0;
 
     for (let row = 0; row < rows; row++) {
       const wy = row * step;
-      for (let wx = 0; wx < scene.mapWidth; wx += step) {
+      for (let column = 0; column < columns; column++) {
+        const wx = column * step;
         const x1 = Math.min(scene.mapWidth, wx + step);
         const y1 = Math.min(scene.mapHeight, wy + step);
         const h0 = terrain.getHeightInterpolated(wx, wy);
         const h1 = terrain.getHeightInterpolated(x1, wy);
         const h2 = terrain.getHeightInterpolated(x1, y1);
         const h3 = terrain.getHeightInterpolated(wx, y1);
-        if (Math.max(h0, h1, h2, h3) < waterLevel - 0.01) continue;
 
-        const centerX = (wx + x1) * 0.5;
-        const centerY = (wy + y1) * 0.5;
-        const centerHeight = terrain.getHeightInterpolated(centerX, centerY);
-        const biome = terrain.getBiomeLabel(centerX, centerY);
-        if (biome === 'deep') continue;
+        if (Math.max(h0, h1, h2, h3) >= waterLevel - 0.01) {
+          const centerX = (wx + x1) * 0.5;
+          const centerY = (wy + y1) * 0.5;
+          const centerHeight = terrain.getHeightInterpolated(centerX, centerY);
+          const biome = terrain.getBiomeLabel(centerX, centerY);
 
-        const c0 = toIsoElev(wx, wy, Math.max(h0, waterLevel));
-        const c1 = toIsoElev(x1, wy, Math.max(h1, waterLevel));
-        const c2 = toIsoElev(x1, y1, Math.max(h2, waterLevel));
-        const c3 = toIsoElev(wx, y1, Math.max(h3, waterLevel));
-        const points = [c0, c1, c2, c3].map((point) => ({
-          x: (point.x - minX) * scale,
-          y: (point.y - minY) * scale,
-        }));
+          if (biome !== 'deep') {
+            const c0 = toIsoElev(wx, wy, Math.max(h0, waterLevel));
+            const c1 = toIsoElev(x1, wy, Math.max(h1, waterLevel));
+            const c2 = toIsoElev(x1, y1, Math.max(h2, waterLevel));
+            const c3 = toIsoElev(wx, y1, Math.max(h3, waterLevel));
+            const points = [c0, c1, c2, c3].map((point) => ({
+              x: (point.x - minX) * scale,
+              y: (point.y - minY) * scale,
+            }));
 
-        const path = () => {
-          ctx.beginPath();
-          ctx.moveTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-          ctx.closePath();
-        };
+            const path = () => {
+              ctx.beginPath();
+              ctx.moveTo(points[0].x, points[0].y);
+              for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+              ctx.closePath();
+            };
 
-        const color = biomeColor.get(biome) ?? { r: 90, g: 120, b: 70 };
-        path();
-        ctx.globalCompositeOperation = 'source-over';
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = fills.get(biome) ?? `rgb(${color.r},${color.g},${color.b})`;
-        ctx.fill();
-        ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},0.45)`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+            const color = biomeColor.get(biome) ?? { r: 90, g: 120, b: 70 };
+            path();
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = fills.get(biome) ?? `rgb(${color.r},${color.g},${color.b})`;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},0.45)`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
 
-        const normalizedHeight = Math.max(0, (centerHeight - waterLevel) / Math.max(0.001, 1 - waterLevel));
-        const slope = terrain.getSlopeAt(centerX, centerY).slope;
-        const shade = Math.max(0.68, Math.min(1, 0.84 + normalizedHeight * 0.16 - slope * 0.75));
-        const shadeByte = clampByte(shade * 255);
-        path();
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.fillStyle = `rgb(${shadeByte},${shadeByte},${shadeByte})`;
-        ctx.fill();
+            const normalizedHeight = Math.max(0, (centerHeight - waterLevel) / Math.max(0.001, 1 - waterLevel));
+            const slope = terrain.getSlopeAt(centerX, centerY).slope;
+            const shade = Math.max(0.68, Math.min(1, 0.84 + normalizedHeight * 0.16 - slope * 0.75));
+            const shadeByte = clampByte(shade * 255);
+            path();
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.fillStyle = `rgb(${shadeByte},${shadeByte},${shadeByte})`;
+            ctx.fill();
 
-        if (terrain.isRiverAt(centerX, centerY)) {
-          path();
-          ctx.globalCompositeOperation = 'multiply';
-          ctx.fillStyle = 'rgba(120,160,255,0.65)';
-          ctx.fill();
+            if (terrain.isRiverAt(centerX, centerY)) {
+              path();
+              ctx.globalCompositeOperation = 'multiply';
+              ctx.fillStyle = 'rgba(120,160,255,0.65)';
+              ctx.fill();
+            }
+          }
+        }
+
+        processed++;
+        // Keep each generator item small enough that runBudgetedWork can honor
+        // its event-loop budget even on slow integrated/software renderers.
+        if ((processed & 7) === 0 || processed === totalSamples) {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.globalAlpha = 1;
+          yield {
+            processed,
+            total: totalSamples,
+            detail: `Painting bounded terrain raster ${profile.canvasWidth}×${profile.canvasHeight}`,
+          };
         }
       }
-
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.globalAlpha = 1;
-      yield {
-        processed: row + 1,
-        total: rows,
-        detail: `Painting bounded terrain raster ${profile.canvasWidth}×${profile.canvasHeight}`,
-      };
     }
   };
 
