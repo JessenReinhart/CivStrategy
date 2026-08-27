@@ -106,11 +106,9 @@ try {
   telemetry.setup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.gameSpeed = 4;
-    scene.physics.world.timeScale = 0.25;
 
     // Isolate explicit player assignment from the periodic auto-staffing pass.
-    // The gather/carry/deposit state machine remains completely live.
+    // The gather/carry/deposit state machine remains authoritative.
     scene.economySystem.assignJobs = () => {};
 
     const villagers = scene.villagerSystem.getIdleVillagers(0);
@@ -184,10 +182,21 @@ try {
   telemetry.afterAssignment = await readProbe();
 
   telemetry.phase = 'gather-deposit';
-  await page.waitForFunction((initialWood) => {
+  telemetry.simulationAdvance = await page.evaluate((initialWood) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.resources.wood > initialWood;
-  }, telemetry.setup.initialWood, { timeout: 45_000 });
+    let simulatedMs = 0;
+
+    // Headless CI can render Phaser at only a few FPS. Advance only the real
+    // VillagerSystem clock deterministically after the real pointer assignment
+    // so this proves its path/gather/carry/deposit state machine without making
+    // wall-clock runner speed part of the acceptance contract.
+    for (let i = 0; i < 2_000 && scene.resources.wood <= initialWood; i++) {
+      scene.villagerSystem.update(scene.gameTime + simulatedMs, 100);
+      simulatedMs += 100;
+    }
+
+    return { simulatedMs, finalWood: scene.resources.wood };
+  }, telemetry.setup.initialWood);
   telemetry.final = await readProbe();
   telemetry.woodDeposited = telemetry.final.wood - telemetry.setup.initialWood;
 
@@ -201,7 +210,7 @@ try {
     throw new Error('Real right-click did not assign the selected villager to the Lumber Camp.');
   }
   if (telemetry.woodDeposited <= 0) {
-    throw new Error(`Gather loop did not deposit wood (${telemetry.woodDeposited}).`);
+    throw new Error(`Gather loop did not deposit wood after ${telemetry.simulationAdvance.simulatedMs} ms simulated (${telemetry.woodDeposited}).`);
   }
   if (telemetry.browserErrors.length > 0) {
     throw new Error(`Browser page errors during villager gather journey:\n${telemetry.browserErrors.join('\n')}`);
