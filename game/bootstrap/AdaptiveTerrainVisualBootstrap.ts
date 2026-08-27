@@ -49,8 +49,12 @@ export function getAdaptiveTerrainVisualProfile(scene: MainScene): AdaptiveTerra
   const preferredScale = isHuge ? 0.125 : 0.25;
   const budgetScale = Math.sqrt(MAX_ADAPTIVE_TERRAIN_RASTER_PIXELS / Math.max(1, fullWidth * fullHeight));
   const renderScale = Math.min(preferredScale, budgetScale, 1);
-  const sampleScale = isHuge ? 8 : 4;
-  const sampleStep = TERRAIN_CONFIG.CELL_SIZE * sampleScale;
+
+  // IMPORTANT: only reduce the backing raster, never the terrain sampling grid.
+  // Sampling 4x/8x cells at once produced giant biome quads and checkerboard
+  // transitions after the low-resolution canvas was scaled back to world size.
+  const sampleScale = 1;
+  const sampleStep = TERRAIN_CONFIG.CELL_SIZE;
 
   return {
     renderScale,
@@ -66,9 +70,10 @@ export function getAdaptiveTerrainVisualProfile(scene: MainScene): AdaptiveTerra
 /**
  * Large/Huge-only terrain painter.
  *
- * Gameplay terrain remains full resolution. This only reduces the visual raster
- * and visual sampling density so browser memory is bounded while startup work
- * still yields regularly to the event loop.
+ * Gameplay terrain remains full resolution. Only the visual backing raster is
+ * reduced. Biome/elevation sampling stays at the canonical terrain cell size so
+ * Large/Huge maps keep the same texture layout and transition fidelity as the
+ * normal terrain painter without the full-resolution canvas memory cost.
  */
 export async function applyAdaptiveTerrainVisuals(
   scene: MainScene,
@@ -109,6 +114,7 @@ export async function applyAdaptiveTerrainVisuals(
   canvas.height = profile.canvasHeight;
   const ctx = canvas.getContext('2d')!;
   ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
   const textureKeyByBiome: Record<string, string> = {
     sand: 'terrain_sand',
@@ -124,14 +130,17 @@ export async function applyAdaptiveTerrainVisuals(
   const biomeColor = new Map(
     TERRAIN_CONFIG.BIOMES.map((biome) => [biome.label, biome.color] as const),
   );
-  const patternPeriod = Math.max(48, Math.round(TERRAIN_CONFIG.TEX_PERIOD * profile.renderScale));
+  // Pattern is authored in backing-raster pixels. Scaling the final sprite back
+  // to full world size restores the canonical TEX_PERIOD in world coordinates.
+  const patternPeriod = Math.max(24, Math.round(TERRAIN_CONFIG.TEX_PERIOD * profile.renderScale));
   const fills = new Map<string, CanvasPattern | string>();
 
-  for (const [biome, textureKey] of Object.entries(textureKeyByBiome)) {
-    const fallbackColor = biomeColor.get(biome) ?? { r: 90, g: 120, b: 70 };
-    const fallback = `rgb(${fallbackColor.r},${fallbackColor.g},${fallbackColor.b})`;
-    if (!scene.textures.exists(textureKey)) {
-      fills.set(biome, fallback);
+  for (const biome of TERRAIN_CONFIG.BIOMES) {
+    if (biome.label === 'deep') continue;
+    const textureKey = textureKeyByBiome[biome.label];
+    const fallback = `rgb(${biome.color.r},${biome.color.g},${biome.color.b})`;
+    if (!textureKey || !scene.textures.exists(textureKey)) {
+      fills.set(biome.label, fallback);
       continue;
     }
 
@@ -140,7 +149,7 @@ export async function applyAdaptiveTerrainVisuals(
       ? (texture as { getSourceImage: () => CanvasImageSource }).getSourceImage()
       : (texture as { image?: CanvasImageSource }).image) as HTMLImageElement | HTMLCanvasElement | undefined;
     if (!source) {
-      fills.set(biome, fallback);
+      fills.set(biome.label, fallback);
       continue;
     }
 
@@ -148,15 +157,77 @@ export async function applyAdaptiveTerrainVisuals(
     tile.width = patternPeriod;
     tile.height = patternPeriod;
     const tileCtx = tile.getContext('2d')!;
+    tileCtx.imageSmoothingEnabled = true;
+    tileCtx.imageSmoothingQuality = 'high';
     const sourceWidth = ('naturalWidth' in source ? source.naturalWidth : 0) || source.width || patternPeriod;
     const sourceHeight = ('naturalHeight' in source ? source.naturalHeight : 0) || source.height || patternPeriod;
     tileCtx.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, patternPeriod, patternPeriod);
-    fills.set(biome, ctx.createPattern(tile, 'repeat') ?? fallback);
+    fills.set(biome.label, ctx.createPattern(tile, 'repeat') ?? fallback);
   }
+
+  const getBiomeBlend = (height: number): { a: number; b: number; t: number } => {
+    const biomes = TERRAIN_CONFIG.BIOMES;
+    let idx = 0;
+    for (let i = biomes.length - 1; i >= 0; i--) {
+      if (height >= biomes[i].minHeight) {
+        idx = i;
+        break;
+      }
+    }
+
+    if (idx <= 0) return { a: 0, b: 0, t: 0 };
+    if (idx >= biomes.length - 1) {
+      const cur = biomes[idx].minHeight;
+      const prev = biomes[idx - 1].minHeight;
+      const gap = Math.max(1e-6, cur - (Number.isFinite(prev) ? prev : waterLevel));
+      const half = Math.min(TERRAIN_CONFIG.BIOME_DITHER, gap * 0.45);
+      const lo = cur - half;
+      const hi = cur + half;
+      if (height >= lo && height < hi) {
+        const raw = (height - lo) / Math.max(1e-6, hi - lo);
+        const t = raw * raw * (3 - 2 * raw);
+        return { a: idx - 1, b: idx, t };
+      }
+      return { a: idx, b: idx, t: 0 };
+    }
+
+    const next = biomes[idx + 1].minHeight;
+    const gapUp = Math.max(1e-6, next - biomes[idx].minHeight);
+    const halfUp = Math.min(TERRAIN_CONFIG.BIOME_DITHER, gapUp * 0.45);
+    const upLo = next - halfUp;
+    const upHi = next + halfUp;
+    if (height >= upLo && height < upHi) {
+      const raw = (height - upLo) / Math.max(1e-6, upHi - upLo);
+      const t = raw * raw * (3 - 2 * raw);
+      return { a: idx, b: idx + 1, t };
+    }
+
+    const cur = biomes[idx].minHeight;
+    const prev = biomes[idx - 1].minHeight;
+    const gapDown = Math.max(1e-6, cur - (Number.isFinite(prev) ? prev : waterLevel));
+    const halfDown = Math.min(TERRAIN_CONFIG.BIOME_DITHER, gapDown * 0.45);
+    const downLo = cur - halfDown;
+    const downHi = cur + halfDown;
+    if (height >= downLo && height < downHi) {
+      const raw = (height - downLo) / Math.max(1e-6, downHi - downLo);
+      const t = raw * raw * (3 - 2 * raw);
+      return { a: idx - 1, b: idx, t };
+    }
+
+    return { a: idx, b: idx, t: 0 };
+  };
+
+  const getFill = (biomeIndex: number): CanvasPattern | string => {
+    const clamped = Math.max(1, Math.min(TERRAIN_CONFIG.BIOMES.length - 1, biomeIndex));
+    const biome = TERRAIN_CONFIG.BIOMES[clamped];
+    return fills.get(biome.label) ?? `rgb(${biome.color.r},${biome.color.g},${biome.color.b})`;
+  };
 
   const work = function* (): Generator<LoadingWorkProgress, void, void> {
     const step = profile.sampleStep;
     const scale = profile.renderScale;
+    // Match the legacy painter's ~0.6 logical-pixel seam seal after raster scale.
+    const seamWidth = Math.max(0.12, 0.6 * scale);
     let processed = 0;
 
     for (let row = 0; row < rows; row++) {
@@ -174,9 +245,8 @@ export async function applyAdaptiveTerrainVisuals(
           const centerX = (wx + x1) * 0.5;
           const centerY = (wy + y1) * 0.5;
           const centerHeight = terrain.getHeightInterpolated(centerX, centerY);
-          const biome = terrain.getBiomeLabel(centerX, centerY);
 
-          if (biome !== 'deep') {
+          if (centerHeight >= waterLevel - 0.01) {
             const c0 = toIsoElev(wx, wy, Math.max(h0, waterLevel));
             const c1 = toIsoElev(x1, wy, Math.max(h1, waterLevel));
             const c2 = toIsoElev(x1, y1, Math.max(h2, waterLevel));
@@ -193,21 +263,37 @@ export async function applyAdaptiveTerrainVisuals(
               ctx.closePath();
             };
 
-            const color = biomeColor.get(biome) ?? { r: 90, g: 120, b: 70 };
+            const { a, b, t } = getBiomeBlend(Math.max(centerHeight, waterLevel));
+            const baseIndex = Math.max(1, a);
+            const topIndex = Math.max(1, b);
+            const baseFill = getFill(baseIndex);
+
             path();
             ctx.globalCompositeOperation = 'source-over';
             ctx.globalAlpha = 1;
-            ctx.fillStyle = fills.get(biome) ?? `rgb(${color.r},${color.g},${color.b})`;
+            ctx.fillStyle = baseFill;
             ctx.fill();
-            ctx.strokeStyle = `rgba(${color.r},${color.g},${color.b},0.45)`;
-            ctx.lineWidth = 1;
+            // Seal AA fringes using the same texture instead of a contrasting
+            // biome-colored 1px outline. At 0.25x, a 1px stroke became a 4px
+            // world-space grid line after sprite upscaling.
+            ctx.strokeStyle = baseFill;
+            ctx.lineWidth = seamWidth;
+            ctx.lineJoin = 'round';
             ctx.stroke();
+
+            if (t > 0.001 && topIndex !== baseIndex) {
+              path();
+              ctx.globalAlpha = t;
+              ctx.fillStyle = getFill(topIndex);
+              ctx.fill();
+            }
 
             const normalizedHeight = Math.max(0, (centerHeight - waterLevel) / Math.max(0.001, 1 - waterLevel));
             const slope = terrain.getSlopeAt(centerX, centerY).slope;
             const shade = Math.max(0.68, Math.min(1, 0.84 + normalizedHeight * 0.16 - slope * 0.75));
             const shadeByte = clampByte(shade * 255);
             path();
+            ctx.globalAlpha = 1;
             ctx.globalCompositeOperation = 'multiply';
             ctx.fillStyle = `rgb(${shadeByte},${shadeByte},${shadeByte})`;
             ctx.fill();
