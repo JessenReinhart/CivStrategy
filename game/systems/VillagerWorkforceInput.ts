@@ -66,7 +66,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   };
 
   const handleLeftPointerUp = (pointer: Phaser.Input.Pointer) => {
-    if (pointer.event.button !== 0) return;
+    if (pointer.button !== 0) return;
     if (scene.buildingManager.isDemolishMode || scene.buildingManager.previewBuildingType) return;
 
     const targets = scene.input.hitTestPointer(pointer);
