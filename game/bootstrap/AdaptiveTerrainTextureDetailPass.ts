@@ -21,19 +21,10 @@ const TEXTURE_KEYS = [
 ] as const;
 
 /**
- * Restores high-frequency biome detail after the Large/Huge bounded terrain
- * raster is painted. The expensive world-sized backing allocation remains
- * bounded; this pass only reuses the existing canvas and native texture sources.
- *
- * The previous adaptive painter resized each biome source into an intermediate
- * low-resolution tile before drawing it. Fine-grained textures such as sand,
- * tundra, scrub and stone could average into flat colour while coarse grass
- * detail remained visible. This pass keeps the native source and scales the
- * CanvasPattern at draw time instead, preserving more texture information.
- *
- * It also paints cell-edge sealing with the SAME texture pattern. This hides the
- * solid-colour/dark seam strokes that became a pixelated isometric grid when the
- * bounded raster was enlarged back to world size.
+ * Repaints Large/Huge top surfaces from the native biome sources after the
+ * bounded terrain canvas is built. The first adaptive pass still owns geometry,
+ * cliffs, rivers and the bounded allocation; this pass replaces only the top
+ * surface so fine texture is not averaged into flat biome colour.
  */
 export async function applyAdaptiveTerrainTextureDetailPass(
   scene: MainScene,
@@ -91,8 +82,6 @@ export async function applyAdaptiveTerrainTextureDetailPass(
     const pattern = ctx.createPattern(source, 'repeat');
     if (!pattern) throw new Error(`Could not create terrain pattern: ${key}`);
 
-    // Keep the canonical world-space repeat period without pre-downsampling the
-    // source into a throwaway tile canvas. Modern Chromium/Brave support this.
     if (typeof pattern.setTransform === 'function') {
       const transform = new DOMMatrix();
       transform.a = rasterPeriodX / sourceWidth;
@@ -131,18 +120,86 @@ export async function applyAdaptiveTerrainTextureDetailPass(
     return { base: index, top: index, t: 0 };
   };
 
-  const toRasterPoint = (point: { x: number; y: number }) => ({
-    x: (point.x - visual.x) * rasterScaleX,
-    y: (point.y - visual.y) * rasterScaleY,
-  });
+  const rockFromSlope = (slope: number): number => {
+    const low = TERRAIN_CONFIG.CLIFF_SLOPE_START ?? 0.18;
+    const high = TERRAIN_CONFIG.CLIFF_SLOPE_FULL ?? 0.38;
+    if (slope <= low) return 0;
+    if (slope >= high) return 1;
+    const raw = (slope - low) / Math.max(1e-6, high - low);
+    return raw * raw * (3 - 2 * raw);
+  };
+
+  const litGrid = new Float32Array(w * h);
+  const litSmooth = new Float32Array(w * h);
+  const rockGrid = new Float32Array(w * h);
+  const lightLength = Math.hypot(
+    TERRAIN_CONFIG.LIGHT_DIR_X,
+    TERRAIN_CONFIG.LIGHT_DIR_Y,
+    TERRAIN_CONFIG.LIGHT_DIR_Z,
+  ) || 1;
+  const lx = TERRAIN_CONFIG.LIGHT_DIR_X / lightLength;
+  const ly = TERRAIN_CONFIG.LIGHT_DIR_Y / lightLength;
+  const lz = TERRAIN_CONFIG.LIGHT_DIR_Z / lightLength;
 
   const biomeCells: Record<string, number> = {};
   let paintedCells = 0;
   let completed = 0;
   const batchSize = 16;
-  const total = Math.ceil((w * h) / batchSize);
+  const paintBatches = Math.ceil((w * h) / batchSize);
+  const total = h + h + paintBatches;
+
+  const toRasterPoint = (point: { x: number; y: number }) => ({
+    x: (point.x - visual.x) * rasterScaleX,
+    y: (point.y - visual.y) * rasterScaleY,
+  });
 
   const work = function* (): Generator<LoadingWorkProgress, void, void> {
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        const index = gy * w + gx;
+        const height = heightGrid[index];
+        const hL = gx > 0 ? heightGrid[index - 1] : height;
+        const hR = gx < w - 1 ? heightGrid[index + 1] : height;
+        const hU = gy > 0 ? heightGrid[index - w] : height;
+        const hD = gy < h - 1 ? heightGrid[index + w] : height;
+        const dx = Math.max(Math.abs(hR - height), Math.abs(height - hL));
+        const dy = Math.max(Math.abs(hD - height), Math.abs(height - hU));
+        const rock = rockFromSlope(Math.hypot(dx, dy));
+        rockGrid[index] = rock;
+
+        const nx = -(hR - hL) * 0.5 * TERRAIN_CONFIG.NORMAL_STRENGTH;
+        const ny = -(hD - hU) * 0.5 * TERRAIN_CONFIG.NORMAL_STRENGTH;
+        const normalLength = Math.hypot(nx, ny, 1) || 1;
+        const ndotl = Math.max(0, (nx * lx + ny * ly + lz) / normalLength);
+        let lit = TERRAIN_CONFIG.LIGHT_AMBIENT + TERRAIN_CONFIG.LIGHT_DIFFUSE * ndotl;
+        const heightTerm = (height - waterLevel) / Math.max(1e-6, 1 - waterLevel);
+        lit *= 1 + (heightTerm - 0.35) * (TERRAIN_CONFIG.HEIGHT_SHADE ?? 0.28);
+        lit *= 1 - rock * 0.18;
+        litGrid[index] = Math.max(0.35, Math.min(1.1, lit));
+      }
+      completed++;
+      yield { processed: completed, total, detail: 'Computing texture-preserving terrain light' };
+    }
+
+    for (let gy = 0; gy < h; gy++) {
+      for (let gx = 0; gx < w; gx++) {
+        let sum = 0;
+        let count = 0;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const x = gx + ox;
+            const y = gy + oy;
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            sum += litGrid[y * w + x];
+            count++;
+          }
+        }
+        litSmooth[gy * w + gx] = sum / count;
+      }
+      completed++;
+      yield { processed: completed, total, detail: 'Smoothing terrain texture lighting' };
+    }
+
     let cellsInBatch = 0;
     for (let gy = 0; gy < h; gy++) {
       for (let gx = 0; gx < w; gx++) {
@@ -176,34 +233,57 @@ export async function applyAdaptiveTerrainTextureDetailPass(
           const topBiome = TERRAIN_CONFIG.BIOMES[blend.top];
           const basePattern = patterns.get(baseBiome.label);
           const topPattern = patterns.get(topBiome.label);
-          if (!basePattern || !topPattern) {
+          const stonePattern = patterns.get('stone');
+          if (!basePattern || !topPattern || !stonePattern) {
             throw new Error(`Missing adaptive detail pattern for biome ${baseBiome.label}/${topBiome.label}`);
           }
 
-          // Reintroduce native texture detail without flattening the canonical
-          // lighting/cliff work underneath. Pattern alignment is global, so texture
-          // does not restart at every diamond.
+          // Full native texture surface. This intentionally replaces the flat
+          // baked top colour from the first adaptive pass.
           path();
           ctx.globalCompositeOperation = 'source-over';
-          ctx.globalAlpha = 0.58;
+          ctx.globalAlpha = 1;
           ctx.fillStyle = basePattern;
           ctx.fill();
 
           if (blend.t > 0.001 && blend.top !== blend.base) {
             path();
-            ctx.globalAlpha = 0.58 * blend.t;
+            ctx.globalAlpha = blend.t;
             ctx.fillStyle = topPattern;
             ctx.fill();
           }
 
-          // Seal shared AA edges using texture, never a solid RGB/dark stroke.
-          // This specifically removes the enlarged pixel-grid appearance.
+          const rock = rockGrid[index];
+          if (rock > 0.02) {
+            path();
+            ctx.globalAlpha = rock;
+            ctx.fillStyle = stonePattern;
+            ctx.fill();
+          }
+
+          // Seal AA cracks BEFORE shading so the edge receives the same light as
+          // the interior. No solid RGB or dark cell stroke is used.
           path();
-          ctx.globalAlpha = 0.48;
+          ctx.globalAlpha = 1;
           ctx.strokeStyle = blend.t >= 0.5 ? topPattern : basePattern;
-          ctx.lineWidth = 1.15;
+          ctx.lineWidth = 1.25;
           ctx.lineJoin = 'round';
           ctx.stroke();
+
+          const shade = Math.round(Math.min(255, litSmooth[index] * 255));
+          path();
+          ctx.globalCompositeOperation = 'multiply';
+          ctx.globalAlpha = 0.72;
+          ctx.fillStyle = `rgb(${shade},${shade},${shade})`;
+          ctx.fill();
+
+          if (terrain.isRiverAt(wx + CS * 0.5, wy + CS * 0.5)) {
+            path();
+            ctx.globalCompositeOperation = 'multiply';
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = 'rgba(120,160,255,0.7)';
+            ctx.fill();
+          }
 
           paintedCells++;
           biomeCells[baseBiome.label] = (biomeCells[baseBiome.label] ?? 0) + 1;
@@ -216,7 +296,7 @@ export async function applyAdaptiveTerrainTextureDetailPass(
           yield {
             processed: completed,
             total,
-            detail: 'Restoring native biome texture detail',
+            detail: 'Painting native biome texture surfaces',
           };
         }
       }
