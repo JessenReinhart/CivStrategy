@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FactionType, MapMode, MapSize, MapPreset } from '../types';
 import { getSaveMeta, setPendingLoad } from '../game/systems/SaveSystem';
+import { uiClick } from '../game/utils/uiAudio';
 import { MAP_PRESETS } from '../constants';
 import { Shield, Users, Sword, X } from 'lucide-react';
 import gsap from 'gsap';
@@ -205,6 +206,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   }, [menuScreen]);
 
   const handleNavigate = useCallback((screen: MenuScreen) => {
+    uiClick();
     const prev = menuScreenRef.current;
     const tl = timelineRef.current;
     const map: Record<MenuScreen, HTMLDivElement | null> = {
@@ -256,10 +258,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
     setMenuScreen(screen);
   }, []);
   const handleStart = () => {
+    uiClick();
     onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, mapSeed, mapPreset);
   };
 
   const handleStressTestStart = () => {
+    uiClick();
     window.dispatchEvent(
       new CustomEvent('stressTestStart', {
         detail: { unitCount: stressUnitCount, enableEnemies: stressEnableEnemies },
@@ -268,6 +272,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   };
 
   const handleContinue = () => {
+    uiClick();
     if (!saveMeta) return;
     // Read full save to get init params
     const raw = localStorage.getItem('civstrategy-save');
@@ -578,7 +583,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     <button
                       key={faction}
                       type="button"
-                      onClick={() => setSelectedFaction(faction)}
+                      onClick={() => { uiClick(); setSelectedFaction(faction); }}
                       aria-pressed={isSelected}
                       className="w-full text-left transition-all duration-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                       style={{
@@ -670,7 +675,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                       <button
                         key={mode}
                         type="button"
-                        onClick={() => setMapMode(mode)}
+                        onClick={() => { uiClick(); setMapMode(mode); }}
                         aria-pressed={active}
                         className="px-4 py-3 text-xs uppercase tracking-[0.15em] font-semibold transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
                         style={{
@@ -704,7 +709,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                       <button
                         key={size}
                         type="button"
-                        onClick={() => setMapSize(size)}
+                        onClick={() => { uiClick(); setMapSize(size); }}
                         aria-pressed={active}
                         className="px-3 py-3 text-xs uppercase tracking-[0.15em] font-semibold transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
                         style={{
@@ -752,7 +757,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                   />
                   <button
                     type="button"
-                    onClick={() => setMapSeed(Math.floor(Math.random() * 999999) + 1)}
+                    onClick={() => { uiClick(); setMapSeed(Math.floor(Math.random() * 999999) + 1); }}
                     className="px-4 py-3 text-lg transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
                     style={{
                       border: '1px solid',
@@ -789,7 +794,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                 </h4>
                 <select
                   value={mapPreset}
-                  onChange={(e) => setMapPreset(e.target.value as MapPreset)}
+                  onChange={(e) => { setMapPreset(e.target.value as MapPreset); }}
+                  onBlur={() => { uiClick(); }}
                   className="w-full px-4 py-3 text-xs transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 appearance-none cursor-pointer"
                   style={{
                     fontFamily: "'Inter', sans-serif",
@@ -824,7 +830,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                   <button
                     key={toggle.label}
                     type="button"
-                    onClick={() => toggle.onChange(!toggle.value)}
+                    onClick={() => { uiClick(); toggle.onChange(!toggle.value); }}
                     aria-pressed={toggle.value}
                     className="w-full px-4 py-3 flex items-center justify-between transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
                     style={{
@@ -1008,7 +1014,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
             {/* Spawn Enemy toggle */}
             <button
               type="button"
-              onClick={() => setStressEnableEnemies(!stressEnableEnemies)}
+              onClick={() => { uiClick(); setStressEnableEnemies(!stressEnableEnemies); }}
               aria-pressed={stressEnableEnemies}
               className="w-full p-5 flex items-center justify-between transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
               style={{
