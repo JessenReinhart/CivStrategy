@@ -61,9 +61,21 @@ const visualScreenPoint = (kind) => page.evaluate((targetKind) => {
   const visual = targetKind === 'villager' ? probe.villager.visual : probe.camp.visual;
   const camera = scene.cameras.main;
   const topLeft = camera.getWorldPoint(0, 0);
+  let worldX = visual.x;
+  let worldY = visual.y - 8;
+
+  if (targetKind === 'camp') {
+    const hitArea = visual.input?.hitArea;
+    const localX = typeof hitArea?.centerX === 'number' ? hitArea.centerX : 0;
+    const localY = typeof hitArea?.centerY === 'number' ? hitArea.centerY : -24;
+    const transformed = visual.getWorldTransformMatrix().transformPoint(localX, localY);
+    worldX = transformed.x;
+    worldY = transformed.y;
+  }
+
   return {
-    x: (visual.x - topLeft.x) * camera.zoom,
-    y: (visual.y - 8 - topLeft.y) * camera.zoom,
+    x: (worldX - topLeft.x) * camera.zoom,
+    y: (worldY - topLeft.y) * camera.zoom,
   };
 }, kind);
 
