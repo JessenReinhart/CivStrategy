@@ -173,6 +173,8 @@ try {
     };
   });
 
+  // Simulation entities are Cartesian while rendered unit containers are isometric.
+  // Readiness therefore means a finite interactive visual exists, not visual.x === unit.x.
   await page.waitForFunction(() => {
     const visual = window.__armyCombatProbe?.player?.visual;
     return Boolean(visual && Number.isFinite(visual.x) && Number.isFinite(visual.y));
