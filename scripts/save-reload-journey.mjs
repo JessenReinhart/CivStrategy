@@ -61,6 +61,42 @@ async function bootNewGame(page) {
   await waitForMainScene(page);
 }
 
+async function selectStartingVillager(page) {
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const villager = scene.villagerSystem.getVillagersByOwner(0).find((candidate) => candidate.visual?.active);
+    if (!villager?.visual) throw new Error('No selectable villager available before load.');
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
+    window.__saveReloadSelectedVillager = villager;
+  });
+
+  // Match the proven workforce journey: let Phaser render the camera change
+  // before deriving browser coordinates from the live visual.
+  await sleep(80);
+  const point = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const villager = window.__saveReloadSelectedVillager;
+    if (!villager?.visual?.active) throw new Error('Starting Villager visual became unavailable before click.');
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (villager.visual.x - topLeft.x) * camera.zoom,
+      y: (villager.visual.y - 8 - topLeft.y) * camera.zoom,
+    };
+  });
+
+  const canvas = page.locator('canvas').first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas was not measurable before load.');
+  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const villager = window.__saveReloadSelectedVillager;
+    const ring = villager?.visual?.getData?.('workforceSelectionRing');
+    return Boolean(ring?.active);
+  }, undefined, { timeout: 3_000 });
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
@@ -100,6 +136,7 @@ try {
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
+  await selectStartingVillager(page);
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
 
   await page.waitForFunction((markerWood) => {
@@ -107,6 +144,18 @@ try {
     const scene = game?.scene?.getScene?.('MainScene');
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
+
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const oldVillager = window.__saveReloadSelectedVillager;
+    const oldRing = oldVillager?.visual?.active
+      ? oldVillager.visual.getData?.('workforceSelectionRing')
+      : null;
+    const currentRing = scene?.villagerSystem?.getVillagersByOwner?.(0)?.some((villager) => (
+      Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
+    ));
+    return scene?.isReady && !oldRing?.active && currentRing === false;
+  }, undefined, { timeout: 5_000 });
 
   const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime }) => {
     const game = window.__civStrategyGame;
@@ -120,8 +169,12 @@ try {
     const loadedWood = scene.resources.wood;
     const loadedPopulation = scene.population;
     const loadedGameTime = scene.gameTime;
+    const workforceSelectionCleared = !scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
+      Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
+    ));
     if (loadedWood !== markerWood) throw new Error('Saved resources were not restored at the load boundary.');
     if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
+    if (!workforceSelectionCleared) throw new Error('Workforce selection survived entity replacement during load.');
 
     await new Promise((resolve) => setTimeout(resolve, 500));
     const resumedGameTime = scene.gameTime;
@@ -133,6 +186,7 @@ try {
       townCenter: { x: townCenter.x, y: townCenter.y },
       loadedGameTime,
       resumedGameTime,
+      workforceSelectionCleared,
     };
   }, { markerWood: MARKER_WOOD, previousGameTime: beforeSave.gameTime });
 

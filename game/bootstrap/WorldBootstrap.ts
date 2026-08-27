@@ -17,6 +17,7 @@ import { CullingSystem } from '../systems/CullingSystem';
 import { FeedbackSystem } from '../systems/FeedbackSystem';
 import { AtmosphericSystem } from '../systems/AtmosphericSystem';
 import { VillagerSystem } from '../systems/VillagerSystem';
+import { installVillagerWorkforceInput } from '../systems/VillagerWorkforceInput';
 import { AnimalSystem } from '../systems/AnimalSystem';
 import { AmbientPopulationSystem } from '../systems/AmbientPopulationSystem';
 import { ProceduralSoundSystem } from '../systems/ProceduralSoundSystem';
@@ -140,6 +141,7 @@ export class WorldBootstrap {
     scene.atmosphericSystem = new AtmosphericSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
     installLegacyVillagerSpawnBridge(scene);
+    installVillagerWorkforceInput(scene);
     scene.animalSystem = new AnimalSystem(scene);
     // Render-only civilian crowd. It self-registers with scene UPDATE/SHUTDOWN
     // and never enters the units group, physics, spatial hash, or pathfinder.
