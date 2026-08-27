@@ -62,13 +62,22 @@ async function bootNewGame(page) {
 }
 
 async function selectStartingVillager(page) {
-  const point = await page.evaluate(() => {
+  await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const villager = scene.villagerSystem.getVillagersByOwner(0).find((candidate) => candidate.visual?.active);
     if (!villager?.visual) throw new Error('No selectable villager available before load.');
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
     window.__saveReloadSelectedVillager = villager;
+  });
+
+  // Match the proven workforce journey: let Phaser render the camera change
+  // before deriving browser coordinates from the live visual.
+  await sleep(80);
+  const point = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const villager = window.__saveReloadSelectedVillager;
+    if (!villager?.visual?.active) throw new Error('Starting Villager visual became unavailable before click.');
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
     return {
