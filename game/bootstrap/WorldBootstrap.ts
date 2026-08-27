@@ -160,46 +160,90 @@ export class WorldBootstrap {
 
     scene.terrainSystem.generateHeightMap();
     this.prepareTerrainSpawnAreas();
-    scene.terrainSystem.generateTerrainTexture();
-    applyAdaptiveTerrainVisuals(scene);
-    applyAdaptiveTerrainTextureDetailPass(scene);
+    scene.terrainSystem.generateRivers();
+    scene.terrainSystem.applyVisualTinting();
+    // Wire biome pathfinding costs to terrain
+    scene.pathfinder.updateTerrainCosts(scene.terrainSystem, scene.currentSeason);
   }
 
   private async initializeTerrainAsync(onProgress?: (progress: WorldBootstrapProgress) => void): Promise<void> {
     const scene = this.scene;
-    const subProgress = (progress: LoadingWorkProgress) => {
+
+    await scene.terrainSystem.generateHeightMapAsync((work) => {
+      const ratio = work.total > 0 ? work.processed / work.total : 0;
       onProgress?.({
-        ...progress,
-        progress: 0.10 + progress.progress * 0.86,
+        ...work,
+        progress: 0.10 + ratio * 0.24,
+        phase: 'Generating terrain',
+      });
+    });
+
+    this.prepareTerrainSpawnAreas();
+    scene.terrainSystem.generateRivers();
+    onProgress?.({
+      progress: 0.38,
+      phase: 'Carving terrain',
+      detail: 'Flattening spawn areas and tracing river valleys',
+      processed: 1,
+      total: 1,
+    });
+    await yieldToBrowser();
+
+    const reportPaintingProgress = (work: LoadingWorkProgress) => {
+      const ratio = work.total > 0 ? work.processed / work.total : 0;
+      onProgress?.({
+        ...work,
+        progress: 0.38 + ratio * 0.52,
+        phase: 'Painting terrain',
       });
     };
 
-    await scene.terrainSystem.generateHeightMapAsync(subProgress);
-    await this.prepareTerrainSpawnAreasAsync(subProgress);
-    await scene.terrainSystem.generateTerrainTextureAsync(subProgress);
-    applyAdaptiveTerrainVisuals(scene);
+    // Full-resolution gameplay terrain is always preserved. Large/Huge only
+    // reduce the visual raster so peak browser/GPU memory remains bounded.
+    if (scene.mapWidth >= MAP_SIZES[MapSize.LARGE]) {
+      await applyAdaptiveTerrainVisuals(scene, reportPaintingProgress);
+      await applyAdaptiveTerrainTextureDetailPass(scene, reportPaintingProgress);
+    } else {
+      await scene.terrainSystem.applyVisualTintingAsync(reportPaintingProgress);
+    }
+
+    onProgress?.({
+      progress: 0.94,
+      phase: 'Preparing navigation',
+      detail: 'Applying biome movement costs',
+      processed: 1,
+      total: 1,
+    });
     await yieldToBrowser();
-    await applyAdaptiveTerrainTextureDetailPass(scene, subProgress);
+    scene.pathfinder.updateTerrainCosts(scene.terrainSystem, scene.currentSeason);
+  }
+
+  private prepareTerrainSpawnAreas(): void {
+    const scene = this.scene;
+
+    // Guarantee dry land at faction spawn points — raise terrain above water
+    const spawnSafeRadius = 150;
+    const spawnMinHeight = scene.terrainSystem.getWaterLevel() + 0.05;
+    const cx = scene.mapWidth / 2;
+    const cy = scene.mapHeight / 2;
+    scene.terrainSystem.flattenAroundWorld(cx, cy, spawnSafeRadius, spawnMinHeight);
+    // Flatten AI base corner
+    const aiBaseX = scene.mapWidth * 0.15;
+    const aiBaseY = scene.mapHeight * 0.15;
+    scene.terrainSystem.flattenAroundWorld(aiBaseX, aiBaseY, spawnSafeRadius, spawnMinHeight);
+    scene.terrainSystem.flattenAroundWorld(cx + 400, cy - 50, spawnSafeRadius, spawnMinHeight);
   }
 
   private initializeMapBounds(): void {
     const scene = this.scene;
-    if (scene.mapMode === MapMode.INFINITE) {
-      scene.infiniteMapSystem = new InfiniteMapSystem(scene, scene.mapSeed);
-      scene.infiniteMapSystem.init();
-      return;
+
+    if (scene.mapMode === MapMode.FIXED) {
+      scene.physics.world.setBounds(0, 0, scene.mapWidth, scene.mapHeight);
+      // Water rendering + map environment generation remain in MainScene.create()
+      // (they are part of the future WaterRenderer slice).
+    } else {
+      scene.physics.world.setBounds(-100000, -100000, 200000, 200000);
+      scene.infiniteMapSystem = new InfiniteMapSystem(scene);
     }
-
-    const bounds = MAP_SIZES[scene.mapSize as MapSize] ?? MAP_SIZES[MapSize.MEDIUM];
-    scene.physics.world.setBounds(0, 0, bounds.width, bounds.height);
-    scene.cameras.main.setBounds(0, 0, bounds.width, bounds.height);
-  }
-
-  private prepareTerrainSpawnAreas(): void {
-    this.scene.mapGenerationSystem.prepareSpawnAreas();
-  }
-
-  private async prepareTerrainSpawnAreasAsync(onProgress?: (progress: LoadingWorkProgress) => void): Promise<void> {
-    await this.scene.mapGenerationSystem.prepareSpawnAreasAsync(onProgress);
   }
 }
