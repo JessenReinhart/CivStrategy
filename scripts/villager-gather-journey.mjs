@@ -6,6 +6,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const PORT = 4178;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
+const POINTER_STATE_TIMEOUT_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
@@ -100,6 +101,32 @@ const readProbe = () => page.evaluate(() => {
   };
 });
 
+const waitForCameraSync = () => page.waitForFunction(() => {
+  const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+  const mainCamera = scene?.cameras?.main;
+  const uiCamera = scene?.uiCamera;
+  if (!mainCamera || !uiCamera) return false;
+
+  return Math.abs(mainCamera.scrollX - uiCamera.scrollX) < 0.5
+    && Math.abs(mainCamera.scrollY - uiCamera.scrollY) < 0.5
+    && Math.abs(mainCamera.zoom - uiCamera.zoom) < 0.001;
+}, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
+
+const pressRightButtonThroughGameFrame = async (canvasBox, point) => {
+  const frameBefore = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.mouse.move(canvasBox.x + point.x, canvasBox.y + point.y);
+  await page.mouse.down({ button: 'right' });
+  try {
+    // Phaser samples DOM pointer state during its game step. On SwiftShader a
+    // complete Playwright click can press and release between two such steps.
+    await page.waitForFunction((previousFrame) => (
+      window.__civStrategyGame?.loop?.frame > previousFrame
+    ), frameBefore, { timeout: POINTER_STATE_TIMEOUT_MS });
+  } finally {
+    await page.mouse.up({ button: 'right' });
+  }
+};
+
 try {
   await waitForServer();
   browser = await chromium.launch({ headless: true });
@@ -164,7 +191,10 @@ try {
       camp: { x: campX, y: campY },
     };
   });
-  await sleep(80);
+  // MainScene synchronizes the UI camera at the end of update(). SwiftShader
+  // CI can render below 1 FPS, so a fixed wall-clock sleep is not evidence that
+  // pointer.worldX/worldY now use the camera transform established above.
+  await waitForCameraSync();
 
   const canvas = page.locator('canvas').first();
   const canvasBox = await canvas.boundingBox();
@@ -176,7 +206,7 @@ try {
   await page.waitForFunction(() => {
     const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
     return Boolean(ring?.active);
-  }, undefined, { timeout: 3_000 });
+  }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
   telemetry.afterSelection = await readProbe();
 
   telemetry.phase = 'escape-deselect';
@@ -184,15 +214,11 @@ try {
   await page.waitForFunction(() => {
     const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
     return !ring?.active;
-  }, undefined, { timeout: 3_000 });
+  }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
   telemetry.afterEscape = await readProbe();
 
   const campPointWhileDeselected = await visualScreenPoint('camp');
-  await page.mouse.click(
-    canvasBox.x + campPointWhileDeselected.x,
-    canvasBox.y + campPointWhileDeselected.y,
-    { button: 'right' },
-  );
+  await pressRightButtonThroughGameFrame(canvasBox, campPointWhileDeselected);
   await sleep(100);
   telemetry.afterDeselectedCommand = await readProbe();
 
@@ -202,7 +228,7 @@ try {
   await page.waitForFunction(() => {
     const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
     return Boolean(ring?.active);
-  }, undefined, { timeout: 3_000 });
+  }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
   telemetry.afterReselection = await readProbe();
 
   telemetry.phase = 'assign-work';
@@ -211,14 +237,14 @@ try {
     const { villager, camp } = window.__villagerGatherProbe;
     scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
   });
-  await sleep(50);
+  await waitForCameraSync();
   const campPoint = await visualScreenPoint('camp');
-  await page.mouse.click(canvasBox.x + campPoint.x, canvasBox.y + campPoint.y, { button: 'right' });
+  await pressRightButtonThroughGameFrame(canvasBox, campPoint);
 
   await page.waitForFunction(() => {
     const { villager, camp } = window.__villagerGatherProbe;
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
-  }, undefined, { timeout: 3_000 });
+  }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
   telemetry.afterAssignment = await readProbe();
 
   telemetry.phase = 'gather-deposit';

@@ -17,6 +17,7 @@
     "test:camera-overlay-journey": "node scripts/camera-overlay-journey.mjs",
     "test:army-combat-journey": "node scripts/army-combat-journey.mjs",
     "test:villager-gather-journey": "node scripts/villager-gather-journey.mjs",
+    "test:day-night-journey": "node scripts/day-night-journey.mjs",
     "verify": "bash scripts/verify.sh",
     "test:worker-assign": "node scripts/worker-assignment-test.mjs",
     "prepare": "husky"

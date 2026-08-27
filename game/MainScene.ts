@@ -49,6 +49,7 @@ import { MapGenerationSystem } from './systems/MapGenerationSystem';
 import { CullingSystem } from './systems/CullingSystem';
 import { FeedbackSystem } from './systems/FeedbackSystem';
 import { AtmosphericSystem } from './systems/AtmosphericSystem';
+import { DayNightSystem } from './systems/DayNightSystem';
 import { VillagerSystem } from './systems/VillagerSystem';
 import { AnimalSystem } from './systems/AnimalSystem';
 import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
@@ -153,6 +154,7 @@ export class MainScene extends Phaser.Scene {
   public cullingSystem!: CullingSystem;
   public feedbackSystem!: FeedbackSystem;
   public atmosphericSystem!: AtmosphericSystem;
+  public dayNightSystem!: DayNightSystem;
   public villagerSystem!: VillagerSystem;
   public animalSystem!: AnimalSystem;
   public proceduralSound!: ProceduralSoundSystem;
@@ -1172,6 +1174,7 @@ export class MainScene extends Phaser.Scene {
     this.profileEnd('pathfinderBeginFrame', t0);
     const dt = delta * this.gameSpeed;
     this.gameTime += dt;
+    this.dayNightSystem.update(time, this.gameTime);
     // Scroll foam texture with scene time (NOT gameTime) — pause/speed immune
     if (this.waterWaveSprite && this.waterAnimationEnabled) {
       this.waterWaveSprite.tilePositionX += delta * 0.03;
