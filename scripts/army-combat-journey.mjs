@@ -75,9 +75,10 @@ const readRuntimeProbe = () => page.evaluate(() => {
       x: enemy.x,
       y: enemy.y,
       active: enemy.active,
-      hp: enemy.getData('hp'),
+      hp: enemy.active ? enemy.getData('hp') : null,
       state: enemy.state,
-      visual: enemy.visual ? { x: enemy.visual.x, y: enemy.visual.y } : null,
+      inUnitGroup: scene.units.getChildren().includes(enemy),
+      visual: enemy.active && enemy.visual ? { x: enemy.visual.x, y: enemy.visual.y } : null,
     } : null,
   };
 });
@@ -241,7 +242,7 @@ try {
 
     const enemy = scene.entityFactory.spawnUnit('Pikesman', enemyPoint.x, enemyPoint.y, 1);
     if (!enemy) throw new Error('Could not spawn deterministic enemy unit.');
-    enemy.setData('hp', Math.min(enemy.getData('hp'), 40));
+    enemy.setData('hp', 10);
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
     player.lastAttackTime = -10_000;
@@ -275,7 +276,8 @@ try {
   telemetry.phase = 'resolve-combat';
   await page.waitForFunction(() => {
     const { enemy } = window.__armyCombatProbe;
-    return !enemy.active || enemy.getData('hp') < 40;
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return !enemy.active && !scene.units.getChildren().includes(enemy);
   }, undefined, { timeout: 12_000 });
 
   telemetry.final = await readRuntimeProbe();
@@ -292,8 +294,8 @@ try {
   if (telemetry.combatSetup.distance > 40) {
     throw new Error(`Combat target was not set up inside Pikesman attack range (${telemetry.combatSetup.distance.toFixed(2)}px).`);
   }
-  if (telemetry.final.enemy.active && telemetry.final.enemy.hp >= telemetry.combatSetup.enemy.hp) {
-    throw new Error(`Real right-click attack did not change enemy HP/state (HP ${telemetry.final.enemy.hp}).`);
+  if (telemetry.final.enemy.active || telemetry.final.enemy.inUnitGroup) {
+    throw new Error('Lethal real-input combat did not remove the defeated enemy from the live unit group.');
   }
   if (telemetry.browserErrors.length > 0) {
     throw new Error(`Browser page errors during army combat journey:\n${telemetry.browserErrors.join('\n')}`);
