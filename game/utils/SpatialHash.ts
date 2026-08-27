@@ -4,6 +4,7 @@
 export class SpatialHash {
     private cellSize: number;
     private buckets: Map<string, Set<any>>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    private destroyTracked = new WeakSet<object>();
 
     constructor(cellSize: number) {
         this.cellSize = cellSize;
@@ -27,6 +28,16 @@ export class SpatialHash {
         }
         this.buckets.get(key)!.add(entity);
         entity.setData('spatialKey', key);
+
+        // Phaser groups forget destroyed entities automatically, but this index does not.
+        // Own the same lifecycle here so combat/targeting queries never retain dead objects.
+        if (typeof entity.once === 'function' && !this.destroyTracked.has(entity)) {
+            this.destroyTracked.add(entity);
+            entity.once('destroy', () => {
+                this.remove(entity);
+                this.destroyTracked.delete(entity);
+            });
+        }
     }
 
     public remove(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
