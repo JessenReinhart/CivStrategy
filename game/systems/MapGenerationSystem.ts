@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { TILE_SIZE, GOLD_MINE_COUNT, MAP_PRESETS } from '../../constants';
 import { MapMode, AnimalSpecies } from '../../types';
+import { LoadingWorkProgress, runBudgetedWork, yieldToBrowser } from '../../utils/gameLoading';
 import { toIso } from '../utils/iso';
 import { randomBetween } from '../utils/seededRandom';
 
@@ -67,8 +68,25 @@ export class MapGenerationSystem {
     }
 
     generateForestsAndAnimals() {
+        for (const _progress of this.generateForestsAndAnimalsWork()) {
+            // Preserve the synchronous legacy API for non-player/bootstrap callers.
+        }
+    }
+
+    async generateForestsAndAnimalsAsync(onProgress?: (progress: LoadingWorkProgress) => void): Promise<void> {
+        await runBudgetedWork(
+            this.generateForestsAndAnimalsWork(),
+            onProgress,
+            yieldToBrowser,
+            6,
+        );
+    }
+
+    private *generateForestsAndAnimalsWork(): Generator<LoadingWorkProgress, void, void> {
         const mult = MAP_PRESETS[this.scene.mapPreset]?.resourceMultiplier ?? 1.0;
         const forestCount = Math.floor(((this.scene.mapWidth * this.scene.mapHeight) / (800 * 800)) * mult);
+        if (forestCount <= 0) return;
+
         for (let i = 0; i < forestCount; i++) {
             const fx = randomBetween(this.rng, 100, this.scene.mapWidth - 100);
             const fy = randomBetween(this.rng, 100, this.scene.mapHeight - 100);
@@ -84,6 +102,16 @@ export class MapGenerationSystem {
                         this._trySpawnTreeAt(tx, ty);
                     }
                 }
+
+                // Tree/entity creation is the expensive part. Expose small work items so
+                // runBudgetedWork can yield before one forest becomes a long main-thread task.
+                if ((j & 7) === 7) {
+                    yield {
+                        processed: i,
+                        total: forestCount,
+                        detail: 'Planting forests',
+                    };
+                }
             }
             const animalCount = Math.floor(randomBetween(this.rng, 2, 5) * mult);
             for (let k = 0; k < animalCount; k++) {
@@ -97,7 +125,18 @@ export class MapGenerationSystem {
                         this.scene.animalSystem.spawnAnimal(ax, ay, species);
                     }
                 }
+                yield {
+                    processed: i,
+                    total: forestCount,
+                    detail: 'Spawning wildlife',
+                };
             }
+
+            yield {
+                processed: i + 1,
+                total: forestCount,
+                detail: 'Planting forests and spawning wildlife',
+            };
         }
     }
 
