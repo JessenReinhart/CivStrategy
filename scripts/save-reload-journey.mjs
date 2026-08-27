@@ -119,11 +119,26 @@ try {
       return building.getData('owner') === 0 && def?.type === 'Town Center';
     });
     if (!townCenter) throw new Error('Player Town Center missing before save.');
+
+    const barracks = scene.entityFactory.spawnBuilding(
+      'Barracks',
+      townCenter.x + 192,
+      townCenter.y + 192,
+      0,
+    );
+    if (typeof barracks?.setWaypoint !== 'function') {
+      throw new Error('Spawned Barracks does not expose rally waypoint behavior.');
+    }
+    const rallyWaypoint = { x: barracks.x + 128, y: barracks.y + 64 };
+    barracks.setWaypoint(rallyWaypoint.x, rallyWaypoint.y);
+
     window.dispatchEvent(new Event('save-game'));
     return {
       wood: scene.resources.wood,
       population: scene.population,
       townCenter: { x: townCenter.x, y: townCenter.y },
+      barracks: { x: barracks.x, y: barracks.y },
+      rallyWaypoint,
       gameTime: scene.gameTime,
     };
   }, MARKER_WOOD);
@@ -132,6 +147,19 @@ try {
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
   if (storedSave.resources?.wood !== MARKER_WOOD) {
     throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
+  }
+  const storedBarracks = storedSave.buildings?.find((building) => (
+    building.type === 'Barracks'
+    && building.owner === 0
+    && building.x === beforeSave.barracks.x
+    && building.y === beforeSave.barracks.y
+  ));
+  if (!storedBarracks) throw new Error('Stored save did not contain the configured Barracks.');
+  if (
+    storedBarracks.waypoint?.x !== beforeSave.rallyWaypoint.x
+    || storedBarracks.waypoint?.y !== beforeSave.rallyWaypoint.y
+  ) {
+    throw new Error('Stored save did not preserve the Barracks rally waypoint.');
   }
 
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -157,7 +185,7 @@ try {
     return scene?.isReady && !oldRing?.active && currentRing === false;
   }, undefined, { timeout: 5_000 });
 
-  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime }) => {
+  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, barracksPosition }) => {
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
     const townCenter = scene.buildings.getChildren().find((building) => {
@@ -165,10 +193,19 @@ try {
       return building.getData('owner') === 0 && def?.type === 'Town Center';
     });
     if (!townCenter) throw new Error('Player Town Center missing after load.');
+    const barracks = scene.buildings.getChildren().find((building) => {
+      const def = building.getData('def');
+      return building.getData('owner') === 0
+        && def?.type === 'Barracks'
+        && building.x === barracksPosition.x
+        && building.y === barracksPosition.y;
+    });
+    if (!barracks) throw new Error('Configured Barracks missing after load.');
 
     const loadedWood = scene.resources.wood;
     const loadedPopulation = scene.population;
     const loadedGameTime = scene.gameTime;
+    const rallyWaypoint = barracks.getData('waypoint');
     const workforceSelectionCleared = !scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
       Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
     ));
@@ -184,17 +221,32 @@ try {
       wood: loadedWood,
       population: loadedPopulation,
       townCenter: { x: townCenter.x, y: townCenter.y },
+      barracks: { x: barracks.x, y: barracks.y },
+      rallyWaypoint,
       loadedGameTime,
       resumedGameTime,
       workforceSelectionCleared,
     };
-  }, { markerWood: MARKER_WOOD, previousGameTime: beforeSave.gameTime });
+  }, {
+    markerWood: MARKER_WOOD,
+    previousGameTime: beforeSave.gameTime,
+    barracksPosition: beforeSave.barracks,
+  });
 
   if (afterLoad.population !== beforeSave.population) {
     throw new Error(`Population changed across reload: ${beforeSave.population} -> ${afterLoad.population}.`);
   }
   if (afterLoad.townCenter.x !== beforeSave.townCenter.x || afterLoad.townCenter.y !== beforeSave.townCenter.y) {
     throw new Error('Town Center position changed across reload.');
+  }
+  if (afterLoad.barracks.x !== beforeSave.barracks.x || afterLoad.barracks.y !== beforeSave.barracks.y) {
+    throw new Error('Barracks position changed across reload.');
+  }
+  if (
+    afterLoad.rallyWaypoint?.x !== beforeSave.rallyWaypoint.x
+    || afterLoad.rallyWaypoint?.y !== beforeSave.rallyWaypoint.y
+  ) {
+    throw new Error('Barracks rally waypoint changed across reload.');
   }
 
   const cameraBeforeInput = await page.evaluate(() => {
@@ -214,7 +266,7 @@ try {
   });
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/save-reload-journey.png`, fullPage: true });
-  console.log(JSON.stringify({ beforeSave, afterLoad, cameraBeforeInput, cameraAfterInput }, null, 2));
+  console.log(JSON.stringify({ beforeSave, storedRallyWaypoint: storedBarracks.waypoint, afterLoad, cameraBeforeInput, cameraAfterInput }, null, 2));
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during save/reload journey:\n${browserErrors.join('\n')}`);
