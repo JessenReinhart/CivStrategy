@@ -40,6 +40,7 @@ describe('UnitSystem movement path overlay', () => {
             path: [{ x: 140, y: 100 }],
             pathStep: 0,
             pathCreatedAt: 900,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
         };
         const unitHeight = TERRAIN_CONFIG.WATER_LEVEL + 0.25;
         const nodeHeight = TERRAIN_CONFIG.WATER_LEVEL + 0.4;
@@ -61,5 +62,33 @@ describe('UnitSystem movement path overlay', () => {
         expect(pathGraphics.lineTo).toHaveBeenCalledWith(expectedNode.x, expectedNode.y);
         expect(getHeightAt).toHaveBeenCalledWith(unit.x, unit.y);
         expect(getHeightAt).toHaveBeenCalledWith(unit.path[0].x, unit.path[0].y);
+    });
+
+    it('does not render enemy movement paths', () => {
+        const pathGraphics = makeGraphics();
+        const enemyUnit = {
+            x: 120,
+            y: 80,
+            unitType: UnitType.PIKESMAN,
+            path: [{ x: 140, y: 100 }],
+            pathStep: 0,
+            pathCreatedAt: 900,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const getHeightAt = vi.fn(() => TERRAIN_CONFIG.WATER_LEVEL + 0.25);
+        const scene = {
+            add: { graphics: vi.fn(() => pathGraphics) },
+            units: { getChildren: () => [enemyUnit] },
+            terrainSystem: { getHeightAt },
+        } as unknown as MainScene;
+        const system = new UnitSystem(scene);
+
+        (system as unknown as { drawUnitPaths(time: number): void }).drawUnitPaths(1000);
+
+        expect(pathGraphics.beginPath).not.toHaveBeenCalled();
+        expect(pathGraphics.moveTo).not.toHaveBeenCalled();
+        expect(pathGraphics.lineTo).not.toHaveBeenCalled();
+        expect(pathGraphics.strokePath).not.toHaveBeenCalled();
+        expect(getHeightAt).not.toHaveBeenCalled();
     });
 });
