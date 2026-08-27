@@ -459,7 +459,16 @@ export class WaterBootstrap {
 
     onProgress?.({ progress: 0.93, phase: 'Growing world', detail: 'Planting forests and spawning wildlife' });
     await yieldToBrowser();
-    scene.mapGenerationSystem.generateForestsAndAnimals();
+    await scene.mapGenerationSystem.generateForestsAndAnimalsAsync((work) => {
+      const ratio = work.total > 0 ? work.processed / work.total : 0;
+      onProgress?.({
+        progress: 0.93 + ratio * 0.06,
+        phase: 'Growing world',
+        detail: work.detail || 'Planting forests and spawning wildlife',
+        processed: work.processed,
+        total: work.total,
+      });
+    });
 
     onProgress?.({ progress: 1, phase: 'World environment ready', detail: 'Terrain, water, forests and wildlife are ready' });
     await yieldToBrowser();
