@@ -48,6 +48,12 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     });
   };
 
+  const clearWorkforceAndEmit = () => {
+    if (!selectedVillager) return;
+    clearWorkforceSelection();
+    emitWorkforceSelection();
+  };
+
   const findVillagerAtPointer = (pointer: Phaser.Input.Pointer): VillagerData | null => {
     let nearest: VillagerData | null = null;
     let nearestDistance = VILLAGER_PICK_RADIUS;
@@ -90,8 +96,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   const handleRightPointerDown = (pointer: Phaser.Input.Pointer) => {
     if (!pointer.rightButtonDown() || !selectedVillager) return;
     if (!scene.villagerSystem.getAllVillagers().includes(selectedVillager)) {
-      clearWorkforceSelection();
-      emitWorkforceSelection();
+      clearWorkforceAndEmit();
       return;
     }
 
@@ -127,12 +132,17 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
   };
 
+  const keyboard = scene.input.keyboard;
   scene.input.on('pointerup', handleLeftPointerUp);
   scene.input.on('pointerdown', handleRightPointerDown);
+  scene.game.events.on('clear-selection', clearWorkforceAndEmit);
+  keyboard?.on('keydown-ESC', clearWorkforceAndEmit);
 
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
     clearWorkforceSelection();
     scene.input.off('pointerup', handleLeftPointerUp);
     scene.input.off('pointerdown', handleRightPointerDown);
+    scene.game.events.off('clear-selection', clearWorkforceAndEmit);
+    keyboard?.off('keydown-ESC', clearWorkforceAndEmit);
   });
 }
