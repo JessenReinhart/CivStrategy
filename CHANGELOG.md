@@ -2,6 +2,7 @@
 
 ## 2026-08-27
 
+- **Villagers can now be selected and assigned to economy work directly (#148):** Players can click a villager, right-click an owned worker building such as a Lumber Camp to assign the job, or send the villager to a ground position. The browser journey now verifies the full gather, carry, return, and deposit loop, and save/reload clears stale workforce selection safely.
 - **Enemy movement paths are no longer shown to the player (#149):** Player unit paths still appear normally, but enemy path overlays are hidden so the game no longer reveals where enemy units are planning to move. Developer debug path tools are unchanged.
 
 ## 2026-08-26
