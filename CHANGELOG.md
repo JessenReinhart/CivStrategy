@@ -2,6 +2,7 @@
 
 ## 2026-08-27
 
+- **Main menu controls now have subtle click feedback (#155):** Menu buttons, faction and map options, toggles, randomize actions, and other discrete controls now play the same style of UI click used in the game. The menu audio starts lazily from user interaction and does not require the Phaser game scene to be running.
 - **Villagers can now be selected and assigned to economy work directly (#148):** Players can click a villager, right-click an owned worker building such as a Lumber Camp to assign the job, or send the villager to a ground position. The browser journey now verifies the full gather, carry, return, and deposit loop, and save/reload clears stale workforce selection safely.
 - **Enemy movement paths are no longer shown to the player (#149):** Player unit paths still appear normally, but enemy path overlays are hidden so the game no longer reveals where enemy units are planning to move. Developer debug path tools are unchanged.
 
