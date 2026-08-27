@@ -81,9 +81,12 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     ));
 
     const villager = hitsUnitOrBuilding ? null : findVillagerAtPointer(pointer);
-    clearWorkforceSelection();
-    if (!villager) return;
+    if (!villager) {
+      clearWorkforceAndEmit();
+      return;
+    }
 
+    clearWorkforceSelection();
     // Workforce selection and military/building selection are mutually exclusive.
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding();
