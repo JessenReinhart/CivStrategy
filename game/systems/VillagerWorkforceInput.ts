@@ -7,6 +7,10 @@ import { toCartesian } from '../utils/iso';
 
 const VILLAGER_PICK_RADIUS = 22;
 
+type WorkforceBuilding = Phaser.GameObjects.Rectangle & {
+  visual?: Phaser.GameObjects.Container;
+};
+
 /**
  * Player-input owner for the civilian workforce.
  *
@@ -71,6 +75,47 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     return nearest;
   };
 
+  const findWorkerBuildingAtPointer = (pointer: Phaser.Input.Pointer): WorkforceBuilding | null => {
+    const directHit = scene.input.hitTestPointer(pointer)
+      .find((target) => Boolean(target.getData?.('building')))
+      ?.getData('building') as WorkforceBuilding | undefined;
+    if (directHit) return directHit;
+
+    // Building art is intentionally larger than its simulation footprint. If
+    // Phaser misses the container hit area for one frame, keep a real click on
+    // the visible owned worker building from degrading into a ground rally.
+    let nearest: WorkforceBuilding | null = null;
+    let nearestScore = Infinity;
+    for (const child of scene.buildings.getChildren()) {
+      const building = child as WorkforceBuilding;
+      const def = building.getData('def') as BuildingDef | undefined;
+      const visual = building.visual;
+      if (
+        !building.active
+        || building.getData('owner') !== 0
+        || !def?.workerNeeds
+        || !visual?.active
+        || !visual.visible
+      ) continue;
+
+      const halfWidth = Math.max(18, def.width * 0.75);
+      const upwardReach = Math.max(24, def.height);
+      const downwardReach = Math.max(10, def.height * 0.35);
+      const dx = Math.abs(pointer.worldX - visual.x);
+      const dy = pointer.worldY - visual.y;
+      if (dx > halfWidth || dy < -upwardReach || dy > downwardReach) continue;
+
+      const normalizedY = dy < 0 ? Math.abs(dy) / upwardReach : dy / downwardReach;
+      const score = (dx / halfWidth) ** 2 + normalizedY ** 2;
+      if (score < nearestScore) {
+        nearest = building;
+        nearestScore = score;
+      }
+    }
+
+    return nearest;
+  };
+
   const handleLeftPointerUp = (pointer: Phaser.Input.Pointer) => {
     if (pointer.button !== 0) return;
     if (scene.buildingManager.isDemolishMode || scene.buildingManager.previewBuildingType) return;
@@ -103,9 +148,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       return;
     }
 
-    const targets = scene.input.hitTestPointer(pointer);
-    const buildingVisual = targets.find((target) => Boolean(target.getData?.('building')));
-    const building = buildingVisual?.getData('building') as Phaser.GameObjects.GameObject | undefined;
+    const building = findWorkerBuildingAtPointer(pointer);
 
     if (building) {
       const owner = building.getData('owner') as number;
@@ -115,8 +158,8 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       if (owner === 0 && def?.workerNeeds) {
         if (assignedWorker && assignedWorker !== selectedVillager) {
           scene.feedbackSystem.showFloatingText(
-            (building as Phaser.GameObjects.Image).x,
-            (building as Phaser.GameObjects.Image).y,
+            building.x,
+            building.y,
             'Already staffed',
             '#facc15',
           );
