@@ -8,10 +8,13 @@ interface TestEntity {
     data: Map<string, unknown>;
     getData: (key: string) => unknown;
     setData: (key: string, value: unknown) => void;
+    once: (event: string, handler: () => void) => void;
+    destroy: () => void;
 }
 
 const createEntity = (x: number, y: number): TestEntity => {
     const data = new Map<string, unknown>();
+    const onceHandlers = new Map<string, () => void>();
     return {
         x,
         y,
@@ -20,6 +23,14 @@ const createEntity = (x: number, y: number): TestEntity => {
         setData: (key, value) => {
             if (value === undefined) data.delete(key);
             else data.set(key, value);
+        },
+        once: (event, handler) => {
+            onceHandlers.set(event, handler);
+        },
+        destroy: () => {
+            const handler = onceHandlers.get('destroy');
+            onceHandlers.delete('destroy');
+            handler?.();
         },
     };
 };
@@ -63,5 +74,18 @@ describe('SpatialHash', () => {
         expect(hash.query(25, 25, 10)).not.toContain(entity);
         expect(hash.query(125, 25, 10)).toContain(entity);
         expect(entity.getData('spatialKey')).toBe('1,0');
+    });
+
+    it('removes a registered entity when its runtime object is destroyed', () => {
+        const hash = new SpatialHash(100);
+        const entity = createEntity(25, 25);
+
+        hash.insert(entity);
+        expect(hash.query(25, 25, 10)).toContain(entity);
+
+        entity.destroy();
+
+        expect(hash.query(25, 25, 10)).not.toContain(entity);
+        expect(entity.getData('spatialKey')).toBeUndefined();
     });
 });
