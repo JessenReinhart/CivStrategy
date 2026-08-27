@@ -261,12 +261,13 @@ export async function applyAdaptiveTerrainTextureDetailPass(
             ctx.fill();
           }
 
-          // Seal AA cracks BEFORE shading so the edge receives the same light as
-          // the interior. No solid RGB or dark cell stroke is used.
+          // Use a sub-pixel, texture-aligned seal only to hide canvas AA cracks.
+          // A full raster-pixel stroke is magnified when the Large/Huge backing
+          // canvas is scaled up and reads as a regular isometric grid.
           path();
-          ctx.globalAlpha = 1;
+          ctx.globalAlpha = 0.45;
           ctx.strokeStyle = blend.t >= 0.5 ? topPattern : basePattern;
-          ctx.lineWidth = 1.25;
+          ctx.lineWidth = Math.max(0.3, Math.min(0.5, Math.min(rasterScaleX, rasterScaleY)));
           ctx.lineJoin = 'round';
           ctx.stroke();
 
