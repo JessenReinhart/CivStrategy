@@ -1,5 +1,6 @@
 import { MainScene } from '../MainScene';
 import { UnitType } from '../../types';
+import { installVillagerWorkforceInput } from '../systems/VillagerWorkforceInput';
 
 /**
  * Transitional compatibility bridge for older callers that still request a
@@ -18,4 +19,6 @@ export function installLegacyVillagerSpawnBridge(scene: MainScene): void {
 
     return spawnEntityUnit(type, x, y, owner);
   }) as typeof scene.entityFactory.spawnUnit;
+
+  installVillagerWorkforceInput(scene);
 }

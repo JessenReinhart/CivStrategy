@@ -51,6 +51,9 @@ jobs:
       - name: Browser placement journey
         run: npm run test:placement-journey
 
+      - name: Browser villager gathering journey
+        run: npm run test:villager-gather-journey
+
       - name: Browser save reload journey
         run: npm run test:save-reload-journey
 
