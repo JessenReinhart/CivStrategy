@@ -28,6 +28,7 @@ import { TerrainSystem } from '../systems/TerrainSystem';
 import { InfiniteMapSystem } from '../systems/InfiniteMapSystem';
 import { SpatialHash } from '../utils/SpatialHash';
 import { createSeededRandom } from '../utils/seededRandom';
+import { applyAdaptiveTerrainTextureDetailPass } from './AdaptiveTerrainTextureDetailPass';
 import { applyAdaptiveTerrainVisuals } from './AdaptiveTerrainVisualBootstrap';
 import { installLegacyVillagerSpawnBridge } from './VillagerSpawnBridge';
 
@@ -199,6 +200,7 @@ export class WorldBootstrap {
     // reduce the visual raster so peak browser/GPU memory remains bounded.
     if (scene.mapWidth >= MAP_SIZES[MapSize.LARGE]) {
       await applyAdaptiveTerrainVisuals(scene, reportPaintingProgress);
+      await applyAdaptiveTerrainTextureDetailPass(scene, reportPaintingProgress);
     } else {
       await scene.terrainSystem.applyVisualTintingAsync(reportPaintingProgress);
     }
