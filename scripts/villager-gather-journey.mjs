@@ -159,13 +159,39 @@ try {
   if (!canvasBox) throw new Error('Game canvas was not measurable.');
 
   telemetry.phase = 'select-villager';
-  const villagerPoint = await visualScreenPoint('villager');
+  let villagerPoint = await visualScreenPoint('villager');
   await page.mouse.click(canvasBox.x + villagerPoint.x, canvasBox.y + villagerPoint.y, { button: 'left' });
   await page.waitForFunction(() => {
     const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
     return Boolean(ring?.active);
   }, undefined, { timeout: 3_000 });
   telemetry.afterSelection = await readProbe();
+
+  telemetry.phase = 'escape-deselect';
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => {
+    const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
+    return !ring?.active;
+  }, undefined, { timeout: 3_000 });
+  telemetry.afterEscape = await readProbe();
+
+  const campPointWhileDeselected = await visualScreenPoint('camp');
+  await page.mouse.click(
+    canvasBox.x + campPointWhileDeselected.x,
+    canvasBox.y + campPointWhileDeselected.y,
+    { button: 'right' },
+  );
+  await sleep(100);
+  telemetry.afterDeselectedCommand = await readProbe();
+
+  telemetry.phase = 'reselect-villager';
+  villagerPoint = await visualScreenPoint('villager');
+  await page.mouse.click(canvasBox.x + villagerPoint.x, canvasBox.y + villagerPoint.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const ring = window.__villagerGatherProbe?.villager?.visual?.getData('workforceSelectionRing');
+    return Boolean(ring?.active);
+  }, undefined, { timeout: 3_000 });
+  telemetry.afterReselection = await readProbe();
 
   telemetry.phase = 'assign-work';
   await page.evaluate(() => {
@@ -207,6 +233,15 @@ try {
 
   if (!telemetry.afterSelection.villager.selected) {
     throw new Error('Real canvas left-click did not visibly select the starting villager.');
+  }
+  if (telemetry.afterEscape.villager.selected) {
+    throw new Error('Escape did not clear the workforce selection ring.');
+  }
+  if (telemetry.afterDeselectedCommand.villager.assignedToCamp) {
+    throw new Error('A deselected villager still accepted a workforce right-click command.');
+  }
+  if (!telemetry.afterReselection.villager.selected) {
+    throw new Error('Villager could not be selected again after Escape.');
   }
   if (!telemetry.afterAssignment.villager.assignedToCamp) {
     throw new Error('Real right-click did not assign the selected villager to the Lumber Camp.');
