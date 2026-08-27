@@ -135,25 +135,21 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
   };
 
-  const handleSceneUpdate = () => {
-    if (selectedVillager && !selectedVillager.visual?.active) {
-      clearWorkforceAndEmit();
-    }
-  };
-
   const keyboard = scene.input.keyboard;
   scene.input.on('pointerup', handleLeftPointerUp);
   scene.input.on('pointerdown', handleRightPointerDown);
-  scene.events.on(Phaser.Scenes.Events.UPDATE, handleSceneUpdate);
   scene.game.events.on('clear-selection', clearWorkforceAndEmit);
   keyboard?.on('keydown-ESC', clearWorkforceAndEmit);
+  // Loading replaces every live villager object synchronously. Release the
+  // workforce owner at the player load boundary instead of polling visuals.
+  window.addEventListener('load-game', clearWorkforceAndEmit);
 
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
     clearWorkforceSelection();
     scene.input.off('pointerup', handleLeftPointerUp);
     scene.input.off('pointerdown', handleRightPointerDown);
-    scene.events.off(Phaser.Scenes.Events.UPDATE, handleSceneUpdate);
     scene.game.events.off('clear-selection', clearWorkforceAndEmit);
     keyboard?.off('keydown-ESC', clearWorkforceAndEmit);
+    window.removeEventListener('load-game', clearWorkforceAndEmit);
   });
 }
