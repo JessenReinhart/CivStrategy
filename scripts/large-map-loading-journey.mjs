@@ -13,6 +13,16 @@ const ARTIFACT_DIR = 'artifacts';
 const MAX_LONG_TASK_MS = 250;
 const MAX_HEARTBEAT_GAP_MS = 400;
 const MAX_TERRAIN_RASTER_PIXELS = 9_100_000;
+const REQUIRED_TERRAIN_TEXTURES = [
+  'terrain_sand',
+  'terrain_swamp',
+  'terrain_grass',
+  'terrain_jungle',
+  'terrain_forest',
+  'terrain_tundra',
+  'terrain_scrub',
+  'terrain_stone',
+];
 
 const server = spawn(
   process.execPath,
@@ -144,7 +154,7 @@ try {
   }, undefined, { timeout: 180_000 });
 
   phase = 'measurement';
-  const measured = await page.evaluate(() => {
+  const measured = await page.evaluate((requiredTerrainTextures) => {
     const telemetry = window.__largeMapLoadingTelemetry;
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
@@ -155,6 +165,17 @@ try {
     const terrainSource = terrainTexture?.getSourceImage?.();
     const terrainRasterWidth = terrainSource?.width ?? 0;
     const terrainRasterHeight = terrainSource?.height ?? 0;
+    const terrainTextureSources = requiredTerrainTextures.map((key) => {
+      const exists = scene.textures.exists(key);
+      const texture = exists ? scene.textures.get(key) : null;
+      const source = texture?.getSourceImage?.();
+      return {
+        key,
+        exists,
+        width: source?.width ?? 0,
+        height: source?.height ?? 0,
+      };
+    });
     const longestLongTaskMs = telemetry.longTasks.reduce(
       (longest, entry) => Math.max(longest, entry.duration),
       0,
@@ -182,12 +203,13 @@ try {
       terrainRasterWidth,
       terrainRasterHeight,
       terrainRasterPixels: terrainRasterWidth * terrainRasterHeight,
+      terrainTextureSources,
       memory,
       hasRealtimeCounters: structuredProgress.some((entry) => (
         typeof entry.processed === 'number' && typeof entry.total === 'number' && entry.total > 1
       )),
     };
-  });
+  }, REQUIRED_TERRAIN_TEXTURES);
 
   phase = 'camera-input';
   const cameraBeforeInput = await page.evaluate(() => {
@@ -229,6 +251,9 @@ try {
     'Realm ready',
   ];
   const missingPhases = requiredPhases.filter((requiredPhase) => !result.phases.includes(requiredPhase));
+  const missingTerrainTextures = result.terrainTextureSources.filter((texture) => (
+    !texture.exists || texture.width <= 0 || texture.height <= 0
+  ));
 
   if (result.mapWidth !== 4096 || result.mapHeight !== 4096) {
     throw new Error(`Large map did not initialize at 4096×4096: ${result.mapWidth}×${result.mapHeight}`);
@@ -262,6 +287,12 @@ try {
     throw new Error(
       `Large terrain raster is ${result.terrainRasterWidth}×${result.terrainRasterHeight} ` +
       `(${result.terrainRasterPixels.toLocaleString()} px), expected <= ${MAX_TERRAIN_RASTER_PIXELS.toLocaleString()} px.`,
+    );
+  }
+  if (missingTerrainTextures.length > 0) {
+    throw new Error(
+      `Large terrain texture sources are missing or empty: ${missingTerrainTextures.map((texture) => texture.key).join(', ')}. ` +
+      'Do not silently replace biome textures with flat fallback colors.',
     );
   }
   if (result.cameraAfterInput <= result.cameraBeforeInput) {
