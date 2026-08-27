@@ -5,6 +5,7 @@ export class SpatialHash {
     private cellSize: number;
     private buckets: Map<string, Set<any>>; // eslint-disable-line @typescript-eslint/no-explicit-any
     private destroyTracked = new WeakSet<object>();
+    private entityKeys = new WeakMap<object, string>();
 
     constructor(cellSize: number) {
         this.cellSize = cellSize;
@@ -17,9 +18,19 @@ export class SpatialHash {
         return `${cx},${cy}`;
     }
 
+    private removeFromBucket(entity: any, key?: string) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        if (key && this.buckets.has(key)) {
+            this.buckets.get(key)!.delete(entity);
+            if (this.buckets.get(key)!.size === 0) {
+                this.buckets.delete(key);
+            }
+        }
+        this.entityKeys.delete(entity);
+    }
+
     public insert(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         const key = this.getKey(entity.x, entity.y);
-        const oldKey = entity.getData('spatialKey');
+        const oldKey = this.entityKeys.get(entity) ?? entity.getData('spatialKey');
         if (oldKey && oldKey !== key) {
             this.remove(entity);
         }
@@ -27,32 +38,28 @@ export class SpatialHash {
             this.buckets.set(key, new Set());
         }
         this.buckets.get(key)!.add(entity);
+        this.entityKeys.set(entity, key);
         entity.setData('spatialKey', key);
 
         // Phaser groups forget destroyed entities automatically, but this index does not.
-        // Own the same lifecycle here so combat/targeting queries never retain dead objects.
+        // Own the same lifecycle without touching GameObject data after Phaser tears it down.
         if (typeof entity.once === 'function' && !this.destroyTracked.has(entity)) {
             this.destroyTracked.add(entity);
             entity.once('destroy', () => {
-                this.remove(entity);
+                this.removeFromBucket(entity, this.entityKeys.get(entity));
                 this.destroyTracked.delete(entity);
             });
         }
     }
 
     public remove(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const key = entity.getData('spatialKey');
-        if (key && this.buckets.has(key)) {
-            this.buckets.get(key)!.delete(entity);
-            if (this.buckets.get(key)!.size === 0) {
-                this.buckets.delete(key);
-            }
-        }
+        const key = this.entityKeys.get(entity) ?? entity.getData('spatialKey');
+        this.removeFromBucket(entity, key);
         entity.setData('spatialKey', undefined);
     }
 
     public update(entity: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const oldKey = entity.getData('spatialKey');
+        const oldKey = this.entityKeys.get(entity) ?? entity.getData('spatialKey');
         const newKey = this.getKey(entity.x, entity.y);
 
         if (oldKey !== newKey) {
