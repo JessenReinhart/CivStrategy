@@ -67,6 +67,9 @@ jobs:
       - name: Browser army combat journey
         run: npm run test:army-combat-journey
 
+      - name: Browser combat save continuity journey
+        run: npm run test:combat-save-continuity
+
       - name: Browser day night journey
         shell: bash
         run: |

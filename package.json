@@ -16,6 +16,7 @@
     "test:large-map-loading": "node scripts/large-map-loading-journey.mjs",
     "test:camera-overlay-journey": "node scripts/camera-overlay-journey.mjs",
     "test:army-combat-journey": "node scripts/army-combat-journey.mjs",
+    "test:combat-save-continuity": "node scripts/combat-save-continuity-journey.mjs && node scripts/combat-save-continuity-evidence.mjs",
     "test:villager-gather-journey": "node scripts/villager-gather-journey.mjs",
     "test:day-night-journey": "node scripts/day-night-journey.mjs",
     "verify": "bash scripts/verify.sh",
