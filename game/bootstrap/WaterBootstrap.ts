@@ -44,8 +44,8 @@ export class WaterBootstrap {
 
     const isHuge = scene.mapWidth >= MAP_SIZES[MapSize.HUGE];
     const isLarge = scene.mapWidth >= MAP_SIZES[MapSize.LARGE];
-    const sampleScale = isHuge ? 4 : isLarge ? 2 : 1;
-    const canvasScale = isHuge ? 0.25 : isLarge ? 0.5 : 1;
+    const sampleScale = isHuge ? 8 : isLarge ? 4 : 1;
+    const canvasScale = isHuge ? 0.125 : isLarge ? 0.25 : 1;
     const detailedWaterAccents = !isLarge;
 
     const dim = {
