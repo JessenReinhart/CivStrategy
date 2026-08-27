@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-08-28
+
+- **The world now moves through a visible day-and-night cycle (#156):** Dawn, daylight, sunset, and night transition continuously with lightweight building shadows that change with the sun. The effect follows game time and pause/speed controls, leaves the UI untinted, and limits shadow work so dense cities do not redraw every building every frame.
+- **Barracks training is now protected by a real browser journey (#144):** Automated gameplay now places and selects a real Barracks, trains a Pikesman through the normal command UI, and checks population and resource costs so the build-to-train progression is less likely to regress silently.
+- **Combat cleanup is now verified through actual defeat (#153):** The browser combat journey now continues through lethal damage and confirms a defeated enemy is removed from the live game, protecting the full select, move, fight, and resolve flow rather than stopping after the first hit.
+
 ## 2026-08-27
 
 - **Main menu controls now have subtle click feedback (#155):** Menu buttons, faction and map options, toggles, randomize actions, and other discrete controls now play the same style of UI click used in the game. The menu audio starts lazily from user interaction and does not require the Phaser game scene to be running.
