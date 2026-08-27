@@ -94,10 +94,10 @@ export async function applyAdaptiveTerrainTextureDetailPass(
     // Keep the canonical world-space repeat period without pre-downsampling the
     // source into a throwaway tile canvas. Modern Chromium/Brave support this.
     if (typeof pattern.setTransform === 'function') {
-      pattern.setTransform(new DOMMatrix({
-        a: rasterPeriodX / sourceWidth,
-        d: rasterPeriodY / sourceHeight,
-      }));
+      const transform = new DOMMatrix();
+      transform.a = rasterPeriodX / sourceWidth;
+      transform.d = rasterPeriodY / sourceHeight;
+      pattern.setTransform(transform);
     }
 
     patterns.set(biome.label, pattern);
@@ -226,7 +226,7 @@ export async function applyAdaptiveTerrainTextureDetailPass(
   await runBudgetedWork(work(), onProgress, yieldToBrowser, 6);
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
-  terrainTexture.refresh?.();
+  (terrainTexture as { refresh?: () => void }).refresh?.();
 
   const diagnostics: AdaptiveTerrainTextureDetailDiagnostics = {
     paintedCells,
