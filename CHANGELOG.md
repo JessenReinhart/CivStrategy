@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-27
+
+- **Enemy movement paths are no longer shown to the player (#149):** Player unit paths still appear normally, but enemy path overlays are hidden so the game no longer reveals where enemy units are planning to move. Developer debug path tools are unchanged.
+
 ## 2026-08-26
 
 - **Large and Huge maps are much less likely to freeze the browser while loading (#145):** World generation now keeps the loading screen responsive, limits large terrain render buffers, spreads expensive decoration work across time, and preserves detailed terrain textures. The real Large-map browser check now enforces bounded long tasks, working progress updates, no page errors, and usable camera input after loading.
