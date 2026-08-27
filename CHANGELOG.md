@@ -2,6 +2,7 @@
 
 ## 2026-08-26
 
+- **Army selection, movement, and combat now have a real browser journey (#140):** The game is now automatically checked by selecting a real unit on the canvas, moving it with a real right-click command, attacking an enemy, and confirming that combat actually changes enemy health and unit state.
 - **Enemy towns no longer get stuck on one bad building spot (#142):** If an AI building location is blocked, underwater, too steep, overlapping, or outside the map, the AI now searches nearby for a valid place and keeps growing. It also only spends resources when a building is actually created.
 - **Demolishing buildings can no longer give free wood (#137):** Resources, population, happiness, worker state, and blocked map space now change only after the building is actually removed. Failed or repeated demolition attempts leave the live building and economy untouched.
 - **Early wood economy is easier to get started (#134):** The Lumber Camp now costs much less wood, so players can establish wood income without spending most of their starting wood on the first camp.
