@@ -127,9 +127,6 @@ export async function applyAdaptiveTerrainVisuals(
     stone: 'terrain_stone',
   };
 
-  const biomeColor = new Map(
-    TERRAIN_CONFIG.BIOMES.map((biome) => [biome.label, biome.color] as const),
-  );
   // Pattern is authored in backing-raster pixels. Scaling the final sprite back
   // to full world size restores the canonical TEX_PERIOD in world coordinates.
   const patternPeriod = Math.max(24, Math.round(TERRAIN_CONFIG.TEX_PERIOD * profile.renderScale));
