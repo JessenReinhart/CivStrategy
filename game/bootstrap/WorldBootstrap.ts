@@ -1,5 +1,8 @@
 import Phaser from 'phaser';
 
+import { MAP_SIZES } from '../../constants';
+import { MapMode, MapSize } from '../../types';
+import { LoadingWorkProgress, yieldToBrowser } from '../../utils/gameLoading';
 import { MainScene } from '../MainScene';
 import { Pathfinder } from '../systems/Pathfinder';
 import { EntityFactory } from '../systems/EntityFactory';
@@ -25,8 +28,8 @@ import { TerrainSystem } from '../systems/TerrainSystem';
 import { InfiniteMapSystem } from '../systems/InfiniteMapSystem';
 import { SpatialHash } from '../utils/SpatialHash';
 import { createSeededRandom } from '../utils/seededRandom';
-import { MapMode } from '../../types';
-import { LoadingWorkProgress, yieldToBrowser } from '../../utils/gameLoading';
+import { applyAdaptiveTerrainTextureDetailPass } from './AdaptiveTerrainTextureDetailPass';
+import { applyAdaptiveTerrainVisuals } from './AdaptiveTerrainVisualBootstrap';
 import { installLegacyVillagerSpawnBridge } from './VillagerSpawnBridge';
 
 export interface WorldBootstrapProgress extends LoadingWorkProgress {
@@ -184,14 +187,23 @@ export class WorldBootstrap {
     });
     await yieldToBrowser();
 
-    await scene.terrainSystem.applyVisualTintingAsync((work) => {
+    const reportPaintingProgress = (work: LoadingWorkProgress) => {
       const ratio = work.total > 0 ? work.processed / work.total : 0;
       onProgress?.({
         ...work,
         progress: 0.38 + ratio * 0.52,
         phase: 'Painting terrain',
       });
-    });
+    };
+
+    // Full-resolution gameplay terrain is always preserved. Large/Huge only
+    // reduce the visual raster so peak browser/GPU memory remains bounded.
+    if (scene.mapWidth >= MAP_SIZES[MapSize.LARGE]) {
+      await applyAdaptiveTerrainVisuals(scene, reportPaintingProgress);
+      await applyAdaptiveTerrainTextureDetailPass(scene, reportPaintingProgress);
+    } else {
+      await scene.terrainSystem.applyVisualTintingAsync(reportPaintingProgress);
+    }
 
     onProgress?.({
       progress: 0.94,

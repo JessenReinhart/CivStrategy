@@ -6,14 +6,24 @@ import { handlePlayerTrainingRequest } from './playerTrainingRequest';
 
 export class PlayerMainScene extends MainScene {
   override create(): void {
-    void bootstrapPlayerScene(this).catch((error: unknown) => {
-      console.error('[PlayerMainScene] World bootstrap failed:', error);
-      dispatchGameLoadProgress({
-        progress: 0.99,
-        phase: 'World generation failed',
-        detail: error instanceof Error ? error.message : 'Unexpected startup error',
+    // React owns the loading UI. Rendering the half-built Phaser world during
+    // every cooperative yield wastes the main thread and can freeze low-memory
+    // browsers even though generation itself is time-sliced. Keep this scene
+    // out of the render pass until bootstrap has completed.
+    this.scene.setVisible(false);
+
+    void bootstrapPlayerScene(this)
+      .then(() => {
+        this.scene.setVisible(true);
+      })
+      .catch((error: unknown) => {
+        console.error('[PlayerMainScene] World bootstrap failed:', error);
+        dispatchGameLoadProgress({
+          progress: 0.99,
+          phase: 'World generation failed',
+          detail: error instanceof Error ? error.message : 'Unexpected startup error',
+        });
       });
-    });
   }
 
   override update(time: number, delta: number): void {

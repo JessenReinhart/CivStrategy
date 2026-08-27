@@ -6,7 +6,23 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const PORT = 4175;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
-const MAX_MAIN_THREAD_GAP_MS = 1_500;
+// Loading duration is intentionally NOT the product contract. A long load is
+// acceptable, but one event-loop stall long enough to freeze the browser is not.
+// Long Task API is the precise blocking signal. The interval heartbeat is a
+// deliberately coarser watchdog because CI timer scheduling has measurable jitter.
+const MAX_LONG_TASK_MS = 250;
+const MAX_HEARTBEAT_GAP_MS = 400;
+const MAX_TERRAIN_RASTER_PIXELS = 9_100_000;
+const REQUIRED_TERRAIN_TEXTURES = [
+  'terrain_sand',
+  'terrain_swamp',
+  'terrain_grass',
+  'terrain_jungle',
+  'terrain_forest',
+  'terrain_tundra',
+  'terrain_scrub',
+  'terrain_stone',
+];
 
 const server = spawn(
   process.execPath,
@@ -74,6 +90,8 @@ try {
       maxGapMs: 0,
       heartbeatTicks: 0,
       progress: [],
+      longTasks: [],
+      longTaskObserverActive: false,
       ready: false,
     };
     window.__largeMapLoadingTelemetry = telemetry;
@@ -86,6 +104,21 @@ try {
       }
       telemetry.lastHeartbeatAt = now;
     }, 16);
+
+    if ('PerformanceObserver' in window) {
+      try {
+        const observer = new PerformanceObserver((list) => {
+          if (!telemetry.tracking) return;
+          for (const entry of list.getEntries()) {
+            telemetry.longTasks.push({ duration: entry.duration, at: entry.startTime });
+          }
+        });
+        observer.observe({ entryTypes: ['longtask'] });
+        telemetry.longTaskObserverActive = true;
+      } catch {
+        // Heartbeat telemetry remains authoritative when longtask is unavailable.
+      }
+    }
 
     window.addEventListener('game-load-progress', (event) => {
       if (!telemetry.tracking) return;
@@ -118,16 +151,42 @@ try {
     const game = window.__civStrategyGame;
     const scene = game?.scene?.getScene?.('MainScene');
     return Boolean(telemetry?.ready && scene?.isReady);
-  }, undefined, { timeout: 90_000 });
+  }, undefined, { timeout: 180_000 });
 
   phase = 'measurement';
-  const measured = await page.evaluate(() => {
+  const measured = await page.evaluate((requiredTerrainTextures) => {
     const telemetry = window.__largeMapLoadingTelemetry;
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
     const structuredProgress = telemetry.progress;
     const phases = [...new Set(structuredProgress.map((entry) => entry.phase))];
     const lastProgress = structuredProgress.at(-1);
+    const terrainTexture = scene.textures.get('_terrainTint');
+    const terrainSource = terrainTexture?.getSourceImage?.();
+    const terrainRasterWidth = terrainSource?.width ?? 0;
+    const terrainRasterHeight = terrainSource?.height ?? 0;
+    const terrainTextureSources = requiredTerrainTextures.map((key) => {
+      const exists = scene.textures.exists(key);
+      const texture = exists ? scene.textures.get(key) : null;
+      const source = texture?.getSourceImage?.();
+      return {
+        key,
+        exists,
+        width: source?.width ?? 0,
+        height: source?.height ?? 0,
+      };
+    });
+    const longestLongTaskMs = telemetry.longTasks.reduce(
+      (longest, entry) => Math.max(longest, entry.duration),
+      0,
+    );
+    const memory = performance.memory
+      ? {
+          usedJSHeapSize: performance.memory.usedJSHeapSize,
+          totalJSHeapSize: performance.memory.totalJSHeapSize,
+          jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
+        }
+      : null;
 
     return {
       mapWidth: scene.mapWidth,
@@ -135,15 +194,22 @@ try {
       isReady: scene.isReady,
       durationMs: telemetry.completedAt - telemetry.startedAt,
       maxGapMs: telemetry.maxGapMs,
+      longestLongTaskMs,
+      longTaskObserverActive: telemetry.longTaskObserverActive,
       heartbeatTicks: telemetry.heartbeatTicks,
       progressEvents: structuredProgress.length,
       phases,
       lastProgress,
+      terrainRasterWidth,
+      terrainRasterHeight,
+      terrainRasterPixels: terrainRasterWidth * terrainRasterHeight,
+      terrainTextureSources,
+      memory,
       hasRealtimeCounters: structuredProgress.some((entry) => (
         typeof entry.processed === 'number' && typeof entry.total === 'number' && entry.total > 1
       )),
     };
-  });
+  }, REQUIRED_TERRAIN_TEXTURES);
 
   phase = 'camera-input';
   const cameraBeforeInput = await page.evaluate(() => {
@@ -185,6 +251,9 @@ try {
     'Realm ready',
   ];
   const missingPhases = requiredPhases.filter((requiredPhase) => !result.phases.includes(requiredPhase));
+  const missingTerrainTextures = result.terrainTextureSources.filter((texture) => (
+    !texture.exists || texture.width <= 0 || texture.height <= 0
+  ));
 
   if (result.mapWidth !== 4096 || result.mapHeight !== 4096) {
     throw new Error(`Large map did not initialize at 4096×4096: ${result.mapWidth}×${result.mapHeight}`);
@@ -199,13 +268,31 @@ try {
   if (result.lastProgress?.progress !== 1) {
     throw new Error(`Final structured loading progress was ${result.lastProgress?.progress ?? 'missing'}, expected 1.`);
   }
-  if (result.heartbeatTicks < 5) {
+  if (result.heartbeatTicks < 20) {
     throw new Error(`Only ${result.heartbeatTicks} browser heartbeat ticks occurred during Large map loading.`);
   }
-  if (result.maxGapMs > MAX_MAIN_THREAD_GAP_MS) {
+  if (result.maxGapMs > MAX_HEARTBEAT_GAP_MS) {
     throw new Error(
-      `Large map loading blocked the browser main thread for ${result.maxGapMs.toFixed(1)}ms ` +
-      `(limit ${MAX_MAIN_THREAD_GAP_MS}ms).`,
+      `Large map loading heartbeat stalled for ${result.maxGapMs.toFixed(1)}ms ` +
+      `(coarse watchdog limit ${MAX_HEARTBEAT_GAP_MS}ms). Total load duration is not capped.`,
+    );
+  }
+  if (result.longTaskObserverActive && result.longestLongTaskMs > MAX_LONG_TASK_MS) {
+    throw new Error(
+      `Large map loading emitted a ${result.longestLongTaskMs.toFixed(1)}ms long task ` +
+      `(blocking-task limit ${MAX_LONG_TASK_MS}ms).`,
+    );
+  }
+  if (result.terrainRasterPixels <= 0 || result.terrainRasterPixels > MAX_TERRAIN_RASTER_PIXELS) {
+    throw new Error(
+      `Large terrain raster is ${result.terrainRasterWidth}×${result.terrainRasterHeight} ` +
+      `(${result.terrainRasterPixels.toLocaleString()} px), expected <= ${MAX_TERRAIN_RASTER_PIXELS.toLocaleString()} px.`,
+    );
+  }
+  if (missingTerrainTextures.length > 0) {
+    throw new Error(
+      `Large terrain texture sources are missing or empty: ${missingTerrainTextures.map((texture) => texture.key).join(', ')}. ` +
+      'Do not silently replace biome textures with flat fallback colors.',
     );
   }
   if (result.cameraAfterInput <= result.cameraBeforeInput) {
