@@ -37,7 +37,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
 
   const clearWorkforceSelection = () => {
     if (!selectedVillager) return;
-    setSelectionRing(selectedVillager, false);
+    if (selectedVillager.visual?.active) setSelectionRing(selectedVillager, false);
     selectedVillager = null;
   };
 
@@ -135,9 +135,17 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
   };
 
+  const handleSceneUpdate = () => {
+    if (!selectedVillager) return;
+    if (!scene.villagerSystem.getAllVillagers().includes(selectedVillager)) {
+      clearWorkforceAndEmit();
+    }
+  };
+
   const keyboard = scene.input.keyboard;
   scene.input.on('pointerup', handleLeftPointerUp);
   scene.input.on('pointerdown', handleRightPointerDown);
+  scene.events.on(Phaser.Scenes.Events.UPDATE, handleSceneUpdate);
   scene.game.events.on('clear-selection', clearWorkforceAndEmit);
   keyboard?.on('keydown-ESC', clearWorkforceAndEmit);
 
@@ -145,6 +153,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     clearWorkforceSelection();
     scene.input.off('pointerup', handleLeftPointerUp);
     scene.input.off('pointerdown', handleRightPointerDown);
+    scene.events.off(Phaser.Scenes.Events.UPDATE, handleSceneUpdate);
     scene.game.events.off('clear-selection', clearWorkforceAndEmit);
     keyboard?.off('keydown-ESC', clearWorkforceAndEmit);
   });
