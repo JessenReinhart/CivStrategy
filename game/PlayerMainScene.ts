@@ -3,8 +3,16 @@ import { dispatchGameLoadProgress } from '../utils/gameLoading';
 import { bootstrapPlayerScene } from './bootstrap/PlayerSceneBootstrap';
 import { MainScene } from './MainScene';
 import { handlePlayerTrainingRequest } from './playerTrainingRequest';
+import { treatyMinutesToMilliseconds } from './treatyDuration';
 
 export class PlayerMainScene extends MainScene {
+  override init(data: Parameters<MainScene['init']>[0]): void {
+    super.init(data);
+    // Match setup's public contract: treatyLength is supplied in minutes,
+    // while combat systems consume the live scene value in milliseconds.
+    this.treatyLength = treatyMinutesToMilliseconds(data.treatyLength);
+  }
+
   override create(): void {
     // React owns the loading UI. Rendering the half-built Phaser world during
     // every cooperative yield wastes the main thread and can freeze low-memory
