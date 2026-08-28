@@ -18,11 +18,11 @@ const AMBIENT_DEPTH = 19000;
 const SHADOW_BUFFER_PADDING_PX = 192;
 const SHADOW_BUFFER_RESOLUTION = 0.5;
 const MIN_VISIBLE_SHADOW_ALPHA = 0.005;
-const BUILDING_CONTACT_ALPHA = 0.16;
+const BUILDING_CONTACT_ALPHA = 0.18;
 const TREE_CONTACT_ALPHA = 0.11;
 const CONTACT_SHADOW_KEY = 'day-night-contact-shadow';
 const SHADOW_BUFFER_PREFIX = 'day-night-shadow-buffer-';
-const SHADOW_COLOR = '#101722';
+const SHADOW_RGB = '16, 23, 34';
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -39,6 +39,21 @@ interface ShadowBufferLayout {
 interface ShadowBuffer {
   image: Phaser.GameObjects.Image;
   texture: Phaser.Textures.CanvasTexture;
+}
+
+interface SpriteGroundProfile {
+  /** Horizontal offsets normalized by the sprite source width. */
+  leftUnit: number;
+  rightUnit: number;
+  /** Vertical offset from originY, normalized by source width. */
+  yUnit: number;
+}
+
+interface BuildingGroundEdge {
+  leftX: number;
+  rightX: number;
+  y: number;
+  width: number;
 }
 
 export interface DayNightDiagnostics {
@@ -74,14 +89,16 @@ export interface DayNightDiagnostics {
  * Render-only day/night lighting for the isometric world.
  *
  * Building silhouettes and contact shadows are stamped into a pair of padded,
- * half-resolution canvas textures. This preserves the old five-Hz redraw
- * budget while avoiding a live shadow object or shader per caster.
+ * half-resolution canvas textures. Building cast shadows are anchored to the
+ * actual opaque sprite span around each sprite's configured ground origin, so
+ * roofs and transparent padding no longer decide where the shadow begins.
  */
 export class DayNightSystem {
   private readonly scene: MainScene;
   private readonly shadowBuffers: readonly [ShadowBuffer, ShadowBuffer];
   private readonly ambientOverlay: Phaser.GameObjects.Rectangle;
   private readonly generatedTextureKeys: string[] = [];
+  private readonly spriteGroundProfileCache = new Map<string, SpriteGroundProfile>();
   private currentBufferIndex = 0;
   private previousBufferIndex = 1;
   private crossfadeStartedAt = Number.NEGATIVE_INFINITY;
@@ -220,10 +237,6 @@ export class DayNightSystem {
     const image = this.scene.add.image(0, 0, key)
       .setOrigin(0, 0)
       .setDepth(SHADOW_DEPTH)
-      // CanvasTexture's transparent pixels are not neutral under MULTIPLY in
-      // WebGL, which tints the complete camera-sized quad. The shadow art is
-      // already blue-black and alpha-composited, so normal blending preserves
-      // transparency outside each stamp.
       .setBlendMode(Phaser.BlendModes.NORMAL)
       .setAlpha(0);
     return { image, texture };
@@ -242,7 +255,7 @@ export class DayNightSystem {
     const ctx = canvas.context;
     const gradient = ctx.createRadialGradient(size / 2, size / 4, 2, size / 2, size / 4, size / 2);
     gradient.addColorStop(0, 'rgba(16, 23, 34, 0.90)');
-    gradient.addColorStop(0.44, 'rgba(16, 23, 34, 0.56)');
+    gradient.addColorStop(0.46, 'rgba(16, 23, 34, 0.46)');
     gradient.addColorStop(1, 'rgba(16, 23, 34, 0)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size / 2);
@@ -299,8 +312,7 @@ export class DayNightSystem {
     const nextBuffer = this.shadowBuffers[nextBufferIndex];
     const layout = this.layoutShadowBuffer(nextBuffer);
     const bufferContext = nextBuffer.texture.context;
-    // Explicit transparent reset prevents stale CanvasTexture pixels from
-    // surviving a resize/crossfade as a camera-sized dark rectangle.
+
     bufferContext.save();
     bufferContext.globalCompositeOperation = 'copy';
     bufferContext.fillStyle = 'rgba(0, 0, 0, 0)';
@@ -376,25 +388,147 @@ export class DayNightSystem {
 
       const def = building.getData('def') as BuildingDef | undefined;
       if (!def) continue;
-      const footprint = Math.max(16, Math.max(def.width, def.height));
       const config = BUILDING_SPRITE_VISUALS[def.type];
-      const renderedWidth = config ? def.width * config.scaleMultiplier : footprint;
-      const baseX = visual.x;
-      const baseY = visual.y;
-      this.stampBuildingContact(buffer, layout, baseX, baseY, renderedWidth, BUILDING_CONTACT_ALPHA * visual.alpha);
+      if (!config) continue;
+
+      const groundEdge = this.resolveBuildingGroundEdge(visual, def, config.key, config.scaleMultiplier, config.originY);
+      const centerX = (groundEdge.leftX + groundEdge.rightX) * 0.5;
+      this.stampContact(
+        buffer,
+        layout,
+        centerX,
+        groundEdge.y + 1.5,
+        groundEdge.width * 0.92,
+        Math.max(5, groundEdge.width * 0.13),
+        BUILDING_CONTACT_ALPHA * visual.alpha,
+      );
       this.lastStampedBuildingContacts++;
 
       if (state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA || state.shadowLength <= 0) continue;
-      if (!config) continue;
       const projection = calculateShadowProjection({
         shadowAngleRad: state.shadowAngleRad,
         shadowLength: state.shadowLength,
         shadowHeightScale: config.shadowHeightScale,
       });
-      this.stampBuildingProjection(buffer, layout, baseX, baseY, renderedWidth, projection, state.shadowAlpha * visual.alpha);
-      this.lastStampedBuildingSilhouettes += 4;
+      this.stampBuildingProjection(buffer, layout, groundEdge, projection, state.shadowAlpha * visual.alpha);
+      this.lastStampedBuildingSilhouettes++;
       this.lastDrawnBuildings++;
     }
+  }
+
+  private resolveBuildingGroundEdge(
+    visual: Phaser.GameObjects.Container,
+    def: BuildingDef,
+    textureKey: string,
+    scaleMultiplier: number,
+    originY: number,
+  ): BuildingGroundEdge {
+    const renderedWidth = Math.max(16, def.width * scaleMultiplier);
+    const profile = this.getSpriteGroundProfile(textureKey, originY);
+    const leftX = visual.x + profile.leftUnit * renderedWidth;
+    const rightX = visual.x + profile.rightUnit * renderedWidth;
+    const y = visual.y + profile.yUnit * renderedWidth;
+    const rawWidth = Math.abs(rightX - leftX);
+
+    if (rawWidth >= renderedWidth * 0.22) {
+      return { leftX, rightX, y, width: rawWidth };
+    }
+
+    // Very narrow scan results usually mean the chosen row hit a pole/banner
+    // rather than the visible foundation. Fall back to a restrained central
+    // span, still substantially tighter than using the whole sprite width.
+    const fallbackHalf = renderedWidth * 0.34;
+    return {
+      leftX: visual.x - fallbackHalf,
+      rightX: visual.x + fallbackHalf,
+      y: visual.y,
+      width: fallbackHalf * 2,
+    };
+  }
+
+  private getSpriteGroundProfile(textureKey: string, originY: number): SpriteGroundProfile {
+    const cacheKey = `${textureKey}:${originY.toFixed(3)}`;
+    const cached = this.spriteGroundProfileCache.get(cacheKey);
+    if (cached) return cached;
+
+    const fallback: SpriteGroundProfile = { leftUnit: -0.34, rightUnit: 0.34, yUnit: 0 };
+    if (!this.scene.textures.exists(textureKey)) {
+      this.spriteGroundProfileCache.set(cacheKey, fallback);
+      return fallback;
+    }
+
+    try {
+      const source = this.scene.textures.get(textureKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+      const naturalWidth = (source as HTMLImageElement).naturalWidth || source.width;
+      const naturalHeight = (source as HTMLImageElement).naturalHeight || source.height;
+      if (naturalWidth <= 0 || naturalHeight <= 0) {
+        this.spriteGroundProfileCache.set(cacheKey, fallback);
+        return fallback;
+      }
+
+      const scratch = document.createElement('canvas');
+      scratch.width = naturalWidth;
+      scratch.height = naturalHeight;
+      const ctx = scratch.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        this.spriteGroundProfileCache.set(cacheKey, fallback);
+        return fallback;
+      }
+
+      ctx.clearRect(0, 0, naturalWidth, naturalHeight);
+      ctx.drawImage(source, 0, 0, naturalWidth, naturalHeight);
+      const pixels = ctx.getImageData(0, 0, naturalWidth, naturalHeight).data;
+      const anchorY = Phaser.Math.Clamp(Math.round(originY * (naturalHeight - 1)), 0, naturalHeight - 1);
+      const radius = Math.max(2, Math.round(naturalHeight * 0.045));
+      const yStart = Math.max(0, anchorY - radius);
+      const yEnd = Math.min(naturalHeight - 1, anchorY + radius);
+
+      let bestMinX = naturalWidth;
+      let bestMaxX = -1;
+      let bestY = anchorY;
+      let bestScore = Number.NEGATIVE_INFINITY;
+
+      for (let y = yStart; y <= yEnd; y++) {
+        let minX = naturalWidth;
+        let maxX = -1;
+        let opaqueCount = 0;
+        const rowOffset = y * naturalWidth * 4;
+        for (let x = 0; x < naturalWidth; x++) {
+          if (pixels[rowOffset + x * 4 + 3] <= 24) continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          opaqueCount++;
+        }
+        if (maxX < minX) continue;
+
+        const span = maxX - minX + 1;
+        // Prefer a broad foundation row but keep the selected row close to the
+        // artist-tuned originY so roof eaves in the search band cannot win.
+        const score = span + opaqueCount * 0.05 - Math.abs(y - anchorY) * naturalWidth * 0.012;
+        if (score > bestScore) {
+          bestScore = score;
+          bestMinX = minX;
+          bestMaxX = maxX;
+          bestY = y;
+        }
+      }
+
+      if (bestMaxX >= bestMinX) {
+        const profile: SpriteGroundProfile = {
+          leftUnit: (bestMinX - naturalWidth * 0.5) / naturalWidth,
+          rightUnit: (bestMaxX - naturalWidth * 0.5) / naturalWidth,
+          yUnit: (bestY - originY * naturalHeight) / naturalWidth,
+        };
+        this.spriteGroundProfileCache.set(cacheKey, profile);
+        return profile;
+      }
+    } catch {
+      // Pixel reads are an enhancement, not a hard dependency. The fallback
+      // keeps shadows usable if a browser blocks a source canvas read.
+    }
+
+    this.spriteGroundProfileCache.set(cacheKey, fallback);
+    return fallback;
   }
 
   private drawTreeContacts(buffer: ShadowBuffer, layout: ShadowBufferLayout): void {
@@ -410,71 +544,69 @@ export class DayNightSystem {
     }
   }
 
-  private stampBuildingContact(
-    buffer: ShadowBuffer,
-    layout: ShadowBufferLayout,
-    worldX: number,
-    worldY: number,
-    width: number,
-    alpha: number,
-  ): void {
-    const halfWidth = width * 0.5;
-    const halfHeight = width * 0.14;
-    this.fillGroundPolygon(buffer, layout, [
-      { x: worldX - halfWidth, y: worldY },
-      { x: worldX, y: worldY - halfHeight },
-      { x: worldX + halfWidth, y: worldY },
-      { x: worldX, y: worldY + halfHeight },
-    ], alpha);
-  }
-
   private stampBuildingProjection(
     buffer: ShadowBuffer,
     layout: ShadowBufferLayout,
-    worldX: number,
-    worldY: number,
-    width: number,
+    groundEdge: BuildingGroundEdge,
     projection: ReturnType<typeof calculateShadowProjection>,
     alpha: number,
   ): void {
-    const startHalfWidth = width * 0.5;
-    const endHalfWidth = startHalfWidth * 0.62;
-    const drawSegment = (start: number, end: number, opacity: number): void => {
-      const halfWidthAt = (progress: number) => startHalfWidth + (endHalfWidth - startHalfWidth) * progress;
-      const startX = worldX + projection.directionX * projection.length * start;
-      const startY = worldY + projection.directionY * projection.length * start;
-      const endX = worldX + projection.directionX * projection.length * end;
-      const endY = worldY + projection.directionY * projection.length * end;
-      this.fillGroundPolygon(buffer, layout, [
-        { x: startX - halfWidthAt(start), y: startY },
-        { x: startX + halfWidthAt(start), y: startY },
-        { x: endX + halfWidthAt(end), y: endY },
-        { x: endX - halfWidthAt(end), y: endY },
-      ], alpha * opacity);
-    };
+    if (projection.length <= 0 || alpha <= 0) return;
 
-    // One footprint-attached trapezoid, split only along its length: darkest
-    // at the wall, then progressively lighter toward the distant edge.
-    drawSegment(0, 0.42, 0.95);
-    drawSegment(0.42, 0.74, 0.35);
-    drawSegment(0.74, 1.06, 0.10);
+    const startCenterX = (groundEdge.leftX + groundEdge.rightX) * 0.5;
+    const startCenterY = groundEdge.y;
+    const endCenterX = startCenterX + projection.directionX * projection.length;
+    const endCenterY = startCenterY + projection.directionY * projection.length;
+    const endHalfWidth = groundEdge.width * 0.34;
+
+    const points = [
+      { x: groundEdge.leftX, y: groundEdge.y },
+      { x: groundEdge.rightX, y: groundEdge.y },
+      { x: endCenterX + endHalfWidth, y: endCenterY },
+      { x: endCenterX - endHalfWidth, y: endCenterY },
+    ];
+
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      points,
+      { x: startCenterX, y: startCenterY },
+      { x: endCenterX, y: endCenterY },
+      alpha,
+    );
   }
 
-  private fillGroundPolygon(
+  private fillGradientGroundPolygon(
     buffer: ShadowBuffer,
     layout: ShadowBufferLayout,
     points: readonly { x: number; y: number }[],
+    gradientStart: { x: number; y: number },
+    gradientEnd: { x: number; y: number },
     alpha: number,
   ): void {
     if (alpha <= 0) return;
     const ctx = buffer.texture.context;
+    const toBufferX = (worldX: number) => (worldX - layout.left) * layout.pixelsPerWorld;
+    const toBufferY = (worldY: number) => (worldY - layout.top) * layout.pixelsPerWorld;
+    const startX = toBufferX(gradientStart.x);
+    const startY = toBufferY(gradientStart.y);
+    const endX = toBufferX(gradientEnd.x);
+    const endY = toBufferY(gradientEnd.y);
+
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = SHADOW_COLOR;
+    ctx.filter = 'blur(1px)';
+    const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
+    gradient.addColorStop(0, `rgba(${SHADOW_RGB}, 0.94)`);
+    gradient.addColorStop(0.12, `rgba(${SHADOW_RGB}, 0.82)`);
+    gradient.addColorStop(0.48, `rgba(${SHADOW_RGB}, 0.40)`);
+    gradient.addColorStop(0.78, `rgba(${SHADOW_RGB}, 0.15)`);
+    gradient.addColorStop(1, `rgba(${SHADOW_RGB}, 0)`);
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.moveTo((points[0].x - layout.left) * layout.pixelsPerWorld, (points[0].y - layout.top) * layout.pixelsPerWorld);
+    ctx.moveTo(toBufferX(points[0].x), toBufferY(points[0].y));
     for (let index = 1; index < points.length; index++) {
-      ctx.lineTo((points[index].x - layout.left) * layout.pixelsPerWorld, (points[index].y - layout.top) * layout.pixelsPerWorld);
+      ctx.lineTo(toBufferX(points[index].x), toBufferY(points[index].y));
     }
     ctx.closePath();
     ctx.fill();
@@ -520,6 +652,7 @@ export class DayNightSystem {
     this.shadowBuffers[0].image.destroy();
     this.shadowBuffers[1].image.destroy();
     this.ambientOverlay.destroy();
+    this.spriteGroundProfileCache.clear();
     for (const textureKey of this.generatedTextureKeys) this.scene.textures.remove(textureKey);
 
     if (this.scene.data.get('dayNightSystem') === this) {
