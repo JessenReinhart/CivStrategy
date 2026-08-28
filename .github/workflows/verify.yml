@@ -54,6 +54,9 @@ jobs:
       - name: Browser placement journey
         run: npm run test:placement-journey
 
+      - name: Browser building demolition journey
+        run: node scripts/building-demolition-journey.mjs
+
       - name: Browser villager gathering journey
         run: npm run test:villager-gather-journey
 
