@@ -1,9 +1,11 @@
 export interface StressUrlConfig {
-  unitCount: number;
+  unitCount?: number;
   enableEnemies?: boolean;
+  city?: boolean;
+  density?: 'high' | 'medium' | 'low';
 }
 
-const STRESS_QUERY_KEYS = ['stress', 'enableEnemies', 'enemies'] as const;
+const STRESS_QUERY_KEYS = ['stress', 'enableEnemies', 'enemies', 'density'] as const;
 
 export const stripStressUrlParams = (search: string): string => {
   const params = new URLSearchParams(search);
@@ -31,25 +33,28 @@ export const scheduleStressUrlBootstrap = (
   enabled: boolean = import.meta.env.DEV,
 ): (() => void) => {
   if (!enabled) {
-    // Stress URLs are profiling/debug tooling. Strip them before MainScene can
-    // observe its legacy URL fallback during a later production game start.
     removeProductionStressParams();
     return () => undefined;
   }
 
   const params = new URLSearchParams(search);
-  const stressCount = parseInt(params.get('stress') || '0', 10);
+  const stressParam = params.get('stress') ?? '';
+  if (stressParam.toLowerCase() === 'city') {
+    const requestedDensity = params.get('density');
+    const density: 'high' | 'medium' | 'low' = requestedDensity === 'low' || requestedDensity === 'medium' || requestedDensity === 'high'
+      ? requestedDensity
+      : 'high';
+    const timeoutId = setTimeout(() => onStart({ city: true, density }), 0);
+    return () => clearTimeout(timeoutId);
+  }
 
-  if (stressCount <= 0) return () => undefined;
+  const stressCount = parseInt(stressParam, 10);
+  if (Number.isNaN(stressCount) || stressCount <= 0) return () => undefined;
 
   const timeoutId = setTimeout(() => {
     onStart({
       unitCount: stressCount,
-      // `enableEnemies` is the documented stress-mode flag used by MainScene.
-      // Keep the shorter `enemies` spelling as a compatibility alias for links
-      // created while the React bootstrap briefly used that parameter instead.
-      enableEnemies:
-        params.get('enableEnemies') === 'true' || params.get('enemies') === 'true',
+      enableEnemies: params.get('enableEnemies') === 'true' || params.get('enemies') === 'true',
     });
   }, 0);
 

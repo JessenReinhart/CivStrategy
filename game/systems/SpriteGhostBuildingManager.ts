@@ -4,21 +4,7 @@ import { BuildingType } from '../../types';
 import { BUILDINGS } from '../../constants';
 import { toCartesian } from '../utils/iso';
 import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
-
-type SpriteVisualConfig = {
-    key: string;
-    scaleMultiplier: number;
-    originY: number;
-};
-
-const SPRITE_VISUALS: Partial<Record<BuildingType, SpriteVisualConfig>> = {
-    [BuildingType.FARM]: { key: 'field', scaleMultiplier: 1.3, originY: 0.5 },
-    [BuildingType.HOUSE]: { key: 'house', scaleMultiplier: 1.6, originY: 0.85 },
-    [BuildingType.HUNTERS_LODGE]: { key: 'lodge', scaleMultiplier: 1.6, originY: 0.75 },
-    [BuildingType.TOWN_CENTER]: { key: 'townhall', scaleMultiplier: 1.2, originY: 0.75 },
-    [BuildingType.BARRACKS]: { key: 'barracks', scaleMultiplier: 1.5, originY: 0.75 },
-    [BuildingType.LUMBER_CAMP]: { key: 'lumber', scaleMultiplier: 1.7, originY: 0.75 },
-};
+import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
 /**
  * Adds the same textured building visual used by placed structures to the
@@ -37,7 +23,7 @@ export class SpriteGhostBuildingManager extends BuildingManager {
         super.enterBuildMode(buildingType);
 
         const preview = this.previewBuilding;
-        const config = SPRITE_VISUALS[buildingType];
+        const config = BUILDING_SPRITE_VISUALS[buildingType];
         if (!preview || !config || !this.ghostScene.textures.exists(config.key)) return;
 
         const def = BUILDINGS[buildingType];

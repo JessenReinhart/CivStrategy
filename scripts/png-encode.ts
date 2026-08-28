@@ -112,8 +112,8 @@ function deflateNoop(input: Uint8Array): Uint8Array {
 }
 
 function write16(buf: Uint8Array, off: number, v: number) {
-  buf[off] = (v >> 8) & 0xff;
-  buf[off + 1] = v & 0xff;
+  buf[off] = v & 0xff;
+  buf[off + 1] = (v >> 8) & 0xff;
 }
 
 function adler32(data: Uint8Array): number {

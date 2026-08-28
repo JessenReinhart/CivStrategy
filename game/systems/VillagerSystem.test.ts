@@ -24,7 +24,7 @@ vi.mock('../MainScene', () => ({
     MainScene: class {},
 }));
 
-import { VillagerSystem } from './VillagerSystem';
+import { facingFromMovement, VillagerSystem } from './VillagerSystem';
 import type { VillagerData } from '../../types';
 import type { MainScene } from '../MainScene';
 
@@ -149,6 +149,15 @@ describe('VillagerSystem worker path handoff', () => {
 
         expect(villager.state).toBe(IDLE);
         expect(villager.rallyPoint).toBeUndefined();
+    });
+});
+
+describe('facingFromMovement', () => {
+    it('uses four cardinal views based on the dominant travel axis', () => {
+        expect(facingFromMovement(10, 1)).toBe('east');
+        expect(facingFromMovement(-10, 1)).toBe('west');
+        expect(facingFromMovement(1, 10)).toBe('south');
+        expect(facingFromMovement(1, -10)).toBe('north');
     });
 });
 

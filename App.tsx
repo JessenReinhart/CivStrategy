@@ -9,6 +9,7 @@ import { EVENTS, INITIAL_RESOURCES } from './constants';
 import { addResearchWindowListener } from './utils/researchWindowListener';
 import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
 import { scheduleStressUrlBootstrap } from './utils/stressUrlBootstrap';
+import type { StressUrlConfig } from './utils/stressUrlBootstrap';
 import {
   GAME_LOADING_EVENTS,
   INITIAL_GAME_LOAD_PROGRESS,
@@ -16,10 +17,7 @@ import {
 } from './utils/gameLoading';
 import Phaser from 'phaser';
 
-interface StressTestConfig {
-  unitCount: number;
-  enableEnemies?: boolean;
-}
+type StressTestConfig = StressUrlConfig;
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');

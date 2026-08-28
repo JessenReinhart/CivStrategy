@@ -306,26 +306,12 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     scene.economySystem.updateStats();
   }, scene);
 
-  if (scene.stressTestConfig) {
-    const config = scene.stressTestConfig;
-    const peacefulStress = !config.enableEnemies;
-    scene.waterAnimationEnabled = false;
-    scene.atmosphericSystem.setPostFXEnabled(false);
-    scene.terrainSystem.visualSprite?.setVisible(false);
-    scene.groundLayer.setVisible(false);
-    internal.waterDepthSprite?.setVisible(false);
-    internal.waterWaveSprite?.setVisible(false);
-    scene.setupStressTest();
-    if (peacefulStress) {
-      const stressDot = scene.squadSystem.lodDotBlitter;
-      scene.worldLayer.removeAll(false);
-      scene.worldLayer.add(stressDot);
-    }
-  }
-
+  // UI camera + group MUST exist before stress setup: EntityFactory.spawnBuilding
+  // adds UI-only icons (vacantIcon/noResIcon) to scene.uiGroup for buildings with
+  // workerNeeds/effectRadius (HOUSE/MARKET/LUMBER_CAMP/FARM/HUNTERS_LODGE/...).
   scene.uiGroup = scene.add.group({ runChildUpdate: true });
   scene.uiCamera = scene.cameras.add(0, 0, scene.scale.width, scene.scale.height);
-  if (scene.stressTestConfig) {
+  if (scene.stressTestConfig && scene.stressTestConfig.city !== true) {
     scene.uiCamera.visible = false;
     scene.fogOfWar?.screenRT.setVisible(false);
     scene.atmosphericSystem.clouds.forEach((cloud) => cloud.setVisible(false));
@@ -337,6 +323,28 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
   scene.uiCamera.ignore(scene.units);
   scene.uiCamera.ignore(scene.atmosphericSystem.clouds);
   if (scene.fogOfWar) scene.uiCamera.ignore(scene.fogOfWar.screenRT);
+
+  if (scene.stressTestConfig) {
+    const config = scene.stressTestConfig;
+    const isCityStress = config.city === true;
+    const peacefulStress = !config.enableEnemies && !isCityStress;
+    scene.waterAnimationEnabled = false;
+    scene.atmosphericSystem.setPostFXEnabled(false);
+    if (isCityStress) {
+      scene.setupCityStress();
+    } else {
+      scene.terrainSystem.visualSprite?.setVisible(false);
+      scene.groundLayer.setVisible(false);
+      internal.waterDepthSprite?.setVisible(false);
+      internal.waterWaveSprite?.setVisible(false);
+      scene.setupStressTest();
+      if (peacefulStress) {
+        const stressDot = scene.squadSystem.lodDotBlitter;
+        scene.worldLayer.removeAll(false);
+        scene.worldLayer.add(stressDot);
+      }
+    }
+  }
 
   scene.game.events.on(EVENTS.ADVANCE_AGE, () => scene.startAgeAdvancement());
   scene.game.events.on(EVENTS.START_RESEARCH, (techId: TechId) => {

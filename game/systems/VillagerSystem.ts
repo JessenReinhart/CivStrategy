@@ -21,6 +21,19 @@ const WOOD_GATHER_AMOUNT_PER_TICK = 2;
 const WOOD_CARRY_CAPACITY = 20;
 
 type PathResult = 'moving' | 'arrived' | 'unreachable';
+type VillagerFacing = 'north' | 'south' | 'east' | 'west';
+
+const VILLAGER_FACING_TEXTURES: Record<VillagerFacing, string> = {
+    north: 'villager_north',
+    south: 'villager_south',
+    east: 'villager_east',
+    west: 'villager_west',
+};
+
+export function facingFromMovement(dx: number, dy: number): VillagerFacing {
+    if (Math.abs(dx) > Math.abs(dy)) return dx >= 0 ? 'east' : 'west';
+    return dy >= 0 ? 'south' : 'north';
+}
 
 export class VillagerSystem {
     private scene: MainScene;
@@ -46,14 +59,18 @@ export class VillagerSystem {
         if (this.scene.worldLayer) this.scene.worldLayer.add(visual);
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
-        const gfx = this.scene.add.graphics();
         const primaryColor = this.scene.getFactionColor(owner);
-        gfx.fillStyle(primaryColor, 1).fillEllipse(0, 0, 10, 6);
+        const shadow = this.scene.add.graphics();
+        shadow.fillStyle(primaryColor, 0.35).fillEllipse(0, 0, 12, 6);
+        const sprite = this.scene.add.image(0, 0, VILLAGER_FACING_TEXTURES.south)
+            .setOrigin(0.5, 0.91)
+            .setScale(0.22);
         visual.add([
-            gfx,
-            this.scene.add.rectangle(0, -6, 4, 8, owner === 1 ? 0x18181b : 0x7CB342),
-            this.scene.add.circle(0, -11, 2.5, 0xffcccc),
+            shadow,
+            sprite,
         ]);
+        visual.setData('villagerSprite', sprite);
+        visual.setData('villagerFacing', 'south');
 
         if (!this.scene.worldLayer) this.scene.add.existing(visual);
 
@@ -130,6 +147,7 @@ export class VillagerSystem {
             } else {
                 const dt = delta / 1000;
                 const angle = Phaser.Math.Angle.Between(villager.x, villager.y, next.x, next.y);
+                this.updateFacing(villager, next.x - villager.x, next.y - villager.y);
                 villager.x += Math.cos(angle) * VILLAGER_SPEED * dt;
                 villager.y += Math.sin(angle) * VILLAGER_SPEED * dt;
                 this.syncVisual(villager);
@@ -153,6 +171,19 @@ export class VillagerSystem {
             // MOVING_TO_WORK should always own a path; assignJob resolves the
             // adjacent/unreachable one-point cases before entering this loop.
         }
+    }
+
+    private updateFacing(villager: VillagerData, dx: number, dy: number): void {
+        const visual = villager.visual;
+        if (!visual) return;
+
+        const facing = facingFromMovement(dx, dy);
+        if (visual.getData('villagerFacing') === facing) return;
+
+        const sprite = visual.getData('villagerSprite') as Phaser.GameObjects.Image | undefined;
+        if (!sprite) return;
+        sprite.setTexture(VILLAGER_FACING_TEXTURES[facing]);
+        visual.setData('villagerFacing', facing);
     }
 
     // ──────────────────────────────────────────────────────────────────────

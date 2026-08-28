@@ -10,7 +10,12 @@ import treeImg from '../assets/textures/tree.png';
 import stumpImg from '../assets/textures/stump.png';
 import houseImg from '../assets/textures/house.png';
 import lodgeImg from '../assets/textures/lodge.png';
-import smokeImg from '../assets/textures/smoke.png';
+import bonfireImg from '../assets/textures/bonfire.png';
+import parkImg from '../assets/textures/park.png';
+import marketImg from '../assets/textures/market.png';
+import cathedralImg from '../assets/textures/cathedral.png';
+import castleImg from '../assets/textures/castle.png';
+import wallImg from '../assets/textures/wall.png';
 import terrainSandImg from '../assets/textures/terrain_sand.png';
 import terrainSwampImg from '../assets/textures/terrain_swamp.png';
 import terrainGrassImg from '../assets/textures/terrain_grass.png';
@@ -20,17 +25,24 @@ import terrainTundraImg from '../assets/textures/terrain_tundra.png';
 import terrainScrubImg from '../assets/textures/terrain_scrub.png';
 import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
-import pikesmanImg from '../assets/textures/units/pikesman.png';
-import cavalryImg from '../assets/textures/units/cavalry.png';
-import legionImg from '../assets/textures/units/legion.png';
-import archerImg from '../assets/textures/units/archer.png';
-import slingerImg from '../assets/textures/units/slinger.png';
-import axemanImg from '../assets/textures/units/axeman.png';
-import hopliteImg from '../assets/textures/units/hoplite.png';
-import chariotImg from '../assets/textures/units/chariot.png';
-import ramImg from '../assets/textures/units/ram.png';
+import pikesmanImg from '../assets/textures/units/pikesman-faction.png';
+import cavalryImg from '../assets/textures/units/cavalry-faction.png';
+import legionImg from '../assets/textures/units/legion-faction.png';
+import archerImg from '../assets/textures/units/archer-faction.png';
+import slingerImg from '../assets/textures/units/slinger-faction.png';
+import axemanImg from '../assets/textures/units/axeman-faction.png';
+import hopliteImg from '../assets/textures/units/hoplite-faction.png';
+import chariotImg from '../assets/textures/units/chariot-faction.png';
+import ramImg from '../assets/textures/units/ram-faction.png';
+import unitIconsImg from '../assets/textures/unit-icons.png';
 import villagerUnitImg from '../assets/textures/units/villager.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
+import villagerSouthImg from '../assets/textures/units/villager-south.png';
+import villagerNorthImg from '../assets/textures/units/villager-north.png';
+import villagerEastImg from '../assets/textures/units/villager-east.png';
+import villagerWestImg from '../assets/textures/units/villager-west.png';
+import civilianAtlasImg from '../assets/textures/generated/civilian-atlas.png';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, BUILDINGS, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
+
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
 import { SpatialHash } from './utils/SpatialHash';
@@ -56,6 +68,7 @@ import { ProceduralSoundSystem } from './systems/ProceduralSoundSystem';
 import { ClashSystem } from './systems/ClashSystem';
 import { TerrainSystem } from './systems/TerrainSystem';
 import { ResearchManager } from './systems/ResearchManager';
+import { AmbientPopulationSystem } from './systems/AmbientPopulationSystem';
 import { LiquidCombatSystem } from './systems/LiquidCombatSystem';
 import { serializeGame, saveToLocalStorage, loadFromLocalStorage, deserializeGame, isPendingLoad, clearPendingLoad } from './systems/SaveSystem';
 import { createMainSceneSimulationBridge } from './runtime/MainSceneSimulationBridge';
@@ -158,6 +171,7 @@ export class MainScene extends Phaser.Scene {
   public villagerSystem!: VillagerSystem;
   public animalSystem!: AnimalSystem;
   public proceduralSound!: ProceduralSoundSystem;
+  public ambientSystem!: AmbientPopulationSystem;
   public clashSystem!: ClashSystem;
   public terrainSystem!: TerrainSystem;
   // Simulation runtime adapter — owns the per-frame simulation pipeline
@@ -198,6 +212,10 @@ export class MainScene extends Phaser.Scene {
     return 0xffffff;
   }
 
+  public getAmbientCitizenCount(): number {
+    return this.ambientSystem?.getCitizenCount() ?? 0;
+  }
+
   constructor() {
     super('MainScene');
   }
@@ -232,7 +250,13 @@ export class MainScene extends Phaser.Scene {
     this.load.image('unit_hoplite', hopliteImg);
     this.load.image('unit_chariot', chariotImg);
     this.load.image('unit_ram', ramImg);
+    this.load.spritesheet('unit-icons', unitIconsImg, { frameWidth: 48, frameHeight: 48 });
     this.load.image('unit_villager', villagerUnitImg);
+    this.load.image('villager_south', villagerSouthImg);
+    this.load.image('villager_north', villagerNorthImg);
+    this.load.image('villager_east', villagerEastImg);
+    this.load.image('villager_west', villagerWestImg);
+    this.load.image('civilian-atlas', civilianAtlasImg);
     this.load.image('terrain_jungle', terrainJungleImg);
     this.load.image('terrain_forest', terrainForestImg);
     this.load.image('terrain_tundra', terrainTundraImg);
@@ -241,30 +265,46 @@ export class MainScene extends Phaser.Scene {
     this.load.image('house', houseImg);
     this.load.image('barracks', barracksImg);
     this.load.image('lodge', lodgeImg);
-    this.load.image('smoke', smokeImg);
+    this.load.image('bonfire', bonfireImg);
+    this.load.image('park', parkImg);
+    this.load.image('market', marketImg);
+    this.load.image('cathedral', cathedralImg);
+    this.load.image('castle', castleImg);
+    this.load.image('wall', wallImg);
+
     this.load.image('waterFoam', waterFoamImg);
   }
 
-  public stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null = null;
+  public stressTestConfig: { unitCount?: number; enableEnemies?: boolean; city?: boolean; density?: 'high' | 'medium' | 'low' } | null = null;
 
-  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount: number; enableEnemies?: boolean } | null, mapSeed?: number, mapPreset?: MapPreset }) {
+
+  init(data: { faction?: FactionType, mapMode?: MapMode, fowEnabled?: boolean, peacefulMode?: boolean, treatyLength?: number, mapSize?: MapSize, aiDisabled?: boolean, stressTestConfig?: { unitCount?: number; enableEnemies?: boolean; city?: boolean; density?: 'high' | 'medium' | 'low' } | null, mapSeed?: number, mapPreset?: MapPreset }) {
     this.waterAnimationEnabled = true;
     this.faction = data.faction || FactionType.ROMANS;
     this.mapMode = data.mapMode || MapMode.FIXED;
 
     this.isFowEnabled = data.fowEnabled !== undefined ? data.fowEnabled : true;
     this.peacefulMode = data.peacefulMode === true;
-    this.treatyLength = (data.treatyLength || 0) * 60 * 1000;
     // URL param auto-trigger: ?stress=500 or ?stress=1000 for headless testing
     // Optional: ?enableEnemies=true to enable combat in stress mode
     if (!this.stressTestConfig && typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const stressCount = parseInt(params.get('stress') || '0', 10);
-      const enableEnemies = params.get('enableEnemies') === 'true';
-      if (stressCount > 0) {
-        this.stressTestConfig = { unitCount: stressCount, enableEnemies };
+      const stressParam = params.get('stress');
+      const enableEnemies = params.get('enableEnemies') === 'true' || params.get('enemies') === 'true';
+      if (stressParam === 'city') {
+        const requestedDensity = params.get('density');
+        const density = requestedDensity === 'low' || requestedDensity === 'medium' || requestedDensity === 'high'
+          ? requestedDensity
+          : 'high';
+        this.stressTestConfig = { city: true, density, unitCount: 0 };
+      } else {
+        const stressCount = parseInt(stressParam || '0', 10);
+        if (stressCount > 0) {
+          this.stressTestConfig = { unitCount: stressCount, enableEnemies };
+        }
       }
     }
+
     // Stress test with combat: override peaceful mode to ensure enemies fight
     if (this.stressTestConfig && this.stressTestConfig.enableEnemies) {
       this.peacefulMode = false;
@@ -778,50 +818,59 @@ export class MainScene extends Phaser.Scene {
       }
     }, this);
 
-    // --- STRESS TEST SETUP ---
-    if (this.stressTestConfig) {
-      const config = this.stressTestConfig;
-      const peacefulStress = !config.enableEnemies;
-      // Hide environment to reduce fill-rate (applies to both peaceful and combat stress)
-      this.waterAnimationEnabled = false;
-      this.atmosphericSystem.setPostFXEnabled(false);
-      if (this.terrainSystem.visualSprite) {
-        this.terrainSystem.visualSprite.setVisible(false);
-      }
-      this.groundLayer.setVisible(false);
-      this.waterDepthSprite?.setVisible(false);
-      this.waterWaveSprite?.setVisible(false);
-      this.setupStressTest();
-      // Detach static fill-rate sprites; combat stress keeps unit visuals in worldLayer.
-      if (peacefulStress) {
-        const stressDot = this.squadSystem.lodDotBlitter;
-        this.worldLayer.removeAll(false);
-        this.worldLayer.add(stressDot);
-      }
-    }
-
-    // --- UI CAMERA SETUP (Must be done AFTER systems init) ---
+    // --- UI CAMERA SETUP (Must be done before stress setup so EntityFactory
+    // can add UI-only icons to uiGroup for buildings with workerNeeds/effectRadius.)
     this.uiGroup = this.add.group({ runChildUpdate: true });
     this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height);
-    if (this.stressTestConfig) {
-      this.uiCamera.visible = false;
-      this.fogOfWar?.screenRT.setVisible(false);
-      this.atmosphericSystem.clouds.forEach(cloud => cloud.setVisible(false));
-    }
     this.cameras.main.ignore(this.uiGroup);
-
-    // Careful exclusions for UI Camera
-    // With worldLayer, we can just ignore that layer
     if (this.worldLayer) {
       this.uiCamera.ignore(this.worldLayer);
     }
-    // Still ignore loose groups just in case, or if they are NOT in worldLayer
     this.uiCamera.ignore(this.trees); // Physics objects (invisible)
     this.uiCamera.ignore(this.buildings); // Physics objects (invisible)
     this.uiCamera.ignore(this.units); // Physics objects (invisible)
     this.uiCamera.ignore(this.atmosphericSystem.clouds); // These are now in worldLayer, but safe to keep ignore if they were in main display list
-
     if (this.fogOfWar) { this.uiCamera.ignore(this.fogOfWar.screenRT); }
+
+    // --- STRESS TEST SETUP ---
+    if (this.stressTestConfig) {
+      const config = this.stressTestConfig;
+      const isCityStress = config.city === true;
+      const peacefulStress = !config.enableEnemies && !isCityStress;
+
+      // City stress keeps the world visible; numeric stress hides environment.
+      if (isCityStress) {
+        this.waterAnimationEnabled = false;
+        this.atmosphericSystem.setPostFXEnabled(false);
+      } else {
+        this.waterAnimationEnabled = false;
+        this.atmosphericSystem.setPostFXEnabled(false);
+        if (this.terrainSystem.visualSprite) {
+          this.terrainSystem.visualSprite.setVisible(false);
+        }
+        this.groundLayer.setVisible(false);
+        this.waterDepthSprite?.setVisible(false);
+        this.waterWaveSprite?.setVisible(false);
+      }
+
+      if (this.stressTestConfig && this.stressTestConfig.city !== true) {
+        this.uiCamera.visible = false;
+        this.fogOfWar?.screenRT.setVisible(false);
+        this.atmosphericSystem.clouds.forEach(cloud => cloud.setVisible(false));
+      }
+
+      if (isCityStress) {
+        this.setupCityStress();
+      } else {
+        this.setupStressTest();
+        // Detach static fill-rate sprites; combat stress keeps unit visuals in worldLayer.
+        if (peacefulStress) {
+          const stressDot = this.squadSystem.lodDotBlitter;
+          this.worldLayer.removeAll(false);
+          this.worldLayer.add(stressDot);
+        }
+      }
+    }
 
     // Listen for age advancement requests from React UI
     this.game.events.on(EVENTS.ADVANCE_AGE, () => {
@@ -1389,7 +1438,7 @@ export class MainScene extends Phaser.Scene {
   public setupStressTest() {
     if (!this.stressTestConfig) return;
     const config = this.stressTestConfig;
-    const count = config.unitCount;
+    const count = config.unitCount ?? 0;
     const enableEnemies = config.enableEnemies === true;
     const centerX = this.mapWidth / 2;
     const centerY = this.mapHeight / 2;
@@ -1551,6 +1600,107 @@ export class MainScene extends Phaser.Scene {
 
     console.warn(`[STRESS TEST] Spawned ${count} units. Flow field threshold is ${12}. All units selected. Right-click to command move.`);
   }
+  public setupCityStress(): void {
+    if (!this.stressTestConfig?.city) return;
+    const density = this.stressTestConfig.density ?? 'high';
+    const densityMultiplier = { high: 1, medium: 0.7, low: 0.4 }[density];
+    const centerX = this.mapWidth / 2;
+    const centerY = this.mapHeight / 2;
+
+    this.terrainSystem.flattenAroundWorld(centerX, centerY, 500, this.terrainSystem.getWaterLevel() + 0.06);
+    this.pathfinder.applyWaterMask(
+      (wx, wy) => this.terrainSystem.getHeightAt(wx, wy),
+      this.terrainSystem.getWaterLevel(),
+    );
+
+    const buildingTypes: BuildingType[] = [];
+    const addBuildings = (type: BuildingType, count: number) => {
+      for (let i = 0; i < Math.max(1, Math.round(count * densityMultiplier)); i++) {
+        buildingTypes.push(type);
+      }
+    };
+    addBuildings(BuildingType.HOUSE, 12);
+    addBuildings(BuildingType.MARKET, 4);
+    addBuildings(BuildingType.FARM, 6);
+    addBuildings(BuildingType.LUMBER_CAMP, 2);
+    addBuildings(BuildingType.HUNTERS_LODGE, 2);
+    addBuildings(BuildingType.SMALL_PARK, 2);
+
+    let spawnedBuildings = 0;
+    let attempts = 0;
+    for (const type of buildingTypes) {
+      let placed = false;
+      while (!placed && attempts < 600) {
+        attempts++;
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 140 + Math.sqrt(Math.random()) * 280;
+        const x = centerX + Math.cos(angle) * radius;
+        const y = centerY + Math.sin(angle) * radius;
+        if (!this.canPlaceBuilding(x, y, type)) continue;
+        this.entityFactory.spawnBuilding(type, x, y, 0);
+        spawnedBuildings++;
+        placed = true;
+      }
+    }
+
+    // Add 50 real villagers for a visibly occupied settlement. Ambient
+    // citizens remain Blitter bobs and are never inserted into scene.units.
+    const villagerCount = 50;
+    this.population = 170;
+    this.maxPopulation = 240;
+    for (let i = 0; i < villagerCount; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 60 + Math.sqrt(Math.random()) * 200;
+      this.villagerSystem.spawnVillager(
+        centerX + Math.cos(angle) * radius,
+        centerY + Math.sin(angle) * radius,
+        0,
+      );
+    }
+
+    this.economySystem.updateStats();
+    this.cameras.main.zoomTo(0.4, 1000);
+    this.cameras.main.centerOn(centerX, centerY);
+    this.feedbackSystem.showFloatingText(
+      centerX,
+      centerY,
+      `CITY DENSITY TEST: ${spawnedBuildings} buildings, ${this.population} population`,
+      '#D4AF37',
+    );
+    console.warn(`[CITY STRESS] Density=${density}, buildings=${spawnedBuildings}, population=${this.population}, ambient=${this.getAmbientCitizenCount()}`);
+  }
+
+  private canPlaceBuilding(x: number, y: number, type: BuildingType): boolean {
+    const def = BUILDINGS[type];
+    if (!def) return false;
+    const waterLevel = this.terrainSystem.getWaterLevel();
+    const halfWidth = def.width / 2;
+    const halfHeight = def.height / 2;
+    const samplePoints: [number, number][] = [
+      [x, y],
+      [x - halfWidth, y - halfHeight],
+      [x + halfWidth, y - halfHeight],
+      [x - halfWidth, y + halfHeight],
+      [x + halfWidth, y + halfHeight],
+    ];
+    if (samplePoints.some(([sx, sy]) => this.terrainSystem.getHeightAt(sx, sy) < waterLevel)) return false;
+    if (!this.terrainSystem.getSlopeAt(x, y).isBuildable) return false;
+
+    const bounds = new Phaser.Geom.Rectangle(x - halfWidth, y - halfHeight, def.width, def.height);
+    for (const building of this.buildings.getChildren()) {
+      if (building?.scene && this.rectanglesOverlap(bounds, (building as Phaser.GameObjects.Image).getBounds())) return false;
+    }
+    for (const tree of this.trees.getChildren()) {
+      if (tree?.scene && bounds.contains((tree as Phaser.GameObjects.Image).x, (tree as Phaser.GameObjects.Image).y)) return false;
+    }
+    return true;
+  }
+
+  private rectanglesOverlap(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+
   // ─── Save / Load ─────────────────────────────────────────────────────
   public saveGame(): void {
     if (this.stressTestConfig) return; // Don't save stress tests

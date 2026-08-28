@@ -14,7 +14,7 @@ interface PhaserGameProps {
   peacefulMode: boolean;
   treatyLength: number; // minutes
   aiDisabled: boolean;
-  stressTestConfig: { unitCount: number; enableEnemies?: boolean } | null;
+  stressTestConfig: { unitCount?: number; enableEnemies?: boolean; city?: boolean; density?: 'high' | 'medium' | 'low' } | null;
   mapSeed: number;
   mapPreset: MapPreset;
   onGameReady: (game: Phaser.Game) => void;

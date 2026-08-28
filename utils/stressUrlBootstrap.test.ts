@@ -37,6 +37,60 @@ describe('scheduleStressUrlBootstrap', () => {
     expect(onStart).toHaveBeenCalledWith({ unitCount: 750, enableEnemies: false });
   });
 
+  it('parses city stress with explicit high density', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=city&density=high', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).toHaveBeenCalledWith({ city: true, density: 'high' });
+  });
+
+  it('defaults city stress density to high when omitted', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=city', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).toHaveBeenCalledWith({ city: true, density: 'high' });
+  });
+
+  it('honors medium and low city densities', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=city&density=medium', onStart, true);
+    vi.runAllTimers();
+    expect(onStart).toHaveBeenCalledWith({ city: true, density: 'medium' });
+
+    onStart.mockClear();
+    scheduleStressUrlBootstrap('?stress=city&density=low', onStart, true);
+    vi.runAllTimers();
+    expect(onStart).toHaveBeenCalledWith({ city: true, density: 'low' });
+  });
+
+  it('treats an unknown city density as high', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=city&density=ultra', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).toHaveBeenCalledWith({ city: true, density: 'high' });
+  });
+
+  it('keeps the enemies alias for numeric stress unchanged', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=2500&enemies=true&density=high', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).toHaveBeenCalledWith({ unitCount: 2500, enableEnemies: true });
+  });
+
   it('cancels a pending URL stress startup during cleanup', () => {
     vi.useFakeTimers();
     const onStart = vi.fn();
@@ -63,6 +117,25 @@ describe('scheduleStressUrlBootstrap', () => {
     const onStart = vi.fn();
 
     scheduleStressUrlBootstrap('?stress=5000&enableEnemies=true', onStart, false);
+    vi.runAllTimers();
+
+    expect(onStart).not.toHaveBeenCalled();
+  });
+  it('does not schedule stress mode when no stress parameter is present', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule stress mode for a non-numeric stress value', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=abc', onStart, true);
     vi.runAllTimers();
 
     expect(onStart).not.toHaveBeenCalled();

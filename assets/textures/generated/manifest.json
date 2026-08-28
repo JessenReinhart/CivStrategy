@@ -1,0 +1,380 @@
+{
+  "assets": [
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 0,
+        "y": 0
+      },
+      "height": 32,
+      "key": "barrel_01",
+      "seed": 1727715667,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/barrel",
+      "tags": [
+        "barrel",
+        "market",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 32,
+        "y": 0
+      },
+      "height": 32,
+      "key": "barrel_02",
+      "seed": 1221687654,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/barrel",
+      "tags": [
+        "barrel",
+        "market",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 64,
+        "y": 0
+      },
+      "height": 32,
+      "key": "cart_01",
+      "seed": 2770455338,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/cart",
+      "tags": [
+        "cart",
+        "goods",
+        "logistics",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 96,
+        "y": 0
+      },
+      "height": 32,
+      "key": "cart_02",
+      "seed": 2410399499,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/cart",
+      "tags": [
+        "cart",
+        "goods",
+        "logistics",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "height": 160,
+      "key": "civilian-atlas",
+      "seed": 116,
+      "source": "civilian-atlas.png",
+      "sourceDefinition": "generated/civilian-atlas",
+      "tags": [],
+      "width": 56
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 0,
+        "y": 32
+      },
+      "height": 32,
+      "key": "crate_01",
+      "seed": 83422963,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/crate",
+      "tags": [
+        "crate",
+        "logistics",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 32,
+        "y": 32
+      },
+      "height": 32,
+      "key": "crate_02",
+      "seed": 2271099452,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/crate",
+      "tags": [
+        "crate",
+        "logistics",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 64,
+        "y": 32
+      },
+      "height": 32,
+      "key": "fence_01",
+      "seed": 1110728646,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/fence",
+      "tags": [
+        "boundary",
+        "farm",
+        "fence",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 96,
+        "y": 32
+      },
+      "height": 32,
+      "key": "fence_02",
+      "seed": 611978616,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/fence",
+      "tags": [
+        "boundary",
+        "farm",
+        "fence",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 0,
+        "y": 64
+      },
+      "height": 32,
+      "key": "garden_01",
+      "seed": 485066201,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/garden",
+      "tags": [
+        "farm",
+        "garden",
+        "garden",
+        "organic",
+        "prop"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 32,
+        "y": 64
+      },
+      "height": 32,
+      "key": "garden_02",
+      "seed": 2775833372,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/garden",
+      "tags": [
+        "farm",
+        "garden",
+        "garden",
+        "organic",
+        "prop"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 64,
+        "y": 64
+      },
+      "height": 32,
+      "key": "hay_01",
+      "seed": 583925822,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/hay",
+      "tags": [
+        "farm",
+        "hay",
+        "organic",
+        "prop",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 96,
+        "y": 64
+      },
+      "height": 32,
+      "key": "hay_02",
+      "seed": 3236862530,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/hay",
+      "tags": [
+        "farm",
+        "hay",
+        "organic",
+        "prop",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "height": 128,
+      "key": "house_roman_town_01",
+      "seed": 0,
+      "source": "house_roman_town_01.png",
+      "sourceDefinition": "generated/house_roman_town_01",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_town_02",
+      "seed": 0,
+      "source": "house_roman_town_02.png",
+      "sourceDefinition": "generated/house_roman_town_02",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_town_03",
+      "seed": 0,
+      "source": "house_roman_town_03.png",
+      "sourceDefinition": "generated/house_roman_town_03",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_town_corner_01",
+      "seed": 0,
+      "source": "house_roman_town_corner_01.png",
+      "sourceDefinition": "generated/house_roman_town_corner_01",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_town_corner_02",
+      "seed": 0,
+      "source": "house_roman_town_corner_02.png",
+      "sourceDefinition": "generated/house_roman_town_corner_02",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_village_01",
+      "seed": 0,
+      "source": "house_roman_village_01.png",
+      "sourceDefinition": "generated/house_roman_village_01",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_village_02",
+      "seed": 0,
+      "source": "house_roman_village_02.png",
+      "sourceDefinition": "generated/house_roman_village_02",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "height": 128,
+      "key": "house_roman_village_03",
+      "seed": 0,
+      "source": "house_roman_village_03.png",
+      "sourceDefinition": "generated/house_roman_village_03",
+      "tags": [],
+      "width": 128
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 0,
+        "y": 96
+      },
+      "height": 32,
+      "key": "sack_01",
+      "seed": 2495459527,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/sack",
+      "tags": [
+        "goods",
+        "market",
+        "prop",
+        "sack",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "height": 32,
+        "width": 32,
+        "x": 32,
+        "y": 96
+      },
+      "height": 32,
+      "key": "sack_02",
+      "seed": 2601905876,
+      "source": "props.png",
+      "sourceDefinition": "PropFamily/sack",
+      "tags": [
+        "goods",
+        "market",
+        "prop",
+        "sack",
+        "storage"
+      ],
+      "width": 32
+    }
+  ],
+  "version": 1
+}
