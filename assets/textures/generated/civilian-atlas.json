@@ -1,0 +1,157 @@
+{
+  "frames": {
+    "civilian.far": {
+      "h": 8,
+      "lod": "far",
+      "role": "civilian",
+      "seed": 3618,
+      "w": 8,
+      "x": 48,
+      "y": 12
+    },
+    "civilian.mid": {
+      "h": 16,
+      "lod": "mid",
+      "role": "civilian",
+      "seed": 3607,
+      "w": 16,
+      "x": 32,
+      "y": 8
+    },
+    "civilian.near": {
+      "h": 32,
+      "lod": "near",
+      "role": "civilian",
+      "seed": 3596,
+      "w": 32,
+      "x": 0,
+      "y": 0
+    },
+    "farmer.far": {
+      "h": 8,
+      "lod": "far",
+      "role": "farmer",
+      "seed": 3639,
+      "w": 8,
+      "x": 48,
+      "y": 108
+    },
+    "farmer.mid": {
+      "h": 16,
+      "lod": "mid",
+      "role": "farmer",
+      "seed": 3628,
+      "w": 16,
+      "x": 32,
+      "y": 104
+    },
+    "farmer.near": {
+      "h": 32,
+      "lod": "near",
+      "role": "farmer",
+      "seed": 3617,
+      "w": 32,
+      "x": 0,
+      "y": 96
+    },
+    "merchant.far": {
+      "h": 8,
+      "lod": "far",
+      "role": "merchant",
+      "seed": 3632,
+      "w": 8,
+      "x": 48,
+      "y": 76
+    },
+    "merchant.mid": {
+      "h": 16,
+      "lod": "mid",
+      "role": "merchant",
+      "seed": 3621,
+      "w": 16,
+      "x": 32,
+      "y": 72
+    },
+    "merchant.near": {
+      "h": 32,
+      "lod": "near",
+      "role": "merchant",
+      "seed": 3610,
+      "w": 32,
+      "x": 0,
+      "y": 64
+    },
+    "porter.far": {
+      "h": 8,
+      "lod": "far",
+      "role": "porter",
+      "seed": 3646,
+      "w": 8,
+      "x": 48,
+      "y": 140
+    },
+    "porter.mid": {
+      "h": 16,
+      "lod": "mid",
+      "role": "porter",
+      "seed": 3635,
+      "w": 16,
+      "x": 32,
+      "y": 136
+    },
+    "porter.near": {
+      "h": 32,
+      "lod": "near",
+      "role": "porter",
+      "seed": 3624,
+      "w": 32,
+      "x": 0,
+      "y": 128
+    },
+    "worker.far": {
+      "h": 8,
+      "lod": "far",
+      "role": "worker",
+      "seed": 3625,
+      "w": 8,
+      "x": 48,
+      "y": 44
+    },
+    "worker.mid": {
+      "h": 16,
+      "lod": "mid",
+      "role": "worker",
+      "seed": 3614,
+      "w": 16,
+      "x": 32,
+      "y": 40
+    },
+    "worker.near": {
+      "h": 32,
+      "lod": "near",
+      "role": "worker",
+      "seed": 3603,
+      "w": 32,
+      "x": 0,
+      "y": 32
+    }
+  },
+  "generator": "scripts/generate-civilian-sprites.ts",
+  "meta": {
+    "height": 160,
+    "lods": [
+      "near",
+      "mid",
+      "far"
+    ],
+    "roles": [
+      "civilian",
+      "worker",
+      "merchant",
+      "farmer",
+      "porter"
+    ],
+    "width": 56
+  },
+  "seed": 116
+}

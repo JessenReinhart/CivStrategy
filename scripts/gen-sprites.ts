@@ -3,11 +3,14 @@
 // Run: bun run scripts/gen-sprites.ts
 // Outputs transparent PNGs to assets/textures/
 
-import { writeFileSync } from "fs";
-import { join } from "path";
-import { encodePNG } from "./png-encode";
+import { mkdirSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
+import { encodePNG } from "./png-encode.ts";
+import { generateHouseFamily } from "./definitions/HouseFamily.ts";
 
-const OUT = join(import.meta.dir, "..", "assets", "textures");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const OUT = join(__dirname, "..", "assets", "textures");
 const W = 128;
 const H = 128;
 
@@ -409,5 +412,22 @@ console.log("  lodge.png ✓ (replacement)");
 
 writeFileSync(join(OUT, "field.png"), makeSprite(drawFarm));
 console.log("  field.png ✓ (replacement)");
+mkdirSync(join(OUT, "generated"), { recursive: true });
+for (const sprite of generateHouseFamily(116)) {
+  writeFileSync(join(OUT, "generated", `${sprite.key}.png`), Buffer.from(sprite.png));
+  console.log(`  generated/${sprite.key}.png ✓`);
+}
+writeFileSync(join(OUT, "generated", "house-manifest.json"), JSON.stringify({
+  seed: 116,
+  sourceDefinition: "HouseFamily",
+  frames: generateHouseFamily(116).map((sprite) => ({
+    key: sprite.key,
+    width: sprite.width,
+    height: sprite.height,
+    seed: sprite.metadata.seed,
+    sourceDefinition: "HouseFamily",
+    tags: ["building", "house", sprite.metadata.age, sprite.metadata.corner ? "corner" : "straight"],
+  })),
+}, null, 2) + "\n");
 
 console.log("Done.");

@@ -1,0 +1,110 @@
+{
+  "seed": 116,
+  "sourceDefinition": "HouseFamily",
+  "frames": [
+    {
+      "key": "house_roman_village_01",
+      "width": 128,
+      "height": 128,
+      "seed": 116,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "village",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_village_02",
+      "width": 128,
+      "height": 128,
+      "seed": 117,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "village",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_village_03",
+      "width": 128,
+      "height": 128,
+      "seed": 118,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "village",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_town_01",
+      "width": 128,
+      "height": 128,
+      "seed": 132,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "town",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_town_02",
+      "width": 128,
+      "height": 128,
+      "seed": 133,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "town",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_town_03",
+      "width": 128,
+      "height": 128,
+      "seed": 134,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "town",
+        "straight"
+      ]
+    },
+    {
+      "key": "house_roman_town_corner_01",
+      "width": 128,
+      "height": 128,
+      "seed": 148,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "town",
+        "corner"
+      ]
+    },
+    {
+      "key": "house_roman_town_corner_02",
+      "width": 128,
+      "height": 128,
+      "seed": 149,
+      "sourceDefinition": "HouseFamily",
+      "tags": [
+        "building",
+        "house",
+        "town",
+        "corner"
+      ]
+    }
+  ]
+}

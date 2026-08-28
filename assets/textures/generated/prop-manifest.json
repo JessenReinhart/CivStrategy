@@ -1,0 +1,271 @@
+{
+  "props": [
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 0,
+        "y": 0
+      },
+      "height": 32,
+      "key": "barrel_01",
+      "seed": 1727715667,
+      "sourceDefinition": "PropFamily/barrel",
+      "tags": [
+        "barrel",
+        "market",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 32,
+        "y": 0
+      },
+      "height": 32,
+      "key": "barrel_02",
+      "seed": 1221687654,
+      "sourceDefinition": "PropFamily/barrel",
+      "tags": [
+        "barrel",
+        "market",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 64,
+        "y": 0
+      },
+      "height": 32,
+      "key": "cart_01",
+      "seed": 2770455338,
+      "sourceDefinition": "PropFamily/cart",
+      "tags": [
+        "cart",
+        "goods",
+        "logistics",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 96,
+        "y": 0
+      },
+      "height": 32,
+      "key": "cart_02",
+      "seed": 2410399499,
+      "sourceDefinition": "PropFamily/cart",
+      "tags": [
+        "cart",
+        "goods",
+        "logistics",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 0,
+        "y": 32
+      },
+      "height": 32,
+      "key": "crate_01",
+      "seed": 83422963,
+      "sourceDefinition": "PropFamily/crate",
+      "tags": [
+        "crate",
+        "logistics",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 32,
+        "y": 32
+      },
+      "height": 32,
+      "key": "crate_02",
+      "seed": 2271099452,
+      "sourceDefinition": "PropFamily/crate",
+      "tags": [
+        "crate",
+        "logistics",
+        "prop",
+        "storage",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 64,
+        "y": 32
+      },
+      "height": 32,
+      "key": "fence_01",
+      "seed": 1110728646,
+      "sourceDefinition": "PropFamily/fence",
+      "tags": [
+        "boundary",
+        "farm",
+        "fence",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 96,
+        "y": 32
+      },
+      "height": 32,
+      "key": "fence_02",
+      "seed": 611978616,
+      "sourceDefinition": "PropFamily/fence",
+      "tags": [
+        "boundary",
+        "farm",
+        "fence",
+        "prop",
+        "wood"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 0,
+        "y": 64
+      },
+      "height": 32,
+      "key": "garden_01",
+      "seed": 485066201,
+      "sourceDefinition": "PropFamily/garden",
+      "tags": [
+        "farm",
+        "garden",
+        "garden",
+        "organic",
+        "prop"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 32,
+        "y": 64
+      },
+      "height": 32,
+      "key": "garden_02",
+      "seed": 2775833372,
+      "sourceDefinition": "PropFamily/garden",
+      "tags": [
+        "farm",
+        "garden",
+        "garden",
+        "organic",
+        "prop"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 64,
+        "y": 64
+      },
+      "height": 32,
+      "key": "hay_01",
+      "seed": 583925822,
+      "sourceDefinition": "PropFamily/hay",
+      "tags": [
+        "farm",
+        "hay",
+        "organic",
+        "prop",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 96,
+        "y": 64
+      },
+      "height": 32,
+      "key": "hay_02",
+      "seed": 3236862530,
+      "sourceDefinition": "PropFamily/hay",
+      "tags": [
+        "farm",
+        "hay",
+        "organic",
+        "prop",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 0,
+        "y": 96
+      },
+      "height": 32,
+      "key": "sack_01",
+      "seed": 2495459527,
+      "sourceDefinition": "PropFamily/sack",
+      "tags": [
+        "goods",
+        "market",
+        "prop",
+        "sack",
+        "storage"
+      ],
+      "width": 32
+    },
+    {
+      "atlas": {
+        "source": "props.png",
+        "x": 32,
+        "y": 96
+      },
+      "height": 32,
+      "key": "sack_02",
+      "seed": 2601905876,
+      "sourceDefinition": "PropFamily/sack",
+      "tags": [
+        "goods",
+        "market",
+        "prop",
+        "sack",
+        "storage"
+      ],
+      "width": 32
+    }
+  ],
+  "seed": 1366990129
+}
