@@ -7,6 +7,7 @@ const PORT = 4179;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
+const INPUT_TIMEOUT_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
@@ -47,6 +48,7 @@ async function waitForMainScene(page) {
       && scene?.inputManager
       && scene?.pathfinder
       && scene?.unitSpatialHash
+      && scene?.villagerSystem
       && scene?.units,
     );
   }, undefined, { timeout: 45_000 });
@@ -58,10 +60,22 @@ async function bootNewGame(page) {
   await waitForMainScene(page);
 }
 
+async function waitForCameraSync(page) {
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const mainCamera = scene?.cameras?.main;
+    const uiCamera = scene?.uiCamera;
+    if (!mainCamera || !uiCamera) return false;
+    return Math.abs(mainCamera.scrollX - uiCamera.scrollX) < 0.5
+      && Math.abs(mainCamera.scrollY - uiCamera.scrollY) < 0.5
+      && Math.abs(mainCamera.zoom - uiCamera.zoom) < 0.001;
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+}
+
 async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const unit = window.__trainedSaveProbe[probeKey];
+    const unit = window.__canonicalSessionProbe[probeKey];
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
     return {
@@ -71,18 +85,71 @@ async function unitScreenPoint(page, key) {
   }, key);
 }
 
+async function buildingScreenPoint(page, key) {
+  return page.evaluate((probeKey) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const building = window.__canonicalSessionProbe[probeKey];
+    const visual = building.visual;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    const hitArea = visual.input?.hitArea;
+    const localX = typeof hitArea?.centerX === 'number' ? hitArea.centerX : 0;
+    const localY = typeof hitArea?.centerY === 'number' ? hitArea.centerY : -24;
+    const transformed = visual.getWorldTransformMatrix().transformPoint(localX, localY);
+    return {
+      x: (transformed.x - topLeft.x) * camera.zoom,
+      y: (transformed.y - topLeft.y) * camera.zoom,
+    };
+  }, key);
+}
+
 async function cartesianScreenPoint(page, point) {
   return page.evaluate((cart) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    // InputManager receives isometric pointer coordinates and converts them back to Cartesian.
     const iso = { x: cart.x - cart.y, y: (cart.x + cart.y) * 0.5 };
     return {
       x: (iso.x - topLeft.x) * camera.zoom,
       y: (iso.y - topLeft.y) * camera.zoom,
     };
   }, point);
+}
+
+async function rightClickBuildingThroughFrame(page, canvasBox, key) {
+  const point = await buildingScreenPoint(page, key);
+  const targetX = canvasBox.x + point.x;
+  const targetY = canvasBox.y + point.y;
+  await page.mouse.move(targetX, targetY);
+
+  const frameBeforeSync = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction(
+    (previousFrame) => window.__civStrategyGame?.loop?.frame > previousFrame,
+    frameBeforeSync,
+    { timeout: INPUT_TIMEOUT_MS },
+  );
+  await page.mouse.move(targetX, targetY);
+
+  await page.waitForFunction((probeKey) => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const target = window.__canonicalSessionProbe?.[probeKey];
+    const pointer = scene?.input?.activePointer;
+    if (!scene || !target || !pointer) return false;
+    return scene.input.hitTestPointer(pointer)
+      .some((hit) => hit.getData?.('building') === target);
+  }, key, { timeout: INPUT_TIMEOUT_MS });
+
+  const frameBeforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.mouse.down({ button: 'right' });
+  try {
+    await page.waitForFunction(
+      (previousFrame) => window.__civStrategyGame?.loop?.frame > previousFrame,
+      frameBeforeDown,
+      { timeout: INPUT_TIMEOUT_MS },
+    );
+  } finally {
+    await page.mouse.up({ button: 'right' });
+  }
 }
 
 await mkdir(ARTIFACT_DIR, { recursive: true });
@@ -113,11 +180,105 @@ try {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
 
+  telemetry.phase = 'gather-setup';
+  telemetry.gather = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.peacefulMode = true;
+    scene.economySystem.assignJobs = () => {};
+
+    const villager = scene.villagerSystem.getIdleVillagers(0)[0];
+    if (!villager?.visual) throw new Error('No idle player villager is available for canonical gathering.');
+
+    const trees = scene.trees.getChildren().filter((tree) => (
+      tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped')
+    ));
+    let nearestTree = null;
+    let nearestDistance = Infinity;
+    for (const tree of trees) {
+      const distance = Math.hypot(tree.x - villager.x, tree.y - villager.y);
+      if (distance < nearestDistance) {
+        nearestTree = tree;
+        nearestDistance = distance;
+      }
+    }
+    if (!nearestTree || nearestDistance > 280) {
+      throw new Error(`No live tree is close enough for canonical gathering (${nearestDistance.toFixed(1)}px).`);
+    }
+
+    const dx = nearestTree.x - villager.x;
+    const dy = nearestTree.y - villager.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const campX = villager.x + (-dy / length) * 64;
+    const campY = villager.y + (dx / length) * 64;
+    const camp = scene.entityFactory.spawnBuilding('Lumber Camp', campX, campY, 0);
+    if (!camp?.visual) throw new Error('Could not create the Lumber Camp used for canonical gathering.');
+
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
+    window.__canonicalSessionProbe = { villager, camp, barracks: null, player: null, enemy: null };
+
+    return {
+      initialWood: scene.resources.wood,
+      initialPopulation: scene.population,
+      villagerId: villager.id,
+      treeDistance: nearestDistance,
+    };
+  });
+
+  await waitForCameraSync(page);
+  const canvas = page.locator('canvas').first();
+  let canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error('Game canvas was not measurable.');
+
+  telemetry.phase = 'select-villager';
+  let point = await unitScreenPoint(page, 'villager');
+  await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const villager = window.__canonicalSessionProbe?.villager;
+    const ring = villager?.visual?.getData('workforceSelectionRing');
+    return Boolean(ring?.active);
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+
+  telemetry.phase = 'assign-gathering';
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__canonicalSessionProbe;
+    scene.cameras.main.centerOn(
+      (villager.visual.x + camp.visual.x) * 0.5,
+      (villager.visual.y + camp.visual.y) * 0.5,
+    );
+  });
+  await waitForCameraSync(page);
+  await rightClickBuildingThroughFrame(page, canvasBox, 'camp');
+  await page.waitForFunction(() => {
+    const { villager, camp } = window.__canonicalSessionProbe;
+    return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+
+  telemetry.phase = 'gather-deposit';
+  telemetry.gather.simulation = await page.evaluate((initialWood) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    let simulatedMs = 0;
+    for (let i = 0; i < 2_000 && scene.resources.wood <= initialWood; i++) {
+      scene.villagerSystem.update(scene.gameTime + simulatedMs, 100);
+      simulatedMs += 100;
+    }
+    return {
+      simulatedMs,
+      finalWood: scene.resources.wood,
+      depositedWood: scene.resources.wood - initialWood,
+      assigned: window.__canonicalSessionProbe.villager.jobBuilding === window.__canonicalSessionProbe.camp,
+    };
+  }, telemetry.gather.initialWood);
+
+  if (!telemetry.gather.simulation.assigned || telemetry.gather.simulation.depositedWood <= 0) {
+    throw new Error('Canonical villager assignment did not complete a wood gather/carry/deposit cycle.');
+  }
+
   telemetry.phase = 'player-preparation';
   telemetry.preparation = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
-    scene.peacefulMode = true;
     scene.resources.wood = 100_000;
     scene.resources.food = 100_000;
     scene.resources.gold = 100_000;
@@ -171,47 +332,35 @@ try {
     }
 
     const maxPopulationBefore = scene.maxPopulation;
-    const house = build('House');
+    build('House');
     if (scene.maxPopulation <= maxPopulationBefore) {
       throw new Error('House did not increase population capacity before training.');
     }
     const barracks = build('Barracks');
-    window.__trainedSaveProbe = { barracks, player: null, enemy: null };
+    window.__canonicalSessionProbe.barracks = barracks;
     return {
       maxPopulationBefore,
       maxPopulationAfterHousing: scene.maxPopulation,
-      barracks: { x: barracks.x, y: barracks.y },
       initialPopulation: scene.population,
     };
   });
 
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const barracks = window.__trainedSaveProbe.barracks;
+    const barracks = window.__canonicalSessionProbe.barracks;
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
   });
-  await sleep(80);
-
-  const canvas = page.locator('canvas').first();
-  let canvasBox = await canvas.boundingBox();
+  await waitForCameraSync(page);
+  canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable for Barracks selection.');
 
-  const barracksPoint = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const barracks = window.__trainedSaveProbe.barracks;
-    const camera = scene.cameras.main;
-    const topLeft = camera.getWorldPoint(0, 0);
-    return {
-      x: (barracks.visual.x - topLeft.x) * camera.zoom,
-      y: (barracks.visual.y - 18 - topLeft.y) * camera.zoom,
-    };
-  });
-  await page.mouse.click(canvasBox.x + barracksPoint.x, canvasBox.y + barracksPoint.y, { button: 'left' });
+  point = await buildingScreenPoint(page, 'barracks');
+  await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.inputManager.selectedBuilding === window.__trainedSaveProbe.barracks;
-  }, undefined, { timeout: 3_000 });
+    return scene.inputManager.selectedBuilding === window.__canonicalSessionProbe.barracks;
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
 
   telemetry.phase = 'train';
   telemetry.beforeTraining = await page.evaluate(() => {
@@ -226,7 +375,7 @@ try {
   });
 
   const pikesmanButton = page.getByRole('button', { name: /Pikesman/i });
-  await pikesmanButton.waitFor({ state: 'visible', timeout: 3_000 });
+  await pikesmanButton.waitFor({ state: 'visible', timeout: INPUT_TIMEOUT_MS });
   await pikesmanButton.click();
   await page.waitForFunction((before) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -241,7 +390,7 @@ try {
     if (!player || (player.unitType ?? player.getData('unitType')) !== 'Pikesman') {
       throw new Error('Barracks UI did not produce a Pikesman as the newest player unit.');
     }
-    window.__trainedSaveProbe.player = player;
+    window.__canonicalSessionProbe.player = player;
     return {
       food: scene.resources.food,
       gold: scene.resources.gold,
@@ -249,7 +398,6 @@ try {
       maxPopulation: scene.maxPopulation,
       playerMilitary: playerUnits.length,
       type: player.unitType ?? player.getData('unitType'),
-      position: { x: player.x, y: player.y },
     };
   });
 
@@ -263,7 +411,7 @@ try {
   telemetry.phase = 'move';
   telemetry.moveTarget = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     const candidates = [[96, 0], [-96, 0], [0, 96], [0, -96], [72, 72], [-72, -72]];
     for (const [dx, dy] of candidates) {
@@ -278,20 +426,21 @@ try {
     }
     throw new Error('Could not find a walkable target for the trained Pikesman.');
   });
-  await sleep(80);
-
+  await waitForCameraSync(page);
   canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable for unit movement.');
-  let point = await unitScreenPoint(page, 'player');
+
+  point = await unitScreenPoint(page, 'player');
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.inputManager.selectedUnits.includes(window.__trainedSaveProbe.player);
-  }, undefined, { timeout: 3_000 });
+    return scene.inputManager.selectedUnits.includes(window.__canonicalSessionProbe.player);
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+
   point = await cartesianScreenPoint(page, telemetry.moveTarget);
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     return Math.hypot(
       player.x - player.getData('__journeyMoveStartX'),
       player.y - player.getData('__journeyMoveStartY'),
@@ -301,7 +450,7 @@ try {
   telemetry.phase = 'combat';
   telemetry.combat = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     scene.peacefulMode = false;
     const candidates = [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18], [-18, -18]];
     let target = null;
@@ -320,26 +469,26 @@ try {
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
     player.lastAttackTime = -10_000;
-    window.__trainedSaveProbe.enemy = enemy;
-    window.__trainedSaveProbe.enemyX = enemy.x;
-    window.__trainedSaveProbe.enemyY = enemy.y;
+    window.__canonicalSessionProbe.enemy = enemy;
+    window.__canonicalSessionProbe.enemyX = enemy.x;
+    window.__canonicalSessionProbe.enemyY = enemy.y;
     return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y) };
   });
+
   if (telemetry.combat.distance > 40) {
     throw new Error(`Enemy setup exceeded Pikesman attack range (${telemetry.combat.distance.toFixed(2)}px).`);
   }
-  await page.waitForFunction(() => Boolean(window.__trainedSaveProbe?.enemy?.visual?.active), undefined, { timeout: 5_000 });
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { player, enemy } = window.__trainedSaveProbe;
+    const { player, enemy } = window.__canonicalSessionProbe;
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
   });
-  await sleep(80);
+  await waitForCameraSync(page);
   point = await unitScreenPoint(page, 'enemy');
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const probe = window.__trainedSaveProbe;
+    const probe = window.__canonicalSessionProbe;
     const enemy = probe.enemy;
     return Boolean(
       !enemy.active
@@ -353,7 +502,7 @@ try {
   telemetry.phase = 'save';
   telemetry.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     const snapshot = {
       x: player.x,
       y: player.y,
@@ -388,7 +537,7 @@ try {
       .filter((unit) => unit.getData?.('owner') === 0 && (unit.unitType ?? unit.getData?.('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
     if (!player) throw new Error('The trained surviving Pikesman was not restored.');
-    window.__trainedSaveProbe = { player, enemy: null };
+    window.__canonicalSessionProbe = { player, enemy: null };
     return {
       x: player.x,
       y: player.y,
@@ -406,10 +555,9 @@ try {
   if (telemetry.restored.maxPopulation !== telemetry.beforeSave.maxPopulation) throw new Error('Housing capacity changed across combat save/reload.');
 
   telemetry.phase = 'continue-playing';
-  await page.waitForFunction(() => Boolean(window.__trainedSaveProbe?.player?.visual?.active), undefined, { timeout: 5_000 });
   telemetry.postLoadMove = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     const candidates = [[64, 0], [-64, 0], [0, 64], [0, -64]];
@@ -425,7 +573,7 @@ try {
     }
     throw new Error('Could not find a post-load walkable move target.');
   });
-  await sleep(80);
+  await waitForCameraSync(page);
 
   canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable after reload.');
@@ -433,12 +581,13 @@ try {
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.inputManager.selectedUnits.includes(window.__trainedSaveProbe.player);
-  }, undefined, { timeout: 3_000 });
+    return scene.inputManager.selectedUnits.includes(window.__canonicalSessionProbe.player);
+  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+
   point = await cartesianScreenPoint(page, telemetry.postLoadMove);
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     return Math.hypot(
       player.x - player.getData('__postLoadStartX'),
       player.y - player.getData('__postLoadStartY'),
@@ -447,7 +596,7 @@ try {
 
   telemetry.afterContinue = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__trainedSaveProbe.player;
+    const player = window.__canonicalSessionProbe.player;
     return {
       selected: scene.inputManager.selectedUnits.includes(player),
       movedDistance: Math.hypot(
@@ -470,8 +619,9 @@ try {
   console.log(JSON.stringify(telemetry, null, 2));
 } catch (error) {
   telemetry.phase = `failed:${telemetry.phase}`;
-  telemetry.failure = error instanceof Error ? error.message : String(error);
+  telemetry.failure = error instanceof Error ? error.stack ?? error.message : String(error);
   await persistEvidence();
+  console.error(JSON.stringify(telemetry, null, 2));
   throw error;
 } finally {
   if (browser) await browser.close();
