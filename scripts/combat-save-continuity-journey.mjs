@@ -40,7 +40,15 @@ async function stopServer() {
 async function waitForMainScene(page) {
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.isReady && scene?.entityFactory && scene?.inputManager && scene?.pathfinder && scene?.units);
+    return Boolean(
+      scene?.isReady
+      && scene?.entityFactory
+      && scene?.buildingManager
+      && scene?.inputManager
+      && scene?.pathfinder
+      && scene?.unitSpatialHash
+      && scene?.units,
+    );
   }, undefined, { timeout: 45_000 });
 }
 
@@ -53,7 +61,7 @@ async function bootNewGame(page) {
 async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const unit = window.__combatSaveProbe[probeKey];
+    const unit = window.__trainedSaveProbe[probeKey];
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
     return {
@@ -68,7 +76,7 @@ async function cartesianScreenPoint(page, point) {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    // Pointer world coordinates are isometric; InputManager converts them back to Cartesian.
+    // InputManager receives isometric pointer coordinates and converts them back to Cartesian.
     const iso = { x: cart.x - cart.y, y: (cart.x + cart.y) * 0.5 };
     return {
       x: (iso.x - topLeft.x) * camera.zoom,
@@ -105,78 +113,195 @@ try {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
 
-  telemetry.phase = 'setup';
-  telemetry.setup = await page.evaluate(() => {
+  telemetry.phase = 'player-preparation';
+  telemetry.preparation = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const manager = scene.buildingManager;
     scene.peacefulMode = true;
-    const anchor = scene.units.getChildren().find((unit) => unit.getData?.('owner') === 0);
-    if (!anchor) throw new Error('No player military unit available to anchor continuity journey.');
+    scene.resources.wood = 100_000;
+    scene.resources.food = 100_000;
+    scene.resources.gold = 100_000;
 
-    const bounds = scene.physics.world.bounds;
-    const inside = (x, y) => x >= bounds.x + 96 && x <= bounds.right - 96 && y >= bounds.y + 96 && y <= bounds.bottom - 96;
-    const origins = [[240, 0], [-240, 0], [0, 240], [0, -240], [240, 240], [-240, -240], [360, 0], [0, 360]];
-    const moves = [[64, 0], [-64, 0], [0, 64], [0, -64]];
-    let arena = null;
+    const buildings = () => scene.buildings.getChildren();
+    const getDef = (building) => building.getData('def');
+    const getOwner = (building) => building.getData('owner');
+    const townCenter = buildings().find((building) => (
+      getOwner(building) === 0 && getDef(building)?.type === 'Town Center'
+    ));
+    if (!townCenter) throw new Error('Player Town Center was not available.');
 
-    for (const [ox, oy] of origins) {
-      const x = anchor.x + ox;
-      const y = anchor.y + oy;
-      if (!inside(x, y) || scene.pathfinder.isBlocked(x, y)) continue;
-      for (const [mx, my] of moves) {
-        const moveX = x + mx;
-        const moveY = y + my;
-        if (!inside(moveX, moveY) || scene.pathfinder.isBlocked(moveX, moveY)) continue;
-        const path = scene.pathfinder.findPath({ x, y }, { x: moveX, y: moveY });
-        const endpoint = path?.[path.length - 1];
-        if (endpoint && Math.hypot(endpoint.x - moveX, endpoint.y - moveY) <= 32) {
-          arena = { x, y, moveX, moveY };
-          break;
+    const GRID = 16;
+    const dims = {
+      House: { width: 48, height: 48 },
+      Barracks: { width: 72, height: 72 },
+    };
+    const snap = (value) => Math.floor(value / GRID) * GRID;
+    const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
+
+    function findPlacement(type) {
+      const def = dims[type];
+      const baseX = snap(townCenter.x - 300);
+      const baseY = snap(townCenter.y - 300);
+      for (let oy = 0; oy <= 600; oy += GRID) {
+        for (let ox = 0; ox <= 600; ox += GRID) {
+          const center = {
+            x: baseX + ox + def.width / 2,
+            y: baseY + oy + def.height / 2,
+          };
+          if (manager.getBuildValidity(center.x, center.y, type).valid) return center;
         }
       }
-      if (arena) break;
+      throw new Error(`Could not find a valid ${type} placement.`);
     }
-    if (!arena) throw new Error('Could not find a connected walkable arena.');
 
-    const player = scene.entityFactory.spawnUnit('Pikesman', arena.x, arena.y, 0);
-    if (!player) throw new Error('Could not spawn deterministic surviving player unit.');
-    player.setData('__continuityStartX', player.x);
-    player.setData('__continuityStartY', player.y);
-    window.__combatSaveProbe = { player, enemy: null };
-    return { arena, initialPopulation: scene.population };
+    function build(type) {
+      const center = findPlacement(type);
+      const def = dims[type];
+      const input = toIso(center.x - def.width / 2, center.y - def.height / 2);
+      const before = new Set(buildings());
+      manager.enterBuildMode(type);
+      manager.updatePreview(input.x, input.y);
+      manager.tryBuild(input.x, input.y);
+      manager.cancelBuildMode();
+      const created = buildings().find((building) => (
+        !before.has(building) && getOwner(building) === 0 && getDef(building)?.type === type
+      ));
+      if (!created) throw new Error(`${type} was not created.`);
+      return created;
+    }
+
+    const maxPopulationBefore = scene.maxPopulation;
+    const house = build('House');
+    if (scene.maxPopulation <= maxPopulationBefore) {
+      throw new Error('House did not increase population capacity before training.');
+    }
+    const barracks = build('Barracks');
+    window.__trainedSaveProbe = { barracks, player: null, enemy: null };
+    return {
+      maxPopulationBefore,
+      maxPopulationAfterHousing: scene.maxPopulation,
+      barracks: { x: barracks.x, y: barracks.y },
+      initialPopulation: scene.population,
+    };
   });
 
-  await page.waitForFunction(() => Boolean(window.__combatSaveProbe?.player?.visual?.active), undefined, { timeout: 5_000 });
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__combatSaveProbe.player;
+    const barracks = window.__trainedSaveProbe.barracks;
     scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
+    scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
   });
   await sleep(80);
 
   const canvas = page.locator('canvas').first();
-  const canvasBox = await canvas.boundingBox();
-  if (!canvasBox) throw new Error('Game canvas was not measurable.');
+  let canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error('Game canvas was not measurable for Barracks selection.');
 
-  telemetry.phase = 'pre-combat-move';
+  const barracksPoint = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const barracks = window.__trainedSaveProbe.barracks;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (barracks.visual.x - topLeft.x) * camera.zoom,
+      y: (barracks.visual.y - 18 - topLeft.y) * camera.zoom,
+    };
+  });
+  await page.mouse.click(canvasBox.x + barracksPoint.x, canvasBox.y + barracksPoint.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedBuilding === window.__trainedSaveProbe.barracks;
+  }, undefined, { timeout: 3_000 });
+
+  telemetry.phase = 'train';
+  telemetry.beforeTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      playerMilitary: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+
+  const pikesmanButton = page.getByRole('button', { name: /Pikesman/i });
+  await pikesmanButton.waitFor({ state: 'visible', timeout: 3_000 });
+  await pikesmanButton.click();
+  await page.waitForFunction((before) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
+    return military === before.playerMilitary + 1 && scene.population === before.population + 1;
+  }, telemetry.beforeTraining, { timeout: 5_000 });
+
+  telemetry.afterTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const playerUnits = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+    const player = playerUnits[playerUnits.length - 1];
+    if (!player || (player.unitType ?? player.getData('unitType')) !== 'Pikesman') {
+      throw new Error('Barracks UI did not produce a Pikesman as the newest player unit.');
+    }
+    window.__trainedSaveProbe.player = player;
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      playerMilitary: playerUnits.length,
+      type: player.unitType ?? player.getData('unitType'),
+      position: { x: player.x, y: player.y },
+    };
+  });
+
+  if (telemetry.afterTraining.food !== telemetry.beforeTraining.food - 100) {
+    throw new Error('Pikesman training did not deduct the expected food cost.');
+  }
+  if (telemetry.afterTraining.gold !== telemetry.beforeTraining.gold - 50) {
+    throw new Error('Pikesman training did not deduct the expected gold cost.');
+  }
+
+  telemetry.phase = 'move';
+  telemetry.moveTarget = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__trainedSaveProbe.player;
+    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
+    const candidates = [[96, 0], [-96, 0], [0, 96], [0, -96], [72, 72], [-72, -72]];
+    for (const [dx, dy] of candidates) {
+      const target = { x: player.x + dx, y: player.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
+      if (path?.length > 1) {
+        player.setData('__journeyMoveStartX', player.x);
+        player.setData('__journeyMoveStartY', player.y);
+        return target;
+      }
+    }
+    throw new Error('Could not find a walkable target for the trained Pikesman.');
+  });
+  await sleep(80);
+
+  canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error('Game canvas was not measurable for unit movement.');
   let point = await unitScreenPoint(page, 'player');
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.inputManager.selectedUnits.includes(window.__combatSaveProbe.player);
+    return scene.inputManager.selectedUnits.includes(window.__trainedSaveProbe.player);
   }, undefined, { timeout: 3_000 });
-
-  point = await cartesianScreenPoint(page, { x: telemetry.setup.arena.moveX, y: telemetry.setup.arena.moveY });
+  point = await cartesianScreenPoint(page, telemetry.moveTarget);
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
-    const player = window.__combatSaveProbe.player;
-    return Math.hypot(player.x - player.getData('__continuityStartX'), player.y - player.getData('__continuityStartY')) > 5;
+    const player = window.__trainedSaveProbe.player;
+    return Math.hypot(
+      player.x - player.getData('__journeyMoveStartX'),
+      player.y - player.getData('__journeyMoveStartY'),
+    ) > 5;
   }, undefined, { timeout: 12_000 });
 
   telemetry.phase = 'combat';
   telemetry.combat = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__combatSaveProbe.player;
+    const player = window.__trainedSaveProbe.player;
     scene.peacefulMode = false;
     const candidates = [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18], [-18, -18]];
     let target = null;
@@ -195,14 +320,18 @@ try {
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
     player.lastAttackTime = -10_000;
-    window.__combatSaveProbe.enemy = enemy;
+    window.__trainedSaveProbe.enemy = enemy;
+    window.__trainedSaveProbe.enemyX = enemy.x;
+    window.__trainedSaveProbe.enemyY = enemy.y;
     return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y) };
   });
-
-  await page.waitForFunction(() => Boolean(window.__combatSaveProbe?.enemy?.visual?.active), undefined, { timeout: 5_000 });
+  if (telemetry.combat.distance > 40) {
+    throw new Error(`Enemy setup exceeded Pikesman attack range (${telemetry.combat.distance.toFixed(2)}px).`);
+  }
+  await page.waitForFunction(() => Boolean(window.__trainedSaveProbe?.enemy?.visual?.active), undefined, { timeout: 5_000 });
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { player, enemy } = window.__combatSaveProbe;
+    const { player, enemy } = window.__trainedSaveProbe;
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
   });
   await sleep(80);
@@ -210,20 +339,28 @@ try {
   await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const enemy = window.__combatSaveProbe.enemy;
-    return !enemy.active && !scene.units.getChildren().includes(enemy);
+    const probe = window.__trainedSaveProbe;
+    const enemy = probe.enemy;
+    return Boolean(
+      !enemy.active
+      && !scene.units.getChildren().includes(enemy)
+      && !scene.unitSpatialHash.query(probe.enemyX, probe.enemyY, 96).includes(enemy)
+      && probe.player.active
+      && scene.units.getChildren().includes(probe.player),
+    );
   }, undefined, { timeout: 12_000 });
 
   telemetry.phase = 'save';
   telemetry.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__combatSaveProbe.player;
+    const player = window.__trainedSaveProbe.player;
     const snapshot = {
       x: player.x,
       y: player.y,
-      type: player.unitType ?? player.getData('unitType') ?? 'Pikesman',
+      type: player.unitType ?? player.getData('unitType'),
       hp: player.getData('hp'),
       population: scene.population,
+      maxPopulation: scene.maxPopulation,
       gameTime: scene.gameTime,
     };
     window.dispatchEvent(new Event('save-game'));
@@ -250,23 +387,29 @@ try {
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData?.('owner') === 0 && (unit.unitType ?? unit.getData?.('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
-    if (!player) throw new Error('Saved surviving player military unit was not restored.');
-    window.__combatSaveProbe = { player, enemy: null };
+    if (!player) throw new Error('The trained surviving Pikesman was not restored.');
+    window.__trainedSaveProbe = { player, enemy: null };
     return {
       x: player.x,
       y: player.y,
       hp: player.getData('hp'),
       population: scene.population,
+      maxPopulation: scene.maxPopulation,
       gameTime: scene.gameTime,
       positionDelta: Math.hypot(player.x - saved.x, player.y - saved.y),
     };
   }, telemetry.beforeSave);
 
+  if (telemetry.restored.positionDelta > 2) throw new Error('Trained Pikesman position did not survive reload.');
+  if (telemetry.restored.hp !== telemetry.beforeSave.hp) throw new Error('Trained Pikesman HP did not survive reload.');
+  if (telemetry.restored.population !== telemetry.beforeSave.population) throw new Error('Population changed across combat save/reload.');
+  if (telemetry.restored.maxPopulation !== telemetry.beforeSave.maxPopulation) throw new Error('Housing capacity changed across combat save/reload.');
+
   telemetry.phase = 'continue-playing';
-  await page.waitForFunction(() => Boolean(window.__combatSaveProbe?.player?.visual?.active), undefined, { timeout: 5_000 });
+  await page.waitForFunction(() => Boolean(window.__trainedSaveProbe?.player?.visual?.active), undefined, { timeout: 5_000 });
   telemetry.postLoadMove = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__combatSaveProbe.player;
+    const player = window.__trainedSaveProbe.player;
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     const candidates = [[64, 0], [-64, 0], [0, 64], [0, -64]];
@@ -274,7 +417,7 @@ try {
       const target = { x: player.x + dx, y: player.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
-      if (path?.length) {
+      if (path?.length > 1) {
         player.setData('__postLoadStartX', player.x);
         player.setData('__postLoadStartY', player.y);
         return target;
@@ -284,47 +427,51 @@ try {
   });
   await sleep(80);
 
-  const reloadedCanvasBox = await canvas.boundingBox();
-  if (!reloadedCanvasBox) throw new Error('Game canvas was not measurable after reload.');
+  canvasBox = await canvas.boundingBox();
+  if (!canvasBox) throw new Error('Game canvas was not measurable after reload.');
   point = await unitScreenPoint(page, 'player');
-  await page.mouse.click(reloadedCanvasBox.x + point.x, reloadedCanvasBox.y + point.y, { button: 'left' });
+  await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.inputManager.selectedUnits.includes(window.__combatSaveProbe.player);
+    return scene.inputManager.selectedUnits.includes(window.__trainedSaveProbe.player);
   }, undefined, { timeout: 3_000 });
   point = await cartesianScreenPoint(page, telemetry.postLoadMove);
-  await page.mouse.click(reloadedCanvasBox.x + point.x, reloadedCanvasBox.y + point.y, { button: 'right' });
+  await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
-    const player = window.__combatSaveProbe.player;
-    return Math.hypot(player.x - player.getData('__postLoadStartX'), player.y - player.getData('__postLoadStartY')) > 5;
+    const player = window.__trainedSaveProbe.player;
+    return Math.hypot(
+      player.x - player.getData('__postLoadStartX'),
+      player.y - player.getData('__postLoadStartY'),
+    ) > 5;
   }, undefined, { timeout: 12_000 });
 
   telemetry.afterContinue = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__combatSaveProbe.player;
+    const player = window.__trainedSaveProbe.player;
     return {
-      x: player.x,
-      y: player.y,
       selected: scene.inputManager.selectedUnits.includes(player),
-      movedDistance: Math.hypot(player.x - player.getData('__postLoadStartX'), player.y - player.getData('__postLoadStartY')),
+      movedDistance: Math.hypot(
+        player.x - player.getData('__postLoadStartX'),
+        player.y - player.getData('__postLoadStartY'),
+      ),
       gameTime: scene.gameTime,
     };
   });
 
-  if (telemetry.combat.distance > 40) throw new Error(`Enemy setup exceeded Pikesman attack range (${telemetry.combat.distance.toFixed(2)}px).`);
-  if (telemetry.restored.positionDelta > 2) throw new Error(`Surviving unit position drifted ${telemetry.restored.positionDelta.toFixed(2)}px across save/load.`);
-  if (telemetry.restored.population !== telemetry.beforeSave.population) throw new Error('Population changed across the combat save/load boundary.');
-  if (telemetry.afterContinue.movedDistance <= 5) throw new Error('Restored surviving unit did not respond to a real right-click move command.');
-  if (telemetry.browserErrors.length > 0) throw new Error(`Browser page errors during combat save continuity journey:\n${telemetry.browserErrors.join('\n')}`);
+  if (!telemetry.afterContinue.selected || telemetry.afterContinue.movedDistance <= 5) {
+    throw new Error('Restored trained Pikesman could not continue under real player input.');
+  }
+  if (telemetry.browserErrors.length) {
+    throw new Error(`Browser errors observed: ${telemetry.browserErrors.join(' | ')}`);
+  }
 
-  telemetry.phase = 'passed';
+  telemetry.phase = 'complete';
   await persistEvidence();
   console.log(JSON.stringify(telemetry, null, 2));
 } catch (error) {
   telemetry.phase = `failed:${telemetry.phase}`;
-  telemetry.error = error instanceof Error ? error.stack ?? error.message : String(error);
+  telemetry.failure = error instanceof Error ? error.message : String(error);
   await persistEvidence();
-  console.error(JSON.stringify(telemetry, null, 2));
   throw error;
 } finally {
   if (browser) await browser.close();
