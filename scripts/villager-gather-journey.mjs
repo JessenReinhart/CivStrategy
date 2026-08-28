@@ -113,15 +113,24 @@ const waitForCameraSync = () => page.waitForFunction(() => {
 }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
 
 const pressRightButtonThroughGameFrame = async (canvasBox, point) => {
-  const frameBefore = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.move(canvasBox.x + point.x, canvasBox.y + point.y);
+
+  // Workforce commands are handled on pointerdown and read Phaser's world-space
+  // pointer immediately. Let one game step consume the DOM mousemove first so a
+  // slow SwiftShader frame cannot reuse the previous pointer position as a rally.
+  const frameBeforeMoveSync = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction((previousFrame) => (
+    window.__civStrategyGame?.loop?.frame > previousFrame
+  ), frameBeforeMoveSync, { timeout: POINTER_STATE_TIMEOUT_MS });
+
+  const frameBeforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.down({ button: 'right' });
   try {
-    // Phaser samples DOM pointer state during its game step. On SwiftShader a
-    // complete Playwright click can press and release between two such steps.
+    // Keep the button down through a game step too. On SwiftShader a complete
+    // Playwright click can otherwise press and release between two Phaser steps.
     await page.waitForFunction((previousFrame) => (
       window.__civStrategyGame?.loop?.frame > previousFrame
-    ), frameBefore, { timeout: POINTER_STATE_TIMEOUT_MS });
+    ), frameBeforeDown, { timeout: POINTER_STATE_TIMEOUT_MS });
   } finally {
     await page.mouse.up({ button: 'right' });
   }
