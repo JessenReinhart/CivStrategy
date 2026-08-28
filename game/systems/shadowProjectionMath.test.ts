@@ -4,13 +4,13 @@ import { BuildingType } from '../../types';
 import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 import { calculateShadowProjection } from './shadowProjectionMath';
 
-describe('calculateShadowProjection', () => {
-  const baseInput = {
-    shadowAngleRad: Math.PI / 2,
-    shadowLength: 100,
-    shadowHeightScale: 0.72,
-  };
+const baseInput = {
+  shadowAngleRad: Math.PI / 2,
+  shadowLength: 100,
+  shadowHeightScale: 0.72,
+};
 
+describe('calculateShadowProjection', () => {
   it('creates a finite ground-plane projection that extends away from the anchor', () => {
     const projection = calculateShadowProjection(baseInput);
 
