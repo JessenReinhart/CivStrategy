@@ -2,6 +2,7 @@
 
 ## 2026-08-28
 
+- **A real Barracks-trained Pikesman now has end-to-end combat/save continuity coverage (#177):** The same unit created through the normal training UI must survive real selection and movement, resolve combat, save, reload with coherent health/population/position state, and accept another real movement command after loading.
 - **Configured match treaties are carried into live game time again (#175):** A treaty selected before starting a match once again reaches the player scene in milliseconds, so the existing AI diplomacy checks can honor the configured opening grace period instead of silently treating it as zero.
 - **A freshly trained Pikesman is now carried through movement and real combat in one browser journey (#173):** Verification no longer treats training and combat as separate islands. The exact unit created through the Barracks UI must be selected on the canvas, receive a real movement command, defeat a nearby enemy, and leave that defeated unit fully removed from live targeting structures.
 - **Standard new-game startup now has repeated real-browser coverage (#171):** Verification starts a normal new game three times in the same Chromium session and requires each world to become ready with live units and buildings, stable map dimensions, working camera input, and no page errors before later gameplay checks continue.
