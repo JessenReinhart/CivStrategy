@@ -97,6 +97,107 @@ async function selectStartingVillager(page) {
   }, undefined, { timeout: 3_000 });
 }
 
+async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
+  await page.evaluate((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const barracks = scene.buildings.getChildren().find((building) => {
+      const def = building.getData('def');
+      return building.getData('owner') === 0
+        && def?.type === 'Barracks'
+        && building.x === position.x
+        && building.y === position.y;
+    });
+    if (!barracks?.visual?.active) throw new Error('Restored Barracks visual unavailable for post-load training.');
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
+    window.__saveReloadBarracks = barracks;
+  }, barracksPosition);
+
+  await sleep(80);
+  const point = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const barracks = window.__saveReloadBarracks;
+    if (!barracks?.visual?.active) throw new Error('Restored Barracks became unavailable before selection.');
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (barracks.visual.x - topLeft.x) * camera.zoom,
+      y: (barracks.visual.y - 18 - topLeft.y) * camera.zoom,
+    };
+  });
+
+  const canvas = page.locator('canvas').first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas was not measurable for restored Barracks selection.');
+  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedBuilding === window.__saveReloadBarracks;
+  }, undefined, { timeout: 3_000 });
+
+  const before = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      playerMilitary: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  if (before.population >= before.maxPopulation) {
+    throw new Error(`Restored town has no population capacity for training: ${before.population}/${before.maxPopulation}.`);
+  }
+
+  const pikesmanButton = page.getByRole('button', { name: /Pikesman/i });
+  await pikesmanButton.waitFor({ state: 'visible', timeout: 3_000 });
+  await pikesmanButton.click();
+
+  await page.waitForFunction((snapshot) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
+    return military === snapshot.playerMilitary + 1 && scene.population === snapshot.population + 1;
+  }, before, { timeout: 5_000 });
+
+  const after = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const units = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+    const newest = units[units.length - 1];
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      playerMilitary: units.length,
+      newestType: newest?.unitType ?? newest?.getData('unitType') ?? null,
+    };
+  });
+
+  if (after.playerMilitary !== before.playerMilitary + 1) {
+    throw new Error('Post-load Pikesman training did not create exactly one player military unit.');
+  }
+  if (after.population !== before.population + 1) {
+    throw new Error('Post-load Pikesman training did not increment player population by one.');
+  }
+  if (after.maxPopulation !== before.maxPopulation) {
+    throw new Error(`Post-load training changed population capacity: ${before.maxPopulation} -> ${after.maxPopulation}.`);
+  }
+  if (after.population > after.maxPopulation) {
+    throw new Error(`Post-load training exceeded restored population capacity: ${after.population}/${after.maxPopulation}.`);
+  }
+  if (after.food !== before.food - 100 || after.gold !== before.gold - 50) {
+    throw new Error(`Post-load Pikesman training cost mismatch: food ${before.food} -> ${after.food}, gold ${before.gold} -> ${after.gold}.`);
+  }
+  if (after.food < 0 || after.gold < 0) {
+    throw new Error('Post-load Pikesman training produced negative resources.');
+  }
+  if (after.newestType !== 'Pikesman') {
+    throw new Error(`Expected post-load trained unit to be Pikesman, got ${after.newestType ?? 'unknown'}.`);
+  }
+
+  return { before, after };
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
@@ -292,6 +393,8 @@ try {
     throw new Error('Barracks rally waypoint changed across reload.');
   }
 
+  const postLoadTraining = await trainPikesmanFromRestoredBarracks(page, beforeSave.barracks);
+
   const cameraBeforeInput = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.cameras.main.scrollX;
@@ -309,7 +412,7 @@ try {
   });
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/save-reload-journey.png`, fullPage: true });
-  console.log(JSON.stringify({ beforeSave, storedRallyWaypoint: storedBarracks.waypoint, afterLoad, cameraBeforeInput, cameraAfterInput }, null, 2));
+  console.log(JSON.stringify({ beforeSave, storedRallyWaypoint: storedBarracks.waypoint, afterLoad, postLoadTraining, cameraBeforeInput, cameraAfterInput }, null, 2));
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during save/reload journey:\n${browserErrors.join('\n')}`);
