@@ -48,6 +48,9 @@ jobs:
       - name: Install Chromium for gameplay acceptance
         run: npx playwright install --with-deps chromium
 
+      - name: Browser repeated standard world startup journey
+        run: node scripts/standard-world-start-journey.mjs
+
       - name: Browser placement journey
         run: npm run test:placement-journey
 
