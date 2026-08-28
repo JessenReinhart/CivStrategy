@@ -75,10 +75,16 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     return nearest;
   };
 
+  const isAssignableWorkerBuilding = (building: WorkforceBuilding | undefined): building is WorkforceBuilding => {
+    if (!building?.active || building.getData('owner') !== 0) return false;
+    const def = building.getData('def') as BuildingDef | undefined;
+    return Boolean(def?.workerNeeds && building.visual?.active && building.visual.visible);
+  };
+
   const findWorkerBuildingAtPointer = (pointer: Phaser.Input.Pointer): WorkforceBuilding | null => {
     const directHit = scene.input.hitTestPointer(pointer)
-      .find((target) => Boolean(target.getData?.('building')))
-      ?.getData('building') as WorkforceBuilding | undefined;
+      .map((target) => target.getData?.('building') as WorkforceBuilding | undefined)
+      .find(isAssignableWorkerBuilding);
     if (directHit) return directHit;
 
     // Building art is intentionally larger than its simulation footprint. If
@@ -88,15 +94,9 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     let nearestScore = Infinity;
     for (const child of scene.buildings.getChildren()) {
       const building = child as WorkforceBuilding;
-      const def = building.getData('def') as BuildingDef | undefined;
-      const visual = building.visual;
-      if (
-        !building.active
-        || building.getData('owner') !== 0
-        || !def?.workerNeeds
-        || !visual?.active
-        || !visual.visible
-      ) continue;
+      if (!isAssignableWorkerBuilding(building)) continue;
+      const def = building.getData('def') as BuildingDef;
+      const visual = building.visual!;
 
       const halfWidth = Math.max(18, def.width * 0.75);
       const upwardReach = Math.max(24, def.height);
@@ -151,26 +151,22 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     const building = findWorkerBuildingAtPointer(pointer);
 
     if (building) {
-      const owner = building.getData('owner') as number;
-      const def = building.getData('def') as BuildingDef | undefined;
       const assignedWorker = building.getData('assignedWorker') as VillagerData | undefined;
 
-      if (owner === 0 && def?.workerNeeds) {
-        if (assignedWorker && assignedWorker !== selectedVillager) {
-          scene.feedbackSystem.showFloatingText(
-            building.x,
-            building.y,
-            'Already staffed',
-            '#facc15',
-          );
-          return;
-        }
-
-        scene.villagerSystem.assignJob(selectedVillager, building);
-        scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
-        scene.economySystem.updateStats();
+      if (assignedWorker && assignedWorker !== selectedVillager) {
+        scene.feedbackSystem.showFloatingText(
+          building.x,
+          building.y,
+          'Already staffed',
+          '#facc15',
+        );
         return;
       }
+
+      scene.villagerSystem.assignJob(selectedVillager, building);
+      scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+      scene.economySystem.updateStats();
+      return;
     }
 
     const cart = toCartesian(pointer.worldX, pointer.worldY);
