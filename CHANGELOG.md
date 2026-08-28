@@ -2,6 +2,7 @@
 
 ## 2026-08-28
 
+- **Configured match treaties are carried into live game time again (#175):** A treaty selected before starting a match once again reaches the player scene in milliseconds, so the existing AI diplomacy checks can honor the configured opening grace period instead of silently treating it as zero.
 - **A freshly trained Pikesman is now carried through movement and real combat in one browser journey (#173):** Verification no longer treats training and combat as separate islands. The exact unit created through the Barracks UI must be selected on the canvas, receive a real movement command, defeat a nearby enemy, and leave that defeated unit fully removed from live targeting structures.
 - **Standard new-game startup now has repeated real-browser coverage (#171):** Verification starts a normal new game three times in the same Chromium session and requires each world to become ready with live units and buildings, stable map dimensions, working camera input, and no page errors before later gameplay checks continue.
 - **Population capacity is now protected across save, reload, and continued training (#167):** The save/reload journey proves House-derived capacity survives a full page reload, then selects the restored Barracks through the canvas and trains a Pikesman through the real UI without losing that capacity or corrupting resources.
