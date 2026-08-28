@@ -45,11 +45,14 @@ describe('authored building shadow profiles', () => {
     for (const config of Object.values(BUILDING_SPRITE_VISUALS)) {
       expect(Number.isFinite(config.shadowHeightScale)).toBe(true);
       expect(Number.isFinite(config.shadowFootprintScale)).toBe(true);
+      expect(Number.isFinite(config.shadowFootprintDepthScale)).toBe(true);
       expect(Number.isFinite(config.shadowAnchorOffsetY)).toBe(true);
       expect(Number.isFinite(config.shadowEndWidthScale)).toBe(true);
       expect(config.shadowHeightScale).toBeGreaterThan(0);
       expect(config.shadowFootprintScale).toBeGreaterThan(0.4);
-      expect(config.shadowEndWidthScale).toBeGreaterThan(0);
+      expect(config.shadowFootprintDepthScale).toBeGreaterThan(0.2);
+      expect(config.shadowFootprintDepthScale).toBeLessThanOrEqual(0.6);
+      expect(config.shadowEndWidthScale).toBeGreaterThan(0.8);
       expect(config.shadowEndWidthScale).toBeLessThanOrEqual(1);
     }
   });
