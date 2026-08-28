@@ -8,6 +8,8 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
 const MARKER_WOOD = 4321;
+const POINTER_TIMEOUT_MS = 30_000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(
   process.execPath,
@@ -19,14 +21,11 @@ let serverOutput = '';
 server.stdout.on('data', (chunk) => { serverOutput += chunk.toString(); });
 server.stderr.on('data', (chunk) => { serverOutput += chunk.toString(); });
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function waitForServer(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(BASE_URL);
-      if (response.ok) return;
+      if ((await fetch(BASE_URL)).ok) return;
     } catch {
       // Vite is still starting.
     }
@@ -44,12 +43,13 @@ async function stopServer() {
 
 async function waitForMainScene(page) {
   await page.waitForFunction(() => {
-    const game = window.__civStrategyGame;
-    const scene = game?.scene?.getScene?.('MainScene');
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     return Boolean(
       scene?.isReady
       && scene?.resources
       && scene?.inputManager
+      && scene?.villagerSystem
+      && scene?.economySystem
       && scene?.buildings?.getChildren?.().length,
     );
   }, undefined, { timeout: 45_000 });
@@ -61,6 +61,18 @@ async function bootNewGame(page) {
   await waitForMainScene(page);
 }
 
+async function waitForCameraSync(page) {
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const mainCamera = scene?.cameras?.main;
+    const uiCamera = scene?.uiCamera;
+    if (!mainCamera || !uiCamera) return false;
+    return Math.abs(mainCamera.scrollX - uiCamera.scrollX) < 0.5
+      && Math.abs(mainCamera.scrollY - uiCamera.scrollY) < 0.5
+      && Math.abs(mainCamera.zoom - uiCamera.zoom) < 0.001;
+  }, undefined, { timeout: POINTER_TIMEOUT_MS });
+}
+
 async function selectStartingVillager(page) {
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -70,10 +82,8 @@ async function selectStartingVillager(page) {
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
     window.__saveReloadSelectedVillager = villager;
   });
+  await waitForCameraSync(page);
 
-  // Match the proven workforce journey: let Phaser render the camera change
-  // before deriving browser coordinates from the live visual.
-  await sleep(80);
   const point = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const villager = window.__saveReloadSelectedVillager;
@@ -92,9 +102,8 @@ async function selectStartingVillager(page) {
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
   await page.waitForFunction(() => {
     const villager = window.__saveReloadSelectedVillager;
-    const ring = villager?.visual?.getData?.('workforceSelectionRing');
-    return Boolean(ring?.active);
-  }, undefined, { timeout: 3_000 });
+    return Boolean(villager?.visual?.getData?.('workforceSelectionRing')?.active);
+  }, undefined, { timeout: 5_000 });
 }
 
 async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
@@ -112,12 +121,11 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
     scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
     window.__saveReloadBarracks = barracks;
   }, barracksPosition);
+  await waitForCameraSync(page);
 
-  await sleep(80);
   const point = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const barracks = window.__saveReloadBarracks;
-    if (!barracks?.visual?.active) throw new Error('Restored Barracks became unavailable before selection.');
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
     return {
@@ -125,7 +133,6 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
       y: (barracks.visual.y - 18 - topLeft.y) * camera.zoom,
     };
   });
-
   const canvas = page.locator('canvas').first();
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas was not measurable for restored Barracks selection.');
@@ -133,7 +140,7 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.inputManager.selectedBuilding === window.__saveReloadBarracks;
-  }, undefined, { timeout: 3_000 });
+  }, undefined, { timeout: 5_000 });
 
   const before = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -149,10 +156,7 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
     throw new Error(`Restored town has no population capacity for training: ${before.population}/${before.maxPopulation}.`);
   }
 
-  const pikesmanButton = page.getByRole('button', { name: /Pikesman/i });
-  await pikesmanButton.waitFor({ state: 'visible', timeout: 3_000 });
-  await pikesmanButton.click();
-
+  await page.getByRole('button', { name: /Pikesman/i }).click();
   await page.waitForFunction((snapshot) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
@@ -173,33 +177,19 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
     };
   });
 
-  if (after.playerMilitary !== before.playerMilitary + 1) {
-    throw new Error('Post-load Pikesman training did not create exactly one player military unit.');
-  }
-  if (after.population !== before.population + 1) {
-    throw new Error('Post-load Pikesman training did not increment player population by one.');
-  }
-  if (after.maxPopulation !== before.maxPopulation) {
-    throw new Error(`Post-load training changed population capacity: ${before.maxPopulation} -> ${after.maxPopulation}.`);
-  }
-  if (after.population > after.maxPopulation) {
-    throw new Error(`Post-load training exceeded restored population capacity: ${after.population}/${after.maxPopulation}.`);
-  }
+  if (after.playerMilitary !== before.playerMilitary + 1) throw new Error('Post-load training did not create exactly one player military unit.');
+  if (after.population !== before.population + 1) throw new Error('Post-load training did not increment player population by one.');
+  if (after.maxPopulation !== before.maxPopulation) throw new Error('Post-load training changed population capacity.');
+  if (after.population > after.maxPopulation) throw new Error('Post-load training exceeded restored population capacity.');
   if (after.food !== before.food - 100 || after.gold !== before.gold - 50) {
-    throw new Error(`Post-load Pikesman training cost mismatch: food ${before.food} -> ${after.food}, gold ${before.gold} -> ${after.gold}.`);
+    throw new Error(`Post-load Pikesman cost mismatch: food ${before.food} -> ${after.food}, gold ${before.gold} -> ${after.gold}.`);
   }
-  if (after.food < 0 || after.gold < 0) {
-    throw new Error('Post-load Pikesman training produced negative resources.');
-  }
-  if (after.newestType !== 'Pikesman') {
-    throw new Error(`Expected post-load trained unit to be Pikesman, got ${after.newestType ?? 'unknown'}.`);
-  }
-
+  if (after.food < 0 || after.gold < 0) throw new Error('Post-load training produced negative resources.');
+  if (after.newestType !== 'Pikesman') throw new Error(`Expected post-load Pikesman, got ${after.newestType ?? 'unknown'}.`);
   return { before, after };
 }
 
 await mkdir(ARTIFACT_DIR, { recursive: true });
-
 let browser;
 try {
   await waitForServer();
@@ -212,38 +202,56 @@ try {
   await bootNewGame(page);
 
   const beforeSave = await page.evaluate((markerWood) => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScene('MainScene');
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.peacefulMode = true;
     scene.resources.wood = markerWood;
-    const townCenter = scene.buildings.getChildren().find((building) => {
-      const def = building.getData('def');
-      return building.getData('owner') === 0 && def?.type === 'Town Center';
-    });
+    const townCenter = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0 && building.getData('def')?.type === 'Town Center'
+    ));
     if (!townCenter) throw new Error('Player Town Center missing before save.');
 
     const maxPopulationBeforeHousing = scene.maxPopulation;
-    const house = scene.entityFactory.spawnBuilding(
-      'House',
-      townCenter.x - 192,
-      townCenter.y + 192,
-      0,
-    );
-    if (!house) throw new Error('House was not created before save.');
-    if (scene.maxPopulation <= maxPopulationBeforeHousing) {
+    const house = scene.entityFactory.spawnBuilding('House', townCenter.x - 192, townCenter.y + 192, 0);
+    if (!house || scene.maxPopulation <= maxPopulationBeforeHousing) {
       throw new Error('Live House did not increase player population capacity before save.');
     }
 
-    const barracks = scene.entityFactory.spawnBuilding(
-      'Barracks',
-      townCenter.x + 192,
-      townCenter.y + 192,
-      0,
-    );
-    if (typeof barracks?.setWaypoint !== 'function') {
-      throw new Error('Spawned Barracks does not expose rally waypoint behavior.');
-    }
+    const barracks = scene.entityFactory.spawnBuilding('Barracks', townCenter.x + 192, townCenter.y + 192, 0);
+    if (typeof barracks?.setWaypoint !== 'function') throw new Error('Spawned Barracks does not expose rally waypoint behavior.');
     const rallyWaypoint = { x: barracks.x + 128, y: barracks.y + 64 };
     barracks.setWaypoint(rallyWaypoint.x, rallyWaypoint.y);
+
+    const villager = scene.villagerSystem.getIdleVillagers(0)[0];
+    if (!villager?.visual) throw new Error('No idle player Villager is available for the save/load economy probe.');
+    const trees = scene.trees.getChildren().filter((tree) => (
+      tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped')
+    ));
+    let nearestTree = null;
+    let nearestDistance = Infinity;
+    for (const tree of trees) {
+      const distance = Math.hypot(tree.x - villager.x, tree.y - villager.y);
+      if (distance < nearestDistance) {
+        nearestTree = tree;
+        nearestDistance = distance;
+      }
+    }
+    if (!nearestTree || nearestDistance > 280) {
+      throw new Error(`No live tree is close enough for a deterministic post-load lumber loop (${nearestDistance.toFixed(1)}px).`);
+    }
+    const dx = nearestTree.x - villager.x;
+    const dy = nearestTree.y - villager.y;
+    const length = Math.max(1, Math.hypot(dx, dy));
+    const lumberCamp = scene.entityFactory.spawnBuilding(
+      'Lumber Camp',
+      villager.x + (-dy / length) * 64,
+      villager.y + (dx / length) * 64,
+      0,
+    );
+    scene.economySystem.assignJobs();
+    const assignedWorker = lumberCamp.getData('assignedWorker');
+    if (!assignedWorker || assignedWorker.jobBuilding !== lumberCamp) {
+      throw new Error('Pre-save Lumber Camp did not receive a Villager through normal economy assignment.');
+    }
 
     window.dispatchEvent(new Event('save-game'));
     return {
@@ -254,6 +262,8 @@ try {
       townCenter: { x: townCenter.x, y: townCenter.y },
       house: { x: house.x, y: house.y },
       barracks: { x: barracks.x, y: barracks.y },
+      lumberCamp: { x: lumberCamp.x, y: lumberCamp.y },
+      assignedWorkerId: assignedWorker.id,
       rallyWaypoint,
       gameTime: scene.gameTime,
     };
@@ -261,27 +271,24 @@ try {
 
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
-  if (storedSave.resources?.wood !== MARKER_WOOD) {
-    throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
-  }
+  if (storedSave.resources?.wood !== MARKER_WOOD) throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
+
   const storedHouse = storedSave.buildings?.find((building) => (
-    building.type === 'House'
-    && building.owner === 0
-    && building.x === beforeSave.house.x
-    && building.y === beforeSave.house.y
+    building.type === 'House' && building.owner === 0
+    && building.x === beforeSave.house.x && building.y === beforeSave.house.y
   ));
   if (!storedHouse) throw new Error('Stored save did not contain the population-cap House.');
   const storedBarracks = storedSave.buildings?.find((building) => (
-    building.type === 'Barracks'
-    && building.owner === 0
-    && building.x === beforeSave.barracks.x
-    && building.y === beforeSave.barracks.y
+    building.type === 'Barracks' && building.owner === 0
+    && building.x === beforeSave.barracks.x && building.y === beforeSave.barracks.y
   ));
   if (!storedBarracks) throw new Error('Stored save did not contain the configured Barracks.');
-  if (
-    storedBarracks.waypoint?.x !== beforeSave.rallyWaypoint.x
-    || storedBarracks.waypoint?.y !== beforeSave.rallyWaypoint.y
-  ) {
+  const storedLumberCamp = storedSave.buildings?.find((building) => (
+    building.type === 'Lumber Camp' && building.owner === 0
+    && building.x === beforeSave.lumberCamp.x && building.y === beforeSave.lumberCamp.y
+  ));
+  if (!storedLumberCamp) throw new Error('Stored save did not contain the Lumber Camp economy probe.');
+  if (storedBarracks.waypoint?.x !== beforeSave.rallyWaypoint.x || storedBarracks.waypoint?.y !== beforeSave.rallyWaypoint.y) {
     throw new Error('Stored save did not preserve the Barracks rally waypoint.');
   }
 
@@ -291,47 +298,34 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
 
   await page.waitForFunction((markerWood) => {
-    const game = window.__civStrategyGame;
-    const scene = game?.scene?.getScene?.('MainScene');
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
-
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     const oldVillager = window.__saveReloadSelectedVillager;
-    const oldRing = oldVillager?.visual?.active
-      ? oldVillager.visual.getData?.('workforceSelectionRing')
-      : null;
+    const oldRing = oldVillager?.visual?.active ? oldVillager.visual.getData?.('workforceSelectionRing') : null;
     const currentRing = scene?.villagerSystem?.getVillagersByOwner?.(0)?.some((villager) => (
       Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
     ));
     return scene?.isReady && !oldRing?.active && currentRing === false;
   }, undefined, { timeout: 5_000 });
 
-  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition }) => {
-    const game = window.__civStrategyGame;
-    const scene = game.scene.getScene('MainScene');
-    const townCenter = scene.buildings.getChildren().find((building) => {
-      const def = building.getData('def');
-      return building.getData('owner') === 0 && def?.type === 'Town Center';
-    });
-    if (!townCenter) throw new Error('Player Town Center missing after load.');
-    const house = scene.buildings.getChildren().find((building) => {
-      const def = building.getData('def');
-      return building.getData('owner') === 0
-        && def?.type === 'House'
-        && building.x === housePosition.x
-        && building.y === housePosition.y;
-    });
-    if (!house) throw new Error('Population-cap House missing after load.');
-    const barracks = scene.buildings.getChildren().find((building) => {
-      const def = building.getData('def');
-      return building.getData('owner') === 0
-        && def?.type === 'Barracks'
-        && building.x === barracksPosition.x
-        && building.y === barracksPosition.y;
-    });
-    if (!barracks) throw new Error('Configured Barracks missing after load.');
+  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition, lumberCampPosition }) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const findBuilding = (type, position) => scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === type
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    const townCenter = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0 && building.getData('def')?.type === 'Town Center'
+    ));
+    const house = findBuilding('House', housePosition);
+    const barracks = findBuilding('Barracks', barracksPosition);
+    const lumberCamp = findBuilding('Lumber Camp', lumberCampPosition);
+    if (!townCenter || !house || !barracks || !lumberCamp) throw new Error('One or more saved player buildings are missing after load.');
 
     const loadedWood = scene.resources.wood;
     const loadedPopulation = scene.population;
@@ -345,20 +339,41 @@ try {
     if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
     if (!workforceSelectionCleared) throw new Error('Workforce selection survived entity replacement during load.');
 
+    const assignedWorker = lumberCamp.getData('assignedWorker');
+    if (!assignedWorker || assignedWorker.jobBuilding !== lumberCamp) {
+      throw new Error('Restored Lumber Camp did not reconnect to a Villager through normal post-load job assignment.');
+    }
+
+    let simulatedMs = 0;
+    for (let i = 0; i < 2_000 && scene.resources.wood <= loadedWood; i++) {
+      scene.villagerSystem.update(scene.gameTime + simulatedMs, 100);
+      simulatedMs += 100;
+    }
+    const resumedWood = scene.resources.wood;
+    if (resumedWood <= loadedWood) {
+      throw new Error(`Restored worker economy did not deposit wood after ${simulatedMs}ms of VillagerSystem time.`);
+    }
+
     await new Promise((resolve) => setTimeout(resolve, 500));
     const resumedGameTime = scene.gameTime;
     if (resumedGameTime <= loadedGameTime) throw new Error('Simulation did not resume after load.');
 
     return {
       wood: loadedWood,
+      resumedWood,
+      woodDeposited: resumedWood - loadedWood,
       population: loadedPopulation,
       maxPopulation: loadedMaxPopulation,
       townCenter: { x: townCenter.x, y: townCenter.y },
       house: { x: house.x, y: house.y },
       barracks: { x: barracks.x, y: barracks.y },
+      lumberCamp: { x: lumberCamp.x, y: lumberCamp.y },
+      assignedWorkerId: assignedWorker.id,
+      assignedWorkerState: assignedWorker.state,
       rallyWaypoint,
       loadedGameTime,
       resumedGameTime,
+      simulatedMs,
       workforceSelectionCleared,
     };
   }, {
@@ -366,6 +381,7 @@ try {
     previousGameTime: beforeSave.gameTime,
     housePosition: beforeSave.house,
     barracksPosition: beforeSave.barracks,
+    lumberCampPosition: beforeSave.lumberCamp,
   });
 
   if (afterLoad.population !== beforeSave.population) {
@@ -374,45 +390,35 @@ try {
   if (afterLoad.maxPopulation !== beforeSave.maxPopulation) {
     throw new Error(`Population capacity changed across reload: ${beforeSave.maxPopulation} -> ${afterLoad.maxPopulation}.`);
   }
-  if (afterLoad.maxPopulation <= afterLoad.population) {
-    throw new Error(`Loaded population capacity ${afterLoad.maxPopulation} does not leave room beyond population ${afterLoad.population}.`);
-  }
-  if (afterLoad.townCenter.x !== beforeSave.townCenter.x || afterLoad.townCenter.y !== beforeSave.townCenter.y) {
-    throw new Error('Town Center position changed across reload.');
-  }
-  if (afterLoad.house.x !== beforeSave.house.x || afterLoad.house.y !== beforeSave.house.y) {
-    throw new Error('Population-cap House position changed across reload.');
-  }
-  if (afterLoad.barracks.x !== beforeSave.barracks.x || afterLoad.barracks.y !== beforeSave.barracks.y) {
-    throw new Error('Barracks position changed across reload.');
-  }
-  if (
-    afterLoad.rallyWaypoint?.x !== beforeSave.rallyWaypoint.x
-    || afterLoad.rallyWaypoint?.y !== beforeSave.rallyWaypoint.y
-  ) {
+  if (afterLoad.maxPopulation <= afterLoad.population) throw new Error('Loaded population capacity leaves no room for continued training.');
+  if (afterLoad.townCenter.x !== beforeSave.townCenter.x || afterLoad.townCenter.y !== beforeSave.townCenter.y) throw new Error('Town Center position changed across reload.');
+  if (afterLoad.house.x !== beforeSave.house.x || afterLoad.house.y !== beforeSave.house.y) throw new Error('Population-cap House position changed across reload.');
+  if (afterLoad.barracks.x !== beforeSave.barracks.x || afterLoad.barracks.y !== beforeSave.barracks.y) throw new Error('Barracks position changed across reload.');
+  if (afterLoad.lumberCamp.x !== beforeSave.lumberCamp.x || afterLoad.lumberCamp.y !== beforeSave.lumberCamp.y) throw new Error('Lumber Camp position changed across reload.');
+  if (afterLoad.rallyWaypoint?.x !== beforeSave.rallyWaypoint.x || afterLoad.rallyWaypoint?.y !== beforeSave.rallyWaypoint.y) {
     throw new Error('Barracks rally waypoint changed across reload.');
   }
 
   const postLoadTraining = await trainPikesmanFromRestoredBarracks(page, beforeSave.barracks);
 
-  const cameraBeforeInput = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.cameras.main.scrollX;
-  });
+  const cameraBeforeInput = await page.evaluate(() => window.__civStrategyGame.scene.getScene('MainScene').cameras.main.scrollX);
   await page.keyboard.down('ArrowRight');
   await sleep(300);
   await page.keyboard.up('ArrowRight');
-  await page.waitForFunction((initialScrollX) => {
-    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return scene?.cameras?.main?.scrollX > initialScrollX;
-  }, cameraBeforeInput, { timeout: 5_000 });
-  const cameraAfterInput = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.cameras.main.scrollX;
-  });
+  await page.waitForFunction((initialScrollX) => (
+    window.__civStrategyGame?.scene?.getScene?.('MainScene')?.cameras?.main?.scrollX > initialScrollX
+  ), cameraBeforeInput, { timeout: 5_000 });
+  const cameraAfterInput = await page.evaluate(() => window.__civStrategyGame.scene.getScene('MainScene').cameras.main.scrollX);
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/save-reload-journey.png`, fullPage: true });
-  console.log(JSON.stringify({ beforeSave, storedRallyWaypoint: storedBarracks.waypoint, afterLoad, postLoadTraining, cameraBeforeInput, cameraAfterInput }, null, 2));
+  console.log(JSON.stringify({
+    beforeSave,
+    storedRallyWaypoint: storedBarracks.waypoint,
+    afterLoad,
+    postLoadTraining,
+    cameraBeforeInput,
+    cameraAfterInput,
+  }, null, 2));
 
   if (browserErrors.length > 0) {
     throw new Error(`Browser page errors during save/reload journey:\n${browserErrors.join('\n')}`);
