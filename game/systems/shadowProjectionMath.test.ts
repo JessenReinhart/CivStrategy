@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { BuildingType } from '../../types';
+import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 import { calculateShadowProjection } from './shadowProjectionMath';
 
 describe('calculateShadowProjection', () => {
@@ -35,5 +37,36 @@ describe('calculateShadowProjection', () => {
     expect(low.length).toBeCloseTo(20);
     expect(low.directionX).toBeCloseTo(tall.directionX, 5);
     expect(low.directionY).toBeCloseTo(tall.directionY, 5);
+  });
+});
+
+describe('authored building shadow profiles', () => {
+  it('keeps every footprint deterministic and drawable', () => {
+    for (const config of Object.values(BUILDING_SPRITE_VISUALS)) {
+      expect(Number.isFinite(config.shadowHeightScale)).toBe(true);
+      expect(Number.isFinite(config.shadowFootprintScale)).toBe(true);
+      expect(Number.isFinite(config.shadowAnchorOffsetY)).toBe(true);
+      expect(Number.isFinite(config.shadowEndWidthScale)).toBe(true);
+      expect(config.shadowHeightScale).toBeGreaterThan(0);
+      expect(config.shadowFootprintScale).toBeGreaterThan(0.4);
+      expect(config.shadowEndWidthScale).toBeGreaterThan(0);
+      expect(config.shadowEndWidthScale).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('keeps the bonfire cast much shorter than a house cast', () => {
+    const house = BUILDING_SPRITE_VISUALS[BuildingType.HOUSE];
+    const bonfire = BUILDING_SPRITE_VISUALS[BuildingType.BONFIRE];
+    const houseProjection = calculateShadowProjection({
+      ...baseInput,
+      shadowHeightScale: house.shadowHeightScale,
+    });
+    const bonfireProjection = calculateShadowProjection({
+      ...baseInput,
+      shadowHeightScale: bonfire.shadowHeightScale,
+    });
+
+    expect(houseProjection.length).toBeGreaterThan(bonfireProjection.length * 3);
+    expect(bonfire.shadowFootprintScale).toBeLessThan(house.shadowFootprintScale);
   });
 });
