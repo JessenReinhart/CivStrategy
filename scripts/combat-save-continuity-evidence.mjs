@@ -7,6 +7,14 @@ if (telemetry.phase !== 'complete') {
   throw new Error(`Combat save continuity journey did not finish successfully (phase: ${telemetry.phase ?? 'unknown'}).`);
 }
 
+if (!telemetry.gather?.simulation?.assigned) {
+  throw new Error('Canonical session did not preserve the real villager-to-Lumber-Camp assignment.');
+}
+
+if (!Number.isFinite(telemetry.gather?.simulation?.depositedWood) || telemetry.gather.simulation.depositedWood <= 0) {
+  throw new Error(`Canonical session did not deposit gathered wood (delta: ${telemetry.gather?.simulation?.depositedWood ?? 'missing'}).`);
+}
+
 if (telemetry.afterTraining?.type !== 'Pikesman') {
   throw new Error(`Expected the Barracks-trained survivor to be a Pikesman (got: ${telemetry.afterTraining?.type ?? 'missing'}).`);
 }
@@ -40,7 +48,8 @@ if (!Number.isFinite(telemetry.afterContinue?.movedDistance) || telemetry.afterC
 }
 
 console.log(
-  `Trained combat survivor continuity verified: Pikesman HP ${telemetry.restored.hp}, `
+  `Canonical session verified: gathered ${telemetry.gather.simulation.depositedWood} wood, `
+  + `trained Pikesman HP ${telemetry.restored.hp}, `
   + `population ${telemetry.restored.population}/${telemetry.restored.maxPopulation}, `
   + `post-load move ${telemetry.afterContinue.movedDistance.toFixed(2)}px.`,
 );
