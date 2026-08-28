@@ -2,6 +2,7 @@
 
 ## 2026-08-28
 
+- **A freshly trained Pikesman is now carried through movement and real combat in one browser journey (#173):** Verification no longer treats training and combat as separate islands. The exact unit created through the Barracks UI must be selected on the canvas, receive a real movement command, defeat a nearby enemy, and leave that defeated unit fully removed from live targeting structures.
 - **Standard new-game startup now has repeated real-browser coverage (#171):** Verification starts a normal new game three times in the same Chromium session and requires each world to become ready with live units and buildings, stable map dimensions, working camera input, and no page errors before later gameplay checks continue.
 - **Population capacity is now protected across save, reload, and continued training (#167):** The save/reload journey proves House-derived capacity survives a full page reload, then selects the restored Barracks through the canvas and trains a Pikesman through the real UI without losing that capacity or corrupting resources.
 - **Villager work commands are more reliable in the real browser journey (#169):** The workforce acceptance flow now synchronizes pointer movement with Phaser's world-space hit testing before assigning a villager to a Lumber Camp, eliminating a slow-render input race that could misread the command as ordinary movement.
