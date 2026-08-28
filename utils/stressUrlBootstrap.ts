@@ -49,7 +49,7 @@ export const scheduleStressUrlBootstrap = (
   }
 
   const stressCount = parseInt(stressParam, 10);
-  if (stressCount <= 0) return () => undefined;
+  if (Number.isNaN(stressCount) || stressCount <= 0) return () => undefined;
 
   const timeoutId = setTimeout(() => {
     onStart({

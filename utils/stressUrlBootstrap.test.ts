@@ -121,6 +121,25 @@ describe('scheduleStressUrlBootstrap', () => {
 
     expect(onStart).not.toHaveBeenCalled();
   });
+  it('does not schedule stress mode when no stress parameter is present', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule stress mode for a non-numeric stress value', () => {
+    vi.useFakeTimers();
+    const onStart = vi.fn();
+
+    scheduleStressUrlBootstrap('?stress=abc', onStart, true);
+    vi.runAllTimers();
+
+    expect(onStart).not.toHaveBeenCalled();
+  });
 });
 
 describe('stripStressUrlParams', () => {
