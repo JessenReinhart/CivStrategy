@@ -59,6 +59,7 @@ const readRuntimeProbe = () => page.evaluate(() => {
   const scene = window.__civStrategyGame.scene.getScene('MainScene');
   const player = window.__armyCombatProbe?.player;
   const enemy = window.__armyCombatProbe?.enemy;
+  const enemySpatialCandidates = enemy ? scene.unitSpatialHash.query(enemy.x, enemy.y, 1) : [];
   return {
     gameTime: scene.gameTime,
     actualFps: scene.game.loop.actualFps,
@@ -78,6 +79,7 @@ const readRuntimeProbe = () => page.evaluate(() => {
       hp: enemy.active ? enemy.getData('hp') : null,
       state: enemy.state,
       inUnitGroup: scene.units.getChildren().includes(enemy),
+      inSpatialHash: enemySpatialCandidates.includes(enemy),
       visual: enemy.active && enemy.visual ? { x: enemy.visual.x, y: enemy.visual.y } : null,
     } : null,
   };
@@ -296,6 +298,9 @@ try {
   }
   if (telemetry.final.enemy.active || telemetry.final.enemy.inUnitGroup) {
     throw new Error('Lethal real-input combat did not remove the defeated enemy from the live unit group.');
+  }
+  if (telemetry.final.enemy.inSpatialHash) {
+    throw new Error('Lethal combat left the defeated enemy queryable through the unit spatial hash.');
   }
   if (telemetry.browserErrors.length > 0) {
     throw new Error(`Browser page errors during army combat journey:\n${telemetry.browserErrors.join('\n')}`);
