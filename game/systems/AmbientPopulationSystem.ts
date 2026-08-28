@@ -1,14 +1,24 @@
 import Phaser from 'phaser';
 
-import { BuildingType, MapMode } from '../../types';
-import { MainScene } from '../MainScene';
+import { AmbientRole, BuildingType, MapMode } from '../../types';
+import type { MainScene } from '../MainScene';
 import { toIso, toIsoElev } from '../utils/iso';
 
 const MAX_CITIZENS = 220;
+const MIN_CITIZENS = 8;
+const DENSITY_FACTOR = 0.75;
 const ANCHOR_REFRESH_MS = 1000;
 const OFFSCREEN_POS = -100000;
 const VIEW_PADDING = 96;
 const NEARBY_ANCHOR_DISTANCE = 320;
+
+const LOD_NEAR_DISTANCE = 900;
+const LOD_MID_DISTANCE = 1800;
+
+const TEXTURE_KEY = 'ambient_civilian_lod';
+const FRAME_NEAR = 'near';
+const FRAME_MID = 'mid';
+const FRAME_FAR = 'far';
 
 interface AmbientAnchor {
   x: number;
@@ -16,6 +26,13 @@ interface AmbientAnchor {
   owner: number;
   weight: number;
   radius: number;
+  type: BuildingType;
+}
+
+interface ActivityProfile {
+  jitterRadius: number;
+  pauseChance: number;
+  retargetMs: [number, number];
 }
 
 interface AmbientCitizen {
@@ -29,6 +46,28 @@ interface AmbientCitizen {
   retargetAt: number;
   active: boolean;
   bob: Phaser.GameObjects.Bob;
+  role: AmbientRole;
+  tier: number;
+  frameKey: string;
+}
+
+interface AnchorConfig {
+  weight: number;
+  radius: number;
+  profile: ActivityProfile;
+}
+
+const ROLE_TINTS: Record<AmbientRole, number[]> = {
+  [AmbientRole.CIVILIAN]: [0xd8c7a2, 0xb88a62, 0x8c7055, 0xc2b7a3, 0x9c8064, 0xe0d2b8],
+  [AmbientRole.WORKER]: [0x9a8a72, 0x7a6a55, 0x6b5d4a, 0x8a7a62],
+  [AmbientRole.MERCHANT]: [0xa05a4a, 0x4a6a8a, 0x7a4a5a, 0x5a7a6a],
+  [AmbientRole.FARMER]: [0x8a9a5a, 0x7a8a4a, 0x6a7a4a, 0x9aaa6a],
+};
+
+function distanceBetween(x1: number, y1: number, x2: number, y2: number): number {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /**
@@ -46,12 +85,13 @@ export class AmbientPopulationSystem {
   private anchors: AmbientAnchor[] = [];
   private desiredCitizenCount = 0;
   private lastAnchorRefresh = -Infinity;
+  private frameCounter = 0;
 
   constructor(scene: MainScene) {
     this.scene = scene;
-    this.ensureTexture();
+    this.ensureTextures();
 
-    this.blitter = scene.add.blitter(0, 0, 'ambient_citizen');
+    this.blitter = scene.add.blitter(0, 0, TEXTURE_KEY);
     this.blitter.setDepth(-9998);
     scene.worldLayer?.add(this.blitter);
 
@@ -59,19 +99,87 @@ export class AmbientPopulationSystem {
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
   }
 
-  private ensureTexture(): void {
-    if (this.scene.textures.exists('ambient_citizen')) return;
+  /**
+   * Read-only: number of ambient citizens the system currently wants to show.
+   */
+  public getDesiredCitizenCount(): number {
+    return this.desiredCitizenCount;
+  }
 
-    const graphics = this.scene.make.graphics({ x: 0, y: 0 });
-    graphics.fillStyle(0xffffff, 0.92);
-    graphics.fillCircle(3, 2, 1.6);
-    graphics.fillRect(1.5, 3.5, 3, 4.5);
-    graphics.generateTexture('ambient_citizen', 6, 8);
-    graphics.destroy();
+  /**
+   * Read-only: number of currently active ambient citizens.
+   */
+  public getCitizenCount(): number {
+    let count = 0;
+    for (const citizen of this.citizens) {
+      if (citizen.active) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Read-only: role the system would assign to a citizen tied to a given
+   * building type. Exported for deterministic testing only.
+   */
+  public getRoleForAnchor(type: BuildingType): AmbientRole {
+    return this.roleForAnchor(type);
+  }
+  /** Read-only activity profile for deterministic tests and telemetry. */
+  public getActivityProfile(type: BuildingType): ActivityProfile | null {
+    return this.getAnchorConfig(type)?.profile ?? null;
+  }
+
+  /**
+   * Read-only: current texture frame name for the citizen at the given index.
+   * Exported for deterministic testing only.
+   */
+  public getCitizenFrame(i: number): string | undefined {
+    return this.citizens[i]?.frameKey;
+  }
+
+  /**
+   * Read-only: current LOD tier for the citizen at the given index.
+   * Exported for deterministic testing only.
+   */
+  public getCitizenTier(i: number): number {
+    return this.citizens[i]?.tier ?? 0;
+  }
+
+  private ensureTextures(): void {
+    if (this.scene.textures.exists(TEXTURE_KEY)) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 14;
+    canvas.height = 8;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+
+    // Near: 6x8 colored person.
+    ctx.beginPath();
+    ctx.arc(3, 2, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillRect(1.5, 3.5, 3, 4.5);
+
+    // Mid: 4x4 rounded silhouette.
+    ctx.beginPath();
+    ctx.arc(10, 2, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Far: 2x2 dot.
+    ctx.fillRect(8, 4, 2, 2);
+
+    const texture = this.scene.textures.addCanvas(TEXTURE_KEY, canvas);
+    if (!texture) return;
+    texture.add(FRAME_NEAR, 0, 0, 0, 6, 8);
+    texture.add(FRAME_MID, 0, 8, 0, 4, 4);
+    texture.add(FRAME_FAR, 0, 8, 4, 2, 2);
   }
 
   private handleUpdate(_time: number, delta: number): void {
-    if (this.scene.stressTestConfig) {
+    const stressConfig = this.scene.stressTestConfig as { city?: boolean; density?: string } | null | undefined;
+    if (stressConfig && !stressConfig.city) {
       this.blitter.setVisible(false);
       return;
     }
@@ -86,26 +194,16 @@ export class AmbientPopulationSystem {
 
     if (this.desiredCitizenCount === 0) return;
 
+    this.frameCounter++;
     const dtSeconds = Math.min(0.05, Math.max(0, delta * this.scene.gameSpeed) / 1000);
     const cam = this.scene.cameras.main;
     const view = cam.worldView;
+    const cameraCenterX = view.centerX;
+    const cameraCenterY = view.centerY;
 
     for (let i = 0; i < this.desiredCitizenCount; i++) {
       const citizen = this.citizens[i];
       if (!citizen.active) continue;
-
-      const dx = citizen.targetX - citizen.x;
-      const dy = citizen.targetY - citizen.y;
-      const distSq = dx * dx + dy * dy;
-
-      if (distSq < 16 || now >= citizen.retargetAt) {
-        this.assignTarget(citizen, now);
-      } else if (dtSeconds > 0) {
-        const distance = Math.sqrt(distSq);
-        const step = Math.min(distance, citizen.speed * dtSeconds);
-        citizen.x += (dx / distance) * step;
-        citizen.y += (dy / distance) * step;
-      }
 
       // Cull before the terrain lookup: cartesian -> iso is cheap, heightmap
       // sampling is not. Inactive/off-screen bobs live far outside the viewport.
@@ -121,10 +219,56 @@ export class AmbientPopulationSystem {
         continue;
       }
 
+      const screenDistance = distanceBetween(flatIso.x, flatIso.y, cameraCenterX, cameraCenterY);
+      let tier = 2;
+      if (screenDistance < LOD_NEAR_DISTANCE) tier = 0;
+      else if (screenDistance < LOD_MID_DISTANCE) tier = 1;
+      if (citizen.tier !== tier) {
+        citizen.tier = tier;
+        this.applyTextureForTier(citizen);
+      }
+
+      let shouldMove = true;
+      if (tier === 1 && this.frameCounter % 2 !== 0) shouldMove = false;
+      if (tier === 2 && this.frameCounter % 4 !== 0) shouldMove = false;
+
+      if (shouldMove) {
+        const dx = citizen.targetX - citizen.x;
+        const dy = citizen.targetY - citizen.y;
+        const distSq = dx * dx + dy * dy;
+
+        if (distSq < 16 || now >= citizen.retargetAt) {
+          this.assignTarget(citizen, now);
+        } else if (dtSeconds > 0) {
+          const distance = Math.sqrt(distSq);
+          const step = Math.min(distance, citizen.speed * dtSeconds);
+          citizen.x += (dx / distance) * step;
+          citizen.y += (dy / distance) * step;
+        }
+      }
+
+      if (tier === 2 && this.frameCounter % 4 !== 0) {
+        // Far tier: keep previous position, skip height sampling.
+        continue;
+      }
+
       const height = this.scene.terrainSystem.getHeightAt(citizen.x, citizen.y);
       const iso = toIsoElev(citizen.x, citizen.y, height);
       citizen.bob.x = iso.x;
       citizen.bob.y = iso.y;
+    }
+  }
+
+  private applyTextureForTier(citizen: AmbientCitizen): void {
+    if (citizen.tier === 0) {
+      citizen.frameKey = FRAME_NEAR;
+      citizen.bob.setFrame(FRAME_NEAR);
+    } else if (citizen.tier === 1) {
+      citizen.frameKey = FRAME_MID;
+      citizen.bob.setFrame(FRAME_MID);
+    } else {
+      citizen.frameKey = FRAME_FAR;
+      citizen.bob.setFrame(FRAME_FAR);
     }
   }
 
@@ -147,19 +291,28 @@ export class AmbientPopulationSystem {
         owner: (building.getData('owner') as number) ?? 0,
         weight: config.weight,
         radius: config.radius,
+        type,
       });
     }
 
     this.anchors = anchors;
-    this.desiredCitizenCount = Math.min(
+
+    const anchorCapacity = anchors.reduce((sum, anchor) => sum + anchor.weight, 0);
+    const populationRatio = this.scene.population / Math.max(1, this.scene.maxPopulation);
+    const fromPopulation = Math.min(
       MAX_CITIZENS,
-      anchors.reduce((sum, anchor) => sum + anchor.weight, 0),
+      Math.max(0, Math.floor(MAX_CITIZENS * populationRatio * DENSITY_FACTOR)),
     );
+    let target = Math.min(fromPopulation, anchorCapacity);
+    if (this.scene.population <= 0) {
+      target = Math.max(target, Math.min(MIN_CITIZENS, anchorCapacity));
+    }
+    this.desiredCitizenCount = Math.max(0, Math.min(MAX_CITIZENS, target));
   }
 
   private reconcileCitizenCount(): void {
     while (this.citizens.length < this.desiredCitizenCount) {
-      const bob = this.blitter.create(OFFSCREEN_POS, OFFSCREEN_POS);
+      const bob = this.blitter.create(OFFSCREEN_POS, OFFSCREEN_POS, FRAME_NEAR);
       const citizen: AmbientCitizen = {
         x: 0,
         y: 0,
@@ -171,6 +324,9 @@ export class AmbientPopulationSystem {
         retargetAt: 0,
         active: false,
         bob,
+        role: AmbientRole.CIVILIAN,
+        tier: 0,
+        frameKey: FRAME_NEAR,
       };
       this.citizens.push(citizen);
     }
@@ -197,7 +353,8 @@ export class AmbientPopulationSystem {
     citizen.owner = anchor.owner;
     citizen.anchorIndex = anchorIndex;
     citizen.speed = 13 + Math.random() * 13;
-    citizen.bob.tint = this.pickCitizenTint(anchor.owner);
+    citizen.role = this.roleForAnchor(anchor.type);
+    citizen.bob.tint = this.pickCitizenTint(citizen.role, citizen.owner);
 
     const point = this.pickDryPoint(anchor);
     citizen.x = point.x;
@@ -210,9 +367,6 @@ export class AmbientPopulationSystem {
   private assignTarget(citizen: AmbientCitizen, now: number): void {
     if (this.anchors.length === 0) return;
 
-    // Most movement stays local, but occasionally hop to another nearby civic
-    // anchor so streets between houses/markets feel occupied without invoking
-    // pathfinding for decorative people.
     let anchorIndex = citizen.anchorIndex;
     if (anchorIndex < 0 || anchorIndex >= this.anchors.length || Math.random() < 0.18) {
       anchorIndex = this.pickNearbyAnchor(citizen);
@@ -222,10 +376,26 @@ export class AmbientPopulationSystem {
     citizen.anchorIndex = this.anchors.indexOf(anchor);
     citizen.owner = anchor.owner;
 
+    const config = this.getAnchorConfig(anchor.type);
+    const profile = config?.profile;
+
+    if (profile && Math.random() < profile.pauseChance) {
+      citizen.retargetAt = now + 2000 + Math.random() * 3000;
+      citizen.targetX = citizen.x;
+      citizen.targetY = citizen.y;
+      return;
+    }
+
     const point = this.pickDryPoint(anchor);
     citizen.targetX = point.x;
     citizen.targetY = point.y;
-    citizen.retargetAt = now + 1800 + Math.random() * 4200;
+
+    if (profile) {
+      const [minMs, maxMs] = profile.retargetMs;
+      citizen.retargetAt = now + minMs + Math.random() * (maxMs - minMs);
+    } else {
+      citizen.retargetAt = now + 1800 + Math.random() * 4200;
+    }
   }
 
   private pickNearbyAnchor(citizen: AmbientCitizen): number {
@@ -259,9 +429,12 @@ export class AmbientPopulationSystem {
 
   private pickDryPoint(anchor: AmbientAnchor): { x: number; y: number } {
     const waterLevel = this.scene.terrainSystem.getWaterLevel();
+    const config = this.getAnchorConfig(anchor.type);
+    const profile = config?.profile;
     for (let attempt = 0; attempt < 6; attempt++) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = anchor.radius * (0.45 + Math.random() * 0.55);
+      const radius = profile ? profile.jitterRadius : anchor.radius;
+      const distance = radius * (0.45 + Math.random() * 0.55);
       const x = anchor.x + Math.cos(angle) * distance;
       const y = anchor.y + Math.sin(angle) * distance;
 
@@ -275,26 +448,50 @@ export class AmbientPopulationSystem {
     return { x: anchor.x, y: anchor.y };
   }
 
-  private pickCitizenTint(owner: number): number {
-    const clothPalette = [0xd8c7a2, 0xb88a62, 0x8c7055, 0xc2b7a3, 0x9c8064, 0xe0d2b8];
+  private pickCitizenTint(role: AmbientRole, owner: number): number {
     if (Math.random() < 0.2) return this.scene.getFactionColor(owner);
-    return clothPalette[Math.floor(Math.random() * clothPalette.length)];
+    const palette = ROLE_TINTS[role] ?? ROLE_TINTS[AmbientRole.CIVILIAN];
+    return palette[Math.floor(Math.random() * palette.length)];
   }
 
-  private getAnchorConfig(type: BuildingType): { weight: number; radius: number } | null {
+  private roleForAnchor(type: BuildingType): AmbientRole {
     switch (type) {
-      case BuildingType.TOWN_CENTER: return { weight: 18, radius: 92 };
-      case BuildingType.HOUSE: return { weight: 8, radius: 54 };
-      case BuildingType.MARKET: return { weight: 18, radius: 100 };
-      case BuildingType.SMALL_PARK: return { weight: 10, radius: 78 };
-      case BuildingType.BONFIRE: return { weight: 8, radius: 64 };
-      case BuildingType.CATHEDRAL: return { weight: 14, radius: 96 };
-      case BuildingType.CASTLE: return { weight: 6, radius: 112 };
-      case BuildingType.BARRACKS: return { weight: 5, radius: 76 };
-      case BuildingType.FARM: return { weight: 3, radius: 72 };
+      case BuildingType.FARM:
+        return AmbientRole.FARMER;
+      case BuildingType.MARKET:
+        return AmbientRole.MERCHANT;
       case BuildingType.LUMBER_CAMP:
       case BuildingType.HUNTERS_LODGE:
-        return { weight: 4, radius: 68 };
+      case BuildingType.BARRACKS:
+        return AmbientRole.WORKER;
+      default:
+        return AmbientRole.CIVILIAN;
+    }
+  }
+
+  private getAnchorConfig(type: BuildingType): AnchorConfig | null {
+    switch (type) {
+      case BuildingType.TOWN_CENTER:
+        return { weight: 18, radius: 92, profile: { jitterRadius: 70, pauseChance: 0.18, retargetMs: [2400, 5000] } };
+      case BuildingType.HOUSE:
+        return { weight: 8, radius: 54, profile: { jitterRadius: 50, pauseChance: 0.15, retargetMs: [2000, 4200] } };
+      case BuildingType.MARKET:
+        return { weight: 18, radius: 100, profile: { jitterRadius: 34, pauseChance: 0.25, retargetMs: [900, 2200] } };
+      case BuildingType.SMALL_PARK:
+        return { weight: 10, radius: 78, profile: { jitterRadius: 50, pauseChance: 0.15, retargetMs: [2000, 4200] } };
+      case BuildingType.BONFIRE:
+        return { weight: 8, radius: 64, profile: { jitterRadius: 50, pauseChance: 0.15, retargetMs: [2000, 4200] } };
+      case BuildingType.CATHEDRAL:
+        return { weight: 14, radius: 96, profile: { jitterRadius: 70, pauseChance: 0.18, retargetMs: [2400, 5000] } };
+      case BuildingType.CASTLE:
+        return { weight: 6, radius: 112, profile: { jitterRadius: 50, pauseChance: 0.15, retargetMs: [2000, 4200] } };
+      case BuildingType.BARRACKS:
+        return { weight: 5, radius: 76, profile: { jitterRadius: 42, pauseChance: 0.12, retargetMs: [1600, 3600] } };
+      case BuildingType.FARM:
+        return { weight: 3, radius: 72, profile: { jitterRadius: 60, pauseChance: 0.05, retargetMs: [2600, 5200] } };
+      case BuildingType.LUMBER_CAMP:
+      case BuildingType.HUNTERS_LODGE:
+        return { weight: 4, radius: 68, profile: { jitterRadius: 42, pauseChance: 0.12, retargetMs: [1600, 3600] } };
       case BuildingType.WALL:
       default:
         return null;

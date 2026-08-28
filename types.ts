@@ -20,6 +20,12 @@ export enum MapMode {
   FIXED = 'Fixed Map',
   INFINITE = 'Infinite Realm'
 }
+export enum AmbientRole {
+  CIVILIAN = 'civilian',
+  WORKER = 'worker',
+  MERCHANT = 'merchant',
+  FARMER = 'farmer',
+}
 
 export enum MapSize {
   SMALL = 'Small',

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "profile:stress": "node scripts/profile-stress.mjs",
+    "profile:city": "node scripts/profile-city-density.mjs",
     "preview": "vite preview",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --report-unused-disable-directives --max-warnings 0 --fix",

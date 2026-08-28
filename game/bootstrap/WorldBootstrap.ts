@@ -147,7 +147,7 @@ export class WorldBootstrap {
     scene.animalSystem = new AnimalSystem(scene);
     // Render-only civilian crowd. It self-registers with scene UPDATE/SHUTDOWN
     // and never enters the units group, physics, spatial hash, or pathfinder.
-    new AmbientPopulationSystem(scene);
+    scene.ambientSystem = new AmbientPopulationSystem(scene);
     scene.proceduralSound = new ProceduralSoundSystem(scene);
     new DynamicMusicSystem(scene);
     scene.clashSystem = new ClashSystem(scene);
