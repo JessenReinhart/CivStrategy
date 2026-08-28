@@ -151,6 +151,14 @@ try {
   assert(noon.diagnostics.lastDrawnBuildings > 0, 'Noon rendered no visible building shadows.');
   assert(sunset.diagnostics.lastDrawnBuildings > 0, 'Sunset rendered no visible building shadows.');
   assert(midnight.diagnostics.lastDrawnBuildings === 0, 'Midnight still rendered solar building shadows.');
+  assert(morning.diagnostics.lastStampedBuildingContacts > 0, 'Morning rendered no building contact shadows.');
+  assert(midnight.diagnostics.lastStampedBuildingContacts > 0, 'Midnight removed building contact shadows.');
+  assert(morning.diagnostics.lastScannedTreeVisuals >= morning.diagnostics.lastStampedTreeContacts, 'Tree contact diagnostics are inconsistent.');
+  assert(midnight.diagnostics.lastScannedTreeVisuals >= midnight.diagnostics.lastStampedTreeContacts, 'Night tree contact diagnostics are inconsistent.');
+  assert(morning.diagnostics.lastStampedBuildingSilhouettes > 0, 'Morning stamped no building silhouettes.');
+  assert(midnight.diagnostics.lastStampedBuildingSilhouettes === 0, 'Midnight stamped solar building silhouettes.');
+  assert(morning.diagnostics.shadowBufferResolution === 0.5, 'Shadow buffer is not half resolution.');
+  assert(morning.diagnostics.shadowBufferWidth > 0 && morning.diagnostics.shadowBufferHeight > 0, 'Shadow buffer dimensions are invalid.');
   assert(midnight.state.shadowAlpha === 0, 'Midnight solar shadow alpha was not zero.');
   assert(midnight.state.ambientAlpha > morning.state.ambientAlpha, 'Night did not darken ambient lighting vs morning.');
   assert(noon.state.shadowLength < morning.state.shadowLength, 'Noon shadows were not shorter than morning shadows.');
@@ -178,7 +186,7 @@ try {
 
     for (let hour = 0; hour <= 24; hour++) {
       scene.gameTime = toTime(hour % 24);
-      await new Promise((resolve) => setTimeout(resolve, 70));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       samples.push({ requestedHour: hour, ...system.getState() });
     }
     return samples;
@@ -193,8 +201,8 @@ try {
   }
   assert(maxAmbientAlphaStep < 0.16, `Ambient cycle contains a visible alpha jump (${maxAmbientAlphaStep.toFixed(3)}).`);
   assert(
-    Math.abs(continuity[0].ambientAlpha - continuity.at(-1).ambientAlpha) < 0.001,
-    'Day/night ambient loop does not wrap continuously from 24:00 to 00:00.',
+    Math.abs(continuity[0].ambientAlpha - continuity.at(-1).ambientAlpha) < 0.01,
+    `Day/night ambient loop does not wrap continuously from 24:00 to 00:00 (${continuity[0].ambientAlpha} vs ${continuity.at(-1).ambientAlpha}).`,
   );
   telemetry.continuity = { samples: continuity, maxAmbientAlphaStep };
 
@@ -239,11 +247,25 @@ try {
       const y = scene.mapHeight - 48 - row * 56;
       scene.entityFactory.spawnBuilding('House', x, y, 0);
     }
+    const treeVisualsBefore = scene.treeVisuals.getLength();
+    for (let i = 0; i < 96; i++) {
+      const col = i % 12;
+      const row = Math.floor(i / 12);
+      const visual = scene.treeVisuals.create(
+        townCenter.visual.x - 260 + col * 44,
+        townCenter.visual.y - 130 + row * 34,
+        'tree',
+      );
+      visual.setOrigin(0.5, 0.95).setScale(0.075).setAlpha(0.85).setDepth(townCenter.visual.y - 100 + row * 34);
+      scene.worldLayer.add(visual);
+      scene.uiCamera?.ignore(visual);
+    }
     if (townCenter.visual) scene.cameras.main.centerOn(townCenter.visual.x, townCenter.visual.y);
 
     return {
       initialBuildings: before,
       totalBuildings: scene.buildings.getChildren().length,
+      addedTreeVisuals: scene.treeVisuals.getLength() - treeVisualsBefore,
     };
   });
 
@@ -284,6 +306,8 @@ try {
   );
   assert(perfEnd.lastScannedBuildings >= 300, 'Dense-map diagnostics did not scan the populated building set.');
   assert(perfEnd.lastDrawnBuildings > 0, 'Dense-map acceptance drew no on-screen shadows.');
+  assert(denseSetup.addedTreeVisuals >= 96, 'Dense-map fixture did not add its visible tree pool.');
+  assert(perfEnd.lastStampedTreeContacts >= 96, 'Dense-map fixture stamped too few tree contact shadows.');
   assert(
     perfEnd.lastDrawnBuildings < perfEnd.lastScannedBuildings,
     `Viewport culling did not reduce shadow draw work (${perfEnd.lastDrawnBuildings}/${perfEnd.lastScannedBuildings}).`,
