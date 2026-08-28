@@ -319,12 +319,17 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const units = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
     const newest = units[units.length - 1];
+    if (!newest) throw new Error('Trained Pikesman was not available after training.');
+    window.__placementJourneyTrainedUnit = newest;
+    newest.setData('__journeyStartX', newest.x);
+    newest.setData('__journeyStartY', newest.y);
     return {
       food: scene.resources.food,
       gold: scene.resources.gold,
       population: scene.population,
       playerMilitary: units.length,
-      newestType: newest?.unitType ?? newest?.getData('unitType') ?? null,
+      newestType: newest.unitType ?? newest.getData('unitType') ?? null,
+      newestPosition: { x: newest.x, y: newest.y },
     };
   });
 
@@ -348,6 +353,86 @@ try {
   if (afterTraining.newestType !== 'Pikesman') {
     throw new Error(`Expected trained unit to be Pikesman, got ${afterTraining.newestType ?? 'unknown'}.`);
   }
+
+  const movementSetup = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__placementJourneyTrainedUnit;
+    if (!unit?.visual) throw new Error('Trained Pikesman has no interactive visual.');
+
+    const bounds = scene.physics.world.bounds;
+    const offsets = [[64, 0], [-64, 0], [0, 64], [0, -64], [64, 64], [64, -64], [-64, 64], [-64, -64]];
+    let target = null;
+    for (const [dx, dy] of offsets) {
+      const x = unit.x + dx;
+      const y = unit.y + dy;
+      const inside = x >= bounds.x + 32 && x <= bounds.right - 32 && y >= bounds.y + 32 && y <= bounds.bottom - 32;
+      if (!inside || scene.pathfinder.isBlocked(x, y)) continue;
+      const path = scene.pathfinder.findPath({ x: unit.x, y: unit.y }, { x, y });
+      const endpoint = path?.[path.length - 1];
+      if (!path?.length || !endpoint || Math.hypot(endpoint.x - x, endpoint.y - y) > 32) continue;
+      target = { x, y, pathLength: path.length };
+      break;
+    }
+    if (!target) throw new Error('Could not find a reachable movement target for the trained Pikesman.');
+
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(unit.visual.x, unit.visual.y);
+    return { start: { x: unit.x, y: unit.y }, target };
+  });
+  await sleep(50);
+
+  const unitPoint = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__placementJourneyTrainedUnit;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (unit.visual.x - topLeft.x) * camera.zoom,
+      y: (unit.visual.y - 10 - topLeft.y) * camera.zoom,
+    };
+  });
+  await page.mouse.click(canvasBox.x + unitPoint.x, canvasBox.y + unitPoint.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedUnits.includes(window.__placementJourneyTrainedUnit);
+  }, undefined, { timeout: 3_000 });
+
+  const targetPoint = await page.evaluate((target) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    const iso = { x: target.x - target.y, y: (target.x + target.y) * 0.5 };
+    return {
+      x: (iso.x - topLeft.x) * camera.zoom,
+      y: (iso.y - topLeft.y) * camera.zoom,
+    };
+  }, movementSetup.target);
+  await page.mouse.click(canvasBox.x + targetPoint.x, canvasBox.y + targetPoint.y, { button: 'right' });
+
+  await page.waitForFunction(() => {
+    const unit = window.__placementJourneyTrainedUnit;
+    return Math.hypot(
+      unit.x - unit.getData('__journeyStartX'),
+      unit.y - unit.getData('__journeyStartY'),
+    ) > 5;
+  }, undefined, { timeout: 12_000 });
+
+  const movementAfter = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__placementJourneyTrainedUnit;
+    return {
+      position: { x: unit.x, y: unit.y },
+      state: unit.state,
+      selected: scene.inputManager.selectedUnits.includes(unit),
+    };
+  });
+  const movedDistance = Math.hypot(
+    movementAfter.position.x - movementSetup.start.x,
+    movementAfter.position.y - movementSetup.start.y,
+  );
+  if (!movementAfter.selected) throw new Error('Trained Pikesman lost selection during its movement command.');
+  if (movedDistance <= 5) throw new Error(`Trained Pikesman moved only ${movedDistance}px after the real command.`);
+  result.trainedUnitMovement = { setup: movementSetup, after: movementAfter, movedDistance };
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/placement-journey.png`, fullPage: true });
   console.log(JSON.stringify(result, null, 2));
