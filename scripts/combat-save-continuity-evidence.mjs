@@ -15,8 +15,41 @@ if (!Number.isFinite(telemetry.gather?.simulation?.depositedWood) || telemetry.g
   throw new Error(`Canonical session did not deposit gathered wood (delta: ${telemetry.gather?.simulation?.depositedWood ?? 'missing'}).`);
 }
 
+if (!Number.isFinite(telemetry.preparation?.maxPopulationBefore)
+  || !Number.isFinite(telemetry.preparation?.maxPopulationAfterHousing)
+  || telemetry.preparation.maxPopulationAfterHousing <= telemetry.preparation.maxPopulationBefore) {
+  throw new Error(
+    `Canonical session did not prove housing capacity progression `
+    + `(${telemetry.preparation?.maxPopulationBefore ?? 'missing'} -> ${telemetry.preparation?.maxPopulationAfterHousing ?? 'missing'}).`,
+  );
+}
+
 if (telemetry.afterTraining?.type !== 'Pikesman') {
   throw new Error(`Expected the Barracks-trained survivor to be a Pikesman (got: ${telemetry.afterTraining?.type ?? 'missing'}).`);
+}
+
+if (!Number.isFinite(telemetry.beforeTraining?.population)
+  || telemetry.afterTraining?.population !== telemetry.beforeTraining.population + 1) {
+  throw new Error(
+    `Pikesman training did not consume one population slot `
+    + `(${telemetry.beforeTraining?.population ?? 'missing'} -> ${telemetry.afterTraining?.population ?? 'missing'}).`,
+  );
+}
+
+if (!Number.isFinite(telemetry.beforeTraining?.food)
+  || telemetry.afterTraining?.food !== telemetry.beforeTraining.food - 100) {
+  throw new Error(
+    `Pikesman training food continuity is invalid `
+    + `(${telemetry.beforeTraining?.food ?? 'missing'} -> ${telemetry.afterTraining?.food ?? 'missing'}).`,
+  );
+}
+
+if (!Number.isFinite(telemetry.beforeTraining?.gold)
+  || telemetry.afterTraining?.gold !== telemetry.beforeTraining.gold - 50) {
+  throw new Error(
+    `Pikesman training gold continuity is invalid `
+    + `(${telemetry.beforeTraining?.gold ?? 'missing'} -> ${telemetry.afterTraining?.gold ?? 'missing'}).`,
+  );
 }
 
 if (!Number.isFinite(telemetry.beforeSave?.hp) || !Number.isFinite(telemetry.restored?.hp)) {
@@ -47,8 +80,13 @@ if (!Number.isFinite(telemetry.afterContinue?.movedDistance) || telemetry.afterC
   throw new Error('Restored surviving unit did not complete the expected post-load movement evidence.');
 }
 
+if (Array.isArray(telemetry.browserErrors) && telemetry.browserErrors.length > 0) {
+  throw new Error(`Canonical browser session recorded errors: ${telemetry.browserErrors.join(' | ')}`);
+}
+
 console.log(
   `Canonical session verified: gathered ${telemetry.gather.simulation.depositedWood} wood, `
+  + `housing ${telemetry.preparation.maxPopulationBefore}->${telemetry.preparation.maxPopulationAfterHousing}, `
   + `trained Pikesman HP ${telemetry.restored.hp}, `
   + `population ${telemetry.restored.population}/${telemetry.restored.maxPopulation}, `
   + `post-load move ${telemetry.afterContinue.movedDistance.toFixed(2)}px.`,
