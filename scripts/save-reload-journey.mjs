@@ -120,6 +120,18 @@ try {
     });
     if (!townCenter) throw new Error('Player Town Center missing before save.');
 
+    const maxPopulationBeforeHousing = scene.maxPopulation;
+    const house = scene.entityFactory.spawnBuilding(
+      'House',
+      townCenter.x - 192,
+      townCenter.y + 192,
+      0,
+    );
+    if (!house) throw new Error('House was not created before save.');
+    if (scene.maxPopulation <= maxPopulationBeforeHousing) {
+      throw new Error('Live House did not increase player population capacity before save.');
+    }
+
     const barracks = scene.entityFactory.spawnBuilding(
       'Barracks',
       townCenter.x + 192,
@@ -136,7 +148,10 @@ try {
     return {
       wood: scene.resources.wood,
       population: scene.population,
+      maxPopulationBeforeHousing,
+      maxPopulation: scene.maxPopulation,
       townCenter: { x: townCenter.x, y: townCenter.y },
+      house: { x: house.x, y: house.y },
       barracks: { x: barracks.x, y: barracks.y },
       rallyWaypoint,
       gameTime: scene.gameTime,
@@ -148,6 +163,13 @@ try {
   if (storedSave.resources?.wood !== MARKER_WOOD) {
     throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
   }
+  const storedHouse = storedSave.buildings?.find((building) => (
+    building.type === 'House'
+    && building.owner === 0
+    && building.x === beforeSave.house.x
+    && building.y === beforeSave.house.y
+  ));
+  if (!storedHouse) throw new Error('Stored save did not contain the population-cap House.');
   const storedBarracks = storedSave.buildings?.find((building) => (
     building.type === 'Barracks'
     && building.owner === 0
@@ -185,7 +207,7 @@ try {
     return scene?.isReady && !oldRing?.active && currentRing === false;
   }, undefined, { timeout: 5_000 });
 
-  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, barracksPosition }) => {
+  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition }) => {
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
     const townCenter = scene.buildings.getChildren().find((building) => {
@@ -193,6 +215,14 @@ try {
       return building.getData('owner') === 0 && def?.type === 'Town Center';
     });
     if (!townCenter) throw new Error('Player Town Center missing after load.');
+    const house = scene.buildings.getChildren().find((building) => {
+      const def = building.getData('def');
+      return building.getData('owner') === 0
+        && def?.type === 'House'
+        && building.x === housePosition.x
+        && building.y === housePosition.y;
+    });
+    if (!house) throw new Error('Population-cap House missing after load.');
     const barracks = scene.buildings.getChildren().find((building) => {
       const def = building.getData('def');
       return building.getData('owner') === 0
@@ -204,6 +234,7 @@ try {
 
     const loadedWood = scene.resources.wood;
     const loadedPopulation = scene.population;
+    const loadedMaxPopulation = scene.maxPopulation;
     const loadedGameTime = scene.gameTime;
     const rallyWaypoint = barracks.getData('waypoint');
     const workforceSelectionCleared = !scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
@@ -220,7 +251,9 @@ try {
     return {
       wood: loadedWood,
       population: loadedPopulation,
+      maxPopulation: loadedMaxPopulation,
       townCenter: { x: townCenter.x, y: townCenter.y },
+      house: { x: house.x, y: house.y },
       barracks: { x: barracks.x, y: barracks.y },
       rallyWaypoint,
       loadedGameTime,
@@ -230,14 +263,24 @@ try {
   }, {
     markerWood: MARKER_WOOD,
     previousGameTime: beforeSave.gameTime,
+    housePosition: beforeSave.house,
     barracksPosition: beforeSave.barracks,
   });
 
   if (afterLoad.population !== beforeSave.population) {
     throw new Error(`Population changed across reload: ${beforeSave.population} -> ${afterLoad.population}.`);
   }
+  if (afterLoad.maxPopulation !== beforeSave.maxPopulation) {
+    throw new Error(`Population capacity changed across reload: ${beforeSave.maxPopulation} -> ${afterLoad.maxPopulation}.`);
+  }
+  if (afterLoad.maxPopulation <= afterLoad.population) {
+    throw new Error(`Loaded population capacity ${afterLoad.maxPopulation} does not leave room beyond population ${afterLoad.population}.`);
+  }
   if (afterLoad.townCenter.x !== beforeSave.townCenter.x || afterLoad.townCenter.y !== beforeSave.townCenter.y) {
     throw new Error('Town Center position changed across reload.');
+  }
+  if (afterLoad.house.x !== beforeSave.house.x || afterLoad.house.y !== beforeSave.house.y) {
+    throw new Error('Population-cap House position changed across reload.');
   }
   if (afterLoad.barracks.x !== beforeSave.barracks.x || afterLoad.barracks.y !== beforeSave.barracks.y) {
     throw new Error('Barracks position changed across reload.');
