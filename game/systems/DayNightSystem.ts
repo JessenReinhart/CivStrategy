@@ -41,11 +41,18 @@ interface ShadowBuffer {
   texture: Phaser.Textures.CanvasTexture;
 }
 
-interface BuildingGroundEdge {
-  leftX: number;
-  rightX: number;
+interface ShadowPoint {
+  x: number;
   y: number;
-  width: number;
+}
+
+interface BuildingShadowBase {
+  startA: ShadowPoint;
+  startB: ShadowPoint;
+  centerX: number;
+  centerY: number;
+  contactWidth: number;
+  contactHeight: number;
 }
 
 export interface DayNightDiagnostics {
@@ -80,10 +87,11 @@ export interface DayNightDiagnostics {
 /**
  * Render-only day/night lighting for the isometric world.
  *
- * Shadows deliberately use authored 2D footprint wedges instead of attempting
- * to recover 3D geometry from PNG alpha. Each building owns a deterministic
- * contact width, ground offset, height scale, and far-edge taper. The result is
- * cheap, stable, and visually tuneable against the actual painted assets.
+ * Building cast shadows use authored isometric footprints. The shadow root is
+ * the full silhouette span of that diamond perpendicular to the sun vector,
+ * then a broad, slightly tapered wedge is projected away from it. This keeps
+ * the fake cheap while avoiding the needle/triangle shape caused by treating
+ * every building base as one horizontal line.
  */
 export class DayNightSystem {
   private readonly scene: MainScene;
@@ -232,8 +240,6 @@ export class DayNightSystem {
     const image = this.scene.add.image(0, 0, key)
       .setOrigin(0, 0)
       .setDepth(SHADOW_DEPTH)
-      // Normal blending preserves transparent buffer pixels. MULTIPLY made the
-      // entire camera quad dark on some WebGL paths even outside the stamps.
       .setBlendMode(Phaser.BlendModes.NORMAL)
       .setAlpha(0);
 
@@ -309,8 +315,6 @@ export class DayNightSystem {
     const layout = this.layoutShadowBuffer(nextBuffer);
     const ctx = nextBuffer.texture.context;
 
-    // Hard transparent reset is intentional. It avoids stale pixels surviving
-    // resize/crossfade and recreating the old camera-sized dark rectangle bug.
     ctx.save();
     ctx.globalCompositeOperation = 'copy';
     ctx.fillStyle = 'rgba(0, 0, 0, 0)';
@@ -389,6 +393,12 @@ export class DayNightSystem {
     layout: ShadowBufferLayout,
     state: Readonly<DayNightState>,
   ): void {
+    const footprintProjection = calculateShadowProjection({
+      shadowAngleRad: state.shadowAngleRad,
+      shadowLength: 1,
+      shadowHeightScale: 1,
+    });
+
     for (const building of this.scene.buildings.getChildren()) {
       if (!building.active || building.getData('hp') <= 0) continue;
 
@@ -402,24 +412,24 @@ export class DayNightSystem {
       const config = BUILDING_SPRITE_VISUALS[def.type];
       if (!config) continue;
 
-      const groundEdge = this.resolveBuildingGroundEdge(
+      const shadowBase = this.resolveBuildingShadowBase(
         visual,
         def,
         config.scaleMultiplier,
         config.shadowFootprintScale,
+        config.shadowFootprintDepthScale,
         config.shadowAnchorOffsetY,
+        footprintProjection.perpendicularX,
+        footprintProjection.perpendicularY,
       );
-      const centerX = (groundEdge.leftX + groundEdge.rightX) * 0.5;
 
-      // Contact remains at night too. It gives the sprite weight even when the
-      // solar cast disappears after sunset.
       this.stampContact(
         buffer,
         layout,
-        centerX,
-        groundEdge.y + 2,
-        groundEdge.width,
-        Math.max(5, groundEdge.width * 0.17),
+        shadowBase.centerX,
+        shadowBase.centerY + 1,
+        shadowBase.contactWidth,
+        shadowBase.contactHeight,
         BUILDING_CONTACT_ALPHA * visual.alpha,
       );
       this.lastStampedBuildingContacts++;
@@ -435,7 +445,7 @@ export class DayNightSystem {
       this.stampBuildingProjection(
         buffer,
         layout,
-        groundEdge,
+        shadowBase,
         projection,
         state.shadowAlpha * visual.alpha,
         config.shadowEndWidthScale,
@@ -445,26 +455,51 @@ export class DayNightSystem {
     }
   }
 
-  private resolveBuildingGroundEdge(
+  private resolveBuildingShadowBase(
     visual: Phaser.GameObjects.Container,
     def: BuildingDef,
     scaleMultiplier: number,
     footprintScale: number,
+    footprintDepthScale: number,
     anchorOffsetY: number,
-  ): BuildingGroundEdge {
-    // The sprite itself is scaled from def.width, so use the same rendered
-    // width as the visual and author the footprint as a ratio of that. This
-    // tracks the painted green/base platform much better than the collision box.
+    perpendicularX: number,
+    perpendicularY: number,
+  ): BuildingShadowBase {
     const renderedSpriteWidth = Math.max(16, def.width * scaleMultiplier);
-    const width = Math.max(12, renderedSpriteWidth * footprintScale);
-    const halfWidth = width * 0.5;
-    const y = visual.y + anchorOffsetY;
+    const footprintWidth = Math.max(12, renderedSpriteWidth * footprintScale);
+    const footprintDepth = Math.max(8, footprintWidth * footprintDepthScale);
+    const halfWidth = footprintWidth * 0.5;
+    const halfDepth = footprintDepth * 0.5;
+    const centerX = visual.x;
+    const centerY = visual.y + anchorOffsetY;
+
+    // Intersect a line through the center, perpendicular to the solar cast,
+    // with the authored isometric diamond:
+    // |x / halfWidth| + |y / halfDepth| = 1.
+    // The two intersections are the full visible silhouette span of the base,
+    // so the cast remains broad instead of collapsing into a narrow spike.
+    const denominator = Math.abs(perpendicularX) / halfWidth
+      + Math.abs(perpendicularY) / halfDepth;
+    const extent = denominator > 0.000001
+      ? 1 / denominator
+      : Math.min(halfWidth, halfDepth);
+
+    const startA = {
+      x: centerX - perpendicularX * extent,
+      y: centerY - perpendicularY * extent,
+    };
+    const startB = {
+      x: centerX + perpendicularX * extent,
+      y: centerY + perpendicularY * extent,
+    };
 
     return {
-      leftX: visual.x - halfWidth,
-      rightX: visual.x + halfWidth,
-      y,
-      width,
+      startA,
+      startB,
+      centerX,
+      centerY,
+      contactWidth: Math.max(8, extent * 2),
+      contactHeight: Math.max(5, footprintDepth * 0.42),
     };
   }
 
@@ -493,33 +528,35 @@ export class DayNightSystem {
   private stampBuildingProjection(
     buffer: ShadowBuffer,
     layout: ShadowBufferLayout,
-    groundEdge: BuildingGroundEdge,
+    shadowBase: BuildingShadowBase,
     projection: ReturnType<typeof calculateShadowProjection>,
     alpha: number,
     endWidthScale: number,
   ): void {
     if (projection.length <= 0 || alpha <= 0) return;
 
-    const startCenterX = (groundEdge.leftX + groundEdge.rightX) * 0.5;
-    const startCenterY = groundEdge.y;
+    const startCenterX = shadowBase.centerX;
+    const startCenterY = shadowBase.centerY;
     const endCenterX = startCenterX + projection.directionX * projection.length;
     const endCenterY = startCenterY + projection.directionY * projection.length;
-    const endHalfWidth = Math.max(4, groundEdge.width * endWidthScale * 0.5);
+    const edgeDx = shadowBase.startB.x - shadowBase.startA.x;
+    const edgeDy = shadowBase.startB.y - shadowBase.startA.y;
+    const endHalfDx = edgeDx * 0.5 * endWidthScale;
+    const endHalfDy = edgeDy * 0.5 * endWidthScale;
 
-    // Deliberately simple screen-space trapezoid: it begins exactly across the
-    // painted foundation and narrows toward the projected end. This is the
-    // intended Stronghold/AoE-like fake, not a physical silhouette projection.
-    const points = [
-      { x: groundEdge.leftX, y: groundEdge.y },
-      { x: groundEdge.rightX, y: groundEdge.y },
-      { x: endCenterX + endHalfWidth, y: endCenterY },
-      { x: endCenterX - endHalfWidth, y: endCenterY },
-    ];
+    const endA = {
+      x: endCenterX - endHalfDx,
+      y: endCenterY - endHalfDy,
+    };
+    const endB = {
+      x: endCenterX + endHalfDx,
+      y: endCenterY + endHalfDy,
+    };
 
     this.fillGradientGroundPolygon(
       buffer,
       layout,
-      points,
+      [shadowBase.startA, shadowBase.startB, endB, endA],
       { x: startCenterX, y: startCenterY },
       { x: endCenterX, y: endCenterY },
       alpha,
@@ -543,11 +580,8 @@ export class DayNightSystem {
     const startY = toBufferY(gradientStart.y);
     const endX = toBufferX(gradientEnd.x);
     const endY = toBufferY(gradientEnd.y);
-    const rootAlpha = Phaser.Math.Clamp(alpha * 1.22, 0, 0.58);
+    const rootAlpha = Phaser.Math.Clamp(alpha * 1.45, 0, 0.72);
 
-    // Guard the canvas API from a degenerate linear gradient. It should never
-    // happen with a positive projection length, but a solid fallback is better
-    // than silently dropping the shadow.
     const dx = endX - startX;
     const dy = endY - startY;
     const gradientLength2 = dx * dx + dy * dy;
@@ -558,9 +592,9 @@ export class DayNightSystem {
     if (gradientLength2 > 0.001) {
       const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
       gradient.addColorStop(0, `rgba(${SHADOW_RGB}, ${rootAlpha})`);
-      gradient.addColorStop(0.18, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.90})`);
-      gradient.addColorStop(0.52, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.54})`);
-      gradient.addColorStop(0.80, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.20})`);
+      gradient.addColorStop(0.22, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.92})`);
+      gradient.addColorStop(0.52, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.68})`);
+      gradient.addColorStop(0.82, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.22})`);
       gradient.addColorStop(1, `rgba(${SHADOW_RGB}, 0)`);
       ctx.fillStyle = gradient;
     } else {
