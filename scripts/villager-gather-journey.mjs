@@ -112,19 +112,67 @@ const waitForCameraSync = () => page.waitForFunction(() => {
     && Math.abs(mainCamera.zoom - uiCamera.zoom) < 0.001;
 }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
 
-const pressRightButtonThroughGameFrame = async (canvasBox, point) => {
-  const frameBefore = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await page.mouse.move(canvasBox.x + point.x, canvasBox.y + point.y);
+const waitForPointerTarget = (targetKind) => page.waitForFunction((kind) => {
+  const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+  const probe = window.__villagerGatherProbe;
+  const pointer = scene?.input?.activePointer;
+  if (!scene || !probe || !pointer) return false;
+
+  if (kind === 'camp') {
+    return scene.input.hitTestPointer(pointer)
+      .some((target) => target.getData?.('building') === probe.camp);
+  }
+
+  const visual = probe.villager?.visual;
+  return Boolean(visual?.active)
+    && Math.hypot(pointer.worldX - visual.x, pointer.worldY - (visual.y - 8)) <= 22;
+}, targetKind, { timeout: POINTER_STATE_TIMEOUT_MS });
+
+const readPointerTarget = () => page.evaluate(() => {
+  const scene = window.__civStrategyGame.scene.getScene('MainScene');
+  const { camp } = window.__villagerGatherProbe;
+  const pointer = scene.input.activePointer;
+  const buildingHits = scene.input.hitTestPointer(pointer)
+    .map((target) => target.getData?.('building'))
+    .filter(Boolean);
+  return {
+    worldX: pointer.worldX,
+    worldY: pointer.worldY,
+    campVisualX: camp.visual?.x ?? null,
+    campVisualY: camp.visual?.y ?? null,
+    hitsCamp: buildingHits.includes(camp),
+  };
+});
+
+const pressRightButtonThroughGameFrame = async (canvasBox, point, targetKind) => {
+  const targetX = canvasBox.x + point.x;
+  const targetY = canvasBox.y + point.y;
+  await page.mouse.move(targetX, targetY);
+
+  // Phaser computes pointer world coordinates when it receives the DOM pointer
+  // event. A later render frame alone does not recompute them after camera work,
+  // so re-emit the move after that frame and prove the intended game object is hit.
+  const frameBeforeMoveSync = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction((previousFrame) => (
+    window.__civStrategyGame?.loop?.frame > previousFrame
+  ), frameBeforeMoveSync, { timeout: POINTER_STATE_TIMEOUT_MS });
+  await page.mouse.move(targetX, targetY);
+  await waitForPointerTarget(targetKind);
+  const pointerTarget = await readPointerTarget();
+
+  const frameBeforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.down({ button: 'right' });
   try {
-    // Phaser samples DOM pointer state during its game step. On SwiftShader a
-    // complete Playwright click can press and release between two such steps.
+    // Keep the button down through a game step too. On SwiftShader a complete
+    // Playwright click can otherwise press and release between two Phaser steps.
     await page.waitForFunction((previousFrame) => (
       window.__civStrategyGame?.loop?.frame > previousFrame
-    ), frameBefore, { timeout: POINTER_STATE_TIMEOUT_MS });
+    ), frameBeforeDown, { timeout: POINTER_STATE_TIMEOUT_MS });
   } finally {
     await page.mouse.up({ button: 'right' });
   }
+
+  return pointerTarget;
 };
 
 try {
@@ -218,7 +266,11 @@ try {
   telemetry.afterEscape = await readProbe();
 
   const campPointWhileDeselected = await visualScreenPoint('camp');
-  await pressRightButtonThroughGameFrame(canvasBox, campPointWhileDeselected);
+  telemetry.deselectedCommandPointer = await pressRightButtonThroughGameFrame(
+    canvasBox,
+    campPointWhileDeselected,
+    'camp',
+  );
   await sleep(100);
   telemetry.afterDeselectedCommand = await readProbe();
 
@@ -239,7 +291,7 @@ try {
   });
   await waitForCameraSync();
   const campPoint = await visualScreenPoint('camp');
-  await pressRightButtonThroughGameFrame(canvasBox, campPoint);
+  telemetry.assignmentPointer = await pressRightButtonThroughGameFrame(canvasBox, campPoint, 'camp');
 
   await page.waitForFunction(() => {
     const { villager, camp } = window.__villagerGatherProbe;
@@ -280,6 +332,9 @@ try {
   }
   if (!telemetry.afterReselection.villager.selected) {
     throw new Error('Villager could not be selected again after Escape.');
+  }
+  if (!telemetry.assignmentPointer.hitsCamp) {
+    throw new Error('Phaser pointer did not hit the Lumber Camp before workforce pointerdown.');
   }
   if (!telemetry.afterAssignment.villager.assignedToCamp) {
     throw new Error('Real right-click did not assign the selected villager to the Lumber Camp.');

@@ -217,7 +217,24 @@ try {
       throw new Error(`${pair.type} dense pair left no usable route around its occupied footprint.`);
     }
 
+    const houseEconomyBefore = {
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+    };
     const houses = verifyPair('House');
+    const houseEconomyAfter = {
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+    };
+    const expectedHouseWoodCost = 50 * 2;
+    const expectedHousePopulationBonus = 8 * 2;
+    if (houseEconomyAfter.wood !== houseEconomyBefore.wood - expectedHouseWoodCost) {
+      throw new Error(`House placement wood cost mismatch: ${houseEconomyBefore.wood} -> ${houseEconomyAfter.wood}.`);
+    }
+    if (houseEconomyAfter.maxPopulation !== houseEconomyBefore.maxPopulation + expectedHousePopulationBonus) {
+      throw new Error(`House placement population-cap mismatch: ${houseEconomyBefore.maxPopulation} -> ${houseEconomyAfter.maxPopulation}.`);
+    }
+
     const houseNavigation = verifyPathAroundPair(houses);
     const farms = verifyPair('Farm');
     const farmNavigation = verifyPathAroundPair(farms);
@@ -228,6 +245,12 @@ try {
 
     return {
       houses,
+      houseEconomy: {
+        before: houseEconomyBefore,
+        after: houseEconomyAfter,
+        expectedWoodCost: expectedHouseWoodCost,
+        expectedPopulationBonus: expectedHousePopulationBonus,
+      },
       houseNavigation,
       farms,
       farmNavigation,
