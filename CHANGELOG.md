@@ -2,6 +2,8 @@
 
 ## 2026-08-28
 
+- **Defeated combat units are fully removed from targeting queries (#160):** When a unit dies, it now leaves both the live Phaser unit group and the spatial index used by combat targeting and separation. The real browser combat journey verifies a defeated enemy cannot remain queryable after lethal combat.
+- **Barracks rally points now have save/reload continuity coverage (#162):** The real browser save/reload journey now saves a configured Barracks rally point, reloads the page, restores the same Barracks and waypoint, and still verifies resources, population, simulation, workforce cleanup, and camera control.
 - **Combat now has a same-session save/reload continuity check (#158):** Automated gameplay now fights through a real enemy defeat, saves the surviving army, reloads the page, restores that unit with the same health, re-selects it through the real canvas, and proves it can still move afterward. This protects the critical `fight -> save -> reload -> keep playing` boundary from silent regressions.
 - **The world now moves through a visible day-and-night cycle (#156):** Dawn, daylight, sunset, and night transition continuously with lightweight building shadows that change with the sun. The effect follows game time and pause/speed controls, leaves the UI untinted, and limits shadow work so dense cities do not redraw every building every frame.
 - **Barracks training is now protected by a real browser journey (#144):** Automated gameplay now places and selects a real Barracks, trains a Pikesman through the normal command UI, and checks population and resource costs so the build-to-train progression is less likely to regress silently.
