@@ -216,14 +216,24 @@ describe('AmbientPopulationSystem', () => {
   });
 
   describe('LOD tiers and texture switching', () => {
-    it('uses near frame for citizens close to the camera', () => {
+    it('selects the generated role-specific sprite frame for nearby townfolk', () => {
+      const market = makeBuilding(BuildingType.MARKET, 320, 260, 0, 100);
+      const scene = makeMockScene({ population: 10, maxPopulation: 10, buildings: [market] });
+      const ambient = new AmbientPopulationSystem(scene);
+
+      tickUpdate(scene, ambient, 16);
+
+      expect(ambient.getCitizenFrame(0)).toBe('merchant.mid');
+    });
+
+    it('uses the compact mid frame for citizens close to the camera', () => {
       scene = makeMockScene({
         buildings: [makeBuilding(BuildingType.HOUSE, 400, 300, 1, 100)],
       });
       ambient = new AmbientPopulationSystem(scene);
       tickUpdate(scene, ambient, 16);
       expect(ambient.getCitizenTier(0)).toBe(0);
-      expect(ambient.getCitizenFrame(0)).toBe('near');
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.mid');
     });
 
     it('uses far frame for citizens far from the camera', () => {
@@ -236,7 +246,7 @@ describe('AmbientPopulationSystem', () => {
       ambient = new AmbientPopulationSystem(scene);
       tickUpdate(scene, ambient, 16);
       expect(ambient.getCitizenTier(0)).toBe(2);
-      expect(ambient.getCitizenFrame(0)).toBe('far');
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.far');
     });
 
     it('switches frame when the citizen moves between tiers', () => {
@@ -245,7 +255,7 @@ describe('AmbientPopulationSystem', () => {
       });
       ambient = new AmbientPopulationSystem(scene);
       tickUpdate(scene, ambient, 16);
-      expect(ambient.getCitizenFrame(0)).toBe('near');
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.mid');
 
       // Move camera far away by changing worldView center while keeping the
       // citizen inside the expanded visible world.
@@ -259,7 +269,7 @@ describe('AmbientPopulationSystem', () => {
       };
       tickUpdate(scene, ambient, 16);
       expect(ambient.getCitizenTier(0)).toBe(2);
-      expect(ambient.getCitizenFrame(0)).toBe('far');
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.far');
     });
   });
 
@@ -324,4 +334,3 @@ function tickUpdate(scene: MainScene, ambient: AmbientPopulationSystem, delta: n
   const handler = (scene as any).__handlers['update']?.[0];
   if (typeof handler === 'function') handler.call(ambient, scene.gameTime, delta);
 }
-

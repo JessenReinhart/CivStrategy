@@ -53,7 +53,23 @@ const TEXTURE_KEY_MAP: Record<string, string> = {
     [UnitType.RAM]: 'unit_ram',
 };
 
+const UNIT_ICON_FRAME: Partial<Record<UnitType, number>> = {
+    [UnitType.PIKESMAN]: 0,
+    [UnitType.CAVALRY]: 1,
+    [UnitType.LEGION]: 2,
+    [UnitType.ARCHER]: 3,
+    [UnitType.SLINGER]: 4,
+    [UnitType.AXEMAN]: 5,
+    [UnitType.HOPLITE]: 6,
+    [UnitType.CHARIOT]: 7,
+    [UnitType.RAM]: 8,
+};
+
 const POOL_INITIAL_SIZE = 200;
+const OVERHEAD_ICON_SCREEN_SIZE = 36;
+const OVERHEAD_ICON_SOURCE_SIZE = 48;
+// Clear cavalry, pikes, and dense formation footprints at close zoom as well.
+const OVERHEAD_ICON_SCREEN_OFFSET = 72;
 
 export interface SoldierState {
     x: number;
@@ -164,6 +180,11 @@ export class SquadSystem {
             container.add(sprite);
         }
 
+        const roleIcon = this.scene.add.image(0, -OVERHEAD_ICON_SCREEN_OFFSET, 'unit-icons', UNIT_ICON_FRAME[type] ?? 0)
+            .setScale(OVERHEAD_ICON_SCREEN_SIZE / OVERHEAD_ICON_SOURCE_SIZE)
+            .setVisible(true);
+        container.add(roleIcon);
+
         // Graphics overlay for selection circle only (drawn on top of sprites)
         const gfx = this.scene.add.graphics();
         container.add(gfx);
@@ -174,6 +195,7 @@ export class SquadSystem {
         unit.setData('formationAngle', 0);
         unit.setData('squadTextureKey', textureKey);
         unit.setData('soldierSprites', soldierSprites);
+        unit.setData('squadRoleIcon', roleIcon);
 
         this.initializeSoldiers(unit, stats.squadSize, type);
 
@@ -308,6 +330,15 @@ export class SquadSystem {
                 screenDist > lodMed ? LOD_LOW :
                 screenDist > lodFull ? LOD_MEDIUM : LOD_FULL
             );
+
+            const roleIcon = unit.getData('squadRoleIcon') as Phaser.GameObjects.Image | undefined;
+            if (roleIcon) {
+                const inverseZoom = 1 / Math.max(0.1, zoom);
+                roleIcon
+                    .setScale((OVERHEAD_ICON_SCREEN_SIZE / OVERHEAD_ICON_SOURCE_SIZE) * inverseZoom)
+                    .setY(-OVERHEAD_ICON_SCREEN_OFFSET * inverseZoom)
+                    .setVisible(!stressMode);
+            }
 
             const stats = UNIT_STATS[unit.unitType as UnitType];
             if (!stats || stats.squadSize <= 1) continue;
@@ -609,8 +640,14 @@ export class SquadSystem {
             const relX = isoSoldier.x - commanderIso.x;
             const relY = isoSoldier.y - commanderIso.y - soldier.z;
             sprite.setPosition(relX, relY);
+            sprite.setFlipX(Math.cos(angle) < 0);
             // Depth controlled by container depth (set in syncPositions); no per-child setDepth needed
-            sprite.setTint(color);
+            // Detailed painted sprites must keep their material colors: tinting the whole
+            // texture multiplies skin and shadow pixels into near-black. A small owner-
+            // colored marker at the soldier's feet carries faction identity instead.
+            sprite.clearTint();
+            gfx.fillStyle(color, 0.9);
+            gfx.fillEllipse(relX, relY + 4, 4, 2);
             sprite.setVisible(true);
         }
 

@@ -11,14 +11,11 @@ const ANCHOR_REFRESH_MS = 1000;
 const OFFSCREEN_POS = -100000;
 const VIEW_PADDING = 96;
 const NEARBY_ANCHOR_DISTANCE = 320;
-
 const LOD_NEAR_DISTANCE = 900;
 const LOD_MID_DISTANCE = 1800;
 
-const TEXTURE_KEY = 'ambient_civilian_lod';
-const FRAME_NEAR = 'near';
-const FRAME_MID = 'mid';
-const FRAME_FAR = 'far';
+const TEXTURE_KEY = 'civilian-atlas';
+const FRAME_NEAR = 'civilian.mid';
 
 interface AmbientAnchor {
   x: number;
@@ -146,7 +143,10 @@ export class AmbientPopulationSystem {
   }
 
   private ensureTextures(): void {
-    if (this.scene.textures.exists(TEXTURE_KEY)) return;
+    if (this.scene.textures.exists(TEXTURE_KEY)) {
+      this.addCivilianFrames(this.scene.textures.get(TEXTURE_KEY));
+      return;
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width = 14;
@@ -172,9 +172,26 @@ export class AmbientPopulationSystem {
 
     const texture = this.scene.textures.addCanvas(TEXTURE_KEY, canvas);
     if (!texture) return;
-    texture.add(FRAME_NEAR, 0, 0, 0, 6, 8);
-    texture.add(FRAME_MID, 0, 8, 0, 4, 4);
-    texture.add(FRAME_FAR, 0, 8, 4, 2, 2);
+    for (const role of Object.values(AmbientRole)) {
+      texture.add(`${role}.near`, 0, 0, 0, 6, 8);
+      texture.add(`${role}.mid`, 0, 8, 0, 4, 4);
+      texture.add(`${role}.far`, 0, 8, 4, 2, 2);
+    }
+  }
+
+  /** Register the three LOD frames for every role in the generated citizen atlas. */
+  private addCivilianFrames(texture: Phaser.Textures.Texture): void {
+    const roleOffsets: Record<AmbientRole, number> = {
+      [AmbientRole.CIVILIAN]: 0,
+      [AmbientRole.WORKER]: 32,
+      [AmbientRole.MERCHANT]: 64,
+      [AmbientRole.FARMER]: 96,
+    };
+    for (const [role, y] of Object.entries(roleOffsets) as Array<[AmbientRole, number]>) {
+      texture.add(`${role}.near`, 0, 0, y, 32, 32);
+      texture.add(`${role}.mid`, 0, 32, y + 8, 16, 16);
+      texture.add(`${role}.far`, 0, 48, y + 12, 8, 8);
+    }
   }
 
   private handleUpdate(_time: number, delta: number): void {
@@ -261,14 +278,14 @@ export class AmbientPopulationSystem {
 
   private applyTextureForTier(citizen: AmbientCitizen): void {
     if (citizen.tier === 0) {
-      citizen.frameKey = FRAME_NEAR;
-      citizen.bob.setFrame(FRAME_NEAR);
+      citizen.frameKey = `${citizen.role}.mid`;
+      citizen.bob.setFrame(citizen.frameKey);
     } else if (citizen.tier === 1) {
-      citizen.frameKey = FRAME_MID;
-      citizen.bob.setFrame(FRAME_MID);
+      citizen.frameKey = `${citizen.role}.far`;
+      citizen.bob.setFrame(citizen.frameKey);
     } else {
-      citizen.frameKey = FRAME_FAR;
-      citizen.bob.setFrame(FRAME_FAR);
+      citizen.frameKey = `${citizen.role}.far`;
+      citizen.bob.setFrame(citizen.frameKey);
     }
   }
 
@@ -354,6 +371,7 @@ export class AmbientPopulationSystem {
     citizen.anchorIndex = anchorIndex;
     citizen.speed = 13 + Math.random() * 13;
     citizen.role = this.roleForAnchor(anchor.type);
+    this.applyTextureForTier(citizen);
     citizen.bob.tint = this.pickCitizenTint(citizen.role, citizen.owner);
 
     const point = this.pickDryPoint(anchor);
@@ -375,6 +393,8 @@ export class AmbientPopulationSystem {
     const anchor = this.anchors[anchorIndex] ?? this.anchors[this.pickWeightedAnchor()];
     citizen.anchorIndex = this.anchors.indexOf(anchor);
     citizen.owner = anchor.owner;
+    citizen.role = this.roleForAnchor(anchor.type);
+    this.applyTextureForTier(citizen);
 
     const config = this.getAnchorConfig(anchor.type);
     const profile = config?.profile;

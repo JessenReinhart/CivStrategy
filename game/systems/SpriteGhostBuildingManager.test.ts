@@ -22,6 +22,7 @@ import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import { BuildingManager } from './BuildingManager';
 import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
+import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
 function makePreviewManager(isValid: boolean) {
     vi.spyOn(BuildingManager.prototype, 'updatePreview').mockImplementation(() => undefined);
@@ -47,6 +48,10 @@ afterEach(() => {
 });
 
 describe('SpriteGhostBuildingManager placement feedback', () => {
+    it('has a textured preview configuration for every building type', () => {
+        expect(Object.keys(BUILDING_SPRITE_VISUALS).sort()).toEqual(Object.values(BuildingType).sort());
+    });
+
     it('keeps a valid building ghost close to the final sprite appearance', () => {
         const { manager, ghost, checkBuildValidity } = makePreviewManager(true);
 

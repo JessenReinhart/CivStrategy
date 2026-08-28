@@ -4,6 +4,7 @@ import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FormationType, UnitStance, DamageType } from '../../types';
 import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG, FARM_TERRAIN_YIELD, UNIT_NAMES, FACTION_BONUSES } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
+import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
 export class EntityFactory {
     private scene: MainScene;
@@ -72,12 +73,8 @@ export class EntityFactory {
             return true;
         };
 
-        if (type === BuildingType.FARM) { if (setupSprite('field', 1.3, 0.5)) spriteUsed = true; }
-        if (type === BuildingType.HOUSE) { if (setupSprite('house', 1.6, 0.85)) spriteUsed = true; }
-        if (type === BuildingType.HUNTERS_LODGE) { if (setupSprite('lodge', 1.6, 0.75)) spriteUsed = true; }
-        if (type === BuildingType.TOWN_CENTER) { if (setupSprite('townhall', 1.2, 0.75)) spriteUsed = true; }
-        if (type === BuildingType.BARRACKS) { if (setupSprite('barracks', 1.5, 0.75)) spriteUsed = true; }
-        if (type === BuildingType.LUMBER_CAMP) { if (setupSprite('lumber', 1.7, 0.75)) spriteUsed = true; }
+        const spriteConfig = BUILDING_SPRITE_VISUALS[type];
+        if (setupSprite(spriteConfig.key, spriteConfig.scaleMultiplier, spriteConfig.originY)) spriteUsed = true;
 
         if (!spriteUsed) {
             if (type === BuildingType.BONFIRE) {
@@ -95,11 +92,32 @@ export class EntityFactory {
             visual.add(banner);
         }
 
-        if (!spriteUsed || type === BuildingType.BONFIRE || type === BuildingType.SMALL_PARK) {
+        if (!spriteUsed) {
             const text = this.scene.add.text(0, -def.height * 0.5 - 10, def.name[0], { fontSize: '14px', color: '#ffffff' }).setOrigin(0.5);
             visual.add([gfx, text]);
         } else {
             visual.add(gfx);
+        }
+
+        // Keep the painted flame grounded while a restrained stream of embers
+        // sells the fire at game zoom. As a child of the visual container the
+        // emitter is automatically destroyed with the building.
+        if (type === BuildingType.BONFIRE && spriteUsed && this.scene.textures.exists('flare')) {
+            this.addBonfireGlow(visual);
+            const embers = this.scene.add.particles(0, -18, 'flare', {
+                speedX: { min: -10, max: 10 },
+                speedY: { min: -58, max: -26 },
+                scale: { start: 0.15, end: 0.03 },
+                alpha: { start: 0.85, end: 0 },
+                tint: [0xfff3a3, 0xffb000, 0xff5a00],
+                lifespan: { min: 600, max: 1050 },
+                frequency: 190,
+                quantity: 1,
+                gravityY: -4,
+                blendMode: 'ADD',
+            });
+            embers.setData('bonfireEmbers', true);
+            visual.add(embers);
         }
 
         const hpBar = this.createHealthBar(visual, def.width, -def.height * 0.8 - 35);
@@ -214,6 +232,43 @@ export class EntityFactory {
         }
 
         return b;
+    }
+
+    /** Add a local, additive firelight halo without raising global bloom. */
+    private addBonfireGlow(visual: Phaser.GameObjects.Container): void {
+        const glowKey = 'bonfire-glow';
+        if (!this.scene.textures.exists(glowKey)) {
+            const size = 128;
+            const canvas = this.scene.textures.createCanvas(glowKey, size, size);
+            if (!canvas) return;
+
+            const gradient = canvas.context.createRadialGradient(size / 2, size / 2, 4, size / 2, size / 2, size / 2);
+            gradient.addColorStop(0, 'rgba(255, 248, 190, 0.95)');
+            gradient.addColorStop(0.18, 'rgba(255, 187, 45, 0.7)');
+            gradient.addColorStop(0.52, 'rgba(255, 89, 10, 0.24)');
+            gradient.addColorStop(1, 'rgba(255, 70, 0, 0)');
+            canvas.context.fillStyle = gradient;
+            canvas.context.fillRect(0, 0, size, size);
+            canvas.refresh();
+        }
+
+        const glow = this.scene.add.image(0, -24, glowKey)
+            .setBlendMode(Phaser.BlendModes.ADD)
+            .setAlpha(0.42)
+            .setScale(0.78);
+        visual.addAt(glow, 0);
+
+        const flicker = this.scene.tweens.add({
+            targets: glow,
+            alpha: { from: 0.32, to: 0.62 },
+            scaleX: { from: 0.70, to: 0.90 },
+            scaleY: { from: 0.70, to: 0.90 },
+            duration: 460,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+        });
+        glow.once(Phaser.GameObjects.Events.DESTROY, () => flicker.stop());
     }
 
     public spawnUnit(type: UnitType, x: number, y: number, owner: number = 0): Phaser.GameObjects.Arc | undefined {
