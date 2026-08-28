@@ -2,6 +2,7 @@
 
 ## 2026-08-28
 
+- **Economy-to-combat continuity is now protected in one real browser session (#183):** Verification carries the same match from real villager selection and Lumber Camp assignment through a wood deposit, housing capacity, Barracks training, army movement and combat, save/reload, and usable post-load movement so state handoffs across the playable journey cannot silently drift.
 - **Building demolition now has a stable real-browser integrity check (#180):** Verification selects an actual owned House through the rendered canvas, rapidly activates the visible Demolish action, and requires exactly one building removal, one 75% wood refund, one population-cap rollback, one happiness rollback, clean selection state, and no browser errors.
 - **A real Barracks-trained Pikesman now has end-to-end combat/save continuity coverage (#177):** The same unit created through the normal training UI must survive real selection and movement, resolve combat, save, reload with coherent health/population/position state, and accept another real movement command after loading.
 - **Configured match treaties are carried into live game time again (#175):** A treaty selected before starting a match once again reaches the player scene in milliseconds, so the existing AI diplomacy checks can honor the configured opening grace period instead of silently treating it as zero.
