@@ -4,13 +4,15 @@ import { BuildingType } from '../../types';
 import { MainScene } from '../MainScene';
 import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
 
-const SUNLIGHT_DEPTH = 18400;
-const SUN_SHADE_DEPTH = 18390;
+// Ambient sits at depth 19000 in DayNightSystem. Directional contrast must be
+// composed after it or the ambient wash flattens the lighting back out.
+const SUN_SHADE_DEPTH = 19020;
+const SUNLIGHT_DEPTH = 19030;
 const LOCAL_LIGHT_DEPTH = 19100;
 const LIGHT_GLOW_KEY = 'day-night-light-glow';
 const DIRECTIONAL_LIGHT_KEY = 'day-night-directional-light';
 const BONFIRE_SYNC_INTERVAL_MS = 250;
-const SUN_SHADE_COLOR = 0x26344c;
+const SUN_SHADE_COLOR = 0x34445d;
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -22,12 +24,11 @@ interface BonfireLight {
 }
 
 /**
- * Cheap additive lighting layered on top of ambient + cast shadows.
+ * Cheap directional lighting layered after ambient + cast shadows.
  *
- * Direct sunlight is intentionally directional rather than a global exposure
- * lift: a warm SCREEN gradient enters from the sun-facing edge and a much
- * weaker cool MULTIPLY gradient sits opposite it. Local emissive lights remain
- * independent so night scenes can still be driven by bonfires later on.
+ * The light side gets only a restrained warm SCREEN lift. Most of the readable
+ * direction comes from a cool MULTIPLY falloff on the opposite edge, preserving
+ * contrast instead of raising exposure across the whole viewport.
  */
 export class LightingEffectsSystem {
   private readonly scene: MainScene;
@@ -92,12 +93,13 @@ export class LightingEffectsSystem {
 
     const ctx = canvas.context;
     const gradient = ctx.createLinearGradient(0, 0, size, 0);
+    // Keep most of the viewport neutral. The effect ramps only near the edge so
+    // it reads as light coming from a direction rather than a full-screen filter.
     gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-    gradient.addColorStop(0.28, 'rgba(255, 255, 255, 0.01)');
-    gradient.addColorStop(0.48, 'rgba(255, 255, 255, 0.08)');
-    gradient.addColorStop(0.68, 'rgba(255, 255, 255, 0.34)');
-    gradient.addColorStop(0.84, 'rgba(255, 255, 255, 0.72)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.96)');
+    gradient.addColorStop(0.58, 'rgba(255, 255, 255, 0)');
+    gradient.addColorStop(0.72, 'rgba(255, 255, 255, 0.12)');
+    gradient.addColorStop(0.84, 'rgba(255, 255, 255, 0.46)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.92)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
     canvas.refresh();
@@ -133,7 +135,7 @@ export class LightingEffectsSystem {
     const centerX = view.left + view.width * 0.5;
     const centerY = view.top + view.height * 0.5;
     const diagonal = Math.max(1, Math.hypot(view.width, view.height));
-    const fieldSize = diagonal * 1.62;
+    const fieldSize = diagonal * 1.05;
     const sunAngle = state.sunAzimuthRad;
     const sunAngleDeg = Phaser.Math.RadToDeg(sunAngle);
 
