@@ -297,7 +297,7 @@ try {
       unit.setData('anchor', { x: unit.x, y: unit.y });
       return unit;
     });
-    players.forEach((unit) => { unit.lastAttackTime = scene.gameTime - 10_000; });
+    players.forEach((unit) => { unit.lastAttackTime = scene.gameTime; });
     probe.enemies = enemies;
 
     return {
@@ -348,6 +348,7 @@ try {
   telemetry.combatEnabledAtGameTime = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__armyCombatProbe;
+    probe.players.forEach((unit) => { unit.lastAttackTime = scene.gameTime - 10_000; });
     scene.peacefulMode = false;
     scene.gameSpeed = probe.previousGameSpeed || 1;
     return scene.gameTime;
