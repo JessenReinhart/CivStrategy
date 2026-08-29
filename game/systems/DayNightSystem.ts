@@ -141,7 +141,7 @@ export class DayNightSystem {
     this.ambientOverlay = scene.add
       .rectangle(0, 0, 1, 1, this.currentState.ambientColor, this.currentState.ambientAlpha)
       .setOrigin(0, 0)
-      .setScrollFactor(0)
+      .setScrollFactor(1)
       .setDepth(AMBIENT_DEPTH);
 
     scene.worldLayer.add(firstBuffer.image);
@@ -353,13 +353,14 @@ export class DayNightSystem {
 
   private updateAmbientOverlay(state: Readonly<DayNightState>): void {
     const camera = this.scene.cameras.main;
-    const inverseZoom = 1 / Math.max(0.01, camera.zoom);
-    this.ambientOverlay.setPosition(-2 * inverseZoom, -2 * inverseZoom);
-    this.ambientOverlay.setDisplaySize(
-      (camera.width + 4) * inverseZoom,
-      (camera.height + 4) * inverseZoom,
-    );
-    this.ambientOverlay.setFillStyle(state.ambientColor, state.ambientAlpha);
+    const zoom = Math.max(0.01, camera.zoom);
+    const padding = 4 / zoom;
+    const worldView = camera.worldView;
+
+    this.ambientOverlay
+      .setPosition(worldView.left - padding, worldView.top - padding)
+      .setDisplaySize(worldView.width + padding * 2, worldView.height + padding * 2)
+      .setFillStyle(state.ambientColor, state.ambientAlpha);
   }
 
   private updateShadowCrossfade(sceneTimeMs: number): void {
