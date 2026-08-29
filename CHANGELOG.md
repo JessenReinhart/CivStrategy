@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-29
+
+- **The real player build-to-train path now has one continuous browser check (#187):** Verification starts a normal game, places a House and Barracks through the visible build UI and real canvas input, checks the economy and housing effects, selects the placed Barracks, and trains a Pikesman with the expected resource and population changes.
+- **The worker economy is now verified to resume after save and reload (#189):** The save/reload journey carries a live Lumber Camp and Villager through persistence, reconnects normal job assignment after loading, requires a fresh wood deposit, and still proves the restored Barracks can train and the camera remains usable.
+
 ## 2026-08-28
 
 - **Building placement and villager work commands are now protected through real player input (#185):** Verification chooses a House from the visible build UI, places it through the actual game canvas, checks the exact wood and population effects, and then carries the corrected villager-to-worker-building input path through the connected gather, train, combat, save, and reload journey.
