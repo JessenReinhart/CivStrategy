@@ -285,7 +285,6 @@ try {
   telemetry.combatSetup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { players } = window.__armyCombatProbe;
-    scene.peacefulMode = false;
 
     const centroid = players.reduce(
       (point, unit) => ({ x: point.x + unit.x / players.length, y: point.y + unit.y / players.length }),
@@ -293,10 +292,10 @@ try {
     );
     const bounds = scene.physics.world.bounds;
     const candidates = [
-      [[72, 0], [72, 18]],
-      [[-72, 0], [-72, 18]],
-      [[0, 72], [18, 72]],
-      [[0, -72], [18, -72]],
+      [[44, 0], [44, 18]],
+      [[-44, 0], [-44, 18]],
+      [[0, 44], [18, 44]],
+      [[0, -44], [18, -44]],
     ];
 
     const insideWorld = (x, y) => (
@@ -341,28 +340,34 @@ try {
   await centerCameraOnProbeUnits();
 
   telemetry.phase = 'fight-enemy-group';
-  telemetry.attackCommands = [];
-  for (let index = 0; index < 2; index += 1) {
-    const before = await readRuntimeProbe();
-    if (!before.enemies[index]?.active) {
-      telemetry.attackCommands.push({ enemyIndex: index, autoResolvedBeforeCommand: true });
-      continue;
-    }
+  const enemyPoint = await unitScreenPoint('enemies', 0);
+  await page.mouse.click(canvasBox.x + enemyPoint.x, canvasBox.y + enemyPoint.y, { button: 'right' });
 
-    const enemyPoint = await unitScreenPoint('enemies', index);
-    await page.mouse.click(canvasBox.x + enemyPoint.x, canvasBox.y + enemyPoint.y, { button: 'right' });
-    telemetry.attackCommands.push({
-      enemyIndex: index,
-      autoResolvedBeforeCommand: false,
-      issuedAtGameTime: (await readRuntimeProbe()).gameTime,
-    });
+  await page.waitForFunction(() => {
+    const { players, enemies } = window.__armyCombatProbe;
+    const target = enemies[0];
+    return players.every(
+      (unit) => unit.target === target && unit.getData('explicitTarget') === true
+    );
+  }, undefined, { timeout: 3_000 });
 
-    await page.waitForFunction((enemyIndex) => {
-      const scene = window.__civStrategyGame.scene.getScene('MainScene');
-      const enemy = window.__armyCombatProbe.enemies[enemyIndex];
-      return !enemy.active && !scene.units.getChildren().includes(enemy);
-    }, index, { timeout: 15_000 });
-  }
+  telemetry.attackCommand = {
+    targetEnemyIndex: 0,
+    acceptedAtGameTime: (await readRuntimeProbe()).gameTime,
+  };
+
+  telemetry.combatEnabledAtGameTime = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.peacefulMode = false;
+    return scene.gameTime;
+  });
+
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return window.__armyCombatProbe.enemies.every(
+      (enemy) => !enemy.active && !scene.units.getChildren().includes(enemy)
+    );
+  }, undefined, { timeout: 15_000 });
 
   telemetry.afterCombat = await readRuntimeProbe();
 
@@ -443,8 +448,8 @@ try {
   if (telemetry.initialMoveDistances.length !== PLAYER_COUNT || telemetry.initialMoveDistances.some((distance) => distance <= 5)) {
     throw new Error(`Group movement left a selected unit stuck: ${JSON.stringify(telemetry.initialMoveDistances)}.`);
   }
-  if (!telemetry.attackCommands.some((command) => !command.autoResolvedBeforeCommand)) {
-    throw new Error('Enemy group resolved without a real browser attack command crossing the input boundary.');
+  if (!telemetry.attackCommand) {
+    throw new Error('Enemy group did not receive a real browser attack command across the input boundary.');
   }
   if (telemetry.afterCombat.enemies.some((enemy) => enemy.active || enemy.inUnitGroup || enemy.inSpatialHash)) {
     throw new Error('Combat resolution left a defeated enemy active, grouped, or queryable in the spatial hash.');
