@@ -144,6 +144,25 @@ try {
   await page.mouse.click(box.x + barracksPoint.x, box.y + barracksPoint.y, { button: 'left' });
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__buildTrainLast, undefined, { timeout: 5_000 });
 
+  evidence.trainingIsolation = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    window.__buildTrainPreviousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    return { previousGameSpeed: window.__buildTrainPreviousGameSpeed, pausedGameSpeed: scene.gameSpeed };
+  });
+  const pausedResources = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return { food: scene.resources.food, gold: scene.resources.gold };
+  });
+  await sleep(250);
+  const stableResources = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return { food: scene.resources.food, gold: scene.resources.gold };
+  });
+  if (stableResources.food !== pausedResources.food || stableResources.gold !== pausedResources.gold) {
+    throw new Error('Player resources continued drifting while simulation time was paused.');
+  }
+
   evidence.beforeTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, military: scene.units.getChildren().filter((u) => u.getData('owner') === 0).length };
@@ -158,11 +177,16 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const playerUnits = scene.units.getChildren().filter((u) => u.getData('owner') === 0);
     const newest = playerUnits[playerUnits.length - 1];
-    return { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, type: newest?.unitType ?? newest?.getData('unitType') };
+    const result = { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, military: playerUnits.length, type: newest?.unitType ?? newest?.getData('unitType') };
+    scene.gameSpeed = window.__buildTrainPreviousGameSpeed;
+    return { ...result, restoredGameSpeed: scene.gameSpeed };
   });
   if (evidence.afterTraining.food !== evidence.beforeTraining.food - 100) throw new Error('Pikesman food cost was not exactly 100.');
   if (evidence.afterTraining.gold !== evidence.beforeTraining.gold - 50) throw new Error('Pikesman gold cost was not exactly 50.');
+  if (evidence.afterTraining.population !== evidence.beforeTraining.population + 1) throw new Error('Pikesman training did not add exactly 1 population.');
+  if (evidence.afterTraining.military !== evidence.beforeTraining.military + 1) throw new Error('Pikesman training did not create exactly one player military unit.');
   if (evidence.afterTraining.type !== 'Pikesman') throw new Error(`Expected trained Pikesman, got ${evidence.afterTraining.type}.`);
+  if (evidence.afterTraining.restoredGameSpeed !== evidence.trainingIsolation.previousGameSpeed) throw new Error('Game speed was not restored after training-cost isolation.');
   if (evidence.browserErrors.length) throw new Error(`Browser errors:\n${evidence.browserErrors.join('\n')}`);
 
   evidence.phase = 'complete';
