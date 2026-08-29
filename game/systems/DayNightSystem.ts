@@ -2,13 +2,20 @@ import Phaser from 'phaser';
 
 import { MainScene } from '../MainScene';
 import { BuildingDef } from '../../types';
-import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
+import {
+  BUILDING_SPRITE_VISUALS,
+  type BuildingSpriteVisualConfig,
+} from './BuildingSpriteVisuals';
 import {
   calculateDayNightState,
   DayNightState,
   SHADOW_REFRESH_INTERVAL_MS,
   shouldRefreshDayNightShadows,
 } from './dayNightMath';
+import {
+  detectShadowEmitterProfile,
+  type ShadowEmitterProfile,
+} from './shadowEmitterMath';
 import { calculateShadowProjection } from './shadowProjectionMath';
 
 const STATE_PUBLISH_INTERVAL_MS = 250;
@@ -87,16 +94,17 @@ export interface DayNightDiagnostics {
 /**
  * Render-only day/night lighting for the isometric world.
  *
- * Building cast shadows deliberately use the painted foundation's broad left
- * and right corners as a stable root, then shear that edge along the solar
- * direction. The fake stays visually consistent with the isometric art instead
- * of rotating the shadow root with the sun and collapsing into diamond blobs.
+ * Each building texture is alpha-scanned once to find the widest useful row in
+ * its ground-facing band. That asymmetric row becomes the fixed emitter line;
+ * only the far edge moves with the solar projection. This matches the painted
+ * sprite instead of assuming the shadow starts at centerX or at the PNG bottom.
  */
 export class DayNightSystem {
   private readonly scene: MainScene;
   private readonly shadowBuffers: readonly [ShadowBuffer, ShadowBuffer];
   private readonly ambientOverlay: Phaser.GameObjects.Rectangle;
   private readonly generatedTextureKeys: string[] = [];
+  private readonly shadowEmitterProfiles = new Map<string, ShadowEmitterProfile>();
   private currentBufferIndex = 0;
   private previousBufferIndex = 1;
   private crossfadeStartedAt = Number.NEGATIVE_INFINITY;
@@ -124,6 +132,7 @@ export class DayNightSystem {
     this.scene = scene;
     this.currentState = this.createStateSnapshot(scene.gameTime);
     this.createContactShadowTexture();
+    this.primeShadowEmitterProfiles();
 
     const firstBuffer = this.createShadowBuffer(0);
     const secondBuffer = this.createShadowBuffer(1);
@@ -196,7 +205,7 @@ export class DayNightSystem {
     });
   }
 
-  /** Called by MainScene after serialized gameTime advances. */
+  /** Called by MainScene after serialized game time advances. */
   public update(sceneTimeMs: number, gameTimeMs: number): void {
     if (this.destroyed) return;
 
@@ -227,6 +236,78 @@ export class DayNightSystem {
 
   private createStateSnapshot(gameTimeMs: number): Readonly<DayNightState> {
     return Object.freeze({ ...calculateDayNightState(gameTimeMs) });
+  }
+
+  private emitterCacheKey(config: BuildingSpriteVisualConfig): string {
+    const band = config.shadowEmitterScanBand;
+    return `${config.key}:${band.minYNorm}:${band.maxYNorm}`;
+  }
+
+  private primeShadowEmitterProfiles(): void {
+    for (const config of Object.values(BUILDING_SPRITE_VISUALS)) {
+      this.getShadowEmitterProfile(config);
+    }
+  }
+
+  private getShadowEmitterProfile(config: BuildingSpriteVisualConfig): ShadowEmitterProfile {
+    if (config.shadowEmitterOverride) return config.shadowEmitterOverride;
+
+    const cacheKey = this.emitterCacheKey(config);
+    const cached = this.shadowEmitterProfiles.get(cacheKey);
+    if (cached) return cached;
+
+    const detected = this.detectEmitterFromTexture(config);
+    const profile = detected ?? this.createEmitterFallback(config);
+    this.shadowEmitterProfiles.set(cacheKey, profile);
+    return profile;
+  }
+
+  private detectEmitterFromTexture(config: BuildingSpriteVisualConfig): ShadowEmitterProfile | null {
+    if (!this.scene.textures.exists(config.key)) return null;
+
+    const texture = this.scene.textures.get(config.key);
+    const frame = texture.get();
+    const width = Math.max(1, Math.round(frame.cutWidth));
+    const height = Math.max(1, Math.round(frame.cutHeight));
+    const source = frame.source.image as CanvasImageSource;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) return null;
+
+      context.clearRect(0, 0, width, height);
+      context.drawImage(
+        source,
+        frame.cutX,
+        frame.cutY,
+        frame.cutWidth,
+        frame.cutHeight,
+        0,
+        0,
+        width,
+        height,
+      );
+      const rgba = context.getImageData(0, 0, width, height).data;
+      return detectShadowEmitterProfile(rgba, width, height, {
+        ...config.shadowEmitterScanBand,
+        alphaThreshold: 24,
+        minSpanNorm: 0.18,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private createEmitterFallback(config: BuildingSpriteVisualConfig): ShadowEmitterProfile {
+    const { minYNorm, maxYNorm } = config.shadowEmitterScanBand;
+    return {
+      leftNorm: 0.02,
+      rightNorm: 0.98,
+      yNorm: (minYNorm + maxYNorm) * 0.5,
+    };
   }
 
   private createShadowBuffer(index: number): ShadowBuffer {
@@ -404,21 +485,17 @@ export class DayNightSystem {
 
       const config = BUILDING_SPRITE_VISUALS[def.type];
       if (!config) continue;
+      const sprite = this.findBuildingSprite(visual, config.key);
+      if (!sprite) continue;
 
-      const shadowBase = this.resolveBuildingShadowBase(
-        visual,
-        def,
-        config.scaleMultiplier,
-        config.shadowFootprintScale,
-        config.shadowFootprintDepthScale,
-        config.shadowAnchorOffsetY,
-      );
+      const profile = this.getShadowEmitterProfile(config);
+      const shadowBase = this.resolveBuildingShadowBase(visual, sprite, profile);
 
       this.stampContact(
         buffer,
         layout,
         shadowBase.centerX,
-        shadowBase.centerY + 1,
+        shadowBase.centerY + 2,
         shadowBase.contactWidth,
         shadowBase.contactHeight,
         BUILDING_CONTACT_ALPHA * visual.alpha,
@@ -432,17 +509,12 @@ export class DayNightSystem {
         shadowLength: state.shadowLength,
         shadowHeightScale: config.shadowHeightScale,
       });
-      const minimumVisibleLength = Math.min(
-        150,
-        shadowBase.contactWidth * config.shadowHeightScale * 1.5,
-      );
 
       this.stampBuildingProjection(
         buffer,
         layout,
         shadowBase,
         projection,
-        minimumVisibleLength,
         state.shadowAlpha * visual.alpha,
         config.shadowEndWidthScale,
       );
@@ -451,28 +523,49 @@ export class DayNightSystem {
     }
   }
 
+  private findBuildingSprite(
+    visual: Phaser.GameObjects.Container,
+    textureKey: string,
+  ): Phaser.GameObjects.Image | null {
+    for (const child of visual.list) {
+      if (child instanceof Phaser.GameObjects.Image && child.texture.key === textureKey) {
+        return child;
+      }
+    }
+    return null;
+  }
+
   private resolveBuildingShadowBase(
     visual: Phaser.GameObjects.Container,
-    def: BuildingDef,
-    scaleMultiplier: number,
-    footprintScale: number,
-    footprintDepthScale: number,
-    anchorOffsetY: number,
+    sprite: Phaser.GameObjects.Image,
+    profile: ShadowEmitterProfile,
   ): BuildingShadowBase {
-    const renderedSpriteWidth = Math.max(16, def.width * scaleMultiplier);
-    const footprintWidth = Math.max(12, renderedSpriteWidth * footprintScale);
-    const footprintDepth = Math.max(8, footprintWidth * footprintDepthScale);
-    const halfWidth = footprintWidth * 0.5;
-    const centerX = visual.x;
-    const centerY = visual.y + anchorOffsetY;
+    let leftNorm = profile.leftNorm;
+    let rightNorm = profile.rightNorm;
+    if (sprite.flipX) {
+      leftNorm = 1 - profile.rightNorm;
+      rightNorm = 1 - profile.leftNorm;
+    }
+
+    const displayWidth = Math.abs(sprite.displayWidth);
+    const displayHeight = Math.abs(sprite.displayHeight);
+    const localLeft = sprite.x - displayWidth * sprite.originX;
+    const localTop = sprite.y - displayHeight * sprite.originY;
+    const emitterY = visual.y + localTop + profile.yNorm * displayHeight;
+    const startAX = visual.x + localLeft + leftNorm * displayWidth;
+    const startBX = visual.x + localLeft + rightNorm * displayWidth;
+    const startA = { x: Math.min(startAX, startBX), y: emitterY };
+    const startB = { x: Math.max(startAX, startBX), y: emitterY };
+    const centerX = (startA.x + startB.x) * 0.5;
+    const width = Math.max(8, startB.x - startA.x);
 
     return {
-      startA: { x: centerX - halfWidth, y: centerY },
-      startB: { x: centerX + halfWidth, y: centerY },
+      startA,
+      startB,
       centerX,
-      centerY,
-      contactWidth: footprintWidth,
-      contactHeight: Math.max(5, footprintDepth * 0.42),
+      centerY: emitterY,
+      contactWidth: width,
+      contactHeight: Math.max(5, displayHeight * 0.055),
     };
   }
 
@@ -503,36 +596,25 @@ export class DayNightSystem {
     layout: ShadowBufferLayout,
     shadowBase: BuildingShadowBase,
     projection: ReturnType<typeof calculateShadowProjection>,
-    minimumVisibleLength: number,
     alpha: number,
     endWidthScale: number,
   ): void {
     if (projection.length <= 0 || alpha <= 0) return;
 
-    const startCenterX = shadowBase.centerX;
-    const startCenterY = shadowBase.centerY;
-    const effectiveLength = Math.max(projection.length, minimumVisibleLength);
-    const endCenterX = startCenterX + projection.directionX * effectiveLength;
-    const endCenterY = startCenterY + projection.directionY * effectiveLength;
+    const endCenterX = shadowBase.centerX + projection.directionX * projection.length;
+    const endCenterY = shadowBase.centerY + projection.directionY * projection.length;
     const edgeDx = shadowBase.startB.x - shadowBase.startA.x;
     const edgeDy = shadowBase.startB.y - shadowBase.startA.y;
     const endHalfDx = edgeDx * 0.5 * endWidthScale;
     const endHalfDy = edgeDy * 0.5 * endWidthScale;
-
-    const endA = {
-      x: endCenterX - endHalfDx,
-      y: endCenterY - endHalfDy,
-    };
-    const endB = {
-      x: endCenterX + endHalfDx,
-      y: endCenterY + endHalfDy,
-    };
+    const endA = { x: endCenterX - endHalfDx, y: endCenterY - endHalfDy };
+    const endB = { x: endCenterX + endHalfDx, y: endCenterY + endHalfDy };
 
     this.fillGradientGroundPolygon(
       buffer,
       layout,
       [shadowBase.startA, shadowBase.startB, endB, endA],
-      { x: startCenterX, y: startCenterY },
+      { x: shadowBase.centerX, y: shadowBase.centerY },
       { x: endCenterX, y: endCenterY },
       alpha,
     );
@@ -541,9 +623,9 @@ export class DayNightSystem {
   private fillGradientGroundPolygon(
     buffer: ShadowBuffer,
     layout: ShadowBufferLayout,
-    points: readonly { x: number; y: number }[],
-    gradientStart: { x: number; y: number },
-    gradientEnd: { x: number; y: number },
+    points: readonly ShadowPoint[],
+    gradientStart: ShadowPoint,
+    gradientEnd: ShadowPoint,
     alpha: number,
   ): void {
     if (alpha <= 0 || points.length < 3) return;
@@ -556,7 +638,6 @@ export class DayNightSystem {
     const endX = toBufferX(gradientEnd.x);
     const endY = toBufferY(gradientEnd.y);
     const rootAlpha = Phaser.Math.Clamp(alpha * 1.45, 0, 0.72);
-
     const dx = endX - startX;
     const dy = endY - startY;
     const gradientLength2 = dx * dx + dy * dy;
@@ -632,6 +713,7 @@ export class DayNightSystem {
     this.shadowBuffers[0].image.destroy();
     this.shadowBuffers[1].image.destroy();
     this.ambientOverlay.destroy();
+    this.shadowEmitterProfiles.clear();
 
     for (const textureKey of this.generatedTextureKeys) {
       if (this.scene.textures.exists(textureKey)) this.scene.textures.remove(textureKey);
