@@ -10,21 +10,21 @@ describe('calculateSunlightStyle', () => {
     expect(style.shadeAlpha).toBe(0);
   });
 
-  it('keeps noon brightening restrained while shade carries the direction', () => {
+  it('makes noon light bands clearly visible without becoming a full-screen wash', () => {
     const style = calculateSunlightStyle(12, 1, 1);
 
-    expect(style.directionalAlpha).toBeGreaterThanOrEqual(0.03);
-    expect(style.directionalAlpha).toBeLessThanOrEqual(0.04);
-    expect(style.shadeAlpha).toBeGreaterThan(style.directionalAlpha * 2);
-    expect(style.shadeAlpha).toBeLessThan(0.09);
+    expect(style.directionalAlpha).toBeGreaterThanOrEqual(0.12);
+    expect(style.directionalAlpha).toBeLessThanOrEqual(0.15);
+    expect(style.shadeAlpha).toBeGreaterThanOrEqual(0.09);
+    expect(style.shadeAlpha).toBeLessThan(style.directionalAlpha);
   });
 
-  it('strengthens directional contrast as the sun gets lower', () => {
+  it('warms and strengthens directional contrast as the sun gets lower', () => {
     const noon = calculateSunlightStyle(12, 1, 1);
     const lateAfternoon = calculateSunlightStyle(17, 0.55, 0.25);
 
-    expect(lateAfternoon.shadeAlpha).toBeGreaterThan(noon.shadeAlpha);
-    expect(lateAfternoon.shadeAlpha).toBeGreaterThan(lateAfternoon.directionalAlpha * 2);
+    expect(lateAfternoon.directionalAlpha).toBeGreaterThan(0.09);
+    expect(lateAfternoon.shadeAlpha).toBeGreaterThan(0.08);
     expect(lateAfternoon.color).not.toBe(noon.color);
   });
 });
