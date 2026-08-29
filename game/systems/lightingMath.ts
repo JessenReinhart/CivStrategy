@@ -13,11 +13,11 @@ export interface SunlightStyle {
 }
 
 const SUNLIGHT_COLORS: readonly LightColorKeyframe[] = [
-  { hour: 6, color: 0xff9862 },
-  { hour: 8.5, color: 0xffc990 },
-  { hour: 12, color: 0xfff0d6 },
-  { hour: 15.5, color: 0xffd39a },
-  { hour: 18, color: 0xff8552 },
+  { hour: 6, color: 0xff8f55 },
+  { hour: 8.5, color: 0xffc36f },
+  { hour: 12, color: 0xffedc7 },
+  { hour: 15.5, color: 0xffc978 },
+  { hour: 18, color: 0xff7f49 },
 ];
 
 function lerpColor(a: number, b: number, t: number): number {
@@ -50,9 +50,9 @@ function sunlightColorForHour(hour: number): number {
 }
 
 /**
- * Art-directed directional sunlight. Brightening stays intentionally restrained
- * while the opposite cool shade does most of the directional work. This raises
- * side-to-side contrast without lifting the average exposure of the scene.
+ * Art-directed sunlight for broad world-space light shafts. Because the bright
+ * mask covers only part of the viewport, it can be much more visible than the
+ * previous edge wash without lifting the average exposure of the entire scene.
  */
 export function calculateSunlightStyle(
   hour: number,
@@ -72,8 +72,8 @@ export function calculateSunlightStyle(
   const horizonWarmth = 1 - elevation;
   return {
     color: sunlightColorForHour(hour),
-    directionalAlpha: clamp01(intensity * (0.032 + horizonWarmth * 0.045)),
-    shadeAlpha: clamp01(intensity * (0.07 + horizonWarmth * 0.14)),
+    directionalAlpha: clamp01(intensity * (0.13 + horizonWarmth * 0.10)),
+    shadeAlpha: clamp01(intensity * (0.095 + horizonWarmth * 0.11)),
   };
 }
 
