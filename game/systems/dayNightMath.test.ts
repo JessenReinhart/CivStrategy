@@ -19,8 +19,8 @@ describe('calculateDayNightState', () => {
         expect(state.hour).toBeCloseTo(8, 5);
         expect(state.sunIntensity).toBeGreaterThan(0.5);
         expect(state.shadowLength).toBeGreaterThan(0);
-        expect(state.ambientAlpha).toBeGreaterThan(0.1);
-        expect(state.ambientAlpha).toBeLessThan(0.2);
+        expect(state.ambientAlpha).toBeGreaterThan(0.22);
+        expect(state.ambientAlpha).toBeLessThan(0.27);
     });
 
     it('produces its shortest, strongest daylight shadows at noon', () => {
@@ -32,6 +32,8 @@ describe('calculateDayNightState', () => {
         expect(state.shadowLength).toBeGreaterThanOrEqual(50);
         expect(state.shadowLength).toBeLessThan(60);
         expect(state.shadowAlpha).toBeGreaterThanOrEqual(0.3);
+        expect(state.ambientAlpha).toBeGreaterThan(0.12);
+        expect(state.ambientAlpha).toBeLessThan(0.14);
     });
 
     it('lengthens and rotates shadows toward sunset', () => {
@@ -59,7 +61,7 @@ describe('calculateDayNightState', () => {
         expect(state.sunElevation).toBe(0);
         expect(state.shadowLength).toBe(0);
         expect(state.shadowAlpha).toBe(0);
-        expect(state.ambientAlpha).toBeGreaterThan(0.4);
+        expect(state.ambientAlpha).toBeGreaterThan(0.56);
     });
 
     it('wraps cleanly after complete days and for negative serialized time', () => {
