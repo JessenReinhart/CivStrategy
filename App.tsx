@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
+import { GameTimeIndicator } from './components/GameTimeIndicator';
 import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
@@ -324,24 +325,27 @@ const [selectedCount, setSelectedCount] = useState(0);
             onGameReady={setGameInstance}
           />
           {!isGameLoading && gameState === 'playing' && (
-            <GameUI
-              stats={stats}
-              onBuild={handleBuild}
-              onSpawnUnit={handleSpawnUnit}
-              onToggleDemolish={handleToggleDemolish}
-              onRegrowForest={handleRegrowForest}
-              onQuit={handleQuit}
-              selectedCount={selectedCount}
-              selectedCounts={selectedCounts}
-              selectedBuildingType={selectedBuildingType}
-              onFilterSelection={handleFilterSelection}
-              onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
-              onAdvanceAge={handleAdvanceAge}
-              onReleaseGarrison={handleReleaseGarrison}
-              currentAge={stats.currentAge}
-              ageProgress={stats.ageProgress}
-              nextAge={stats.nextAge}
-            />
+            <>
+              <GameUI
+                stats={stats}
+                onBuild={handleBuild}
+                onSpawnUnit={handleSpawnUnit}
+                onToggleDemolish={handleToggleDemolish}
+                onRegrowForest={handleRegrowForest}
+                onQuit={handleQuit}
+                selectedCount={selectedCount}
+                selectedCounts={selectedCounts}
+                selectedBuildingType={selectedBuildingType}
+                onFilterSelection={handleFilterSelection}
+                onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
+                onAdvanceAge={handleAdvanceAge}
+                onReleaseGarrison={handleReleaseGarrison}
+                currentAge={stats.currentAge}
+                ageProgress={stats.ageProgress}
+                nextAge={stats.nextAge}
+              />
+              <GameTimeIndicator gameInstance={gameInstance} />
+            </>
           )}
           {!isGameLoading && gameState === 'stress-test' && (
             <StressTestOverlay
