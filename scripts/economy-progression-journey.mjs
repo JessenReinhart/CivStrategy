@@ -428,7 +428,7 @@ try {
   evidence.phase = 'reload';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game'));
+  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     if (!scene?.isReady) return false;
