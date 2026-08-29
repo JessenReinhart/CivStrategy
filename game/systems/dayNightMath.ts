@@ -22,16 +22,16 @@ interface AmbientKeyframe {
 }
 
 const AMBIENT_KEYFRAMES: readonly AmbientKeyframe[] = [
-    { hour: 0, color: 0x07172f, alpha: 0.48 },
-    { hour: 4.8, color: 0x0b1d38, alpha: 0.44 },
-    { hour: 6, color: 0x3b2a38, alpha: 0.30 },
-    { hour: 7.2, color: 0xe07a45, alpha: 0.18 },
-    { hour: 10, color: 0xfff1cf, alpha: 0.07 },
-    { hour: 16.5, color: 0xffdfb0, alpha: 0.08 },
-    { hour: 18, color: 0xc95a3d, alpha: 0.22 },
-    { hour: 19.4, color: 0x24334f, alpha: 0.33 },
-    { hour: 21, color: 0x091a34, alpha: 0.46 },
-    { hour: 24, color: 0x07172f, alpha: 0.48 },
+    { hour: 0, color: 0x06152d, alpha: 0.60 },
+    { hour: 4.8, color: 0x0a1a35, alpha: 0.56 },
+    { hour: 6, color: 0x49303f, alpha: 0.42 },
+    { hour: 7.2, color: 0xe8793f, alpha: 0.30 },
+    { hour: 10, color: 0xffedc7, alpha: 0.12 },
+    { hour: 16.5, color: 0xffd38f, alpha: 0.14 },
+    { hour: 18, color: 0xd55435, alpha: 0.32 },
+    { hour: 19.4, color: 0x1d3152, alpha: 0.44 },
+    { hour: 21, color: 0x071a38, alpha: 0.56 },
+    { hour: 24, color: 0x06152d, alpha: 0.60 },
 ];
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
