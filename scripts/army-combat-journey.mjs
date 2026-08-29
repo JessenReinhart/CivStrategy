@@ -297,7 +297,7 @@ try {
       unit.setData('anchor', { x: unit.x, y: unit.y });
       return unit;
     });
-    players.forEach((unit) => { unit.lastAttackTime = scene.gameTime; });
+    players.forEach((unit) => { unit.lastAttackTime = scene.gameTime - 10_000; });
     probe.enemies = enemies;
 
     return {
