@@ -50,10 +50,9 @@ function sunlightColorForHour(hour: number): number {
 }
 
 /**
- * Art-directed directional sunlight. Instead of lifting exposure across the
- * whole viewport, one warm gradient enters from the sun-facing edge while a
- * much weaker cool multiply pass sits opposite it. The result reads as light
- * direction and contrast rather than a white screen wash.
+ * Art-directed directional sunlight. Brightening stays intentionally restrained
+ * while the opposite cool shade does most of the directional work. This raises
+ * side-to-side contrast without lifting the average exposure of the scene.
  */
 export function calculateSunlightStyle(
   hour: number,
@@ -73,8 +72,8 @@ export function calculateSunlightStyle(
   const horizonWarmth = 1 - elevation;
   return {
     color: sunlightColorForHour(hour),
-    directionalAlpha: clamp01(intensity * (0.055 + horizonWarmth * 0.09)),
-    shadeAlpha: clamp01(intensity * (0.018 + horizonWarmth * 0.045)),
+    directionalAlpha: clamp01(intensity * (0.032 + horizonWarmth * 0.045)),
+    shadeAlpha: clamp01(intensity * (0.07 + horizonWarmth * 0.14)),
   };
 }
 
