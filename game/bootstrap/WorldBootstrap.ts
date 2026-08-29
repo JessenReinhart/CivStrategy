@@ -17,6 +17,7 @@ import { CullingSystem } from '../systems/CullingSystem';
 import { FeedbackSystem } from '../systems/FeedbackSystem';
 import { AtmosphericSystem } from '../systems/AtmosphericSystem';
 import { DayNightSystem } from '../systems/DayNightSystem';
+import { LightingEffectsSystem } from '../systems/LightingEffectsSystem';
 import { VillagerSystem } from '../systems/VillagerSystem';
 import { installVillagerWorkforceInput } from '../systems/VillagerWorkforceInput';
 import { AnimalSystem } from '../systems/AnimalSystem';
@@ -141,6 +142,7 @@ export class WorldBootstrap {
     scene.feedbackSystem = new FeedbackSystem(scene);
     scene.atmosphericSystem = new AtmosphericSystem(scene);
     scene.dayNightSystem = new DayNightSystem(scene);
+    new LightingEffectsSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
     installLegacyVillagerSpawnBridge(scene);
     installVillagerWorkforceInput(scene);
