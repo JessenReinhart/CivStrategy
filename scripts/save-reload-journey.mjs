@@ -144,39 +144,66 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
 
   const before = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const gameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
     return {
       food: scene.resources.food,
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
       playerMilitary: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+      gameSpeed,
     };
   });
   if (before.population >= before.maxPopulation) {
+    await page.evaluate((gameSpeed) => {
+      window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = gameSpeed;
+    }, before.gameSpeed);
     throw new Error(`Restored town has no population capacity for training: ${before.population}/${before.maxPopulation}.`);
   }
 
-  await page.getByRole('button', { name: /Pikesman/i }).click();
-  await page.waitForFunction((snapshot) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
-    return military === snapshot.playerMilitary + 1 && scene.population === snapshot.population + 1;
-  }, before, { timeout: 5_000 });
+  let after;
+  try {
+    await sleep(300);
+    const stable = await page.evaluate(() => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      return { food: scene.resources.food, gold: scene.resources.gold, gameSpeed: scene.gameSpeed };
+    });
+    if (stable.gameSpeed !== 0 || stable.food !== before.food || stable.gold !== before.gold) {
+      throw new Error(`Post-load training transaction was not isolated from simulation: food ${before.food} -> ${stable.food}, gold ${before.gold} -> ${stable.gold}, speed ${stable.gameSpeed}.`);
+    }
 
-  const after = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const units = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
-    const newest = units[units.length - 1];
-    return {
-      food: scene.resources.food,
-      gold: scene.resources.gold,
-      population: scene.population,
-      maxPopulation: scene.maxPopulation,
-      playerMilitary: units.length,
-      newestType: newest?.unitType ?? newest?.getData('unitType') ?? null,
-    };
-  });
+    await page.getByRole('button', { name: /Pikesman/i }).click();
+    await page.waitForFunction((snapshot) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const military = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
+      return military === snapshot.playerMilitary + 1 && scene.population === snapshot.population + 1;
+    }, before, { timeout: 5_000 });
 
+    after = await page.evaluate(() => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const units = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+      const newest = units[units.length - 1];
+      return {
+        food: scene.resources.food,
+        gold: scene.resources.gold,
+        population: scene.population,
+        maxPopulation: scene.maxPopulation,
+        playerMilitary: units.length,
+        newestType: newest?.unitType ?? newest?.getData('unitType') ?? null,
+      };
+    });
+  } finally {
+    await page.evaluate((gameSpeed) => {
+      window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = gameSpeed;
+    }, before.gameSpeed);
+  }
+
+  const restoredGameSpeed = await page.evaluate(() => window.__civStrategyGame.scene.getScene('MainScene').gameSpeed);
+  if (restoredGameSpeed !== before.gameSpeed) {
+    throw new Error(`Post-load training did not restore game speed: expected ${before.gameSpeed}, got ${restoredGameSpeed}.`);
+  }
+  if (!after) throw new Error('Post-load training did not produce a measurable result.');
   if (after.playerMilitary !== before.playerMilitary + 1) throw new Error('Post-load training did not create exactly one player military unit.');
   if (after.population !== before.population + 1) throw new Error('Post-load training did not increment player population by one.');
   if (after.maxPopulation !== before.maxPopulation) throw new Error('Post-load training changed population capacity.');
@@ -186,7 +213,7 @@ async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
   }
   if (after.food < 0 || after.gold < 0) throw new Error('Post-load training produced negative resources.');
   if (after.newestType !== 'Pikesman') throw new Error(`Expected post-load Pikesman, got ${after.newestType ?? 'unknown'}.`);
-  return { before, after };
+  return { before, after, restoredGameSpeed };
 }
 
 await mkdir(ARTIFACT_DIR, { recursive: true });

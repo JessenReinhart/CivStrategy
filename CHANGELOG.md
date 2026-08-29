@@ -2,6 +2,7 @@
 
 ## 2026-08-29
 
+- **Post-load Barracks training verification now measures the real transaction without live-economy drift (#196):** The save/reload browser journey temporarily pauses simulation only around the restored Pikesman purchase, proves food and gold are stable before the visible training click, checks the exact cost and population change, and then restores the previous game speed before continuing.
 - **Barracks training verification now reduces false cost failures from a live economy (#193):** The real browser build-to-train journey pauses simulation around the training-cost measurement while still using the visible Pikesman action and exact resource, population, unit-type, and browser-error checks. A later current-base review found the click-to-observation window can still drift intermittently, so follow-up issue #192 remains open rather than overstating this as fully deterministic.
 - **The real player build-to-train path now has one continuous browser check (#187):** Verification starts a normal game, places a House and Barracks through the visible build UI and real canvas input, checks the economy and housing effects, selects the placed Barracks, and trains a Pikesman with the expected resource and population changes.
 - **The worker economy is now verified to resume after save and reload (#189):** The save/reload journey carries a live Lumber Camp and Villager through persistence, reconnects normal job assignment after loading, requires a fresh wood deposit, and still proves the restored Barracks can train and the camera remains usable.
