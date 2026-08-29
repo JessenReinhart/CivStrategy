@@ -322,7 +322,9 @@ try {
   evidence.combat = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
-    scene.peacefulMode = false;
+    window.__economyCombatPreviousSpeed = scene.gameSpeed;
+    scene.peacefulMode = true;
+    scene.gameSpeed = 0;
     const candidates = [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18], [-18, -18]];
     let spawn;
     for (const [dx, dy] of candidates) {
@@ -336,12 +338,16 @@ try {
     enemy.setData('hp', 10);
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
-    player.lastAttackTime = -10_000;
+    player.lastAttackTime = scene.gameTime;
     window.__economyProgressionProbe.enemy = enemy;
     window.__economyProgressionProbe.enemyX = enemy.x;
     window.__economyProgressionProbe.enemyY = enemy.y;
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
-    return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y) };
+    return {
+      distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
+      pausedAtGameTime: scene.gameTime,
+      previousGameSpeed: window.__economyCombatPreviousSpeed,
+    };
   });
   if (evidence.combat.distance > 40) throw new Error(`Deterministic enemy exceeded Pikesman attack range (${evidence.combat.distance.toFixed(2)}px).`);
   await waitForCameraSync(page);
@@ -349,6 +355,35 @@ try {
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
   await page.mouse.click(box.x + enemyPoint.x, box.y + enemyPoint.y, { button: 'right' });
+
+  evidence.attackCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__economyProgressionProbe;
+    return {
+      gameTime: scene.gameTime,
+      gameSpeed: scene.gameSpeed,
+      targetHp: enemy.active ? enemy.getData('hp') : null,
+      targetsEnemy: player.target === enemy,
+      explicitTarget: player.getData('explicitTarget') === true,
+    };
+  });
+  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) {
+    throw new Error(`Real combat right-click was not accepted by the trained Pikesman: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+  if (evidence.attackCommand.gameSpeed !== 0
+    || evidence.attackCommand.gameTime !== evidence.combat.pausedAtGameTime
+    || evidence.attackCommand.targetHp !== 10) {
+    throw new Error(`Simulation advanced during combat command capture: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+
+  evidence.combatEnabledAtGameTime = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    player.lastAttackTime = scene.gameTime - 10_000;
+    scene.peacefulMode = false;
+    scene.gameSpeed = window.__economyCombatPreviousSpeed || 1;
+    return scene.gameTime;
+  });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__economyProgressionProbe;
