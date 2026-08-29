@@ -73,6 +73,28 @@ async function requireCameraInput(page) {
   return { before, after };
 }
 
+async function requireCriticalHud(page) {
+  const resourceHud = page.locator('.hud-surface').first();
+  await resourceHud.waitFor({ state: 'visible', timeout: 10_000 });
+
+  const speedControls = ['0.5×', '1×', '2×', '3×'];
+  const visibleSpeedControls = [];
+  for (const label of speedControls) {
+    const control = page.getByRole('button', { name: label, exact: true });
+    await control.waitFor({ state: 'visible', timeout: 10_000 });
+    if (await control.isEnabled()) visibleSpeedControls.push(label);
+  }
+
+  if (visibleSpeedControls.length !== speedControls.length) {
+    throw new Error(`Critical HUD speed controls are not usable: ${visibleSpeedControls.join(', ')}`);
+  }
+
+  return {
+    resourceHudVisible: await resourceHud.isVisible(),
+    visibleSpeedControls,
+  };
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
@@ -127,6 +149,9 @@ try {
       };
     });
 
+    phase = `attempt-${attempt}-critical-hud`;
+    const hud = await requireCriticalHud(page);
+
     phase = `attempt-${attempt}-camera-input`;
     const camera = await requireCameraInput(page);
     const attemptErrors = browserErrors.slice(errorCountBeforeAttempt);
@@ -134,6 +159,7 @@ try {
     if (!world.isReady) throw new Error(`Attempt ${attempt} did not leave MainScene ready.`);
     if (world.buildingCount <= 0) throw new Error(`Attempt ${attempt} loaded no buildings.`);
     if (world.unitCount <= 0) throw new Error(`Attempt ${attempt} loaded no units.`);
+    if (!hud.resourceHudVisible) throw new Error(`Attempt ${attempt} did not expose the critical resource HUD.`);
     if (attemptErrors.length > 0) {
       throw new Error(`Browser errors during startup attempt ${attempt}:\n${attemptErrors.join('\n')}`);
     }
@@ -142,6 +168,7 @@ try {
       attempt,
       loadDurationMs: Date.now() - startedAt,
       ...world,
+      hud,
       camera,
       browserErrors: attemptErrors,
     });
