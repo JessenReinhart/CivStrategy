@@ -6,23 +6,25 @@ describe('calculateSunlightStyle', () => {
   it('removes direct sunlight at night', () => {
     const style = calculateSunlightStyle(22, 0, 0);
 
-    expect(style.overlayAlpha).toBe(0);
-    expect(style.glowAlpha).toBe(0);
+    expect(style.directionalAlpha).toBe(0);
+    expect(style.shadeAlpha).toBe(0);
   });
 
-  it('keeps noon sunlight visible without washing the scene out', () => {
+  it('keeps noon sunlight restrained and directional', () => {
     const style = calculateSunlightStyle(12, 1, 1);
 
-    expect(style.overlayAlpha).toBeGreaterThanOrEqual(0.07);
-    expect(style.overlayAlpha).toBeLessThanOrEqual(0.1);
-    expect(style.glowAlpha).toBeGreaterThan(style.overlayAlpha);
+    expect(style.directionalAlpha).toBeGreaterThanOrEqual(0.05);
+    expect(style.directionalAlpha).toBeLessThanOrEqual(0.07);
+    expect(style.shadeAlpha).toBeLessThan(style.directionalAlpha);
+    expect(style.shadeAlpha).toBeLessThan(0.03);
   });
 
-  it('gives low daylight a stronger warm-light emphasis', () => {
+  it('strengthens directional contrast as the sun gets lower', () => {
     const noon = calculateSunlightStyle(12, 1, 1);
     const lateAfternoon = calculateSunlightStyle(17, 0.55, 0.25);
 
-    expect(lateAfternoon.overlayAlpha).toBeGreaterThan(0.05);
+    expect(lateAfternoon.directionalAlpha).toBeGreaterThan(noon.directionalAlpha);
+    expect(lateAfternoon.shadeAlpha).toBeGreaterThan(noon.shadeAlpha);
     expect(lateAfternoon.color).not.toBe(noon.color);
   });
 });
