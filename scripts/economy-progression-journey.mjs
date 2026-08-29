@@ -366,6 +366,8 @@ try {
   });
   if (evidence.combat.distance > 40) throw new Error(`Deterministic enemy exceeded Pikesman attack range (${evidence.combat.distance.toFixed(2)}px).`);
   await waitForCameraSync(page);
+  const combatCameraFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, combatCameraFrame, { timeout: 30_000 });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, enemy } = window.__economyProgressionProbe;
