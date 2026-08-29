@@ -293,10 +293,10 @@ try {
     );
     const bounds = scene.physics.world.bounds;
     const candidates = [
-      [[28, 0], [28, 18]],
-      [[-28, 0], [-28, 18]],
-      [[0, 28], [18, 28]],
-      [[0, -28], [18, -28]],
+      [[72, 0], [72, 18]],
+      [[-72, 0], [-72, 18]],
+      [[0, 72], [18, 72]],
+      [[0, -72], [18, -72]],
     ];
 
     const insideWorld = (x, y) => (
@@ -442,6 +442,9 @@ try {
   }
   if (telemetry.initialMoveDistances.length !== PLAYER_COUNT || telemetry.initialMoveDistances.some((distance) => distance <= 5)) {
     throw new Error(`Group movement left a selected unit stuck: ${JSON.stringify(telemetry.initialMoveDistances)}.`);
+  }
+  if (!telemetry.attackCommands.some((command) => !command.autoResolvedBeforeCommand)) {
+    throw new Error('Enemy group resolved without a real browser attack command crossing the input boundary.');
   }
   if (telemetry.afterCombat.enemies.some((enemy) => enemy.active || enemy.inUnitGroup || enemy.inSpatialHash)) {
     throw new Error('Combat resolution left a defeated enemy active, grouped, or queryable in the spatial hash.');
