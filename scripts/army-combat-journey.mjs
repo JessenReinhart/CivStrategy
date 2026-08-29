@@ -218,7 +218,7 @@ try {
       return unit;
     });
 
-    window.__armyCombatProbe = { players, enemies: [] };
+    window.__armyCombatProbe = { players, enemies: [], previousGameSpeed: scene.gameSpeed };
     return {
       arena,
       playerStart: players.map((unit) => ({ x: unit.x, y: unit.y, hp: unit.getData('hp') })),
@@ -259,8 +259,11 @@ try {
   telemetry.phase = 'setup-combat';
   telemetry.combatSetup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { players } = window.__armyCombatProbe;
+    const probe = window.__armyCombatProbe;
+    const { players } = probe;
     scene.peacefulMode = true;
+    probe.previousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
 
     const centroid = players.reduce(
       (point, unit) => ({ x: point.x + unit.x / players.length, y: point.y + unit.y / players.length }),
@@ -294,11 +297,13 @@ try {
       unit.setData('anchor', { x: unit.x, y: unit.y });
       return unit;
     });
-    players.forEach((unit) => { unit.lastAttackTime = -10_000; });
-    window.__armyCombatProbe.enemies = enemies;
+    players.forEach((unit) => { unit.lastAttackTime = scene.gameTime; });
+    probe.enemies = enemies;
 
     return {
       centroid,
+      pausedAtGameTime: scene.gameTime,
+      previousGameSpeed: probe.previousGameSpeed,
       enemies: enemies.map((unit) => ({ x: unit.x, y: unit.y, hp: unit.getData('hp') })),
     };
   });
@@ -326,19 +331,25 @@ try {
     }
     return {
       gameTime: scene.gameTime,
+      gameSpeed: scene.gameSpeed,
       peacefulMode: scene.peacefulMode,
+      targetHp: target.active ? target.getData('hp') : null,
       accepted,
     };
   });
 
-  if (telemetry.attackCommand.peacefulMode !== true) {
-    throw new Error('Combat was not paused while attack-command acceptance was captured.');
+  if (telemetry.attackCommand.gameSpeed !== 0
+    || telemetry.attackCommand.gameTime !== telemetry.combatSetup.pausedAtGameTime
+    || telemetry.attackCommand.targetHp !== 10) {
+    throw new Error(`Simulation advanced during attack-command capture: ${JSON.stringify(telemetry.attackCommand)}`);
   }
 
   telemetry.phase = 'combat-resolution';
   telemetry.combatEnabledAtGameTime = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__armyCombatProbe;
     scene.peacefulMode = false;
+    scene.gameSpeed = probe.previousGameSpeed || 1;
     return scene.gameTime;
   });
 
