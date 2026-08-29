@@ -364,7 +364,23 @@ export class InputManager {
             const building = obj.getData && obj.getData('building');
             return Boolean(building && building.getData('owner') !== 0);
         });
-        const enemyEntity = enemyUnitVisual?.getData('unit') ?? enemyBuildingVisual?.getData('building');
+        let enemyEntity = enemyUnitVisual?.getData('unit') ?? enemyBuildingVisual?.getData('building');
+
+        if (!enemyEntity) {
+            let nearestEnemy: GameUnit | null = null;
+            let nearestDistance = 16;
+            for (const child of this.scene.units.getChildren()) {
+                const unit = child as GameUnit;
+                const visual = unit.visual;
+                if (unit.getData('owner') === 0 || !unit.active || !visual?.active || !visual.visible) continue;
+                const distance = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, visual.x, visual.y - 10);
+                if (distance <= nearestDistance) {
+                    nearestEnemy = unit;
+                    nearestDistance = distance;
+                }
+            }
+            enemyEntity = nearestEnemy;
+        }
 
         if (enemyEntity) {
             this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
