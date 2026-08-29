@@ -202,6 +202,10 @@ try {
   }, evidence.gatherSetup.wood);
   if (evidence.gather.finalWood <= evidence.gather.initialWood) throw new Error('Assigned villager did not deposit any wood.');
 
+  evidence.phase = 'return-to-build-ui';
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /Economy/i }).waitFor({ state: 'visible', timeout: 10_000 });
+
   evidence.phase = 'house';
   const beforeHouse = await page.evaluate(() => ({ wood: window.__civStrategyGame.scene.getScene('MainScene').resources.wood, maxPopulation: window.__civStrategyGame.scene.getScene('MainScene').maxPopulation }));
   evidence.house = await placeThroughUi(page, canvas, 'Economy', 'House');
