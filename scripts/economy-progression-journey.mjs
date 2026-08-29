@@ -365,7 +365,7 @@ try {
   box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
-  await rightClickThroughFrame(page, box.x + enemyPoint.x, box.y + enemyPoint.y);
+  await page.mouse.click(box.x + enemyPoint.x, box.y + enemyPoint.y, { button: 'right' });
 
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
