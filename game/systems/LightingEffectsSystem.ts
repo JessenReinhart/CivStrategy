@@ -4,15 +4,17 @@ import { BuildingType } from '../../types';
 import { MainScene } from '../MainScene';
 import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
 
-// Ambient sits at depth 19000 in DayNightSystem. Directional contrast must be
-// composed after it or the ambient wash flattens the lighting back out.
+// Ambient sits at depth 19000 in DayNightSystem. These world-space passes sit
+// above it so terrain, water, vegetation, units and buildings all receive the
+// same art-directed sunlight pattern.
 const SUN_SHADE_DEPTH = 19020;
 const SUNLIGHT_DEPTH = 19030;
 const LOCAL_LIGHT_DEPTH = 19100;
 const LIGHT_GLOW_KEY = 'day-night-light-glow';
-const DIRECTIONAL_LIGHT_KEY = 'day-night-directional-light';
+const SUN_BANDS_KEY = 'day-night-sun-bands';
+const SUN_GAPS_KEY = 'day-night-sun-gaps';
 const BONFIRE_SYNC_INTERVAL_MS = 250;
-const SUN_SHADE_COLOR = 0x34445d;
+const SUN_SHADE_COLOR = 0x66758f;
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -23,12 +25,20 @@ interface BonfireLight {
   readonly seed: number;
 }
 
+interface SoftBand {
+  readonly center: number;
+  readonly halfWidth: number;
+  readonly peak: number;
+}
+
 /**
- * Cheap directional lighting layered after ambient + cast shadows.
+ * Cheap art-directed world lighting layered after ambient + cast shadows.
  *
- * The light side gets only a restrained warm SCREEN lift. Most of the readable
- * direction comes from a cool MULTIPLY falloff on the opposite edge, preserving
- * contrast instead of raising exposure across the whole viewport.
+ * Instead of a full-screen exposure wash, direct sun is represented by several
+ * broad, soft, parallel shafts. The shafts rotate with the solar axis and cover
+ * the entire visible world, so terrain and sprites are lit together. Cooler
+ * multiply bands fill the gaps to preserve the dramatic light/shade separation
+ * from the visual target without requiring normal maps or a custom shader.
  */
 export class LightingEffectsSystem {
   private readonly scene: MainScene;
@@ -42,17 +52,17 @@ export class LightingEffectsSystem {
   constructor(scene: MainScene) {
     this.scene = scene;
     this.createGlowTexture();
-    this.createDirectionalLightTexture();
+    this.createDirectionalTextures();
 
     this.directionalShade = scene.add
-      .image(0, 0, DIRECTIONAL_LIGHT_KEY)
+      .image(0, 0, SUN_GAPS_KEY)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(SUN_SHADE_DEPTH)
       .setTint(SUN_SHADE_COLOR)
       .setAlpha(0);
 
     this.directionalLight = scene.add
-      .image(0, 0, DIRECTIONAL_LIGHT_KEY)
+      .image(0, 0, SUN_BANDS_KEY)
       .setBlendMode(Phaser.BlendModes.SCREEN)
       .setDepth(SUNLIGHT_DEPTH)
       .setAlpha(0);
@@ -84,26 +94,62 @@ export class LightingEffectsSystem {
     this.generatedTextureKeys.push(LIGHT_GLOW_KEY);
   }
 
-  private createDirectionalLightTexture(): void {
-    if (this.scene.textures.exists(DIRECTIONAL_LIGHT_KEY)) return;
+  private createDirectionalTextures(): void {
+    const size = 1024;
 
-    const size = 512;
-    const canvas = this.scene.textures.createCanvas(DIRECTIONAL_LIGHT_KEY, size, size);
-    if (!canvas) throw new Error(`Unable to create directional light texture: ${DIRECTIONAL_LIGHT_KEY}`);
+    if (!this.scene.textures.exists(SUN_BANDS_KEY)) {
+      const canvas = this.scene.textures.createCanvas(SUN_BANDS_KEY, size, size);
+      if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_BANDS_KEY}`);
 
-    const ctx = canvas.context;
-    const gradient = ctx.createLinearGradient(0, 0, size, 0);
-    // Keep most of the viewport neutral. The effect ramps only near the edge so
-    // it reads as light coming from a direction rather than a full-screen filter.
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-    gradient.addColorStop(0.58, 'rgba(255, 255, 255, 0)');
-    gradient.addColorStop(0.72, 'rgba(255, 255, 255, 0.12)');
-    gradient.addColorStop(0.84, 'rgba(255, 255, 255, 0.46)');
-    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.92)');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, size, size);
-    canvas.refresh();
-    this.generatedTextureKeys.push(DIRECTIONAL_LIGHT_KEY);
+      this.paintSoftBands(canvas.context, size, [
+        { center: 0.10, halfWidth: 0.095, peak: 0.88 },
+        { center: 0.34, halfWidth: 0.115, peak: 0.74 },
+        { center: 0.61, halfWidth: 0.135, peak: 0.92 },
+        { center: 0.88, halfWidth: 0.09, peak: 0.78 },
+      ]);
+      canvas.refresh();
+      this.generatedTextureKeys.push(SUN_BANDS_KEY);
+    }
+
+    if (!this.scene.textures.exists(SUN_GAPS_KEY)) {
+      const canvas = this.scene.textures.createCanvas(SUN_GAPS_KEY, size, size);
+      if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_GAPS_KEY}`);
+
+      this.paintSoftBands(canvas.context, size, [
+        { center: 0.22, halfWidth: 0.075, peak: 0.68 },
+        { center: 0.48, halfWidth: 0.085, peak: 0.58 },
+        { center: 0.75, halfWidth: 0.085, peak: 0.70 },
+        { center: 0.985, halfWidth: 0.06, peak: 0.56 },
+      ]);
+      canvas.refresh();
+      this.generatedTextureKeys.push(SUN_GAPS_KEY);
+    }
+  }
+
+  private paintSoftBands(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    bands: readonly SoftBand[],
+  ): void {
+    ctx.clearRect(0, 0, size, size);
+
+    for (const band of bands) {
+      const center = band.center * size;
+      const halfWidth = band.halfWidth * size;
+      const left = center - halfWidth;
+      const right = center + halfWidth;
+      const gradient = ctx.createLinearGradient(left, 0, right, 0);
+
+      gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+      gradient.addColorStop(0.18, `rgba(255, 255, 255, ${band.peak * 0.26})`);
+      gradient.addColorStop(0.38, `rgba(255, 255, 255, ${band.peak * 0.72})`);
+      gradient.addColorStop(0.5, `rgba(255, 255, 255, ${band.peak})`);
+      gradient.addColorStop(0.64, `rgba(255, 255, 255, ${band.peak * 0.76})`);
+      gradient.addColorStop(0.84, `rgba(255, 255, 255, ${band.peak * 0.24})`);
+      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = gradient;
+      ctx.fillRect(Math.max(0, left), 0, Math.min(size, right) - Math.max(0, left), size);
+    }
   }
 
   private update(timeMs: number): void {
@@ -135,21 +181,30 @@ export class LightingEffectsSystem {
     const centerX = view.left + view.width * 0.5;
     const centerY = view.top + view.height * 0.5;
     const diagonal = Math.max(1, Math.hypot(view.width, view.height));
-    const fieldSize = diagonal * 1.05;
-    const sunAngle = state.sunAzimuthRad;
-    const sunAngleDeg = Phaser.Math.RadToDeg(sunAngle);
+
+    // The texture is deliberately much larger than the rotated viewport so its
+    // edges never become visible while zooming or panning. Local Y is aligned to
+    // the sun/shadow axis, leaving the bright lanes elongated along the rays.
+    const fieldSize = diagonal * 1.9;
+    const bandRotation = state.shadowAngleRad - Math.PI * 0.5;
+
+    // A tiny deterministic phase shift prevents the lighting pattern from feeling
+    // glued to the camera while remaining slow enough to read as moving sunlight.
+    const phase = Math.sin(state.normalizedDay * Math.PI * 2) * diagonal * 0.055;
+    const phaseX = Math.cos(bandRotation) * phase;
+    const phaseY = Math.sin(bandRotation) * phase;
 
     this.directionalLight
-      .setPosition(centerX, centerY)
+      .setPosition(centerX + phaseX, centerY + phaseY)
       .setDisplaySize(fieldSize, fieldSize)
-      .setRotation(sunAngle)
+      .setRotation(bandRotation)
       .setTint(style.color)
       .setAlpha(style.directionalAlpha);
 
     this.directionalShade
-      .setPosition(centerX, centerY)
+      .setPosition(centerX + phaseX, centerY + phaseY)
       .setDisplaySize(fieldSize, fieldSize)
-      .setAngle(sunAngleDeg + 180)
+      .setRotation(bandRotation)
       .setTint(SUN_SHADE_COLOR)
       .setAlpha(style.shadeAlpha);
   }
