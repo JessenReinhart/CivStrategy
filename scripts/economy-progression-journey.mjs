@@ -316,10 +316,19 @@ try {
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__economyProgressionProbe.player), undefined, { timeout: 30_000 });
   let targetPoint = await cartesianScreenPoint(page, evidence.moveTarget);
   await page.mouse.click(box.x + targetPoint.x, box.y + targetPoint.y, { button: 'right' });
-  await page.waitForFunction(() => {
+  await page.waitForFunction((target) => {
     const player = window.__economyProgressionProbe.player;
-    return Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')) > 5;
-  }, undefined, { timeout: 12_000 });
+    return Math.hypot(player.x - target.x, player.y - target.y) <= 24;
+  }, evidence.moveTarget, { timeout: 12_000 });
+  evidence.moveArrival = await page.evaluate((target) => {
+    const player = window.__economyProgressionProbe.player;
+    return {
+      x: player.x,
+      y: player.y,
+      distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+      movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
+    };
+  }, evidence.moveTarget);
 
   evidence.phase = 'combat';
   evidence.combat = await page.evaluate(() => {
