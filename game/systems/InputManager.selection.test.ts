@@ -8,6 +8,9 @@ vi.mock('phaser', () => ({
             Vector2: class Vector2 {
                 constructor(public x: number, public y: number) {}
             },
+            Distance: {
+                Between: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
+            },
         },
     },
 }));
@@ -44,6 +47,7 @@ describe('InputManager player command selection', () => {
             game: { events: { emit } },
             proceduralSound: { playUIClick, playCommandAck },
             unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => []) },
         };
 
         const manager = Object.create(InputManager.prototype) as InputManager;
@@ -108,6 +112,49 @@ describe('InputManager player command selection', () => {
             input: { hitTestPointer: vi.fn(() => [friendlyVisual, enemyVisual]) },
             proceduralSound: { playCommandAck },
             unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => []) },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+
+        const rightClick = (manager as unknown as {
+            handleRightClick(pointer: unknown): void;
+        }).handleRightClick.bind(manager);
+
+        rightClick({ worldX: 640, worldY: 360, event: { shiftKey: false } });
+
+        expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledOnce();
+    });
+
+    it('accepts a right-click near a visible enemy body when Phaser misses its interactive hit area', () => {
+        const commandMove = vi.fn();
+        const commandAttack = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const enemyVisual = {
+            x: 640,
+            y: 370,
+            active: true,
+            visible: true,
+        };
+        const enemyUnit = {
+            unitType: UnitType.PIKESMAN,
+            active: true,
+            visual: enemyVisual,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const scene = {
+            input: { hitTestPointer: vi.fn(() => []) },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => [enemyUnit]) },
         };
         const manager = Object.create(InputManager.prototype) as InputManager;
         Object.defineProperty(manager, 'scene', { value: scene });
