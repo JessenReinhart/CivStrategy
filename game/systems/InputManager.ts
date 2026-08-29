@@ -377,6 +377,7 @@ export class InputManager {
             let nearestDistance = hasScreenPoint ? 20 : 16;
             for (const unit of candidates) {
                 const visual = unit.visual;
+                if (!visual) continue;
                 const distance = camera && topLeft
                     ? Phaser.Math.Distance.Between(
                         pointer.x,
