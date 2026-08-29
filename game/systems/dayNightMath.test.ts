@@ -43,6 +43,15 @@ describe('calculateDayNightState', () => {
         expect(sunset.ambientAlpha).toBeGreaterThan(noon.ambientAlpha);
     });
 
+    it('fades cast shadows before dawn and dusk become nearly horizontal', () => {
+        const noon = calculateDayNightState(gameTimeForHour(12));
+        const earlyDawn = calculateDayNightState(gameTimeForHour(6.5));
+        const lateDusk = calculateDayNightState(gameTimeForHour(17.5));
+
+        expect(earlyDawn.shadowAlpha).toBeLessThan(noon.shadowAlpha * 0.1);
+        expect(lateDusk.shadowAlpha).toBeLessThan(noon.shadowAlpha * 0.1);
+    });
+
     it('removes solar shadows at night and darkens the ambient overlay', () => {
         const state = calculateDayNightState(gameTimeForHour(22));
 
