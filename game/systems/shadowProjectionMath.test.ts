@@ -35,14 +35,19 @@ describe('calculateShadowProjection', () => {
     expect(Number.isFinite(projection.directionY)).toBe(true);
   });
 
-  it('rotates with the solar shadow vector while keeping a unit direction', () => {
-    const east = calculateShadowProjection({ ...baseInput, shadowAngleRad: 0 });
-    const south = calculateShadowProjection({ ...baseInput, shadowAngleRad: Math.PI / 2 });
+  it('keeps the solar cast inside a stable downward cone', () => {
+    const farLeft = calculateShadowProjection({ ...baseInput, shadowAngleRad: Math.PI });
+    const farRight = calculateShadowProjection({ ...baseInput, shadowAngleRad: 0 });
+    const down = calculateShadowProjection({ ...baseInput, shadowAngleRad: Math.PI / 2 });
 
-    expect(east.directionX).toBeGreaterThan(0.9);
-    expect(south.directionY).toBeGreaterThan(0.9);
-    expect(Math.hypot(east.directionX, east.directionY)).toBeCloseTo(1, 5);
-    expect(Math.hypot(south.directionX, south.directionY)).toBeCloseTo(1, 5);
+    const maxSideways = Math.sin(35 * Math.PI / 180);
+    expect(Math.abs(farLeft.directionX)).toBeLessThanOrEqual(maxSideways + 0.001);
+    expect(Math.abs(farRight.directionX)).toBeLessThanOrEqual(maxSideways + 0.001);
+    expect(farLeft.directionY).toBeGreaterThan(0.8);
+    expect(farRight.directionY).toBeGreaterThan(0.8);
+    expect(down.directionY).toBeGreaterThan(0.99);
+    expect(Math.hypot(farLeft.directionX, farLeft.directionY)).toBeCloseTo(1, 5);
+    expect(Math.hypot(farRight.directionX, farRight.directionY)).toBeCloseTo(1, 5);
   });
 
   it('scales a low-profile caster down without changing its direction', () => {
