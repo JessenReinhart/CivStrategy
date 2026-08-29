@@ -8,8 +8,8 @@ interface LightColorKeyframe {
 
 export interface SunlightStyle {
   readonly color: number;
-  readonly overlayAlpha: number;
-  readonly glowAlpha: number;
+  readonly directionalAlpha: number;
+  readonly shadeAlpha: number;
 }
 
 const SUNLIGHT_COLORS: readonly LightColorKeyframe[] = [
@@ -50,8 +50,10 @@ function sunlightColorForHour(hour: number): number {
 }
 
 /**
- * Cheap art-directed sunlight. A restrained SCREEN pass keeps noon readable,
- * while low sun receives a little more warmth and directional bloom.
+ * Art-directed directional sunlight. Instead of lifting exposure across the
+ * whole viewport, one warm gradient enters from the sun-facing edge while a
+ * much weaker cool multiply pass sits opposite it. The result reads as light
+ * direction and contrast rather than a white screen wash.
  */
 export function calculateSunlightStyle(
   hour: number,
@@ -61,14 +63,18 @@ export function calculateSunlightStyle(
   const intensity = clamp01(sunIntensity);
   const elevation = clamp01(sunElevation);
   if (intensity <= 0.001) {
-    return { color: sunlightColorForHour(hour), overlayAlpha: 0, glowAlpha: 0 };
+    return {
+      color: sunlightColorForHour(hour),
+      directionalAlpha: 0,
+      shadeAlpha: 0,
+    };
   }
 
   const horizonWarmth = 1 - elevation;
   return {
     color: sunlightColorForHour(hour),
-    overlayAlpha: clamp01(intensity * (0.08 + horizonWarmth * 0.12)),
-    glowAlpha: clamp01(intensity * (0.11 + horizonWarmth * 0.15)),
+    directionalAlpha: clamp01(intensity * (0.055 + horizonWarmth * 0.09)),
+    shadeAlpha: clamp01(intensity * (0.018 + horizonWarmth * 0.045)),
   };
 }
 
