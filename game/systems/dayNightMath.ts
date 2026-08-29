@@ -38,6 +38,12 @@ const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const wrap = (value: number, modulus: number): number => ((value % modulus) + modulus) % modulus;
 
+function smoothstep(edge0: number, edge1: number, value: number): number {
+    const span = edge1 - edge0 || 1;
+    const t = clamp01((value - edge0) / span);
+    return t * t * (3 - 2 * t);
+}
+
 function lerpColor(a: number, b: number, t: number): number {
     const ar = (a >> 16) & 0xff;
     const ag = (a >> 8) & 0xff;
@@ -96,11 +102,19 @@ export function calculateDayNightState(
     // isometric-friendly result rather than a physical 3D solar simulation.
     const sunAzimuthRad = -0.2 * Math.PI + daylightProgress * 1.4 * Math.PI;
     const shadowAngleRad = sunAzimuthRad + Math.PI;
-    const shadowLength = sunIntensity > 0.01
+
+    // The 2D emitter-line fake is strongest when the sun is comfortably above
+    // the horizon. Fade it out before sunrise/sunset reaches the awkward almost-
+    // horizontal phase instead of showing a physically longer but visually wrong
+    // cast. Ambient lighting still continues through dawn/dusk/night normally.
+    const shadowVisibility = smoothstep(0.12, 0.30, sunElevation);
+    const shadowLength = shadowVisibility > 0.001
         ? lerp(210, 54, Math.sqrt(sunElevation))
         : 0;
     const shadowAlpha = sunIntensity > 0.01
-        ? (0.30 + (1 - sunElevation) * 0.16) * clamp01(sunIntensity * 1.8)
+        ? (0.30 + (1 - sunElevation) * 0.16)
+            * clamp01(sunIntensity * 1.8)
+            * shadowVisibility
         : 0;
 
     return {
