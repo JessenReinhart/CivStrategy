@@ -2,6 +2,7 @@
 
 ## 2026-08-29
 
+- **Gathering, construction, and unit training are now verified in one continuous game session (#200):** The real Chromium journey selects and assigns a Villager through canvas input, proves a wood deposit, returns to the visible build UI, places a House and Barracks, checks the economy and population changes, and trains a Pikesman without resetting the match between those steps.
 - **Repeated game startup now verifies the critical HUD stays usable (#198):** The real Chromium startup journey checks the player HUD after every successful world load and requires the 0.5×, 1×, 2×, and 3× speed controls to remain visible and usable, reducing the chance of a ready world opening with missing critical UI.
 - **Multi-unit armies now have a real browser command-continuity check (#194):** Verification drag-selects three player units through the game canvas, moves the whole group, captures the real attack command without racing combat damage, requires both enemies to be fully defeated and cleaned up, and then proves every surviving unit can accept another movement order.
 - **Post-load Barracks training verification now measures the real transaction without live-economy drift (#196):** The save/reload browser journey temporarily pauses simulation only around the restored Pikesman purchase, proves food and gold are stable before the visible training click, checks the exact cost and population change, and then restores the previous game speed before continuing.
