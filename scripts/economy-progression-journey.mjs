@@ -81,9 +81,14 @@ async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__economyProgressionProbe[probeKey];
+    const visual = unit.visual;
+    const hitArea = visual.input?.hitArea;
+    const localX = typeof hitArea?.x === 'number' ? hitArea.x : 0;
+    const localY = typeof hitArea?.y === 'number' ? hitArea.y : -10;
+    const worldPoint = visual.getWorldTransformMatrix().transformPoint(localX, localY);
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    return { x: (unit.visual.x - topLeft.x) * camera.zoom, y: (unit.visual.y - 10 - topLeft.y) * camera.zoom };
+    return { x: (worldPoint.x - topLeft.x) * camera.zoom, y: (worldPoint.y - topLeft.y) * camera.zoom };
   }, key);
 }
 
@@ -342,6 +347,7 @@ try {
     window.__economyProgressionProbe.enemy = enemy;
     window.__economyProgressionProbe.enemyX = enemy.x;
     window.__economyProgressionProbe.enemyY = enemy.y;
+    scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
     return {
       distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
@@ -365,7 +371,26 @@ try {
   box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
-  await page.mouse.click(box.x + enemyPoint.x, box.y + enemyPoint.y, { button: 'right' });
+  const enemyPagePoint = { x: box.x + enemyPoint.x, y: box.y + enemyPoint.y };
+  await page.mouse.move(enemyPagePoint.x, enemyPagePoint.y);
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__economyProgressionProbe.enemy;
+    return scene.input.hitTestPointer(scene.input.activePointer)
+      .some((target) => target.getData?.('unit') === enemy);
+  }, undefined, { timeout: 30_000 });
+  evidence.attackHitTarget = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__economyProgressionProbe.enemy;
+    const unitTargets = scene.input.hitTestPointer(scene.input.activePointer)
+      .filter((target) => target.getData?.('unit'))
+      .map((target) => target.getData('unit'));
+    return {
+      enemyHit: unitTargets.includes(enemy),
+      unitOwners: unitTargets.map((unit) => unit.getData('owner')),
+    };
+  });
+  await page.mouse.click(enemyPagePoint.x, enemyPagePoint.y, { button: 'right' });
 
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
