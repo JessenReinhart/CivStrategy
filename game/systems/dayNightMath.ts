@@ -21,17 +21,20 @@ interface AmbientKeyframe {
     readonly alpha: number;
 }
 
+// Ambient is primarily a time-of-day color grade. Daylight stays restrained so
+// directional sunlight can create contrast instead of being flattened by a
+// bright full-screen wash. Dusk/night remain intentionally much stronger.
 const AMBIENT_KEYFRAMES: readonly AmbientKeyframe[] = [
-    { hour: 0, color: 0x06152d, alpha: 0.60 },
-    { hour: 4.8, color: 0x0a1a35, alpha: 0.56 },
-    { hour: 6, color: 0x49303f, alpha: 0.42 },
-    { hour: 7.2, color: 0xe8793f, alpha: 0.30 },
-    { hour: 10, color: 0xffedc7, alpha: 0.12 },
-    { hour: 16.5, color: 0xffd38f, alpha: 0.14 },
-    { hour: 18, color: 0xd55435, alpha: 0.32 },
-    { hour: 19.4, color: 0x1d3152, alpha: 0.44 },
-    { hour: 21, color: 0x071a38, alpha: 0.56 },
-    { hour: 24, color: 0x06152d, alpha: 0.60 },
+    { hour: 0, color: 0x06152d, alpha: 0.58 },
+    { hour: 4.8, color: 0x0a1a35, alpha: 0.54 },
+    { hour: 6, color: 0x49303f, alpha: 0.32 },
+    { hour: 7.2, color: 0xe8793f, alpha: 0.16 },
+    { hour: 10, color: 0xffedc7, alpha: 0.045 },
+    { hour: 16.5, color: 0xffd38f, alpha: 0.055 },
+    { hour: 18, color: 0xd55435, alpha: 0.18 },
+    { hour: 19.4, color: 0x1d3152, alpha: 0.38 },
+    { hour: 21, color: 0x071a38, alpha: 0.54 },
+    { hour: 24, color: 0x06152d, alpha: 0.58 },
 ];
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
