@@ -344,13 +344,9 @@ export class InputManager {
             return;
         }
 
-        // Check for click on Enemy Unit/Building
         const targets = this.scene.input.hitTestPointer(pointer);
 
-        const unitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('unit'));
-        const buildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('building'));
-
-        // Check if target is an animal container
+        // Animals remain an explicit attack target regardless of any overlapping unit/building visuals.
         const animalVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('type') === 'animal');
         if (animalVisual) {
             this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
@@ -358,37 +354,42 @@ export class InputManager {
             return;
         }
 
-        let targetEntity: Phaser.GameObjects.GameObject | null = null;
-        let isEnemy = false;
+        // A friendly unit can visually overlap an enemy in a crowded fight. Resolve any enemy
+        // under the pointer before considering friendly entities, otherwise right-click becomes a move.
+        const enemyUnitVisual = targets.find((obj: Phaser.GameObjects.GameObject) => {
+            const unit = obj.getData && obj.getData('unit');
+            return Boolean(unit && unit.getData('owner') !== 0);
+        });
+        const enemyBuildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => {
+            const building = obj.getData && obj.getData('building');
+            return Boolean(building && building.getData('owner') !== 0);
+        });
+        const enemyEntity = enemyUnitVisual?.getData('unit') ?? enemyBuildingVisual?.getData('building');
 
-        if (unitVisual) {
-            targetEntity = unitVisual.getData('unit');
-            const owner = (targetEntity as any).getData('owner'); // eslint-disable-line @typescript-eslint/no-explicit-any
-            if (targetEntity && owner !== 0) isEnemy = true;
-        } else if (buildingVisual) {
-            targetEntity = buildingVisual.getData('building');
-            const owner = (targetEntity as any).getData('owner'); // eslint-disable-line @typescript-eslint/no-explicit-any
-            if (targetEntity && owner !== 0) isEnemy = true;
+        if (enemyEntity) {
+            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+            this.scene.unitSystem.commandAttack(this.selectedUnits, enemyEntity);
+            return;
         }
 
-        // Friendly Castle garrison: right-click with units on own Castle
-        if (!isEnemy && buildingVisual && targetEntity) {
-            const def = (targetEntity as any).getData('def'); // eslint-disable-line @typescript-eslint/no-explicit-any
-            if (def && def.type === BuildingType.CASTLE && (targetEntity as any).getData('owner') === 0) { // eslint-disable-line @typescript-eslint/no-explicit-any
-                this.garrisonUnits(targetEntity);
+        // Friendly Castle garrison: right-click with units on own Castle.
+        const friendlyBuildingVisual = targets.find((obj: Phaser.GameObjects.GameObject) => {
+            const building = obj.getData && obj.getData('building');
+            return Boolean(building && building.getData('owner') === 0);
+        });
+        if (friendlyBuildingVisual) {
+            const building = friendlyBuildingVisual.getData('building');
+            const def = (building as any).getData('def'); // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (def && def.type === BuildingType.CASTLE) {
+                this.garrisonUnits(building);
                 return;
             }
         }
 
-        if (isEnemy && targetEntity) {
-            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
-            this.scene.unitSystem.commandAttack(this.selectedUnits, targetEntity);
-        } else {
-            // Standard Move
-            const cart = toCartesian(pointer.worldX, pointer.worldY);
-            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
-            this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
-        }
+        // Standard Move
+        const cart = toCartesian(pointer.worldX, pointer.worldY);
+        this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+        this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
     }
 
     private garrisonUnits(castle: Phaser.GameObjects.GameObject) {
