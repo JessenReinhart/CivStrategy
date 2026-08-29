@@ -81,4 +81,47 @@ describe('InputManager player command selection', () => {
         expect(commandAttack).not.toHaveBeenCalled();
         expect(playCommandAck).toHaveBeenCalledOnce();
     });
+
+    it('prioritizes an enemy under an overlapping friendly unit for a right-click attack', () => {
+        const commandMove = vi.fn();
+        const commandAttack = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const friendlyUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const enemyUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const friendlyVisual = {
+            getData: vi.fn((key: string) => key === 'unit' ? friendlyUnit : undefined),
+        };
+        const enemyVisual = {
+            getData: vi.fn((key: string) => key === 'unit' ? enemyUnit : undefined),
+        };
+        const scene = {
+            input: { hitTestPointer: vi.fn(() => [friendlyVisual, enemyVisual]) },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandMove, commandAttack },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+
+        const rightClick = (manager as unknown as {
+            handleRightClick(pointer: unknown): void;
+        }).handleRightClick.bind(manager);
+
+        rightClick({ worldX: 640, worldY: 360, event: { shiftKey: false } });
+
+        expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledOnce();
+    });
 });
