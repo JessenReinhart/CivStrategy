@@ -300,13 +300,14 @@ try {
       const target = { x: player.x + dx, y: player.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
-      if (path?.length > 1) {
+      const endpoint = path?.[path.length - 1];
+      if (path?.length > 1 && endpoint && Math.hypot(endpoint.x - target.x, endpoint.y - target.y) <= 36) {
         player.setData('__economyJourneyMoveX', player.x);
         player.setData('__economyJourneyMoveY', player.y);
-        return target;
+        return { ...target, pathEndpointX: endpoint.x, pathEndpointY: endpoint.y };
       }
     }
-    throw new Error('No walkable target found for the trained Pikesman.');
+    throw new Error('No reachable target found for the trained Pikesman.');
   });
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
@@ -318,7 +319,7 @@ try {
   await page.mouse.click(box.x + targetPoint.x, box.y + targetPoint.y, { button: 'right' });
   await page.waitForFunction((target) => {
     const player = window.__economyProgressionProbe.player;
-    return Math.hypot(player.x - target.x, player.y - target.y) <= 24;
+    return Math.hypot(player.x - target.x, player.y - target.y) <= 36;
   }, evidence.moveTarget, { timeout: 12_000 });
   evidence.moveArrival = await page.evaluate((target) => {
     const player = window.__economyProgressionProbe.player;
@@ -326,6 +327,7 @@ try {
       x: player.x,
       y: player.y,
       distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+      pathEndpointDistance: Math.hypot(target.pathEndpointX - target.x, target.pathEndpointY - target.y),
       movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
     };
   }, evidence.moveTarget);
