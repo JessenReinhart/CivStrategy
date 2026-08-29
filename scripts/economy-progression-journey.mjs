@@ -383,12 +383,18 @@ try {
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
   const enemyPagePoint = { x: box.x + enemyPoint.x, y: box.y + enemyPoint.y };
+  evidence.attackIssuedAtFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.click(enemyPagePoint.x, enemyPagePoint.y, { button: 'right' });
+  await page.waitForFunction(() => {
+    const { player, enemy } = window.__economyProgressionProbe;
+    return player.target === enemy && player.getData('explicitTarget') === true;
+  }, undefined, { timeout: 5_000 });
 
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, enemy } = window.__economyProgressionProbe;
     return {
+      acceptedAtFrame: window.__civStrategyGame.loop.frame,
       gameTime: scene.gameTime,
       gameSpeed: scene.gameSpeed,
       targetHp: enemy.active ? enemy.getData('hp') : null,
