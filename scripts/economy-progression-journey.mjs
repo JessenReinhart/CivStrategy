@@ -351,10 +351,21 @@ try {
   });
   if (evidence.combat.distance > 40) throw new Error(`Deterministic enemy exceeded Pikesman attack range (${evidence.combat.distance.toFixed(2)}px).`);
   await waitForCameraSync(page);
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__economyProgressionProbe;
+    return scene.inputManager.selectedUnits.includes(player)
+      && player.visual?.active
+      && player.visual.visible
+      && enemy.active
+      && enemy.visual?.active
+      && enemy.visual.visible
+      && enemy.visual.alpha > 0;
+  }, undefined, { timeout: 30_000 });
   box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
-  await page.mouse.click(box.x + enemyPoint.x, box.y + enemyPoint.y, { button: 'right' });
+  await rightClickThroughFrame(page, box.x + enemyPoint.x, box.y + enemyPoint.y);
 
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -417,7 +428,7 @@ try {
   evidence.phase = 'reload';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
+  await page.evaluate(() => window.dispatchEvent(new Event('load-game'));
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     if (!scene?.isReady) return false;
