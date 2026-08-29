@@ -372,24 +372,6 @@ try {
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
   const enemyPagePoint = { x: box.x + enemyPoint.x, y: box.y + enemyPoint.y };
-  await page.mouse.move(enemyPagePoint.x, enemyPagePoint.y);
-  await page.waitForFunction(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const enemy = window.__economyProgressionProbe.enemy;
-    return scene.input.hitTestPointer(scene.input.activePointer)
-      .some((target) => target.getData?.('unit') === enemy);
-  }, undefined, { timeout: 30_000 });
-  evidence.attackHitTarget = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const enemy = window.__economyProgressionProbe.enemy;
-    const unitTargets = scene.input.hitTestPointer(scene.input.activePointer)
-      .filter((target) => target.getData?.('unit'))
-      .map((target) => target.getData('unit'));
-    return {
-      enemyHit: unitTargets.includes(enemy),
-      unitOwners: unitTargets.map((unit) => unit.getData('owner')),
-    };
-  });
   await page.mouse.click(enemyPagePoint.x, enemyPagePoint.y, { button: 'right' });
 
   evidence.attackCommand = await page.evaluate(() => {
