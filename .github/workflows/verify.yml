@@ -54,6 +54,9 @@ jobs:
       - name: Browser real player building placement journey
         run: node scripts/player-building-placement-journey.mjs
 
+      - name: Browser real player build to train journey
+        run: node scripts/player-build-train-journey.mjs
+
       - name: Browser placement journey
         run: npm run test:placement-journey
 
