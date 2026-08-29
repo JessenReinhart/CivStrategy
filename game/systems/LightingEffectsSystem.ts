@@ -5,10 +5,12 @@ import { MainScene } from '../MainScene';
 import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
 
 const SUNLIGHT_DEPTH = 18400;
-const SUN_GLOW_DEPTH = 18450;
+const SUN_SHADE_DEPTH = 18390;
 const LOCAL_LIGHT_DEPTH = 19100;
 const LIGHT_GLOW_KEY = 'day-night-light-glow';
+const DIRECTIONAL_LIGHT_KEY = 'day-night-directional-light';
 const BONFIRE_SYNC_INTERVAL_MS = 250;
+const SUN_SHADE_COLOR = 0x26344c;
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -20,14 +22,17 @@ interface BonfireLight {
 }
 
 /**
- * Cheap additive lighting layered on top of the existing ambient + cast-shadow
- * system. It intentionally stays art-directed: a restrained global sunlight
- * pass, one soft directional sun bloom, and pooled local emissive glows.
+ * Cheap additive lighting layered on top of ambient + cast shadows.
+ *
+ * Direct sunlight is intentionally directional rather than a global exposure
+ * lift: a warm SCREEN gradient enters from the sun-facing edge and a much
+ * weaker cool MULTIPLY gradient sits opposite it. Local emissive lights remain
+ * independent so night scenes can still be driven by bonfires later on.
  */
 export class LightingEffectsSystem {
   private readonly scene: MainScene;
-  private readonly sunlightOverlay: Phaser.GameObjects.Rectangle;
-  private readonly sunGlow: Phaser.GameObjects.Image;
+  private readonly directionalLight: Phaser.GameObjects.Image;
+  private readonly directionalShade: Phaser.GameObjects.Image;
   private readonly bonfireLights = new Map<Phaser.GameObjects.GameObject, BonfireLight>();
   private readonly generatedTextureKeys: string[] = [];
   private lastBonfireSync = Number.NEGATIVE_INFINITY;
@@ -36,22 +41,23 @@ export class LightingEffectsSystem {
   constructor(scene: MainScene) {
     this.scene = scene;
     this.createGlowTexture();
+    this.createDirectionalLightTexture();
 
-    this.sunlightOverlay = scene.add
-      .rectangle(0, 0, 1, 1, 0xffffff, 0)
-      .setOrigin(0, 0)
-      .setScrollFactor(1)
-      .setBlendMode(Phaser.BlendModes.SCREEN)
-      .setDepth(SUNLIGHT_DEPTH);
-
-    this.sunGlow = scene.add
-      .image(0, 0, LIGHT_GLOW_KEY)
-      .setBlendMode(Phaser.BlendModes.SCREEN)
-      .setDepth(SUN_GLOW_DEPTH)
+    this.directionalShade = scene.add
+      .image(0, 0, DIRECTIONAL_LIGHT_KEY)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
+      .setDepth(SUN_SHADE_DEPTH)
+      .setTint(SUN_SHADE_COLOR)
       .setAlpha(0);
 
-    scene.worldLayer.add(this.sunlightOverlay);
-    scene.worldLayer.add(this.sunGlow);
+    this.directionalLight = scene.add
+      .image(0, 0, DIRECTIONAL_LIGHT_KEY)
+      .setBlendMode(Phaser.BlendModes.SCREEN)
+      .setDepth(SUNLIGHT_DEPTH)
+      .setAlpha(0);
+
+    scene.worldLayer.add(this.directionalShade);
+    scene.worldLayer.add(this.directionalLight);
 
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.update, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
@@ -75,6 +81,27 @@ export class LightingEffectsSystem {
     ctx.fillRect(0, 0, size, size);
     canvas.refresh();
     this.generatedTextureKeys.push(LIGHT_GLOW_KEY);
+  }
+
+  private createDirectionalLightTexture(): void {
+    if (this.scene.textures.exists(DIRECTIONAL_LIGHT_KEY)) return;
+
+    const size = 512;
+    const canvas = this.scene.textures.createCanvas(DIRECTIONAL_LIGHT_KEY, size, size);
+    if (!canvas) throw new Error(`Unable to create directional light texture: ${DIRECTIONAL_LIGHT_KEY}`);
+
+    const ctx = canvas.context;
+    const gradient = ctx.createLinearGradient(0, 0, size, 0);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    gradient.addColorStop(0.28, 'rgba(255, 255, 255, 0.01)');
+    gradient.addColorStop(0.48, 'rgba(255, 255, 255, 0.08)');
+    gradient.addColorStop(0.68, 'rgba(255, 255, 255, 0.34)');
+    gradient.addColorStop(0.84, 'rgba(255, 255, 255, 0.72)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.96)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    canvas.refresh();
+    this.generatedTextureKeys.push(DIRECTIONAL_LIGHT_KEY);
   }
 
   private update(timeMs: number): void {
@@ -101,28 +128,28 @@ export class LightingEffectsSystem {
   }
 
   private updateSunlight(state: ReturnType<MainScene['dayNightSystem']['getState']>): void {
-    const camera = this.scene.cameras.main;
-    const zoom = Math.max(0.01, camera.zoom);
-    const padding = 6 / zoom;
-    const view = camera.worldView;
+    const view = this.scene.cameras.main.worldView;
     const style = calculateSunlightStyle(state.hour, state.sunIntensity, state.sunElevation);
-
-    this.sunlightOverlay
-      .setPosition(view.left - padding, view.top - padding)
-      .setDisplaySize(view.width + padding * 2, view.height + padding * 2)
-      .setFillStyle(style.color, style.overlayAlpha);
-
     const centerX = view.left + view.width * 0.5;
-    const directionX = Math.cos(state.sunAzimuthRad);
-    const lowSunDrop = (1 - state.sunElevation) * view.height * 0.16;
-    const glowX = centerX + directionX * view.width * 0.47;
-    const glowY = view.top + view.height * 0.09 + lowSunDrop;
+    const centerY = view.top + view.height * 0.5;
+    const diagonal = Math.max(1, Math.hypot(view.width, view.height));
+    const fieldSize = diagonal * 1.62;
+    const sunAngle = state.sunAzimuthRad;
+    const sunAngleDeg = Phaser.Math.RadToDeg(sunAngle);
 
-    this.sunGlow
-      .setPosition(glowX, glowY)
-      .setDisplaySize(view.width * 0.95, view.height * 0.78)
+    this.directionalLight
+      .setPosition(centerX, centerY)
+      .setDisplaySize(fieldSize, fieldSize)
+      .setRotation(sunAngle)
       .setTint(style.color)
-      .setAlpha(style.glowAlpha);
+      .setAlpha(style.directionalAlpha);
+
+    this.directionalShade
+      .setPosition(centerX, centerY)
+      .setDisplaySize(fieldSize, fieldSize)
+      .setAngle(sunAngleDeg + 180)
+      .setTint(SUN_SHADE_COLOR)
+      .setAlpha(style.shadeAlpha);
   }
 
   private syncBonfireLights(): void {
@@ -202,8 +229,8 @@ export class LightingEffectsSystem {
   }
 
   private setVisible(visible: boolean): void {
-    this.sunlightOverlay.setVisible(visible);
-    this.sunGlow.setVisible(visible);
+    this.directionalLight.setVisible(visible);
+    this.directionalShade.setVisible(visible);
     for (const light of this.bonfireLights.values()) light.image.setVisible(visible);
   }
 
@@ -213,8 +240,8 @@ export class LightingEffectsSystem {
     this.scene.events.off(Phaser.Scenes.Events.UPDATE, this.update, this);
     this.scene.events.off(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
 
-    this.sunlightOverlay.destroy();
-    this.sunGlow.destroy();
+    this.directionalLight.destroy();
+    this.directionalShade.destroy();
     for (const light of this.bonfireLights.values()) light.image.destroy();
     this.bonfireLights.clear();
 
