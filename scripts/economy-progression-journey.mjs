@@ -325,7 +325,7 @@ try {
     window.__economyCombatPreviousSpeed = scene.gameSpeed;
     scene.peacefulMode = true;
     scene.gameSpeed = 0;
-    const candidates = [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18], [-18, -18]];
+    const candidates = [[36, 0], [-36, 0], [0, 36], [0, -36]];
     let spawn;
     for (const [dx, dy] of candidates) {
       const x = player.x + dx;
