@@ -1,86 +1,85 @@
 import { BuildingType } from '../../types';
+import type { ShadowEmitterProfile, ShadowEmitterScanBand } from './shadowEmitterMath';
 
 export type BuildingSpriteVisualConfig = {
     key: string;
     scaleMultiplier: number;
     originY: number;
-    /** Relative vertical mass used when projecting the sprite into a solar shadow. */
+    /** Relative vertical mass used when projecting the emitter line into a solar shadow. */
     shadowHeightScale: number;
-    /** Width of the authored ground footprint relative to rendered sprite width. */
-    shadowFootprintScale: number;
-    /** Isometric footprint depth relative to authored footprint width. */
-    shadowFootprintDepthScale: number;
-    /** Small world-space Y correction so the cast starts on the painted foundation. */
-    shadowAnchorOffsetY: number;
-    /** Width of the far edge relative to the contact edge. */
+    /** Width of the far edge relative to the detected emitter line. */
     shadowEndWidthScale: number;
+    /** Vertical texture band in which the widest useful shadow-emitter row is detected. */
+    shadowEmitterScanBand: ShadowEmitterScanBand;
+    /** Optional hand-authored escape hatch for sprites whose alpha silhouette is unusual. */
+    shadowEmitterOverride?: ShadowEmitterProfile;
 };
 
 /**
- * Canonical building-art configuration used by both placed structures and
- * placement ghosts. Shadow values are intentionally explicit and deterministic:
- * the game uses a convincing authored fake instead of trying to infer 3D
- * geometry from each PNG at runtime.
+ * Canonical building-art configuration used by placed structures and placement
+ * ghosts. Shadow roots are detected from each PNG's alpha silhouette once and
+ * cached; these bands merely constrain the search to the ground-facing portion
+ * of the isometric art so roofs and tall ornaments do not become emitters.
  */
 export const BUILDING_SPRITE_VISUALS: Record<BuildingType, BuildingSpriteVisualConfig> = {
     [BuildingType.TOWN_CENTER]: {
         key: 'townhall', scaleMultiplier: 1.2, originY: 0.75,
-        shadowHeightScale: 1.0, shadowFootprintScale: 1.12, shadowFootprintDepthScale: 0.42,
-        shadowAnchorOffsetY: 5, shadowEndWidthScale: 0.90,
+        shadowHeightScale: 1.0, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.64, maxYNorm: 0.93 },
     },
     [BuildingType.HOUSE]: {
         key: 'house', scaleMultiplier: 1.6, originY: 0.85,
-        shadowHeightScale: 0.72, shadowFootprintScale: 1.18, shadowFootprintDepthScale: 0.40,
-        shadowAnchorOffsetY: 6, shadowEndWidthScale: 0.92,
+        shadowHeightScale: 0.72, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.66, maxYNorm: 0.92 },
     },
     [BuildingType.BARRACKS]: {
         key: 'barracks', scaleMultiplier: 1.5, originY: 0.75,
-        shadowHeightScale: 0.74, shadowFootprintScale: 1.12, shadowFootprintDepthScale: 0.42,
-        shadowAnchorOffsetY: 5, shadowEndWidthScale: 0.90,
+        shadowHeightScale: 0.74, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.62, maxYNorm: 0.92 },
     },
     [BuildingType.FARM]: {
         key: 'field', scaleMultiplier: 1.3, originY: 0.5,
-        shadowHeightScale: 0.24, shadowFootprintScale: 1.06, shadowFootprintDepthScale: 0.46,
-        shadowAnchorOffsetY: 2, shadowEndWidthScale: 0.96,
+        shadowHeightScale: 0.24, shadowEndWidthScale: 1.0,
+        shadowEmitterScanBand: { minYNorm: 0.48, maxYNorm: 0.88 },
     },
     [BuildingType.LUMBER_CAMP]: {
         key: 'lumber', scaleMultiplier: 1.7, originY: 0.75,
-        shadowHeightScale: 0.72, shadowFootprintScale: 1.14, shadowFootprintDepthScale: 0.42,
-        shadowAnchorOffsetY: 5, shadowEndWidthScale: 0.92,
+        shadowHeightScale: 0.72, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.60, maxYNorm: 0.92 },
     },
     [BuildingType.HUNTERS_LODGE]: {
         key: 'lodge', scaleMultiplier: 1.6, originY: 0.75,
-        shadowHeightScale: 0.68, shadowFootprintScale: 1.10, shadowFootprintDepthScale: 0.40,
-        shadowAnchorOffsetY: 5, shadowEndWidthScale: 0.92,
+        shadowHeightScale: 0.68, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.62, maxYNorm: 0.92 },
     },
     [BuildingType.BONFIRE]: {
         key: 'bonfire', scaleMultiplier: 2.1, originY: 0.82,
-        shadowHeightScale: 0.18, shadowFootprintScale: 0.76, shadowFootprintDepthScale: 0.44,
-        shadowAnchorOffsetY: 3, shadowEndWidthScale: 0.88,
+        shadowHeightScale: 0.18, shadowEndWidthScale: 0.96,
+        shadowEmitterScanBand: { minYNorm: 0.56, maxYNorm: 0.90 },
     },
     [BuildingType.SMALL_PARK]: {
         key: 'park', scaleMultiplier: 1.5, originY: 0.82,
-        shadowHeightScale: 0.24, shadowFootprintScale: 1.00, shadowFootprintDepthScale: 0.46,
-        shadowAnchorOffsetY: 3, shadowEndWidthScale: 0.95,
+        shadowHeightScale: 0.24, shadowEndWidthScale: 1.0,
+        shadowEmitterScanBand: { minYNorm: 0.58, maxYNorm: 0.92 },
     },
     [BuildingType.MARKET]: {
         key: 'market', scaleMultiplier: 1.8, originY: 0.78,
-        shadowHeightScale: 0.72, shadowFootprintScale: 1.14, shadowFootprintDepthScale: 0.42,
-        shadowAnchorOffsetY: 5, shadowEndWidthScale: 0.92,
+        shadowHeightScale: 0.72, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.60, maxYNorm: 0.92 },
     },
     [BuildingType.WALL]: {
         key: 'wall', scaleMultiplier: 2.4, originY: 0.76,
-        shadowHeightScale: 0.62, shadowFootprintScale: 1.04, shadowFootprintDepthScale: 0.34,
-        shadowAnchorOffsetY: 4, shadowEndWidthScale: 0.94,
+        shadowHeightScale: 0.62, shadowEndWidthScale: 0.98,
+        shadowEmitterScanBand: { minYNorm: 0.52, maxYNorm: 0.90 },
     },
     [BuildingType.CATHEDRAL]: {
         key: 'cathedral', scaleMultiplier: 1.7, originY: 0.82,
-        shadowHeightScale: 1.0, shadowFootprintScale: 1.14, shadowFootprintDepthScale: 0.44,
-        shadowAnchorOffsetY: 7, shadowEndWidthScale: 0.88,
+        shadowHeightScale: 1.0, shadowEndWidthScale: 0.96,
+        shadowEmitterScanBand: { minYNorm: 0.66, maxYNorm: 0.94 },
     },
     [BuildingType.CASTLE]: {
         key: 'castle', scaleMultiplier: 1.5, originY: 0.80,
-        shadowHeightScale: 1.0, shadowFootprintScale: 1.16, shadowFootprintDepthScale: 0.44,
-        shadowAnchorOffsetY: 8, shadowEndWidthScale: 0.88,
+        shadowHeightScale: 1.0, shadowEndWidthScale: 0.96,
+        shadowEmitterScanBand: { minYNorm: 0.62, maxYNorm: 0.94 },
     },
 };
