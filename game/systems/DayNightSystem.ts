@@ -87,11 +87,10 @@ export interface DayNightDiagnostics {
 /**
  * Render-only day/night lighting for the isometric world.
  *
- * Building cast shadows use authored isometric footprints. The shadow root is
- * the full silhouette span of that diamond perpendicular to the sun vector,
- * then a broad, slightly tapered wedge is projected away from it. This keeps
- * the fake cheap while avoiding the needle/triangle shape caused by treating
- * every building base as one horizontal line.
+ * Building cast shadows deliberately use the painted foundation's broad left
+ * and right corners as a stable root, then shear that edge along the solar
+ * direction. The fake stays visually consistent with the isometric art instead
+ * of rotating the shadow root with the sun and collapsing into diamond blobs.
  */
 export class DayNightSystem {
   private readonly scene: MainScene;
@@ -197,7 +196,7 @@ export class DayNightSystem {
     });
   }
 
-  /** Called by MainScene after serialized game time advances. */
+  /** Called by MainScene after serialized gameTime advances. */
   public update(sceneTimeMs: number, gameTimeMs: number): void {
     if (this.destroyed) return;
 
@@ -393,12 +392,6 @@ export class DayNightSystem {
     layout: ShadowBufferLayout,
     state: Readonly<DayNightState>,
   ): void {
-    const footprintProjection = calculateShadowProjection({
-      shadowAngleRad: state.shadowAngleRad,
-      shadowLength: 1,
-      shadowHeightScale: 1,
-    });
-
     for (const building of this.scene.buildings.getChildren()) {
       if (!building.active || building.getData('hp') <= 0) continue;
 
@@ -419,8 +412,6 @@ export class DayNightSystem {
         config.shadowFootprintScale,
         config.shadowFootprintDepthScale,
         config.shadowAnchorOffsetY,
-        footprintProjection.perpendicularX,
-        footprintProjection.perpendicularY,
       );
 
       this.stampContact(
@@ -441,12 +432,17 @@ export class DayNightSystem {
         shadowLength: state.shadowLength,
         shadowHeightScale: config.shadowHeightScale,
       });
+      const minimumVisibleLength = Math.min(
+        150,
+        shadowBase.contactWidth * config.shadowHeightScale * 1.5,
+      );
 
       this.stampBuildingProjection(
         buffer,
         layout,
         shadowBase,
         projection,
+        minimumVisibleLength,
         state.shadowAlpha * visual.alpha,
         config.shadowEndWidthScale,
       );
@@ -462,43 +458,20 @@ export class DayNightSystem {
     footprintScale: number,
     footprintDepthScale: number,
     anchorOffsetY: number,
-    perpendicularX: number,
-    perpendicularY: number,
   ): BuildingShadowBase {
     const renderedSpriteWidth = Math.max(16, def.width * scaleMultiplier);
     const footprintWidth = Math.max(12, renderedSpriteWidth * footprintScale);
     const footprintDepth = Math.max(8, footprintWidth * footprintDepthScale);
     const halfWidth = footprintWidth * 0.5;
-    const halfDepth = footprintDepth * 0.5;
     const centerX = visual.x;
     const centerY = visual.y + anchorOffsetY;
 
-    // Intersect a line through the center, perpendicular to the solar cast,
-    // with the authored isometric diamond:
-    // |x / halfWidth| + |y / halfDepth| = 1.
-    // The two intersections are the full visible silhouette span of the base,
-    // so the cast remains broad instead of collapsing into a narrow spike.
-    const denominator = Math.abs(perpendicularX) / halfWidth
-      + Math.abs(perpendicularY) / halfDepth;
-    const extent = denominator > 0.000001
-      ? 1 / denominator
-      : Math.min(halfWidth, halfDepth);
-
-    const startA = {
-      x: centerX - perpendicularX * extent,
-      y: centerY - perpendicularY * extent,
-    };
-    const startB = {
-      x: centerX + perpendicularX * extent,
-      y: centerY + perpendicularY * extent,
-    };
-
     return {
-      startA,
-      startB,
+      startA: { x: centerX - halfWidth, y: centerY },
+      startB: { x: centerX + halfWidth, y: centerY },
       centerX,
       centerY,
-      contactWidth: Math.max(8, extent * 2),
+      contactWidth: footprintWidth,
       contactHeight: Math.max(5, footprintDepth * 0.42),
     };
   }
@@ -530,6 +503,7 @@ export class DayNightSystem {
     layout: ShadowBufferLayout,
     shadowBase: BuildingShadowBase,
     projection: ReturnType<typeof calculateShadowProjection>,
+    minimumVisibleLength: number,
     alpha: number,
     endWidthScale: number,
   ): void {
@@ -537,8 +511,9 @@ export class DayNightSystem {
 
     const startCenterX = shadowBase.centerX;
     const startCenterY = shadowBase.centerY;
-    const endCenterX = startCenterX + projection.directionX * projection.length;
-    const endCenterY = startCenterY + projection.directionY * projection.length;
+    const effectiveLength = Math.max(projection.length, minimumVisibleLength);
+    const endCenterX = startCenterX + projection.directionX * effectiveLength;
+    const endCenterY = startCenterY + projection.directionY * effectiveLength;
     const edgeDx = shadowBase.startB.x - shadowBase.startA.x;
     const edgeDy = shadowBase.startB.y - shadowBase.startA.y;
     const endHalfDx = edgeDx * 0.5 * endWidthScale;
