@@ -81,14 +81,12 @@ async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__economyProgressionProbe[probeKey];
-    const visual = unit.visual;
-    const hitArea = visual.input?.hitArea;
-    const localX = typeof hitArea?.x === 'number' ? hitArea.x : 0;
-    const localY = typeof hitArea?.y === 'number' ? hitArea.y : -10;
-    const worldPoint = visual.getWorldTransformMatrix().transformPoint(localX, localY);
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    return { x: (worldPoint.x - topLeft.x) * camera.zoom, y: (worldPoint.y - topLeft.y) * camera.zoom };
+    return {
+      x: (unit.visual.x - topLeft.x) * camera.zoom,
+      y: (unit.visual.y - 10 - topLeft.y) * camera.zoom,
+    };
   }, key);
 }
 
