@@ -159,6 +159,13 @@ export class InputManager {
         if (this.scene.cursors.down.isDown || this.scene.wasd.S.isDown) this.scene.cameras.main.scrollY += speed;
     }
 
+    private getMainPointerWorld(pointer: Phaser.Input.Pointer): Phaser.Math.Vector2 {
+        if (Number.isFinite(pointer.x) && Number.isFinite(pointer.y)) {
+            return this.scene.cameras.main.getWorldPoint(pointer.x, pointer.y);
+        }
+        return new Phaser.Math.Vector2(pointer.worldX, pointer.worldY);
+    }
+
     private handlePointerDown(pointer: Phaser.Input.Pointer) {
         // Minimap click-to-move: consume clicks on the minimap
         if (this.scene.minimapSystem?.isPointerOnMinimap(pointer)) return;
@@ -176,7 +183,8 @@ export class InputManager {
             if (this.selectedUnits.length > 0) {
                 this.isRightDragging = true;
                 this.rightDragPoints = [];
-                const cart = toCartesian(pointer.worldX, pointer.worldY);
+                const pointerWorld = this.getMainPointerWorld(pointer);
+                const cart = toCartesian(pointerWorld.x, pointerWorld.y);
                 this.rightDragPoints.push(new Phaser.Math.Vector2(cart.x, cart.y));
             } else {
                 this.handleRightClick(pointer);
@@ -274,7 +282,8 @@ export class InputManager {
             this.selectionGraphics.fillStyle(0xffffff, 0.1);
             this.selectionGraphics.fillRectShape(this.dragRect);
         } else if (this.isRightDragging) {
-            const cart = toCartesian(pointer.worldX, pointer.worldY);
+            const pointerWorld = this.getMainPointerWorld(pointer);
+            const cart = toCartesian(pointerWorld.x, pointerWorld.y);
             const lastPoint = this.rightDragPoints[this.rightDragPoints.length - 1];
             const dist = Phaser.Math.Distance.Between(lastPoint.x, lastPoint.y, cart.x, cart.y);
 
@@ -335,10 +344,12 @@ export class InputManager {
     }
 
     private handleRightClick(pointer: Phaser.Input.Pointer) {
+        const pointerWorld = this.getMainPointerWorld(pointer);
+
         if (this.selectedUnits.length === 0) {
             // Check if a Barracks is selected and no units are selected
             if (this.selectedBuilding && this.selectedBuilding.getData('def').type === BuildingType.BARRACKS) {
-                const cart = toCartesian(pointer.worldX, pointer.worldY);
+                const cart = toCartesian(pointerWorld.x, pointerWorld.y);
                 (this.selectedBuilding as any).setWaypoint(cart.x, cart.y); // eslint-disable-line @typescript-eslint/no-explicit-any
             }
             return;
@@ -349,7 +360,7 @@ export class InputManager {
         // Animals remain an explicit attack target regardless of any overlapping unit/building visuals.
         const animalVisual = targets.find((obj: Phaser.GameObjects.GameObject) => obj.getData && obj.getData('type') === 'animal');
         if (animalVisual) {
-            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+            this.scene.proceduralSound.playCommandAck(pointerWorld.x, pointerWorld.y);
             this.scene.unitSystem.commandAttack(this.selectedUnits, animalVisual);
             return;
         }
@@ -370,17 +381,13 @@ export class InputManager {
             const candidates = this.scene.units.getChildren()
                 .map((child) => child as GameUnit)
                 .filter((unit) => unit.getData('owner') !== 0 && unit.active && unit.visual?.active && unit.visual.visible);
-            const hasScreenPoint = Number.isFinite(pointer.x) && Number.isFinite(pointer.y);
-            const camera = hasScreenPoint ? this.scene.cameras.main : null;
-            const pointerWorld = camera?.getWorldPoint(pointer.x, pointer.y);
+            const camera = this.scene.cameras.main;
             let nearestEnemy: GameUnit | null = null;
-            let nearestDistance = camera ? 20 / camera.zoom : 16;
+            let nearestDistance = 20 / camera.zoom;
             for (const unit of candidates) {
                 const visual = unit.visual;
                 if (!visual) continue;
-                const distance = pointerWorld
-                    ? Phaser.Math.Distance.Between(pointerWorld.x, pointerWorld.y, visual.x, visual.y - 10)
-                    : Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, visual.x, visual.y - 10);
+                const distance = Phaser.Math.Distance.Between(pointerWorld.x, pointerWorld.y, visual.x, visual.y - 10);
                 if (distance <= nearestDistance) {
                     nearestEnemy = unit;
                     nearestDistance = distance;
@@ -390,7 +397,7 @@ export class InputManager {
         }
 
         if (enemyEntity) {
-            this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+            this.scene.proceduralSound.playCommandAck(pointerWorld.x, pointerWorld.y);
             this.scene.unitSystem.commandAttack(this.selectedUnits, enemyEntity);
             return;
         }
@@ -410,8 +417,8 @@ export class InputManager {
         }
 
         // Standard Move
-        const cart = toCartesian(pointer.worldX, pointer.worldY);
-        this.scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+        const cart = toCartesian(pointerWorld.x, pointerWorld.y);
+        this.scene.proceduralSound.playCommandAck(pointerWorld.x, pointerWorld.y);
         this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
     }
 
