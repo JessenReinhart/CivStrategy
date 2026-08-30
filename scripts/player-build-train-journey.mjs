@@ -272,7 +272,7 @@ try {
     for (const [dx, dy] of candidates) {
       const target = { x: unit.x + dx, y: unit.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
-      const path = scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), new Phaser.Math.Vector2(target.x, target.y));
+      const path = scene.pathfinder.findPath({ x: unit.x, y: unit.y }, target);
       if (!path || path.length <= 1) continue;
       window.__buildTrainMoveTarget = target;
       return { ...target, pathLength: path.length, pathEnd: { x: path[path.length - 1].x, y: path[path.length - 1].y } };
