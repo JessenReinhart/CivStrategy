@@ -8,6 +8,7 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
 const EVIDENCE_PATH = `${ARTIFACT_DIR}/economy-progression-journey.json`;
+const SCREENSHOT_PATH = `${ARTIFACT_DIR}/economy-progression-journey.png`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -81,11 +82,15 @@ async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__economyProgressionProbe[probeKey];
+    const visual = unit.visual;
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
+    const bounds = visual.getBounds?.();
+    const worldX = Number.isFinite(bounds?.centerX) ? bounds.centerX : visual.x;
+    const worldY = Number.isFinite(bounds?.centerY) ? bounds.centerY : visual.y - 10;
     return {
-      x: (unit.visual.x - topLeft.x) * camera.zoom,
-      y: (unit.visual.y - 10 - topLeft.y) * camera.zoom,
+      x: (worldX - topLeft.x) * camera.zoom,
+      y: (worldY - topLeft.y) * camera.zoom,
     };
   }, key);
 }
@@ -383,6 +388,22 @@ try {
   if (!box) throw new Error('Game canvas unavailable for combat.');
   const enemyPoint = await unitScreenPoint(page, 'enemy');
   const enemyPagePoint = { x: box.x + enemyPoint.x, y: box.y + enemyPoint.y };
+  await page.mouse.move(enemyPagePoint.x, enemyPagePoint.y);
+  evidence.combatPointer = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const pointer = scene.input.activePointer;
+    const enemy = window.__economyProgressionProbe.enemy;
+    const targets = scene.input.hitTestPointer(pointer);
+    const enemyBounds = enemy.visual?.getBounds?.();
+    return {
+      pointer: { x: pointer.x, y: pointer.y, worldX: pointer.worldX, worldY: pointer.worldY },
+      enemyVisual: { x: enemy.visual?.x, y: enemy.visual?.y },
+      enemyBounds: enemyBounds ? { x: enemyBounds.x, y: enemyBounds.y, width: enemyBounds.width, height: enemyBounds.height, centerX: enemyBounds.centerX, centerY: enemyBounds.centerY } : null,
+      hitCount: targets.length,
+      hitsEnemy: targets.some((obj) => obj.getData?.('unit') === enemy),
+      hitTypes: targets.map((obj) => obj.getData?.('unit') ? `unit:${obj.getData('unit').getData('owner')}` : obj.getData?.('building') ? `building:${obj.getData('building').getData('owner')}` : obj.type ?? 'unknown'),
+    };
+  });
   evidence.attackIssuedAtFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.click(enemyPagePoint.x, enemyPagePoint.y, { button: 'right' });
   await page.waitForFunction(() => {
@@ -530,12 +551,15 @@ try {
   if (evidence.browserErrors.length) throw new Error(`Browser errors:\n${evidence.browserErrors.join('\n')}`);
 
   evidence.phase = 'complete';
-  await page.screenshot({ path: `${ARTIFACT_DIR}/economy-progression-journey.png`, fullPage: true });
+  await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   console.log(JSON.stringify(evidence, null, 2));
 } catch (error) {
   evidence.phase = `failed:${evidence.phase}`;
   evidence.error = error instanceof Error ? error.stack ?? error.message : String(error);
+  if (page) {
+    try { await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }); } catch {}
+  }
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   throw error;
 } finally {
