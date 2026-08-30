@@ -37,6 +37,46 @@ async function waitForScene(page) {
   }, undefined, { timeout: 45_000 });
 }
 
+async function waitForCameraSync(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.events.once('postupdate', resolve);
+  }));
+}
+
+async function unitScreenPoint(page) {
+  return page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__buildTrainPlayer;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return { x: (unit.visual.x - topLeft.x) * camera.zoom, y: (unit.visual.y - topLeft.y) * camera.zoom };
+  });
+}
+
+async function cartesianScreenPoint(page, target) {
+  return page.evaluate(({ x, y }) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const camera = scene.cameras.main;
+    const iso = { x: x - y, y: (x + y) * 0.5 };
+    const topLeft = camera.getWorldPoint(0, 0);
+    return { x: (iso.x - topLeft.x) * camera.zoom, y: (iso.y - topLeft.y) * camera.zoom };
+  }, target);
+}
+
+async function rightClickThroughFrame(page, canvas, point) {
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas unavailable.');
+  const x = box.x + point.x;
+  const y = box.y + point.y;
+  await page.mouse.move(x, y);
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  await page.mouse.move(x, y);
+  await page.mouse.down({ button: 'right' });
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  await page.mouse.up({ button: 'right' });
+}
+
 async function preparePlacement(page, type) {
   return page.evaluate((buildingType) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -90,6 +130,36 @@ async function placeThroughUi(page, canvas, category, type) {
   }, type);
 }
 
+async function movementState(page) {
+  return page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__buildTrainPlayer;
+    const body = unit?.body;
+    const target = window.__buildTrainMoveTarget;
+    return {
+      x: unit?.x,
+      y: unit?.y,
+      state: unit?.state,
+      pathStep: unit?.pathStep,
+      pathLength: unit?.path?.length ?? 0,
+      pathCreatedAt: unit?.pathCreatedAt,
+      flowTarget: unit?.flowTarget ?? null,
+      bodyEnabled: body?.enable,
+      bodyMoves: body?.moves,
+      velocityX: body?.velocity?.x,
+      velocityY: body?.velocity?.y,
+      speed: body?.velocity?.length?.() ?? null,
+      gameSpeed: scene.gameSpeed,
+      gameTime: scene.gameTime,
+      physicsTimeScale: scene.physics.world.timeScale,
+      physicsPaused: scene.physics.world.isPaused,
+      movementModifier: scene.terrainSystem.getMovementModifier(unit.x, unit.y),
+      target,
+      distanceToTarget: target ? Math.hypot(unit.x - target.x, unit.y - target.y) : null,
+    };
+  });
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 let browser;
 let page;
@@ -133,7 +203,9 @@ try {
     const barracks = window.__buildTrainLast;
     scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
   });
+  await waitForCameraSync(page);
   const box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas unavailable.');
   const barracksPoint = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const building = window.__buildTrainLast;
@@ -177,7 +249,8 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const playerUnits = scene.units.getChildren().filter((u) => u.getData('owner') === 0);
     const newest = playerUnits[playerUnits.length - 1];
-    const result = { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, military: playerUnits.length, type: newest?.unitType ?? newest?.getData('unitType') };
+    window.__buildTrainPlayer = newest;
+    const result = { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, military: playerUnits.length, type: newest?.unitType ?? newest?.getData('unitType'), x: newest?.x, y: newest?.y };
     scene.gameSpeed = window.__buildTrainPreviousGameSpeed;
     return { ...result, restoredGameSpeed: scene.gameSpeed };
   });
@@ -187,6 +260,49 @@ try {
   if (evidence.afterTraining.military !== evidence.beforeTraining.military + 1) throw new Error('Pikesman training did not create exactly one player military unit.');
   if (evidence.afterTraining.type !== 'Pikesman') throw new Error(`Expected trained Pikesman, got ${evidence.afterTraining.type}.`);
   if (evidence.afterTraining.restoredGameSpeed !== evidence.trainingIsolation.previousGameSpeed) throw new Error('Game speed was not restored after training-cost isolation.');
+
+  evidence.phase = 'trained-unit-movement';
+  evidence.moveTarget = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__buildTrainPlayer;
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding?.();
+    scene.cameras.main.centerOn(unit.visual.x, unit.visual.y);
+    const candidates = [[96, 0], [-96, 0], [0, 96], [0, -96], [72, 72], [-72, -72]];
+    for (const [dx, dy] of candidates) {
+      const target = { x: unit.x + dx, y: unit.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      const path = scene.pathfinder.findPath(new Phaser.Math.Vector2(unit.x, unit.y), new Phaser.Math.Vector2(target.x, target.y));
+      if (!path || path.length <= 1) continue;
+      window.__buildTrainMoveTarget = target;
+      return { ...target, pathLength: path.length, pathEnd: { x: path[path.length - 1].x, y: path[path.length - 1].y } };
+    }
+    throw new Error('No reachable movement target for newly trained Pikesman.');
+  });
+  await waitForCameraSync(page);
+  const unitPoint = await unitScreenPoint(page);
+  await page.mouse.click(box.x + unitPoint.x, box.y + unitPoint.y, { button: 'left' });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedUnits.includes(window.__buildTrainPlayer);
+  }, undefined, { timeout: 5_000 });
+  evidence.moveBefore = await movementState(page);
+  const targetPoint = await cartesianScreenPoint(page, evidence.moveTarget);
+  await rightClickThroughFrame(page, canvas, targetPoint);
+  evidence.moveAccepted = await movementState(page);
+  try {
+    await page.waitForFunction(({ startX, startY, targetX, targetY }) => {
+      const unit = window.__buildTrainPlayer;
+      const moved = Math.hypot(unit.x - startX, unit.y - startY);
+      const remaining = Math.hypot(unit.x - targetX, unit.y - targetY);
+      return moved >= 40 && remaining <= 48;
+    }, { startX: evidence.moveBefore.x, startY: evidence.moveBefore.y, targetX: evidence.moveTarget.x, targetY: evidence.moveTarget.y }, { timeout: 15_000 });
+  } catch (error) {
+    evidence.moveFailureState = await movementState(page);
+    throw error;
+  }
+  evidence.moveAfter = await movementState(page);
+
   if (evidence.browserErrors.length) throw new Error(`Browser errors:\n${evidence.browserErrors.join('\n')}`);
 
   evidence.phase = 'complete';
