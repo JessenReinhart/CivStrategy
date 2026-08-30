@@ -175,4 +175,68 @@ describe('InputManager player command selection', () => {
         expect(commandMove).not.toHaveBeenCalled();
         expect(playCommandAck).toHaveBeenCalledWith(640, 360);
     });
+
+    it('routes the selected-unit right-button down/up lifecycle to the visible enemy', () => {
+        const commandMove = vi.fn();
+        const commandAttack = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const enemyVisual = {
+            x: 640,
+            y: 370,
+            active: true,
+            visible: true,
+        };
+        const enemyUnit = {
+            unitType: UnitType.PIKESMAN,
+            active: true,
+            visual: enemyVisual,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const getWorldPoint = vi.fn(() => ({ x: 640, y: 360 }));
+        const scene = {
+            minimapSystem: { isPointerOnMinimap: vi.fn(() => false) },
+            buildingManager: { isDemolishMode: false, previewBuildingType: null },
+            input: { hitTestPointer: vi.fn(() => []) },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => [enemyUnit]) },
+            cameras: { main: { zoom: 1.5, getWorldPoint } },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+        Object.assign(manager as unknown as Record<string, unknown>, {
+            isRightDragging: false,
+            rightDragPoints: [],
+            rightDragGraphics: { clear: vi.fn() },
+        });
+
+        const pointer = {
+            x: 864,
+            y: 608,
+            worldX: 272,
+            worldY: 566,
+            rightButtonDown: () => true,
+            event: { shiftKey: false },
+        };
+        const pointerDown = (manager as unknown as {
+            handlePointerDown(value: unknown): void;
+        }).handlePointerDown.bind(manager);
+        const pointerUp = (manager as unknown as {
+            handlePointerUp(value: unknown): void;
+        }).handlePointerUp.bind(manager);
+
+        pointerDown(pointer);
+        pointerUp(pointer);
+
+        expect(getWorldPoint).toHaveBeenCalledWith(864, 608);
+        expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledWith(640, 360);
+    });
 });
