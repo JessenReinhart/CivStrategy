@@ -85,12 +85,9 @@ async function unitScreenPoint(page, key) {
     const visual = unit.visual;
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    const bounds = visual.getBounds?.();
-    const worldX = Number.isFinite(bounds?.centerX) ? bounds.centerX : visual.x;
-    const worldY = Number.isFinite(bounds?.centerY) ? bounds.centerY : visual.y - 10;
     return {
-      x: (worldX - topLeft.x) * camera.zoom,
-      y: (worldY - topLeft.y) * camera.zoom,
+      x: (visual.x - topLeft.x) * camera.zoom,
+      y: (visual.y - 10 - topLeft.y) * camera.zoom,
     };
   }, key);
 }
