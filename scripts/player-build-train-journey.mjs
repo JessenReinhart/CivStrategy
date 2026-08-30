@@ -290,18 +290,38 @@ try {
   const targetPoint = await cartesianScreenPoint(page, evidence.moveTarget);
   await rightClickThroughFrame(page, canvas, targetPoint);
   evidence.moveAccepted = await movementState(page);
+
+  const minimumSimulationMs = 180;
   try {
-    await page.waitForFunction(({ startX, startY, targetX, targetY }) => {
+    await page.waitForFunction(({ startX, startY, targetX, targetY, startGameTime, minimumSimulationMs }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const unit = window.__buildTrainPlayer;
+      const simulatedMs = scene.gameTime - startGameTime;
       const moved = Math.hypot(unit.x - startX, unit.y - startY);
       const remaining = Math.hypot(unit.x - targetX, unit.y - targetY);
-      return moved >= 40 && remaining <= 48;
-    }, { startX: evidence.moveBefore.x, startY: evidence.moveBefore.y, targetX: evidence.moveTarget.x, targetY: evidence.moveTarget.y }, { timeout: 15_000 });
+      if (moved >= 40 && remaining <= 48) return true;
+      if (simulatedMs < minimumSimulationMs) return false;
+      const speed = unit.body?.velocity?.length?.() ?? 0;
+      const expectedProgress = speed * simulatedMs / 1000;
+      return speed > 0 && moved >= Math.max(8, expectedProgress * 0.75) && remaining < Math.hypot(startX - targetX, startY - targetY);
+    }, {
+      startX: evidence.moveBefore.x,
+      startY: evidence.moveBefore.y,
+      targetX: evidence.moveTarget.x,
+      targetY: evidence.moveTarget.y,
+      startGameTime: evidence.moveAccepted.gameTime,
+      minimumSimulationMs,
+    }, { timeout: 30_000 });
   } catch (error) {
     evidence.moveFailureState = await movementState(page);
     throw error;
   }
   evidence.moveAfter = await movementState(page);
+  evidence.simulatedMovementMs = evidence.moveAfter.gameTime - evidence.moveAccepted.gameTime;
+  evidence.commandDrivenDistance = Math.hypot(evidence.moveAfter.x - evidence.moveBefore.x, evidence.moveAfter.y - evidence.moveBefore.y);
+  if (evidence.commandDrivenDistance < 8 || evidence.simulatedMovementMs < minimumSimulationMs) {
+    throw new Error(`Trained Pikesman did not make simulation-backed command progress: ${JSON.stringify({ moveBefore: evidence.moveBefore, moveAccepted: evidence.moveAccepted, moveAfter: evidence.moveAfter, simulatedMovementMs: evidence.simulatedMovementMs, commandDrivenDistance: evidence.commandDrivenDistance })}`);
+  }
 
   if (evidence.browserErrors.length) throw new Error(`Browser errors:\n${evidence.browserErrors.join('\n')}`);
 
