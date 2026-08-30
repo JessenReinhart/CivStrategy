@@ -418,7 +418,7 @@ try {
     };
   });
   evidence.attackIssuedAtFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await page.mouse.click(enemyPagePoint.x, enemyPagePoint.y, { button: 'right' });
+  await rightClickThroughFrame(page, enemyPagePoint.x, enemyPagePoint.y);
   await page.waitForFunction(() => {
     const { player, enemy } = window.__economyProgressionProbe;
     return player.target === enemy && player.getData('explicitTarget') === true;
