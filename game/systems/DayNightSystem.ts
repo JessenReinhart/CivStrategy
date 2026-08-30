@@ -1,28 +1,72 @@
 import Phaser from 'phaser';
 
 import { MainScene } from '../MainScene';
+import { BuildingDef, type GameUnit } from '../../types';
+import {
+  BUILDING_SPRITE_VISUALS,
+  type BuildingSpriteVisualConfig,
+} from './BuildingSpriteVisuals';
 import {
   calculateDayNightState,
   DayNightState,
   SHADOW_REFRESH_INTERVAL_MS,
   shouldRefreshDayNightShadows,
 } from './dayNightMath';
+import {
+  detectShadowEmitterProfile,
+  type ShadowEmitterProfile,
+} from './shadowEmitterMath';
+import { calculateShadowProjection } from './shadowProjectionMath';
 
 const STATE_PUBLISH_INTERVAL_MS = 250;
 const SHADOW_CROSSFADE_MS = SHADOW_REFRESH_INTERVAL_MS;
 const SHADOW_DEPTH = -1800;
-const AMBIENT_DEPTH = 19000;
-const VIEW_PADDING = 260;
+const AMBIENT_DEPTH = 8940;
+const SHADOW_BUFFER_PADDING_PX = 192;
+const SHADOW_BUFFER_RESOLUTION = 0.5;
 const MIN_VISIBLE_SHADOW_ALPHA = 0.005;
-
-interface ShadowBuildingDef {
-  width: number;
-  height: number;
-}
+const BUILDING_CONTACT_ALPHA = 0.20;
+const TREE_CONTACT_ALPHA = 0.11;
+const TREE_PROJECTED_ALPHA_SCALE = 0.68;
+const TREE_SHADOW_HEIGHT_SCALE = 0.90;
+const UNIT_PROJECTED_ALPHA_SCALE = 0.78;
+const UNIT_SHADOW_HEIGHT_SCALE = 0.68;
+const AMBIENT_CITIZEN_ALPHA_SCALE = 0.42;
+const AMBIENT_CITIZEN_HEIGHT_SCALE = 0.46;
+const CONTACT_SHADOW_KEY = 'day-night-contact-shadow';
+const SHADOW_BUFFER_PREFIX = 'day-night-shadow-buffer-';
+const SHADOW_RGB = '8, 12, 18';
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
 };
+
+interface ShadowBufferLayout {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  pixelsPerWorld: number;
+}
+
+interface ShadowBuffer {
+  image: Phaser.GameObjects.Image;
+  texture: Phaser.Textures.CanvasTexture;
+}
+
+interface ShadowPoint {
+  x: number;
+  y: number;
+}
+
+interface BuildingShadowBase {
+  startA: ShadowPoint;
+  startB: ShadowPoint;
+  centerX: number;
+  centerY: number;
+  contactWidth: number;
+  contactHeight: number;
+}
 
 export interface DayNightDiagnostics {
   readonly enabled: boolean;
@@ -35,7 +79,18 @@ export interface DayNightDiagnostics {
   readonly minShadowRefreshGapMs: number;
   readonly lastShadowRefreshGapMs: number;
   readonly lastScannedBuildings: number;
+  /** Number of buildings with a daylight cast shadow on the latest refresh. */
   readonly lastDrawnBuildings: number;
+  readonly lastStampedBuildingSilhouettes: number;
+  readonly lastStampedBuildingContacts: number;
+  readonly lastScannedTreeVisuals: number;
+  readonly lastStampedTreeContacts: number;
+  readonly lastStampedTreeProjections: number;
+  readonly lastStampedUnitContacts: number;
+  readonly lastStampedUnitProjections: number;
+  readonly shadowBufferWidth: number;
+  readonly shadowBufferHeight: number;
+  readonly shadowBufferResolution: number;
   readonly lastShadowAngleRad: number;
   readonly lastShadowLength: number;
   readonly ambientColor: number;
@@ -46,20 +101,19 @@ export interface DayNightDiagnostics {
 }
 
 /**
- * Lightweight, render-only day/night lighting for the isometric world.
+ * Render-only day/night lighting for the isometric world.
  *
- * Ambient lighting is one camera-sized overlay. Building shadows are rebuilt
- * into alternating Graphics buffers no more than five times per second, then
- * crossfaded per frame so solar movement remains continuous without allocating
- * one display object per building.
+ * Each building texture is alpha-scanned once to find the widest useful row in
+ * its ground-facing band. That asymmetric row becomes the fixed emitter line;
+ * only the far edge moves with the solar projection. This matches the painted
+ * sprite instead of assuming the shadow starts at centerX or at the PNG bottom.
  */
 export class DayNightSystem {
   private readonly scene: MainScene;
-  private readonly shadowBuffers: readonly [
-    Phaser.GameObjects.Graphics,
-    Phaser.GameObjects.Graphics,
-  ];
+  private readonly shadowBuffers: readonly [ShadowBuffer, ShadowBuffer];
   private readonly ambientOverlay: Phaser.GameObjects.Rectangle;
+  private readonly generatedTextureKeys: string[] = [];
+  private readonly shadowEmitterProfiles = new Map<string, ShadowEmitterProfile>();
   private currentBufferIndex = 0;
   private previousBufferIndex = 1;
   private crossfadeStartedAt = Number.NEGATIVE_INFINITY;
@@ -75,28 +129,41 @@ export class DayNightSystem {
   private lastShadowRefreshGapMs = 0;
   private lastScannedBuildings = 0;
   private lastDrawnBuildings = 0;
+  private lastStampedBuildingSilhouettes = 0;
+  private lastStampedBuildingContacts = 0;
+  private lastScannedTreeVisuals = 0;
+  private lastStampedTreeContacts = 0;
+  private lastStampedTreeProjections = 0;
+  private lastStampedUnitContacts = 0;
+  private lastStampedUnitProjections = 0;
+  private shadowBufferWidth = 2;
+  private shadowBufferHeight = 2;
   private destroyed = false;
 
   constructor(scene: MainScene) {
     this.scene = scene;
     this.currentState = this.createStateSnapshot(scene.gameTime);
+    this.createContactShadowTexture();
+    this.primeShadowEmitterProfiles();
 
-    const firstBuffer = scene.add.graphics().setDepth(SHADOW_DEPTH).setAlpha(0);
-    const secondBuffer = scene.add.graphics().setDepth(SHADOW_DEPTH).setAlpha(0);
+    const firstBuffer = this.createShadowBuffer(0);
+    const secondBuffer = this.createShadowBuffer(1);
     this.shadowBuffers = [firstBuffer, secondBuffer];
+
     this.ambientOverlay = scene.add
       .rectangle(0, 0, 1, 1, this.currentState.ambientColor, this.currentState.ambientAlpha)
       .setOrigin(0, 0)
-      .setScrollFactor(0)
+      .setScrollFactor(1)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(AMBIENT_DEPTH);
 
-    scene.worldLayer.add(firstBuffer);
-    scene.worldLayer.add(secondBuffer);
+    scene.worldLayer.add(firstBuffer.image);
+    scene.worldLayer.add(secondBuffer.image);
     scene.worldLayer.add(this.ambientOverlay);
 
     const enabled = !scene.stressTestConfig;
-    firstBuffer.setVisible(enabled);
-    secondBuffer.setVisible(enabled);
+    firstBuffer.image.setVisible(enabled);
+    secondBuffer.image.setVisible(enabled);
     this.ambientOverlay.setVisible(enabled);
 
     scene.data.set('dayNightSystem', this);
@@ -104,12 +171,10 @@ export class DayNightSystem {
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
   }
 
-  /** Returns a detached, frozen snapshot suitable for UI and test consumers. */
   public getState(): Readonly<DayNightState> {
     return Object.freeze({ ...this.currentState });
   }
 
-  /** Returns a detached, frozen diagnostics snapshot. */
   public getDiagnostics(): Readonly<DayNightDiagnostics> {
     const uiCamera = this.scene.uiCamera;
     const worldLayerIgnored = Boolean(
@@ -119,7 +184,7 @@ export class DayNightSystem {
       uiCamera && (this.ambientOverlay.cameraFilter & uiCamera.id) !== 0,
     );
     const shadowsIgnored = worldLayerIgnored || Boolean(
-      uiCamera && this.shadowBuffers.every(buffer => (buffer.cameraFilter & uiCamera.id) !== 0),
+      uiCamera && this.shadowBuffers.every(buffer => (buffer.image.cameraFilter & uiCamera.id) !== 0),
     );
 
     return Object.freeze({
@@ -136,6 +201,16 @@ export class DayNightSystem {
       lastShadowRefreshGapMs: this.lastShadowRefreshGapMs,
       lastScannedBuildings: this.lastScannedBuildings,
       lastDrawnBuildings: this.lastDrawnBuildings,
+      lastStampedBuildingSilhouettes: this.lastStampedBuildingSilhouettes,
+      lastStampedBuildingContacts: this.lastStampedBuildingContacts,
+      lastScannedTreeVisuals: this.lastScannedTreeVisuals,
+      lastStampedTreeContacts: this.lastStampedTreeContacts,
+      lastStampedTreeProjections: this.lastStampedTreeProjections,
+      lastStampedUnitContacts: this.lastStampedUnitContacts,
+      lastStampedUnitProjections: this.lastStampedUnitProjections,
+      shadowBufferWidth: this.shadowBufferWidth,
+      shadowBufferHeight: this.shadowBufferHeight,
+      shadowBufferResolution: SHADOW_BUFFER_RESOLUTION,
       lastShadowAngleRad: this.currentState.shadowAngleRad,
       lastShadowLength: this.currentState.shadowLength,
       ambientColor: this.currentState.ambientColor,
@@ -146,7 +221,7 @@ export class DayNightSystem {
     });
   }
 
-  /** Called by MainScene immediately after serialized gameTime advances. */
+  /** Called by MainScene after serialized game time advances. */
   public update(sceneTimeMs: number, gameTimeMs: number): void {
     if (this.destroyed) return;
 
@@ -163,7 +238,7 @@ export class DayNightSystem {
     if (shouldRefreshDayNightShadows(sceneTimeMs, this.lastShadowRefresh)) {
       this.recordRefreshGap(sceneTimeMs);
       this.lastShadowRefresh = sceneTimeMs;
-      this.redrawBuildingShadows(this.currentState, sceneTimeMs);
+      this.redrawShadows(this.currentState, sceneTimeMs);
     }
 
     if (
@@ -179,24 +254,129 @@ export class DayNightSystem {
     return Object.freeze({ ...calculateDayNightState(gameTimeMs) });
   }
 
+  private emitterCacheKey(config: BuildingSpriteVisualConfig): string {
+    const band = config.shadowEmitterScanBand;
+    return `${config.key}:${band.minYNorm}:${band.maxYNorm}`;
+  }
+
+  private primeShadowEmitterProfiles(): void {
+    for (const config of Object.values(BUILDING_SPRITE_VISUALS)) {
+      this.getShadowEmitterProfile(config);
+    }
+  }
+
+  private getShadowEmitterProfile(config: BuildingSpriteVisualConfig): ShadowEmitterProfile {
+    if (config.shadowEmitterOverride) return config.shadowEmitterOverride;
+
+    const cacheKey = this.emitterCacheKey(config);
+    const cached = this.shadowEmitterProfiles.get(cacheKey);
+    if (cached) return cached;
+
+    const detected = this.detectEmitterFromTexture(config);
+    const profile = detected ?? this.createEmitterFallback(config);
+    this.shadowEmitterProfiles.set(cacheKey, profile);
+    return profile;
+  }
+
+  private detectEmitterFromTexture(config: BuildingSpriteVisualConfig): ShadowEmitterProfile | null {
+    if (!this.scene.textures.exists(config.key)) return null;
+
+    const texture = this.scene.textures.get(config.key);
+    const frame = texture.get();
+    const width = Math.max(1, Math.round(frame.cutWidth));
+    const height = Math.max(1, Math.round(frame.cutHeight));
+    const source = frame.source.image as CanvasImageSource;
+
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) return null;
+
+      context.clearRect(0, 0, width, height);
+      context.drawImage(
+        source,
+        frame.cutX,
+        frame.cutY,
+        frame.cutWidth,
+        frame.cutHeight,
+        0,
+        0,
+        width,
+        height,
+      );
+      const rgba = context.getImageData(0, 0, width, height).data;
+      return detectShadowEmitterProfile(rgba, width, height, {
+        ...config.shadowEmitterScanBand,
+        alphaThreshold: 24,
+        minSpanNorm: 0.18,
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  private createEmitterFallback(config: BuildingSpriteVisualConfig): ShadowEmitterProfile {
+    const { minYNorm, maxYNorm } = config.shadowEmitterScanBand;
+    return {
+      leftNorm: 0.02,
+      rightNorm: 0.98,
+      yNorm: (minYNorm + maxYNorm) * 0.5,
+    };
+  }
+
+  private createShadowBuffer(index: number): ShadowBuffer {
+    const key = `${SHADOW_BUFFER_PREFIX}${index}`;
+    if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+    const texture = this.scene.textures.createCanvas(key, 2, 2);
+    if (!texture) throw new Error(`Unable to create shadow buffer texture: ${key}`);
+    this.generatedTextureKeys.push(key);
+
+    const image = this.scene.add.image(0, 0, key)
+      .setOrigin(0, 0)
+      .setDepth(SHADOW_DEPTH)
+      .setBlendMode(Phaser.BlendModes.NORMAL)
+      .setAlpha(0);
+
+    return { image, texture };
+  }
+
+  private createContactShadowTexture(): void {
+    if (this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+
+    const width = 128;
+    const height = 64;
+    const canvas = this.scene.textures.createCanvas(CONTACT_SHADOW_KEY, width, height);
+    if (!canvas) return;
+
+    const ctx = canvas.context;
+    const gradient = ctx.createRadialGradient(width / 2, height / 2, 2, width / 2, height / 2, width / 2);
+    gradient.addColorStop(0, 'rgba(8, 12, 18, 0.88)');
+    gradient.addColorStop(0.42, 'rgba(8, 12, 18, 0.46)');
+    gradient.addColorStop(1, 'rgba(8, 12, 18, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    canvas.refresh();
+    this.generatedTextureKeys.push(CONTACT_SHADOW_KEY);
+  }
+
   private setVisualsVisible(visible: boolean): void {
     this.ambientOverlay.setVisible(visible);
-    this.shadowBuffers[0].setVisible(visible);
-    this.shadowBuffers[1].setVisible(visible);
+    this.shadowBuffers[0].image.setVisible(visible);
+    this.shadowBuffers[1].image.setVisible(visible);
   }
 
   private updateAmbientOverlay(state: Readonly<DayNightState>): void {
     const camera = this.scene.cameras.main;
-    const inverseZoom = 1 / Math.max(0.01, camera.zoom);
+    const zoom = Math.max(0.01, camera.zoom);
+    const padding = 4 / zoom;
+    const worldView = camera.worldView;
 
-    // Scroll factor zero fixes the rectangle to the main camera. Countering
-    // zoom keeps it viewport-sized while leaving the UI camera unaffected.
-    this.ambientOverlay.setPosition(-2 * inverseZoom, -2 * inverseZoom);
-    this.ambientOverlay.setDisplaySize(
-      (camera.width + 4) * inverseZoom,
-      (camera.height + 4) * inverseZoom,
-    );
-    this.ambientOverlay.setFillStyle(state.ambientColor, state.ambientAlpha);
+    this.ambientOverlay
+      .setPosition(worldView.left - padding, worldView.top - padding)
+      .setDisplaySize(worldView.width + padding * 2, worldView.height + padding * 2)
+      .setFillStyle(state.ambientColor, state.ambientAlpha);
   }
 
   private updateShadowCrossfade(sceneTimeMs: number): void {
@@ -207,18 +387,17 @@ export class DayNightSystem {
       0,
       1,
     );
-    this.shadowBuffers[this.currentBufferIndex].setAlpha(progress);
-    this.shadowBuffers[this.previousBufferIndex].setAlpha(1 - progress);
+    this.shadowBuffers[this.currentBufferIndex].image.setAlpha(progress);
+    this.shadowBuffers[this.previousBufferIndex].image.setAlpha(1 - progress);
 
     if (progress >= 1) {
-      this.shadowBuffers[this.previousBufferIndex].setAlpha(0);
+      this.shadowBuffers[this.previousBufferIndex].image.setAlpha(0);
       this.crossfadeStartedAt = Number.NEGATIVE_INFINITY;
     }
   }
 
   private recordRefreshGap(sceneTimeMs: number): void {
     if (this.lastShadowRefresh === Number.NEGATIVE_INFINITY) return;
-
     const gap = sceneTimeMs - this.lastShadowRefresh;
     this.lastShadowRefreshGapMs = gap;
     this.minShadowRefreshGapMs = this.minShadowRefreshGapMs === 0
@@ -226,19 +405,33 @@ export class DayNightSystem {
       : Math.min(this.minShadowRefreshGapMs, gap);
   }
 
-  private redrawBuildingShadows(state: Readonly<DayNightState>, sceneTimeMs: number): void {
+  private redrawShadows(state: Readonly<DayNightState>, sceneTimeMs: number): void {
     const startedAt = performance.now();
     const nextBufferIndex = this.hasRenderedShadows ? 1 - this.currentBufferIndex : this.currentBufferIndex;
     const nextBuffer = this.shadowBuffers[nextBufferIndex];
-    nextBuffer.clear();
+    const layout = this.layoutShadowBuffer(nextBuffer);
+    const ctx = nextBuffer.texture.context;
 
-    const buildings = this.scene.buildings.getChildren();
-    this.lastScannedBuildings = buildings.length;
+    ctx.save();
+    ctx.globalCompositeOperation = 'copy';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0)';
+    ctx.fillRect(0, 0, nextBuffer.texture.width, nextBuffer.texture.height);
+    ctx.restore();
+
+    this.lastScannedBuildings = this.scene.buildings.getLength();
     this.lastDrawnBuildings = 0;
+    this.lastStampedBuildingSilhouettes = 0;
+    this.lastStampedBuildingContacts = 0;
+    this.lastScannedTreeVisuals = 0;
+    this.lastStampedTreeContacts = 0;
+    this.lastStampedTreeProjections = 0;
+    this.lastStampedUnitContacts = 0;
+    this.lastStampedUnitProjections = 0;
 
-    if (state.shadowAlpha > MIN_VISIBLE_SHADOW_ALPHA && state.shadowLength > 0) {
-      this.drawVisibleBuildingShadows(nextBuffer, buildings, state);
-    }
+    this.drawBuildingShadows(nextBuffer, layout, state);
+    this.drawTreeShadows(nextBuffer, layout, state);
+    this.drawUnitShadows(nextBuffer, layout, state);
+    nextBuffer.texture.refresh();
 
     this.shadowRefreshCount++;
     const elapsed = performance.now() - startedAt;
@@ -250,77 +443,608 @@ export class DayNightSystem {
       this.hasRenderedShadows = true;
       this.currentBufferIndex = nextBufferIndex;
       this.previousBufferIndex = 1 - nextBufferIndex;
-      nextBuffer.setAlpha(1);
-      this.shadowBuffers[this.previousBufferIndex].setAlpha(0);
+      nextBuffer.image.setAlpha(1);
+      this.shadowBuffers[this.previousBufferIndex].image.setAlpha(0);
       return;
     }
 
     this.previousBufferIndex = this.currentBufferIndex;
     this.currentBufferIndex = nextBufferIndex;
-    this.shadowBuffers[this.currentBufferIndex].setAlpha(0);
-    this.shadowBuffers[this.previousBufferIndex].setAlpha(1);
+    this.shadowBuffers[this.currentBufferIndex].image.setAlpha(0);
+    this.shadowBuffers[this.previousBufferIndex].image.setAlpha(1);
     this.crossfadeStartedAt = sceneTimeMs;
   }
 
-  private drawVisibleBuildingShadows(
-    graphics: Phaser.GameObjects.Graphics,
-    buildings: Phaser.GameObjects.GameObject[],
+  private layoutShadowBuffer(buffer: ShadowBuffer): ShadowBufferLayout {
+    const camera = this.scene.cameras.main;
+    const zoom = Math.max(0.01, camera.zoom);
+    const worldPadding = SHADOW_BUFFER_PADDING_PX / zoom;
+    const worldWidth = camera.width / zoom + worldPadding * 2;
+    const worldHeight = camera.height / zoom + worldPadding * 2;
+    const width = Math.max(
+      2,
+      Math.ceil((camera.width + SHADOW_BUFFER_PADDING_PX * 2) * SHADOW_BUFFER_RESOLUTION),
+    );
+    const height = Math.max(
+      2,
+      Math.ceil((camera.height + SHADOW_BUFFER_PADDING_PX * 2) * SHADOW_BUFFER_RESOLUTION),
+    );
+
+    if (buffer.texture.width !== width || buffer.texture.height !== height) {
+      buffer.texture.setSize(width, height);
+    }
+
+    const left = camera.worldView.left - worldPadding;
+    const top = camera.worldView.top - worldPadding;
+    buffer.image.setPosition(left, top).setDisplaySize(worldWidth, worldHeight);
+    this.shadowBufferWidth = width;
+    this.shadowBufferHeight = height;
+
+    return {
+      left,
+      top,
+      right: left + worldWidth,
+      bottom: top + worldHeight,
+      pixelsPerWorld: zoom * SHADOW_BUFFER_RESOLUTION,
+    };
+  }
+
+  private drawBuildingShadows(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
     state: Readonly<DayNightState>,
   ): void {
-    const cameraView = this.scene.cameras.main.worldView;
-    const minX = cameraView.left - VIEW_PADDING;
-    const maxX = cameraView.right + VIEW_PADDING;
-    const minY = cameraView.top - VIEW_PADDING;
-    const maxY = cameraView.bottom + VIEW_PADDING;
-
-    const angle = state.shadowAngleRad;
-    const projectedX = Math.cos(angle);
-    // Building art rises above its ground anchor. Folding the solar Y vector
-    // onto the lower half of the isometric screen plane keeps the shadow on
-    // visible ground instead of hiding it underneath the building sprite.
-    const projectedY = Math.abs(Math.sin(angle)) * 0.55 + 0.12;
-    const projectedMagnitude = Math.hypot(projectedX, projectedY);
-    const directionX = projectedX / projectedMagnitude;
-    const directionY = projectedY / projectedMagnitude;
-    const perpendicularX = -directionY;
-    const perpendicularY = directionX * 0.55;
-
-    for (const building of buildings) {
+    for (const building of this.scene.buildings.getChildren()) {
       if (!building.active || building.getData('hp') <= 0) continue;
 
       const visual = (building as BuildingWithVisual).visual;
-      if (!visual?.active || !visual.visible) continue;
-      if (visual.x < minX || visual.x > maxX || visual.y < minY || visual.y > maxY) continue;
+      if (!visual?.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
 
-      const def = building.getData('def') as ShadowBuildingDef | undefined;
+      const def = building.getData('def') as BuildingDef | undefined;
       if (!def) continue;
 
-      const footprint = Math.max(16, Math.max(def.width, def.height));
-      const widthScale = Phaser.Math.Clamp(footprint / 80, 0.55, 1.55);
-      const halfWidth = Phaser.Math.Clamp(footprint * 0.36, 9, 48);
-      const length = state.shadowLength * widthScale;
-      const dx = directionX * length;
-      const dy = directionY * length;
-      const px = perpendicularX * halfWidth;
-      const py = perpendicularY * halfWidth;
-      const endTaper = 0.62;
-      const baseX = visual.x;
-      const baseY = visual.y + 6;
+      const config = BUILDING_SPRITE_VISUALS[def.type];
+      if (!config) continue;
+      const sprite = this.findBuildingSprite(visual, config.key);
+      if (!sprite) continue;
 
-      // A compact contact shadow makes the building feel grounded even when
-      // the high midday sun produces the shortest projected silhouette.
-      graphics.fillStyle(0x020711, state.shadowAlpha * 0.72);
-      graphics.fillEllipse(baseX, baseY, halfWidth * 2.1, halfWidth * 0.72);
-      graphics.fillStyle(0x020711, state.shadowAlpha);
+      const profile = this.getShadowEmitterProfile(config);
+      const shadowBase = this.resolveBuildingShadowBase(visual, sprite, profile);
 
-      graphics.fillPoints([
-        { x: baseX + px, y: baseY + py },
-        { x: baseX - px, y: baseY - py },
-        { x: baseX + dx - px * endTaper, y: baseY + dy - py * endTaper },
-        { x: baseX + dx + px * endTaper, y: baseY + dy + py * endTaper },
-      ], true);
+      this.stampContact(
+        buffer,
+        layout,
+        shadowBase.centerX,
+        shadowBase.centerY + 2,
+        shadowBase.contactWidth,
+        shadowBase.contactHeight,
+        BUILDING_CONTACT_ALPHA * visual.alpha,
+      );
+      this.lastStampedBuildingContacts++;
+
+      if (state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA || state.shadowLength <= 0) continue;
+
+      const projection = calculateShadowProjection({
+        shadowAngleRad: state.shadowAngleRad,
+        shadowLength: state.shadowLength,
+        shadowHeightScale: config.shadowHeightScale,
+      });
+
+      this.stampBuildingProjection(
+        buffer,
+        layout,
+        shadowBase,
+        projection,
+        state.shadowAlpha * visual.alpha,
+        config.shadowEndWidthScale,
+      );
+      this.lastStampedBuildingSilhouettes++;
       this.lastDrawnBuildings++;
     }
+  }
+
+  private findBuildingSprite(
+    visual: Phaser.GameObjects.Container,
+    textureKey: string,
+  ): Phaser.GameObjects.Image | null {
+    for (const child of visual.list) {
+      if (child instanceof Phaser.GameObjects.Image && child.texture.key === textureKey) {
+        return child;
+      }
+    }
+    return null;
+  }
+
+  private resolveBuildingShadowBase(
+    visual: Phaser.GameObjects.Container,
+    sprite: Phaser.GameObjects.Image,
+    profile: ShadowEmitterProfile,
+  ): BuildingShadowBase {
+    let leftNorm = profile.leftNorm;
+    let rightNorm = profile.rightNorm;
+    if (sprite.flipX) {
+      leftNorm = 1 - profile.rightNorm;
+      rightNorm = 1 - profile.leftNorm;
+    }
+
+    const displayWidth = Math.abs(sprite.displayWidth);
+    const displayHeight = Math.abs(sprite.displayHeight);
+    const localLeft = sprite.x - displayWidth * sprite.originX;
+    const localTop = sprite.y - displayHeight * sprite.originY;
+    const emitterY = visual.y + localTop + profile.yNorm * displayHeight;
+    const startAX = visual.x + localLeft + leftNorm * displayWidth;
+    const startBX = visual.x + localLeft + rightNorm * displayWidth;
+    const startA = { x: Math.min(startAX, startBX), y: emitterY };
+    const startB = { x: Math.max(startAX, startBX), y: emitterY };
+    const centerX = (startA.x + startB.x) * 0.5;
+    const width = Math.max(8, startB.x - startA.x);
+
+    return {
+      startA,
+      startB,
+      centerX,
+      centerY: emitterY,
+      contactWidth: width,
+      contactHeight: Math.max(5, displayHeight * 0.055),
+    };
+  }
+
+  private drawTreeShadows(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    state: Readonly<DayNightState>,
+  ): void {
+    const visuals = this.scene.treeVisuals.getChildren() as Phaser.GameObjects.Image[];
+    for (const visual of visuals) {
+      this.lastScannedTreeVisuals++;
+      if (!visual.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (visual.texture.key !== 'tree' && visual.texture.key !== 'stump') continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
+
+      const width = Math.max(12, visual.displayWidth * 0.65);
+      this.stampContact(
+        buffer,
+        layout,
+        visual.x,
+        visual.y + 2,
+        width,
+        width * 0.24,
+        TREE_CONTACT_ALPHA * visual.alpha,
+      );
+      this.lastStampedTreeContacts++;
+
+      if (
+        visual.texture.key !== 'tree'
+        || state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA
+        || state.shadowLength <= 0
+      ) {
+        continue;
+      }
+
+      const projection = calculateShadowProjection({
+        shadowAngleRad: state.shadowAngleRad,
+        shadowLength: state.shadowLength,
+        shadowHeightScale: TREE_SHADOW_HEIGHT_SCALE,
+      });
+      this.stampTreeProjection(
+        buffer,
+        layout,
+        visual,
+        projection,
+        state.shadowAlpha * visual.alpha * TREE_PROJECTED_ALPHA_SCALE,
+      );
+      this.lastStampedTreeProjections++;
+    }
+  }
+
+  private stampTreeProjection(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    visual: Phaser.GameObjects.Image,
+    projection: ReturnType<typeof calculateShadowProjection>,
+    alpha: number,
+  ): void {
+    if (projection.length <= 0 || alpha <= 0) return;
+
+    const base = { x: visual.x, y: visual.y + 2 };
+    const displayWidth = Math.abs(visual.displayWidth);
+    const trunkHalfWidth = Math.max(1.5, displayWidth * 0.027);
+    const trunkEndHalfWidth = Math.max(2.5, displayWidth * 0.055);
+    const trunkEnd = {
+      x: base.x + projection.directionX * projection.length * 0.68,
+      y: base.y + projection.directionY * projection.length * 0.68,
+    };
+
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      [
+        {
+          x: base.x - projection.perpendicularX * trunkHalfWidth,
+          y: base.y - projection.perpendicularY * trunkHalfWidth,
+        },
+        {
+          x: base.x + projection.perpendicularX * trunkHalfWidth,
+          y: base.y + projection.perpendicularY * trunkHalfWidth,
+        },
+        {
+          x: trunkEnd.x + projection.perpendicularX * trunkEndHalfWidth,
+          y: trunkEnd.y + projection.perpendicularY * trunkEndHalfWidth,
+        },
+        {
+          x: trunkEnd.x - projection.perpendicularX * trunkEndHalfWidth,
+          y: trunkEnd.y - projection.perpendicularY * trunkEndHalfWidth,
+        },
+      ],
+      base,
+      trunkEnd,
+      alpha * 0.78,
+    );
+
+    const canopyCenter = {
+      x: base.x + projection.directionX * projection.length * 0.77,
+      y: base.y + projection.directionY * projection.length * 0.77,
+    };
+    const canopyWidth = Math.max(18, displayWidth * 0.76);
+    const canopyLength = Math.max(canopyWidth * 0.38, projection.length * 0.42);
+
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      canopyCenter.x,
+      canopyCenter.y,
+      canopyWidth,
+      canopyLength,
+      projection.rotation,
+      alpha * 0.58,
+    );
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      canopyCenter.x - projection.directionX * canopyLength * 0.08,
+      canopyCenter.y - projection.directionY * canopyLength * 0.08,
+      canopyWidth * 0.72,
+      canopyLength * 0.72,
+      projection.rotation,
+      alpha * 0.24,
+    );
+  }
+
+  private drawUnitShadows(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    state: Readonly<DayNightState>,
+  ): void {
+    if (state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA || state.shadowLength <= 0) return;
+
+    const unitProjection = calculateShadowProjection({
+      shadowAngleRad: state.shadowAngleRad,
+      shadowLength: state.shadowLength,
+      shadowHeightScale: UNIT_SHADOW_HEIGHT_SCALE,
+    });
+
+    for (const villager of this.scene.villagerSystem?.getAllVillagers() ?? []) {
+      const visual = villager.visual;
+      if (!visual?.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
+      const sprite = visual.getData('villagerSprite') as Phaser.GameObjects.Image | undefined;
+      const rootWidth = Phaser.Math.Clamp(Math.abs(sprite?.displayWidth ?? 28) * 0.13, 3, 7);
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        visual.x,
+        visual.y + 2,
+        rootWidth,
+        unitProjection,
+        state.shadowAlpha * visual.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+      );
+    }
+
+    for (const unitObject of this.scene.units.getChildren()) {
+      const unit = unitObject as GameUnit;
+      if (!unit.active) continue;
+
+      const container = unit.getData('squadContainer') as Phaser.GameObjects.Container | undefined;
+      const soldierSprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
+      if (container?.active && container.visible && soldierSprites?.length) {
+        for (const sprite of soldierSprites) {
+          if (!sprite.active || !sprite.visible || sprite.alpha <= 0.01) continue;
+          const worldX = container.x + sprite.x;
+          const worldY = container.y + sprite.y + 2;
+          if (!this.contains(layout, worldX, worldY)) continue;
+          const rootWidth = Phaser.Math.Clamp(Math.abs(sprite.displayWidth) * 0.12, 3, 10);
+          this.stampUnitProjection(
+            buffer,
+            layout,
+            worldX,
+            worldY,
+            rootWidth,
+            unitProjection,
+            state.shadowAlpha * container.alpha * sprite.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+          );
+        }
+        continue;
+      }
+
+      const visual = unit.visual;
+      if (!visual?.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        visual.x,
+        visual.y + 2,
+        4,
+        unitProjection,
+        state.shadowAlpha * visual.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+      );
+    }
+
+    const ambientProjection = calculateShadowProjection({
+      shadowAngleRad: state.shadowAngleRad,
+      shadowLength: state.shadowLength,
+      shadowHeightScale: AMBIENT_CITIZEN_HEIGHT_SCALE,
+    });
+    this.scene.ambientSystem?.forEachVisibleCitizen((x, y, alpha) => {
+      if (!this.contains(layout, x, y)) return;
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        x,
+        y + 1,
+        2.5,
+        ambientProjection,
+        state.shadowAlpha * alpha * AMBIENT_CITIZEN_ALPHA_SCALE,
+      );
+    });
+  }
+
+  private stampUnitProjection(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    rootX: number,
+    rootY: number,
+    rootWidth: number,
+    projection: ReturnType<typeof calculateShadowProjection>,
+    alpha: number,
+  ): void {
+    if (projection.length <= 0 || alpha <= 0) return;
+
+    const contactWidth = rootWidth * 2.4;
+    this.stampContact(
+      buffer,
+      layout,
+      rootX,
+      rootY,
+      contactWidth,
+      Math.max(2.5, rootWidth * 0.72),
+      Math.min(0.13, alpha * 0.46),
+    );
+    this.lastStampedUnitContacts++;
+
+    const endX = rootX + projection.directionX * projection.length;
+    const endY = rootY + projection.directionY * projection.length;
+    const rootHalfWidth = rootWidth * 0.52;
+    const endHalfWidth = rootWidth * 0.34;
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      [
+        {
+          x: rootX - projection.perpendicularX * rootHalfWidth,
+          y: rootY - projection.perpendicularY * rootHalfWidth,
+        },
+        {
+          x: rootX + projection.perpendicularX * rootHalfWidth,
+          y: rootY + projection.perpendicularY * rootHalfWidth,
+        },
+        {
+          x: endX + projection.perpendicularX * endHalfWidth,
+          y: endY + projection.perpendicularY * endHalfWidth,
+        },
+        {
+          x: endX - projection.perpendicularX * endHalfWidth,
+          y: endY - projection.perpendicularY * endHalfWidth,
+        },
+      ],
+      { x: rootX, y: rootY },
+      { x: endX, y: endY },
+      alpha,
+    );
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      endX - projection.directionX * rootWidth * 0.55,
+      endY - projection.directionY * rootWidth * 0.55,
+      rootWidth * 1.55,
+      rootWidth * 2.15,
+      projection.rotation,
+      alpha * 0.42,
+    );
+    this.lastStampedUnitProjections++;
+  }
+
+  private stampBuildingProjection(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    shadowBase: BuildingShadowBase,
+    projection: ReturnType<typeof calculateShadowProjection>,
+    alpha: number,
+    endWidthScale: number,
+  ): void {
+    if (projection.length <= 0 || alpha <= 0) return;
+
+    const endCenterX = shadowBase.centerX + projection.directionX * projection.length;
+    const endCenterY = shadowBase.centerY + projection.directionY * projection.length;
+    const edgeDx = shadowBase.startB.x - shadowBase.startA.x;
+    const edgeDy = shadowBase.startB.y - shadowBase.startA.y;
+    const endHalfDx = edgeDx * 0.5 * endWidthScale;
+    const endHalfDy = edgeDy * 0.5 * endWidthScale;
+    const endA = { x: endCenterX - endHalfDx, y: endCenterY - endHalfDy };
+    const endB = { x: endCenterX + endHalfDx, y: endCenterY + endHalfDy };
+    const penumbraSpread = Math.max(2, shadowBase.contactHeight * 0.65);
+
+    for (const side of [-1, 1]) {
+      const rootOffsetX = projection.perpendicularX * penumbraSpread * side * 0.18;
+      const rootOffsetY = projection.perpendicularY * penumbraSpread * side * 0.18;
+      const endOffsetX = projection.perpendicularX * penumbraSpread * side;
+      const endOffsetY = projection.perpendicularY * penumbraSpread * side;
+      const softEndHalfDx = endHalfDx * 1.16;
+      const softEndHalfDy = endHalfDy * 1.16;
+      this.fillGradientGroundPolygon(
+        buffer,
+        layout,
+        [
+          { x: shadowBase.startA.x + rootOffsetX, y: shadowBase.startA.y + rootOffsetY },
+          { x: shadowBase.startB.x + rootOffsetX, y: shadowBase.startB.y + rootOffsetY },
+          {
+            x: endCenterX + softEndHalfDx + endOffsetX,
+            y: endCenterY + softEndHalfDy + endOffsetY,
+          },
+          {
+            x: endCenterX - softEndHalfDx + endOffsetX,
+            y: endCenterY - softEndHalfDy + endOffsetY,
+          },
+        ],
+        { x: shadowBase.centerX + rootOffsetX, y: shadowBase.centerY + rootOffsetY },
+        { x: endCenterX + endOffsetX, y: endCenterY + endOffsetY },
+        alpha * 0.08,
+      );
+    }
+
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      endCenterX - projection.directionX * shadowBase.contactHeight,
+      endCenterY - projection.directionY * shadowBase.contactHeight,
+      Math.max(shadowBase.contactWidth, Math.hypot(endHalfDx, endHalfDy) * 2) * 1.08,
+      Math.max(shadowBase.contactHeight * 2.4, projection.length * 0.14),
+      projection.rotation,
+      alpha * 0.18,
+    );
+
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      [shadowBase.startA, shadowBase.startB, endB, endA],
+      { x: shadowBase.centerX, y: shadowBase.centerY },
+      { x: endCenterX, y: endCenterY },
+      alpha,
+    );
+  }
+
+  private fillGradientGroundPolygon(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    points: readonly ShadowPoint[],
+    gradientStart: ShadowPoint,
+    gradientEnd: ShadowPoint,
+    alpha: number,
+  ): void {
+    if (alpha <= 0 || points.length < 3) return;
+
+    const ctx = buffer.texture.context;
+    const toBufferX = (worldX: number) => (worldX - layout.left) * layout.pixelsPerWorld;
+    const toBufferY = (worldY: number) => (worldY - layout.top) * layout.pixelsPerWorld;
+    const startX = toBufferX(gradientStart.x);
+    const startY = toBufferY(gradientStart.y);
+    const endX = toBufferX(gradientEnd.x);
+    const endY = toBufferY(gradientEnd.y);
+    const rootAlpha = Phaser.Math.Clamp(alpha * 1.45, 0, 0.72);
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const gradientLength2 = dx * dx + dy * dy;
+
+    ctx.save();
+    ctx.globalAlpha = 1;
+
+    if (gradientLength2 > 0.001) {
+      const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
+      gradient.addColorStop(0, `rgba(${SHADOW_RGB}, ${rootAlpha})`);
+      gradient.addColorStop(0.22, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.92})`);
+      gradient.addColorStop(0.52, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.68})`);
+      gradient.addColorStop(0.82, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.22})`);
+      gradient.addColorStop(1, `rgba(${SHADOW_RGB}, 0)`);
+      ctx.fillStyle = gradient;
+    } else {
+      ctx.fillStyle = `rgba(${SHADOW_RGB}, ${rootAlpha})`;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(toBufferX(points[0].x), toBufferY(points[0].y));
+    for (let index = 1; index < points.length; index++) {
+      ctx.lineTo(toBufferX(points[index].x), toBufferY(points[index].y));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  private stampContact(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    worldX: number,
+    worldY: number,
+    width: number,
+    height: number,
+    alpha: number,
+  ): void {
+    if (alpha <= 0 || !this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+
+    const source = this.scene.textures
+      .get(CONTACT_SHADOW_KEY)
+      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    const ctx = buffer.texture.context;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(
+      (worldX - layout.left) * layout.pixelsPerWorld,
+      (worldY - layout.top) * layout.pixelsPerWorld,
+    );
+    ctx.scale(
+      (width / source.width) * layout.pixelsPerWorld,
+      (height / source.height) * layout.pixelsPerWorld,
+    );
+    ctx.drawImage(source, -source.width * 0.5, -source.height * 0.5);
+    ctx.restore();
+  }
+
+  private stampProjectedBlob(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    worldX: number,
+    worldY: number,
+    width: number,
+    height: number,
+    rotation: number,
+    alpha: number,
+  ): void {
+    if (alpha <= 0 || !this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+
+    const source = this.scene.textures
+      .get(CONTACT_SHADOW_KEY)
+      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    const ctx = buffer.texture.context;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(
+      (worldX - layout.left) * layout.pixelsPerWorld,
+      (worldY - layout.top) * layout.pixelsPerWorld,
+    );
+    ctx.rotate(rotation);
+    ctx.scale(
+      (width / source.width) * layout.pixelsPerWorld,
+      (height / source.height) * layout.pixelsPerWorld,
+    );
+    ctx.drawImage(source, -source.width * 0.5, -source.height * 0.5);
+    ctx.restore();
+  }
+
+  private contains(layout: ShadowBufferLayout, x: number, y: number): boolean {
+    return x >= layout.left && x <= layout.right && y >= layout.top && y <= layout.bottom;
   }
 
   private publishSnapshots(): void {
@@ -332,9 +1056,14 @@ export class DayNightSystem {
     if (this.destroyed) return;
     this.destroyed = true;
     this.scene.events.off(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
-    this.shadowBuffers[0].destroy();
-    this.shadowBuffers[1].destroy();
+    this.shadowBuffers[0].image.destroy();
+    this.shadowBuffers[1].image.destroy();
     this.ambientOverlay.destroy();
+    this.shadowEmitterProfiles.clear();
+
+    for (const textureKey of this.generatedTextureKeys) {
+      if (this.scene.textures.exists(textureKey)) this.scene.textures.remove(textureKey);
+    }
 
     if (this.scene.data.get('dayNightSystem') === this) {
       this.scene.data.remove('dayNightSystem');

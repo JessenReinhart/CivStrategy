@@ -21,22 +21,31 @@ interface AmbientKeyframe {
     readonly alpha: number;
 }
 
+// Ambient is primarily a time-of-day color grade. Daylight stays restrained so
+// directional sunlight can create contrast instead of being flattened by a
+// bright full-screen wash. Dusk/night remain intentionally much stronger.
 const AMBIENT_KEYFRAMES: readonly AmbientKeyframe[] = [
-    { hour: 0, color: 0x07172f, alpha: 0.48 },
-    { hour: 4.8, color: 0x0b1d38, alpha: 0.44 },
-    { hour: 6, color: 0x3b2a38, alpha: 0.30 },
-    { hour: 7.2, color: 0xe07a45, alpha: 0.18 },
-    { hour: 10, color: 0xfff1cf, alpha: 0.07 },
-    { hour: 16.5, color: 0xffdfb0, alpha: 0.08 },
-    { hour: 18, color: 0xc95a3d, alpha: 0.22 },
-    { hour: 19.4, color: 0x24334f, alpha: 0.33 },
-    { hour: 21, color: 0x091a34, alpha: 0.46 },
-    { hour: 24, color: 0x07172f, alpha: 0.48 },
+    { hour: 0, color: 0x06152d, alpha: 0.58 },
+    { hour: 4.8, color: 0x0a1a35, alpha: 0.54 },
+    { hour: 6, color: 0x49303f, alpha: 0.32 },
+    { hour: 7.2, color: 0xe8793f, alpha: 0.24 },
+    { hour: 10, color: 0xffedc7, alpha: 0.07 },
+    { hour: 16.5, color: 0xffd38f, alpha: 0.08 },
+    { hour: 18, color: 0xd55435, alpha: 0.24 },
+    { hour: 19.4, color: 0x1d3152, alpha: 0.38 },
+    { hour: 21, color: 0x071a38, alpha: 0.54 },
+    { hour: 24, color: 0x06152d, alpha: 0.58 },
 ];
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 const wrap = (value: number, modulus: number): number => ((value % modulus) + modulus) % modulus;
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+    const span = edge1 - edge0 || 1;
+    const t = clamp01((value - edge0) / span);
+    return t * t * (3 - 2 * t);
+}
 
 function lerpColor(a: number, b: number, t: number): number {
     const ar = (a >> 16) & 0xff;
@@ -91,16 +100,25 @@ export function calculateDayNightState(
     const sunElevation = isDay ? Math.max(0, Math.sin(daylightProgress * Math.PI)) : 0;
     const sunIntensity = isDay ? Math.pow(sunElevation, 0.55) : 0;
 
-    // Sweep the visual sun east-to-west across the day. The renderer projects
-    // the shadow in the opposite direction for a deliberately screen-space,
-    // isometric-friendly result rather than a physical 3D solar simulation.
-    const sunAzimuthRad = -0.2 * Math.PI + daylightProgress * 1.4 * Math.PI;
+    // In screen space the sun traverses the upper hemisphere from the left
+    // horizon through noon to the right horizon. The projected cast is clamped
+    // to the lower half-plane by shadowProjectionMath, giving a long down-right
+    // morning shadow, a short noon cast, and a mirrored evening shadow.
+    const sunAzimuthRad = -Math.PI + daylightProgress * Math.PI;
     const shadowAngleRad = sunAzimuthRad + Math.PI;
-    const shadowLength = sunIntensity > 0.01
-        ? lerp(210, 54, Math.sqrt(sunElevation))
+
+    // The 2D emitter-line fake is strongest when the sun is comfortably above
+    // the horizon. Fade it out before sunrise/sunset reaches the awkward almost-
+    // horizontal phase instead of showing a physically longer but visually wrong
+    // cast. Ambient lighting still continues through dawn/dusk/night normally.
+    const shadowVisibility = smoothstep(0.12, 0.30, sunElevation);
+    const shadowLength = shadowVisibility > 0.001
+        ? lerp(250, 56, sunElevation)
         : 0;
     const shadowAlpha = sunIntensity > 0.01
-        ? (0.30 + (1 - sunElevation) * 0.16) * clamp01(sunIntensity * 1.8)
+        ? (0.30 + (1 - sunElevation) * 0.16)
+            * clamp01(sunIntensity * 1.8)
+            * shadowVisibility
         : 0;
 
     return {

@@ -115,6 +115,17 @@ export class AmbientPopulationSystem {
   }
 
   /**
+   * Visits only active, on-screen bobs without allocating a position array.
+   * DayNightSystem uses this during its budgeted 5 Hz shadow redraw.
+   */
+  public forEachVisibleCitizen(visitor: (x: number, y: number, alpha: number) => void): void {
+    for (const citizen of this.citizens) {
+      if (!citizen.active || citizen.bob.x === OFFSCREEN_POS || citizen.bob.y === OFFSCREEN_POS) continue;
+      visitor(citizen.bob.x, citizen.bob.y, citizen.bob.alpha);
+    }
+  }
+
+  /**
    * Read-only: role the system would assign to a citizen tied to a given
    * building type. Exported for deterministic testing only.
    */
