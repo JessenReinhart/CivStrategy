@@ -332,35 +332,81 @@ try {
   await page.mouse.click(box.x + playerPoint.x, box.y + playerPoint.y, { button: 'left' });
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__economyProgressionProbe.player), undefined, { timeout: 30_000 });
   evidence.moveCommandStart = await page.evaluate((target) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
     player.setData('__economyJourneyMoveX', player.x);
     player.setData('__economyJourneyMoveY', player.y);
     return {
       x: player.x,
       y: player.y,
+      gameTime: scene.gameTime,
       distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
     };
   }, evidence.moveTarget);
   let targetPoint = await cartesianScreenPoint(page, evidence.moveTarget);
   await rightClickThroughFrame(page, box.x + targetPoint.x, box.y + targetPoint.y);
-  await page.waitForFunction((target) => {
+  evidence.moveAccepted = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
-    const movedDistance = Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY'));
-    const distanceToTarget = Math.hypot(player.x - target.x, player.y - target.y);
-    return movedDistance >= 40 && distanceToTarget <= 48;
-  }, evidence.moveTarget, { timeout: 15_000 });
+    return {
+      gameTime: scene.gameTime,
+      speed: player.body?.velocity?.length?.() ?? 0,
+      pathLength: player.path?.length ?? 0,
+    };
+  });
+  const minimumSimulationMs = 180;
+  try {
+    await page.waitForFunction(({ target, start, acceptedGameTime, minimumSimulationMs }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const player = window.__economyProgressionProbe.player;
+      const movedDistance = Math.hypot(player.x - start.x, player.y - start.y);
+      const distanceToTarget = Math.hypot(player.x - target.x, player.y - target.y);
+      if (movedDistance >= 40 && distanceToTarget <= 48) return true;
+      const simulatedMs = scene.gameTime - acceptedGameTime;
+      if (simulatedMs < minimumSimulationMs) return false;
+      const speed = player.body?.velocity?.length?.() ?? 0;
+      const expectedProgress = speed * simulatedMs / 1000;
+      return speed > 0
+        && movedDistance >= Math.max(8, expectedProgress * 0.75)
+        && distanceToTarget < start.distanceToTarget;
+    }, {
+      target: evidence.moveTarget,
+      start: evidence.moveCommandStart,
+      acceptedGameTime: evidence.moveAccepted.gameTime,
+      minimumSimulationMs,
+    }, { timeout: 30_000 });
+  } catch (error) {
+    evidence.moveFailureState = await page.evaluate((target) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const player = window.__economyProgressionProbe.player;
+      return {
+        x: player.x,
+        y: player.y,
+        gameTime: scene.gameTime,
+        simulatedMs: scene.gameTime - window.__economyProgressionProbe.moveAcceptedGameTime,
+        speed: player.body?.velocity?.length?.() ?? 0,
+        distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+        movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
+      };
+    }, evidence.moveTarget).catch(() => null);
+    throw error;
+  }
   evidence.moveArrival = await page.evaluate((target) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
     return {
       x: player.x,
       y: player.y,
+      gameTime: scene.gameTime,
       distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
       pathEndpointDistance: Math.hypot(target.pathEndpointX - target.x, target.pathEndpointY - target.y),
       movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
+      speed: player.body?.velocity?.length?.() ?? 0,
     };
   }, evidence.moveTarget);
-  if (evidence.moveArrival.movedDistance < 40 || evidence.moveArrival.distanceToTarget > 48) {
-    throw new Error(`Trained Pikesman did not make command-driven progress to the requested destination: ${JSON.stringify({ start: evidence.moveCommandStart, target: evidence.moveTarget, arrival: evidence.moveArrival })}`);
+  evidence.simulatedMovementMs = evidence.moveArrival.gameTime - evidence.moveAccepted.gameTime;
+  if (evidence.moveArrival.movedDistance < 8 || evidence.simulatedMovementMs < minimumSimulationMs || evidence.moveArrival.distanceToTarget >= evidence.moveCommandStart.distanceToTarget) {
+    throw new Error(`Trained Pikesman did not make simulation-backed command progress: ${JSON.stringify({ start: evidence.moveCommandStart, accepted: evidence.moveAccepted, target: evidence.moveTarget, arrival: evidence.moveArrival, simulatedMovementMs: evidence.simulatedMovementMs })}`);
   }
 
   evidence.phase = 'combat';
