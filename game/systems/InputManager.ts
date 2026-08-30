@@ -372,19 +372,14 @@ export class InputManager {
                 .filter((unit) => unit.getData('owner') !== 0 && unit.active && unit.visual?.active && unit.visual.visible);
             const hasScreenPoint = Number.isFinite(pointer.x) && Number.isFinite(pointer.y);
             const camera = hasScreenPoint ? this.scene.cameras.main : null;
-            const topLeft = camera?.getWorldPoint(0, 0);
+            const pointerWorld = camera?.getWorldPoint(pointer.x, pointer.y);
             let nearestEnemy: GameUnit | null = null;
-            let nearestDistance = hasScreenPoint ? 20 : 16;
+            let nearestDistance = camera ? 20 / camera.zoom : 16;
             for (const unit of candidates) {
                 const visual = unit.visual;
                 if (!visual) continue;
-                const distance = camera && topLeft
-                    ? Phaser.Math.Distance.Between(
-                        pointer.x,
-                        pointer.y,
-                        (visual.x - topLeft.x) * camera.zoom,
-                        (visual.y - 10 - topLeft.y) * camera.zoom,
-                    )
+                const distance = pointerWorld
+                    ? Phaser.Math.Distance.Between(pointerWorld.x, pointerWorld.y, visual.x, visual.y - 10)
                     : Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, visual.x, visual.y - 10);
                 if (distance <= nearestDistance) {
                     nearestEnemy = unit;
