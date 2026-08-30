@@ -8,6 +8,9 @@ vi.mock('phaser', () => ({
             Vector2: class Vector2 {
                 constructor(public x: number, public y: number) {}
             },
+            Distance: {
+                Between: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
+            },
         },
     },
 }));
@@ -44,6 +47,8 @@ describe('InputManager player command selection', () => {
             game: { events: { emit } },
             proceduralSound: { playUIClick, playCommandAck },
             unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => []) },
+            cameras: { main: { zoom: 1, getWorldPoint: vi.fn((x: number, y: number) => ({ x, y })) } },
         };
 
         const manager = Object.create(InputManager.prototype) as InputManager;
@@ -80,5 +85,94 @@ describe('InputManager player command selection', () => {
         expect(commandMove.mock.calls[0][0]).toEqual([unit]);
         expect(commandAttack).not.toHaveBeenCalled();
         expect(playCommandAck).toHaveBeenCalledOnce();
+    });
+
+    it('prioritizes an enemy under an overlapping friendly unit for a right-click attack', () => {
+        const commandMove = vi.fn();
+        const commandAttack = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const friendlyUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const enemyUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const friendlyVisual = {
+            getData: vi.fn((key: string) => key === 'unit' ? friendlyUnit : undefined),
+        };
+        const enemyVisual = {
+            getData: vi.fn((key: string) => key === 'unit' ? enemyUnit : undefined),
+        };
+        const scene = {
+            input: { hitTestPointer: vi.fn(() => [friendlyVisual, enemyVisual]) },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => []) },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+
+        const rightClick = (manager as unknown as {
+            handleRightClick(pointer: unknown): void;
+        }).handleRightClick.bind(manager);
+
+        rightClick({ worldX: 640, worldY: 360, event: { shiftKey: false } });
+
+        expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledOnce();
+    });
+
+    it('uses main-camera coordinates to target a visible enemy when Phaser world coordinates are stale', () => {
+        const commandMove = vi.fn();
+        const commandAttack = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = {
+            unitType: UnitType.PIKESMAN,
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const enemyVisual = {
+            x: 640,
+            y: 370,
+            active: true,
+            visible: true,
+        };
+        const enemyUnit = {
+            unitType: UnitType.PIKESMAN,
+            active: true,
+            visual: enemyVisual,
+            getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
+        };
+        const getWorldPoint = vi.fn(() => ({ x: 640, y: 360 }));
+        const scene = {
+            input: { hitTestPointer: vi.fn(() => []) },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandMove, commandAttack },
+            units: { getChildren: vi.fn(() => [enemyUnit]) },
+            cameras: { main: { zoom: 1.5, getWorldPoint } },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+
+        const rightClick = (manager as unknown as {
+            handleRightClick(pointer: unknown): void;
+        }).handleRightClick.bind(manager);
+
+        rightClick({ x: 864, y: 608, worldX: 272, worldY: 566, event: { shiftKey: false } });
+
+        expect(getWorldPoint).toHaveBeenCalledWith(864, 608);
+        expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledWith(640, 360);
     });
 });
