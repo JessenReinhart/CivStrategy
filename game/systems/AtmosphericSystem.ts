@@ -8,11 +8,12 @@ export class AtmosphericSystem {
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
     private bloomEffect: Phaser.FX.Bloom | null = null;
+    private colorGradeEffect: Phaser.FX.ColorMatrix | null = null;
     private tiltShiftEffect: unknown = null; // reserved for future DOF effect
     
     private vignetteEffect: Phaser.FX.Vignette | null = null;
     private cloudTextureKey = 'cloud-puff';
-    private cloudCount = 20;
+    private cloudCount = 0;
 
     // Store user's desired bloom multiplier so adaptive logic doesn't overwrite it
     private userBloomMultiplier: number = 1.0;
@@ -52,11 +53,13 @@ export class AtmosphericSystem {
 
         const ctx = canvas.context;
 
-        // Draw a soft radial gradient
+        // Keep cloud shade broad and feathered. The sprite is stretched along
+        // the solar axis at runtime, so this gradient must not read as a dark
+        // circular spotlight when viewed from above.
         const grd = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-        grd.addColorStop(0, 'rgba(0, 0, 0, 1)'); // Dark center (shadow)
-        grd.addColorStop(0.4, 'rgba(0, 0, 0, 0.5)');
-        grd.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent edge
+        grd.addColorStop(0, 'rgba(0, 0, 0, 0.55)');
+        grd.addColorStop(0.35, 'rgba(0, 0, 0, 0.24)');
+        grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
 
         ctx.fillStyle = grd;
         ctx.fillRect(0, 0, size, size);
@@ -78,11 +81,15 @@ export class AtmosphericSystem {
             const cloud = this.scene.add.sprite(x, y, this.cloudTextureKey);
             if (this.scene.worldLayer) this.scene.worldLayer.add(cloud);
             cloud.setDepth(15000 + i); // Stagger depth slightly so they layer
-            cloud.setAlpha(Phaser.Math.FloatBetween(0.03, 0.07)); // light puffs only
-            cloud.setScale(Phaser.Math.FloatBetween(4.0, 8.0)); // Big puffy clouds
+            cloud.setAlpha(Phaser.Math.FloatBetween(0.008, 0.018));
+            cloud.setScale(
+                Phaser.Math.FloatBetween(7.0, 12.0),
+                Phaser.Math.FloatBetween(2.2, 3.8),
+            );
 
-            // Random rotation for variety
-            cloud.setRotation(Phaser.Math.FloatBetween(0, Math.PI * 2));
+            // Similar headings make them read as distant wisps instead of a
+            // field of unrelated round stains.
+            cloud.setRotation(Phaser.Math.FloatBetween(-0.65, -0.35));
 
             this.clouds.push(cloud);
         }
@@ -106,9 +113,12 @@ export class AtmosphericSystem {
       // Color punch lives in ground/terrain/water, not PostFX.
       const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.4, 0.5);
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.18, 0.08);
       this.tiltShiftEffect = null; // drop DOF blur — greys edges
       this.vignetteEffect = target.addVignette(0.5, 0.5, 0.98, 0.03);
+      this.colorGradeEffect = target.addColorMatrix();
+      this.colorGradeEffect.saturate(0.9);
+      this.colorGradeEffect.contrast(0.28, true);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -120,13 +130,22 @@ export class AtmosphericSystem {
     public setPostFXEnabled(enabled: boolean): void {
         this.postFXEnabled = enabled;
         if (!enabled) {
+            const target = this.scene.worldLayer
+                ? this.scene.worldLayer.postFX
+                : this.scene.cameras.main.postFX;
             this.bloomEffect?.destroy();
             this.vignetteEffect?.destroy();
+            if (this.colorGradeEffect) {
+                // Phaser's runtime ColorMatrix is an FX controller, but its
+                // declaration omits that inheritance from the remove() input.
+                target.remove(this.colorGradeEffect as unknown as Phaser.FX.Controller);
+            }
             this.bloomEffect = null;
             this.vignetteEffect = null;
+            this.colorGradeEffect = null;
             // Hide clouds when PostFX disabled to save CPU update
             this.clouds.forEach(c => c.setVisible(false));
-        } else if (!this.bloomEffect || !this.vignetteEffect) {
+        } else if (!this.bloomEffect || !this.vignetteEffect || !this.colorGradeEffect) {
             this.setupBloom();
             // Show clouds when PostFX re-enabled
             this.clouds.forEach(c => c.setVisible(true));
@@ -154,9 +173,9 @@ export class AtmosphericSystem {
         if (this.postFXEnabled && this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
             // Mild glow only — high bloom was washing the map to grey
-            const baseStrength = Phaser.Math.Linear(0.55, 0.2, zoomProgress);
-            const pulse = Math.sin(time * 0.002) * 0.02;
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.05, 0.8);
+            const baseStrength = Phaser.Math.Linear(0.08, 0.03, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.006;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.02, 0.12);
             const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }

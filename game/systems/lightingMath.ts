@@ -13,11 +13,11 @@ export interface SunlightStyle {
 }
 
 const SUNLIGHT_COLORS: readonly LightColorKeyframe[] = [
-  { hour: 6, color: 0xff8f55 },
-  { hour: 8.5, color: 0xffc36f },
-  { hour: 12, color: 0xffedc7 },
-  { hour: 15.5, color: 0xffc978 },
-  { hour: 18, color: 0xff7f49 },
+  { hour: 6, color: 0xff843d },
+  { hour: 8.5, color: 0xffb13f },
+  { hour: 12, color: 0xffe0a0 },
+  { hour: 15.5, color: 0xffb94f },
+  { hour: 18, color: 0xff7438 },
 ];
 
 function lerpColor(a: number, b: number, t: number): number {
@@ -72,8 +72,8 @@ export function calculateSunlightStyle(
   const horizonWarmth = 1 - elevation;
   return {
     color: sunlightColorForHour(hour),
-    directionalAlpha: clamp01(intensity * (0.13 + horizonWarmth * 0.10)),
-    shadeAlpha: clamp01(intensity * (0.095 + horizonWarmth * 0.11)),
+    directionalAlpha: clamp01(intensity * (0.10 + horizonWarmth * 0.08)),
+    shadeAlpha: clamp01(intensity * (0.16 + horizonWarmth * 0.10)),
   };
 }
 

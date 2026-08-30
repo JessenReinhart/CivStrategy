@@ -14,7 +14,7 @@ const LIGHT_GLOW_KEY = 'day-night-light-glow';
 const SUN_BANDS_KEY = 'day-night-sun-bands';
 const SUN_GAPS_KEY = 'day-night-sun-gaps';
 const BONFIRE_SYNC_INTERVAL_MS = 250;
-const SUN_SHADE_COLOR = 0x66758f;
+const SUN_SHADE_COLOR = 0x4f5b47;
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -102,10 +102,7 @@ export class LightingEffectsSystem {
       if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_BANDS_KEY}`);
 
       this.paintSoftBands(canvas.context, size, [
-        { center: 0.10, halfWidth: 0.095, peak: 0.88 },
-        { center: 0.34, halfWidth: 0.115, peak: 0.74 },
-        { center: 0.61, halfWidth: 0.135, peak: 0.92 },
-        { center: 0.88, halfWidth: 0.09, peak: 0.78 },
+        { center: 0.32, halfWidth: 0.28, peak: 0.86 },
       ]);
       canvas.refresh();
       this.generatedTextureKeys.push(SUN_BANDS_KEY);
@@ -116,10 +113,7 @@ export class LightingEffectsSystem {
       if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_GAPS_KEY}`);
 
       this.paintSoftBands(canvas.context, size, [
-        { center: 0.22, halfWidth: 0.075, peak: 0.68 },
-        { center: 0.48, halfWidth: 0.085, peak: 0.58 },
-        { center: 0.75, halfWidth: 0.085, peak: 0.70 },
-        { center: 0.985, halfWidth: 0.06, peak: 0.56 },
+        { center: 0.78, halfWidth: 0.27, peak: 0.82 },
       ]);
       canvas.refresh();
       this.generatedTextureKeys.push(SUN_GAPS_KEY);

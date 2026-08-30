@@ -19,8 +19,8 @@ describe('calculateDayNightState', () => {
         expect(state.hour).toBeCloseTo(8, 5);
         expect(state.sunIntensity).toBeGreaterThan(0.5);
         expect(state.shadowLength).toBeGreaterThan(0);
-        expect(state.ambientAlpha).toBeGreaterThan(0.11);
-        expect(state.ambientAlpha).toBeLessThan(0.14);
+        expect(state.ambientAlpha).toBeGreaterThan(0.18);
+        expect(state.ambientAlpha).toBeLessThan(0.20);
     });
 
     it('keeps midday ambient restrained so directional light owns the contrast', () => {
@@ -32,8 +32,8 @@ describe('calculateDayNightState', () => {
         expect(state.shadowLength).toBeGreaterThanOrEqual(50);
         expect(state.shadowLength).toBeLessThan(60);
         expect(state.shadowAlpha).toBeGreaterThanOrEqual(0.3);
-        expect(state.ambientAlpha).toBeGreaterThan(0.045);
-        expect(state.ambientAlpha).toBeLessThan(0.055);
+        expect(state.ambientAlpha).toBeGreaterThan(0.07);
+        expect(state.ambientAlpha).toBeLessThan(0.08);
     });
 
     it('lengthens and rotates shadows toward sunset', () => {

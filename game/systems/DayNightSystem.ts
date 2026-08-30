@@ -142,6 +142,7 @@ export class DayNightSystem {
       .rectangle(0, 0, 1, 1, this.currentState.ambientColor, this.currentState.ambientAlpha)
       .setOrigin(0, 0)
       .setScrollFactor(1)
+      .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(AMBIENT_DEPTH);
 
     scene.worldLayer.add(firstBuffer.image);
