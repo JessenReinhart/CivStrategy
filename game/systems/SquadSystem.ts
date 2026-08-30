@@ -241,16 +241,19 @@ export class SquadSystem {
         for (let i = 0; i < unitCount; i++) {
             const unit = allUnits[i] as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
-            if (!container || !container.visible) continue;
+            if (!container) continue;
 
             const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
             const commanderIso = toIsoElev(unit.x, unit.y, h);
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
 
+            // The interactive commander visual must follow the authoritative unit even
+            // while culling hides the rendered squad. Otherwise off-screen movement can
+            // leave a stale hit target that never re-enters the viewport correctly.
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const visual = (unit as any).visual as Phaser.GameObjects.Container;
-            if (visual && visual.visible) {
+            if (visual) {
                 visual.setPosition(commanderIso.x, commanderIso.y);
                 visual.setDepth(commanderIso.y);
             }
@@ -494,7 +497,7 @@ export class SquadSystem {
 
     /**
      * Render a squad with LOD-specific optimizations.
-     * LOD_FULL/MEDIUM now use Sprite-based rendering instead of Graphics draw calls.
+     * LOD_FULL/MEDIUM now use Sprite-based soldier rendering instead of Graphics draw calls.
      */
     private renderSquad(
         unit: GameUnit,
