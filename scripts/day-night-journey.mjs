@@ -155,6 +155,9 @@ try {
   assert(midnight.diagnostics.lastStampedBuildingContacts > 0, 'Midnight removed building contact shadows.');
   assert(morning.diagnostics.lastScannedTreeVisuals >= morning.diagnostics.lastStampedTreeContacts, 'Tree contact diagnostics are inconsistent.');
   assert(midnight.diagnostics.lastScannedTreeVisuals >= midnight.diagnostics.lastStampedTreeContacts, 'Night tree contact diagnostics are inconsistent.');
+  assert(midnight.diagnostics.lastStampedTreeProjections === 0, 'Midnight retained projected tree shadows.');
+  assert(morning.diagnostics.lastStampedUnitProjections > 0, 'Morning stamped no unit or citizen shadows.');
+  assert(midnight.diagnostics.lastStampedUnitProjections === 0, 'Midnight retained projected unit shadows.');
   assert(morning.diagnostics.lastStampedBuildingSilhouettes > 0, 'Morning stamped no building silhouettes.');
   assert(midnight.diagnostics.lastStampedBuildingSilhouettes === 0, 'Midnight stamped solar building silhouettes.');
   assert(morning.diagnostics.shadowBufferResolution === 0.5, 'Shadow buffer is not half resolution.');
@@ -308,6 +311,7 @@ try {
   assert(perfEnd.lastDrawnBuildings > 0, 'Dense-map acceptance drew no on-screen shadows.');
   assert(denseSetup.addedTreeVisuals >= 96, 'Dense-map fixture did not add its visible tree pool.');
   assert(perfEnd.lastStampedTreeContacts >= 96, 'Dense-map fixture stamped too few tree contact shadows.');
+  assert(perfEnd.lastStampedTreeProjections >= 96, 'Dense-map fixture stamped too few projected tree shadows.');
   assert(
     perfEnd.lastDrawnBuildings < perfEnd.lastScannedBuildings,
     `Viewport culling did not reduce shadow draw work (${perfEnd.lastDrawnBuildings}/${perfEnd.lastScannedBuildings}).`,

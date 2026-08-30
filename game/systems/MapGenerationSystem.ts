@@ -62,7 +62,7 @@ export class MapGenerationSystem {
             const iso = toIso(x, y);
             const graphics = this.scene.add.graphics();
             graphics.setDepth(-9500);
-            graphics.fillStyle(0x5d4037, 0.12);
+            graphics.fillStyle(0x5d4037, 0.035);
             graphics.fillEllipse(iso.x, iso.y, radius * 2, radius);
         }
     }

@@ -4,17 +4,15 @@ import { BuildingType } from '../../types';
 import { MainScene } from '../MainScene';
 import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
 
-// Ambient sits at depth 19000 in DayNightSystem. These world-space passes sit
-// above it so terrain, water, vegetation, units and buildings all receive the
-// same art-directed sunlight pattern.
-const SUN_SHADE_DEPTH = 19020;
-const SUNLIGHT_DEPTH = 19030;
-const LOCAL_LIGHT_DEPTH = 19100;
+// Fog composites at depth 10000. Keep every light below it so unexplored terrain
+// stays dark instead of being re-exposed by the SCREEN pass.
+const SUN_SHADE_DEPTH = 8950;
+const SUNLIGHT_DEPTH = 8960;
+const SUN_GLARE_DEPTH = 8945;
+const LOCAL_LIGHT_DEPTH = 8970;
 const LIGHT_GLOW_KEY = 'day-night-light-glow';
-const SUN_BANDS_KEY = 'day-night-sun-bands';
-const SUN_GAPS_KEY = 'day-night-sun-gaps';
 const BONFIRE_SYNC_INTERVAL_MS = 250;
-const SUN_SHADE_COLOR = 0x4f5b47;
+const SUN_SHADE_COLOR = 0x343a31;
 
 type BuildingWithVisual = Phaser.GameObjects.GameObject & {
   visual?: Phaser.GameObjects.Container;
@@ -25,25 +23,20 @@ interface BonfireLight {
   readonly seed: number;
 }
 
-interface SoftBand {
-  readonly center: number;
-  readonly halfWidth: number;
-  readonly peak: number;
-}
-
 /**
  * Cheap art-directed world lighting layered after ambient + cast shadows.
  *
- * Instead of a full-screen exposure wash, direct sun is represented by several
- * broad, soft, parallel shafts. The shafts rotate with the solar axis and cover
- * the entire visible world, so terrain and sprites are lit together. Cooler
- * multiply bands fill the gaps to preserve the dramatic light/shade separation
- * from the visual target without requiring normal maps or a custom shader.
+ * Direct sun and shade are two oversized opposing radial fields. Their centers
+ * follow the serialized solar azimuth, producing one coherent light source
+ * instead of a camera-centered stripe pattern. Terrain, vegetation, units and
+ * buildings are graded together without a full-screen exposure wash.
  */
 export class LightingEffectsSystem {
   private readonly scene: MainScene;
   private readonly directionalLight: Phaser.GameObjects.Image;
   private readonly directionalShade: Phaser.GameObjects.Image;
+  private readonly sunFlare: Phaser.GameObjects.Image;
+  private readonly sunRays: readonly Phaser.GameObjects.Image[];
   private readonly bonfireLights = new Map<Phaser.GameObjects.GameObject, BonfireLight>();
   private readonly generatedTextureKeys: string[] = [];
   private lastBonfireSync = Number.NEGATIVE_INFINITY;
@@ -52,23 +45,36 @@ export class LightingEffectsSystem {
   constructor(scene: MainScene) {
     this.scene = scene;
     this.createGlowTexture();
-    this.createDirectionalTextures();
 
     this.directionalShade = scene.add
-      .image(0, 0, SUN_GAPS_KEY)
+      .image(0, 0, LIGHT_GLOW_KEY)
       .setBlendMode(Phaser.BlendModes.MULTIPLY)
       .setDepth(SUN_SHADE_DEPTH)
       .setTint(SUN_SHADE_COLOR)
       .setAlpha(0);
 
     this.directionalLight = scene.add
-      .image(0, 0, SUN_BANDS_KEY)
+      .image(0, 0, LIGHT_GLOW_KEY)
       .setBlendMode(Phaser.BlendModes.SCREEN)
       .setDepth(SUNLIGHT_DEPTH)
       .setAlpha(0);
 
+    this.sunRays = [0, 1].map(() => scene.add
+      .image(0, 0, LIGHT_GLOW_KEY)
+      .setBlendMode(Phaser.BlendModes.SCREEN)
+      .setDepth(SUN_GLARE_DEPTH)
+      .setAlpha(0));
+
+    this.sunFlare = scene.add
+      .image(0, 0, LIGHT_GLOW_KEY)
+      .setBlendMode(Phaser.BlendModes.SCREEN)
+      .setDepth(SUN_GLARE_DEPTH)
+      .setAlpha(0);
+
     scene.worldLayer.add(this.directionalShade);
     scene.worldLayer.add(this.directionalLight);
+    for (const ray of this.sunRays) scene.worldLayer.add(ray);
+    scene.worldLayer.add(this.sunFlare);
 
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.update, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, this.destroy, this);
@@ -85,65 +91,14 @@ export class LightingEffectsSystem {
     const center = size * 0.5;
     const gradient = ctx.createRadialGradient(center, center, 0, center, center, center);
     gradient.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
-    gradient.addColorStop(0.18, 'rgba(255, 255, 255, 0.72)');
-    gradient.addColorStop(0.48, 'rgba(255, 255, 255, 0.25)');
+    gradient.addColorStop(0.22, 'rgba(255, 255, 255, 0.78)');
+    gradient.addColorStop(0.55, 'rgba(255, 255, 255, 0.36)');
+    gradient.addColorStop(0.82, 'rgba(255, 255, 255, 0.10)');
     gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, size, size);
     canvas.refresh();
     this.generatedTextureKeys.push(LIGHT_GLOW_KEY);
-  }
-
-  private createDirectionalTextures(): void {
-    const size = 1024;
-
-    if (!this.scene.textures.exists(SUN_BANDS_KEY)) {
-      const canvas = this.scene.textures.createCanvas(SUN_BANDS_KEY, size, size);
-      if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_BANDS_KEY}`);
-
-      this.paintSoftBands(canvas.context, size, [
-        { center: 0.32, halfWidth: 0.28, peak: 0.86 },
-      ]);
-      canvas.refresh();
-      this.generatedTextureKeys.push(SUN_BANDS_KEY);
-    }
-
-    if (!this.scene.textures.exists(SUN_GAPS_KEY)) {
-      const canvas = this.scene.textures.createCanvas(SUN_GAPS_KEY, size, size);
-      if (!canvas) throw new Error(`Unable to create lighting texture: ${SUN_GAPS_KEY}`);
-
-      this.paintSoftBands(canvas.context, size, [
-        { center: 0.78, halfWidth: 0.27, peak: 0.82 },
-      ]);
-      canvas.refresh();
-      this.generatedTextureKeys.push(SUN_GAPS_KEY);
-    }
-  }
-
-  private paintSoftBands(
-    ctx: CanvasRenderingContext2D,
-    size: number,
-    bands: readonly SoftBand[],
-  ): void {
-    ctx.clearRect(0, 0, size, size);
-
-    for (const band of bands) {
-      const center = band.center * size;
-      const halfWidth = band.halfWidth * size;
-      const left = center - halfWidth;
-      const right = center + halfWidth;
-      const gradient = ctx.createLinearGradient(left, 0, right, 0);
-
-      gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
-      gradient.addColorStop(0.18, `rgba(255, 255, 255, ${band.peak * 0.26})`);
-      gradient.addColorStop(0.38, `rgba(255, 255, 255, ${band.peak * 0.72})`);
-      gradient.addColorStop(0.5, `rgba(255, 255, 255, ${band.peak})`);
-      gradient.addColorStop(0.64, `rgba(255, 255, 255, ${band.peak * 0.76})`);
-      gradient.addColorStop(0.84, `rgba(255, 255, 255, ${band.peak * 0.24})`);
-      gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      ctx.fillStyle = gradient;
-      ctx.fillRect(Math.max(0, left), 0, Math.min(size, right) - Math.max(0, left), size);
-    }
   }
 
   private update(timeMs: number): void {
@@ -175,32 +130,103 @@ export class LightingEffectsSystem {
     const centerX = view.left + view.width * 0.5;
     const centerY = view.top + view.height * 0.5;
     const diagonal = Math.max(1, Math.hypot(view.width, view.height));
-
-    // The texture is deliberately much larger than the rotated viewport so its
-    // edges never become visible while zooming or panning. Local Y is aligned to
-    // the sun/shadow axis, leaving the bright lanes elongated along the rays.
-    const fieldSize = diagonal * 1.9;
-    const bandRotation = state.shadowAngleRad - Math.PI * 0.5;
-
-    // A tiny deterministic phase shift prevents the lighting pattern from feeling
-    // glued to the camera while remaining slow enough to read as moving sunlight.
-    const phase = Math.sin(state.normalizedDay * Math.PI * 2) * diagonal * 0.055;
-    const phaseX = Math.cos(bandRotation) * phase;
-    const phaseY = Math.sin(bandRotation) * phase;
+    const sunDirectionX = Math.cos(state.sunAzimuthRad);
+    const sunDirectionY = Math.sin(state.sunAzimuthRad);
+    const fieldSize = diagonal * 1.34;
+    const fieldRotation = state.sunAzimuthRad + Math.PI * 0.5;
+    const lightOffset = diagonal * 0.38;
+    const shadeOffset = diagonal * 0.35;
 
     this.directionalLight
-      .setPosition(centerX + phaseX, centerY + phaseY)
-      .setDisplaySize(fieldSize, fieldSize)
-      .setRotation(bandRotation)
+      .setPosition(
+        centerX + sunDirectionX * lightOffset,
+        centerY + sunDirectionY * lightOffset,
+      )
+      .setDisplaySize(fieldSize * 1.08, fieldSize * 0.82)
+      .setRotation(fieldRotation)
       .setTint(style.color)
       .setAlpha(style.directionalAlpha);
 
     this.directionalShade
-      .setPosition(centerX + phaseX, centerY + phaseY)
-      .setDisplaySize(fieldSize, fieldSize)
-      .setRotation(bandRotation)
+      .setPosition(
+        centerX - sunDirectionX * shadeOffset,
+        centerY - sunDirectionY * shadeOffset,
+      )
+      .setDisplaySize(fieldSize * 1.18, fieldSize * 0.94)
+      .setRotation(fieldRotation)
       .setTint(SUN_SHADE_COLOR)
       .setAlpha(style.shadeAlpha);
+
+    this.updateSunGlare(
+      state,
+      centerX,
+      centerY,
+      diagonal,
+      sunDirectionX,
+      sunDirectionY,
+    );
+  }
+
+  private updateSunGlare(
+    state: ReturnType<MainScene['dayNightSystem']['getState']>,
+    centerX: number,
+    centerY: number,
+    diagonal: number,
+    sunDirectionX: number,
+    sunDirectionY: number,
+  ): void {
+    if (state.sunIntensity <= 0.001) {
+      this.sunFlare.setAlpha(0);
+      for (const ray of this.sunRays) ray.setAlpha(0);
+      return;
+    }
+
+    const horizonWarmth = 1 - Phaser.Math.Clamp(state.sunElevation, 0, 1);
+    const horizonEnergy = state.sunIntensity * horizonWarmth;
+    const flareDistance = diagonal * 0.47;
+    const flareX = centerX + sunDirectionX * flareDistance;
+    const flareY = centerY + sunDirectionY * flareDistance;
+    const inwardAngle = Math.atan2(centerY - flareY, centerX - flareX);
+    const inwardX = Math.cos(inwardAngle);
+    const inwardY = Math.sin(inwardAngle);
+    const perpendicularX = -Math.sin(inwardAngle);
+    const perpendicularY = Math.cos(inwardAngle);
+    const flareAlpha = Math.min(0.13, horizonEnergy * 0.42);
+
+    this.sunFlare
+      .setPosition(flareX, flareY)
+      .setDisplaySize(diagonal * 0.68, diagonal * 0.48)
+      .setRotation(inwardAngle)
+      .setTint(0xffd39a)
+      .setAlpha(flareAlpha);
+
+    const rayOffsets = [-0.018, 0.035] as const;
+    const rayCenterScales = [0.43, 0.50] as const;
+    const rayLengthScales = [1, 1.18] as const;
+    const rayThicknessScales = [0.09, 0.20] as const;
+    const rayAngleOffsets = [0, -0.035] as const;
+    const rayAlphas = [
+      Math.min(0.075, horizonEnergy * 0.24),
+      Math.min(0.035, horizonEnergy * 0.11),
+    ] as const;
+    const rayTints = [0xffdda6, 0xffe7bd] as const;
+
+    for (let index = 0; index < this.sunRays.length; index++) {
+      const offset = diagonal * rayOffsets[index];
+      const centerDistance = diagonal * rayCenterScales[index];
+      this.sunRays[index]
+        .setPosition(
+          flareX + inwardX * centerDistance + perpendicularX * offset,
+          flareY + inwardY * centerDistance + perpendicularY * offset,
+        )
+        .setDisplaySize(
+          diagonal * rayLengthScales[index],
+          diagonal * rayThicknessScales[index],
+        )
+        .setRotation(inwardAngle + rayAngleOffsets[index])
+        .setTint(rayTints[index])
+        .setAlpha(rayAlphas[index]);
+    }
   }
 
   private syncBonfireLights(): void {
@@ -282,6 +308,8 @@ export class LightingEffectsSystem {
   private setVisible(visible: boolean): void {
     this.directionalLight.setVisible(visible);
     this.directionalShade.setVisible(visible);
+    this.sunFlare.setVisible(visible);
+    for (const ray of this.sunRays) ray.setVisible(visible);
     for (const light of this.bonfireLights.values()) light.image.setVisible(visible);
   }
 
@@ -293,6 +321,8 @@ export class LightingEffectsSystem {
 
     this.directionalLight.destroy();
     this.directionalShade.destroy();
+    this.sunFlare.destroy();
+    for (const ray of this.sunRays) ray.destroy();
     for (const light of this.bonfireLights.values()) light.image.destroy();
     this.bonfireLights.clear();
 

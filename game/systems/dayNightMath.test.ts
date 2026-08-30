@@ -45,6 +45,19 @@ describe('calculateDayNightState', () => {
         expect(sunset.ambientAlpha).toBeGreaterThan(noon.ambientAlpha);
     });
 
+    it('moves the sun across the upper screen and casts morning shadows down-right', () => {
+        const morning = calculateDayNightState(gameTimeForHour(8));
+        const noon = calculateDayNightState(gameTimeForHour(12));
+        const evening = calculateDayNightState(gameTimeForHour(16));
+
+        expect(Math.cos(morning.sunAzimuthRad)).toBeLessThan(0);
+        expect(Math.sin(morning.sunAzimuthRad)).toBeLessThan(0);
+        expect(morning.shadowAngleRad).toBeGreaterThan(0);
+        expect(morning.shadowAngleRad).toBeLessThan(Math.PI / 2);
+        expect(noon.sunAzimuthRad).toBeCloseTo(-Math.PI / 2, 5);
+        expect(evening.shadowAngleRad).toBeGreaterThan(Math.PI / 2);
+    });
+
     it('fades cast shadows before dawn and dusk become nearly horizontal', () => {
         const noon = calculateDayNightState(gameTimeForHour(12));
         const earlyDawn = calculateDayNightState(gameTimeForHour(6.5));

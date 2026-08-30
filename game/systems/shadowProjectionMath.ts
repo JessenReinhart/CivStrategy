@@ -13,7 +13,7 @@ export interface ShadowProjection {
   length: number;
 }
 
-const MAX_SHADOW_ANGLE_FROM_DOWN_RAD = 35 * Math.PI / 180;
+const MAX_SHADOW_ANGLE_FROM_DOWN_RAD = 60 * Math.PI / 180;
 const MAX_SIDEWAYS_TO_DOWN_RATIO = Math.tan(MAX_SHADOW_ANGLE_FROM_DOWN_RAD);
 
 /**

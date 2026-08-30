@@ -40,8 +40,8 @@ export class AtmosphericSystem {
 
     private createSeasonalTint() {
         this.seasonalTint = this.scene.add.graphics();
-        this.seasonalTint.setScrollFactor(0);
-        this.seasonalTint.setDepth(1000);
+        this.seasonalTint.setDepth(8930);
+        this.scene.worldLayer?.add(this.seasonalTint);
         this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
             this.seasonalTint?.destroy();
         });
@@ -113,12 +113,28 @@ export class AtmosphericSystem {
       // Color punch lives in ground/terrain/water, not PostFX.
       const target = this.scene.worldLayer ? this.scene.worldLayer.postFX : this.scene.cameras.main.postFX;
 
-      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.18, 0.08);
+      this.bloomEffect = target.addBloom(0xffffff, 1, 1, 0.12, 0.04);
       this.tiltShiftEffect = null; // drop DOF blur — greys edges
-      this.vignetteEffect = target.addVignette(0.5, 0.5, 0.98, 0.03);
+      this.vignetteEffect = target.addVignette(0.42, 0.40, 0.86, 0.20);
       this.colorGradeEffect = target.addColorMatrix();
-      this.colorGradeEffect.saturate(0.9);
-      this.colorGradeEffect.contrast(0.28, true);
+      this.colorGradeEffect.saturate(0.60);
+      this.colorGradeEffect.brightness(0.82, true);
+      this.colorGradeEffect.multiply([
+        1.32, 0, 0, 0, 0,
+        0, 1.04, 0, 0, 0,
+        0, 0, 0.78, 0, 0,
+        0, 0, 0, 1, 0,
+      ], true);
+      // ColorMatrix translation entries are byte-space. Build a real contrast
+      // pivot around 50% gray so mids deepen while highlights remain stable.
+      const contrast = 1.52;
+      const contrastOffset = -0.5 * (contrast - 1) * 255;
+      this.colorGradeEffect.multiply([
+        contrast, 0, 0, 0, contrastOffset,
+        0, contrast, 0, 0, contrastOffset,
+        0, 0, contrast, 0, contrastOffset,
+        0, 0, 0, 1, 0,
+      ], true);
     }
 
     public setBloomIntensity(intensity: number) {
@@ -173,9 +189,9 @@ export class AtmosphericSystem {
         if (this.postFXEnabled && this.bloomEffect) {
             const zoomProgress = Phaser.Math.Clamp((cam.zoom - 0.5) / 1.5, 0, 1);
             // Mild glow only — high bloom was washing the map to grey
-            const baseStrength = Phaser.Math.Linear(0.08, 0.03, zoomProgress);
-            const pulse = Math.sin(time * 0.002) * 0.006;
-            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.02, 0.12);
+            const baseStrength = Phaser.Math.Linear(0.04, 0.02, zoomProgress);
+            const pulse = Math.sin(time * 0.002) * 0.003;
+            const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.015, 0.06);
             const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }

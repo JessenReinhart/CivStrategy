@@ -72,8 +72,8 @@ export function calculateSunlightStyle(
   const horizonWarmth = 1 - elevation;
   return {
     color: sunlightColorForHour(hour),
-    directionalAlpha: clamp01(intensity * (0.10 + horizonWarmth * 0.08)),
-    shadeAlpha: clamp01(intensity * (0.16 + horizonWarmth * 0.10)),
+    directionalAlpha: clamp01(intensity * (0.08 + horizonWarmth * 0.16)),
+    shadeAlpha: Math.min(0.62, intensity * (0.32 + horizonWarmth * 0.95)),
   };
 }
 

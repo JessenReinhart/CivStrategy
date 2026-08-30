@@ -100,10 +100,11 @@ export function calculateDayNightState(
     const sunElevation = isDay ? Math.max(0, Math.sin(daylightProgress * Math.PI)) : 0;
     const sunIntensity = isDay ? Math.pow(sunElevation, 0.55) : 0;
 
-    // Sweep the visual sun east-to-west across the day. The renderer projects
-    // the shadow in the opposite direction for a deliberately screen-space,
-    // isometric-friendly result rather than a physical 3D solar simulation.
-    const sunAzimuthRad = -0.2 * Math.PI + daylightProgress * 1.4 * Math.PI;
+    // In screen space the sun traverses the upper hemisphere from the left
+    // horizon through noon to the right horizon. The projected cast is clamped
+    // to the lower half-plane by shadowProjectionMath, giving a long down-right
+    // morning shadow, a short noon cast, and a mirrored evening shadow.
+    const sunAzimuthRad = -Math.PI + daylightProgress * Math.PI;
     const shadowAngleRad = sunAzimuthRad + Math.PI;
 
     // The 2D emitter-line fake is strongest when the sun is comfortably above
@@ -112,7 +113,7 @@ export function calculateDayNightState(
     // cast. Ambient lighting still continues through dawn/dusk/night normally.
     const shadowVisibility = smoothstep(0.12, 0.30, sunElevation);
     const shadowLength = shadowVisibility > 0.001
-        ? lerp(210, 54, Math.sqrt(sunElevation))
+        ? lerp(250, 56, sunElevation)
         : 0;
     const shadowAlpha = sunIntensity > 0.01
         ? (0.30 + (1 - sunElevation) * 0.16)

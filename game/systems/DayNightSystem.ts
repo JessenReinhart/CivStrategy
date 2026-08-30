@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 import { MainScene } from '../MainScene';
-import { BuildingDef } from '../../types';
+import { BuildingDef, type GameUnit } from '../../types';
 import {
   BUILDING_SPRITE_VISUALS,
   type BuildingSpriteVisualConfig,
@@ -21,12 +21,18 @@ import { calculateShadowProjection } from './shadowProjectionMath';
 const STATE_PUBLISH_INTERVAL_MS = 250;
 const SHADOW_CROSSFADE_MS = SHADOW_REFRESH_INTERVAL_MS;
 const SHADOW_DEPTH = -1800;
-const AMBIENT_DEPTH = 19000;
+const AMBIENT_DEPTH = 8940;
 const SHADOW_BUFFER_PADDING_PX = 192;
 const SHADOW_BUFFER_RESOLUTION = 0.5;
 const MIN_VISIBLE_SHADOW_ALPHA = 0.005;
 const BUILDING_CONTACT_ALPHA = 0.20;
 const TREE_CONTACT_ALPHA = 0.11;
+const TREE_PROJECTED_ALPHA_SCALE = 0.68;
+const TREE_SHADOW_HEIGHT_SCALE = 0.90;
+const UNIT_PROJECTED_ALPHA_SCALE = 0.78;
+const UNIT_SHADOW_HEIGHT_SCALE = 0.68;
+const AMBIENT_CITIZEN_ALPHA_SCALE = 0.42;
+const AMBIENT_CITIZEN_HEIGHT_SCALE = 0.46;
 const CONTACT_SHADOW_KEY = 'day-night-contact-shadow';
 const SHADOW_BUFFER_PREFIX = 'day-night-shadow-buffer-';
 const SHADOW_RGB = '8, 12, 18';
@@ -79,6 +85,9 @@ export interface DayNightDiagnostics {
   readonly lastStampedBuildingContacts: number;
   readonly lastScannedTreeVisuals: number;
   readonly lastStampedTreeContacts: number;
+  readonly lastStampedTreeProjections: number;
+  readonly lastStampedUnitContacts: number;
+  readonly lastStampedUnitProjections: number;
   readonly shadowBufferWidth: number;
   readonly shadowBufferHeight: number;
   readonly shadowBufferResolution: number;
@@ -124,6 +133,9 @@ export class DayNightSystem {
   private lastStampedBuildingContacts = 0;
   private lastScannedTreeVisuals = 0;
   private lastStampedTreeContacts = 0;
+  private lastStampedTreeProjections = 0;
+  private lastStampedUnitContacts = 0;
+  private lastStampedUnitProjections = 0;
   private shadowBufferWidth = 2;
   private shadowBufferHeight = 2;
   private destroyed = false;
@@ -193,6 +205,9 @@ export class DayNightSystem {
       lastStampedBuildingContacts: this.lastStampedBuildingContacts,
       lastScannedTreeVisuals: this.lastScannedTreeVisuals,
       lastStampedTreeContacts: this.lastStampedTreeContacts,
+      lastStampedTreeProjections: this.lastStampedTreeProjections,
+      lastStampedUnitContacts: this.lastStampedUnitContacts,
+      lastStampedUnitProjections: this.lastStampedUnitProjections,
       shadowBufferWidth: this.shadowBufferWidth,
       shadowBufferHeight: this.shadowBufferHeight,
       shadowBufferResolution: SHADOW_BUFFER_RESOLUTION,
@@ -409,9 +424,13 @@ export class DayNightSystem {
     this.lastStampedBuildingContacts = 0;
     this.lastScannedTreeVisuals = 0;
     this.lastStampedTreeContacts = 0;
+    this.lastStampedTreeProjections = 0;
+    this.lastStampedUnitContacts = 0;
+    this.lastStampedUnitProjections = 0;
 
     this.drawBuildingShadows(nextBuffer, layout, state);
-    this.drawTreeContacts(nextBuffer, layout);
+    this.drawTreeShadows(nextBuffer, layout, state);
+    this.drawUnitShadows(nextBuffer, layout, state);
     nextBuffer.texture.refresh();
 
     this.shadowRefreshCount++;
@@ -571,7 +590,11 @@ export class DayNightSystem {
     };
   }
 
-  private drawTreeContacts(buffer: ShadowBuffer, layout: ShadowBufferLayout): void {
+  private drawTreeShadows(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    state: Readonly<DayNightState>,
+  ): void {
     const visuals = this.scene.treeVisuals.getChildren() as Phaser.GameObjects.Image[];
     for (const visual of visuals) {
       this.lastScannedTreeVisuals++;
@@ -590,7 +613,256 @@ export class DayNightSystem {
         TREE_CONTACT_ALPHA * visual.alpha,
       );
       this.lastStampedTreeContacts++;
+
+      if (
+        visual.texture.key !== 'tree'
+        || state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA
+        || state.shadowLength <= 0
+      ) {
+        continue;
+      }
+
+      const projection = calculateShadowProjection({
+        shadowAngleRad: state.shadowAngleRad,
+        shadowLength: state.shadowLength,
+        shadowHeightScale: TREE_SHADOW_HEIGHT_SCALE,
+      });
+      this.stampTreeProjection(
+        buffer,
+        layout,
+        visual,
+        projection,
+        state.shadowAlpha * visual.alpha * TREE_PROJECTED_ALPHA_SCALE,
+      );
+      this.lastStampedTreeProjections++;
     }
+  }
+
+  private stampTreeProjection(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    visual: Phaser.GameObjects.Image,
+    projection: ReturnType<typeof calculateShadowProjection>,
+    alpha: number,
+  ): void {
+    if (projection.length <= 0 || alpha <= 0) return;
+
+    const base = { x: visual.x, y: visual.y + 2 };
+    const displayWidth = Math.abs(visual.displayWidth);
+    const trunkHalfWidth = Math.max(1.5, displayWidth * 0.027);
+    const trunkEndHalfWidth = Math.max(2.5, displayWidth * 0.055);
+    const trunkEnd = {
+      x: base.x + projection.directionX * projection.length * 0.68,
+      y: base.y + projection.directionY * projection.length * 0.68,
+    };
+
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      [
+        {
+          x: base.x - projection.perpendicularX * trunkHalfWidth,
+          y: base.y - projection.perpendicularY * trunkHalfWidth,
+        },
+        {
+          x: base.x + projection.perpendicularX * trunkHalfWidth,
+          y: base.y + projection.perpendicularY * trunkHalfWidth,
+        },
+        {
+          x: trunkEnd.x + projection.perpendicularX * trunkEndHalfWidth,
+          y: trunkEnd.y + projection.perpendicularY * trunkEndHalfWidth,
+        },
+        {
+          x: trunkEnd.x - projection.perpendicularX * trunkEndHalfWidth,
+          y: trunkEnd.y - projection.perpendicularY * trunkEndHalfWidth,
+        },
+      ],
+      base,
+      trunkEnd,
+      alpha * 0.78,
+    );
+
+    const canopyCenter = {
+      x: base.x + projection.directionX * projection.length * 0.77,
+      y: base.y + projection.directionY * projection.length * 0.77,
+    };
+    const canopyWidth = Math.max(18, displayWidth * 0.76);
+    const canopyLength = Math.max(canopyWidth * 0.38, projection.length * 0.42);
+
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      canopyCenter.x,
+      canopyCenter.y,
+      canopyWidth,
+      canopyLength,
+      projection.rotation,
+      alpha * 0.58,
+    );
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      canopyCenter.x - projection.directionX * canopyLength * 0.08,
+      canopyCenter.y - projection.directionY * canopyLength * 0.08,
+      canopyWidth * 0.72,
+      canopyLength * 0.72,
+      projection.rotation,
+      alpha * 0.24,
+    );
+  }
+
+  private drawUnitShadows(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    state: Readonly<DayNightState>,
+  ): void {
+    if (state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA || state.shadowLength <= 0) return;
+
+    const unitProjection = calculateShadowProjection({
+      shadowAngleRad: state.shadowAngleRad,
+      shadowLength: state.shadowLength,
+      shadowHeightScale: UNIT_SHADOW_HEIGHT_SCALE,
+    });
+
+    for (const villager of this.scene.villagerSystem?.getAllVillagers() ?? []) {
+      const visual = villager.visual;
+      if (!visual?.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
+      const sprite = visual.getData('villagerSprite') as Phaser.GameObjects.Image | undefined;
+      const rootWidth = Phaser.Math.Clamp(Math.abs(sprite?.displayWidth ?? 28) * 0.13, 3, 7);
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        visual.x,
+        visual.y + 2,
+        rootWidth,
+        unitProjection,
+        state.shadowAlpha * visual.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+      );
+    }
+
+    for (const unitObject of this.scene.units.getChildren()) {
+      const unit = unitObject as GameUnit;
+      if (!unit.active) continue;
+
+      const container = unit.getData('squadContainer') as Phaser.GameObjects.Container | undefined;
+      const soldierSprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
+      if (container?.active && container.visible && soldierSprites?.length) {
+        for (const sprite of soldierSprites) {
+          if (!sprite.active || !sprite.visible || sprite.alpha <= 0.01) continue;
+          const worldX = container.x + sprite.x;
+          const worldY = container.y + sprite.y + 2;
+          if (!this.contains(layout, worldX, worldY)) continue;
+          const rootWidth = Phaser.Math.Clamp(Math.abs(sprite.displayWidth) * 0.12, 3, 10);
+          this.stampUnitProjection(
+            buffer,
+            layout,
+            worldX,
+            worldY,
+            rootWidth,
+            unitProjection,
+            state.shadowAlpha * container.alpha * sprite.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+          );
+        }
+        continue;
+      }
+
+      const visual = unit.visual;
+      if (!visual?.active || !visual.visible || visual.alpha <= 0.01) continue;
+      if (!this.contains(layout, visual.x, visual.y)) continue;
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        visual.x,
+        visual.y + 2,
+        4,
+        unitProjection,
+        state.shadowAlpha * visual.alpha * UNIT_PROJECTED_ALPHA_SCALE,
+      );
+    }
+
+    const ambientProjection = calculateShadowProjection({
+      shadowAngleRad: state.shadowAngleRad,
+      shadowLength: state.shadowLength,
+      shadowHeightScale: AMBIENT_CITIZEN_HEIGHT_SCALE,
+    });
+    this.scene.ambientSystem?.forEachVisibleCitizen((x, y, alpha) => {
+      if (!this.contains(layout, x, y)) return;
+      this.stampUnitProjection(
+        buffer,
+        layout,
+        x,
+        y + 1,
+        2.5,
+        ambientProjection,
+        state.shadowAlpha * alpha * AMBIENT_CITIZEN_ALPHA_SCALE,
+      );
+    });
+  }
+
+  private stampUnitProjection(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    rootX: number,
+    rootY: number,
+    rootWidth: number,
+    projection: ReturnType<typeof calculateShadowProjection>,
+    alpha: number,
+  ): void {
+    if (projection.length <= 0 || alpha <= 0) return;
+
+    const contactWidth = rootWidth * 2.4;
+    this.stampContact(
+      buffer,
+      layout,
+      rootX,
+      rootY,
+      contactWidth,
+      Math.max(2.5, rootWidth * 0.72),
+      Math.min(0.13, alpha * 0.46),
+    );
+    this.lastStampedUnitContacts++;
+
+    const endX = rootX + projection.directionX * projection.length;
+    const endY = rootY + projection.directionY * projection.length;
+    const rootHalfWidth = rootWidth * 0.52;
+    const endHalfWidth = rootWidth * 0.34;
+    this.fillGradientGroundPolygon(
+      buffer,
+      layout,
+      [
+        {
+          x: rootX - projection.perpendicularX * rootHalfWidth,
+          y: rootY - projection.perpendicularY * rootHalfWidth,
+        },
+        {
+          x: rootX + projection.perpendicularX * rootHalfWidth,
+          y: rootY + projection.perpendicularY * rootHalfWidth,
+        },
+        {
+          x: endX + projection.perpendicularX * endHalfWidth,
+          y: endY + projection.perpendicularY * endHalfWidth,
+        },
+        {
+          x: endX - projection.perpendicularX * endHalfWidth,
+          y: endY - projection.perpendicularY * endHalfWidth,
+        },
+      ],
+      { x: rootX, y: rootY },
+      { x: endX, y: endY },
+      alpha,
+    );
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      endX - projection.directionX * rootWidth * 0.55,
+      endY - projection.directionY * rootWidth * 0.55,
+      rootWidth * 1.55,
+      rootWidth * 2.15,
+      projection.rotation,
+      alpha * 0.42,
+    );
+    this.lastStampedUnitProjections++;
   }
 
   private stampBuildingProjection(
@@ -611,6 +883,46 @@ export class DayNightSystem {
     const endHalfDy = edgeDy * 0.5 * endWidthScale;
     const endA = { x: endCenterX - endHalfDx, y: endCenterY - endHalfDy };
     const endB = { x: endCenterX + endHalfDx, y: endCenterY + endHalfDy };
+    const penumbraSpread = Math.max(2, shadowBase.contactHeight * 0.65);
+
+    for (const side of [-1, 1]) {
+      const rootOffsetX = projection.perpendicularX * penumbraSpread * side * 0.18;
+      const rootOffsetY = projection.perpendicularY * penumbraSpread * side * 0.18;
+      const endOffsetX = projection.perpendicularX * penumbraSpread * side;
+      const endOffsetY = projection.perpendicularY * penumbraSpread * side;
+      const softEndHalfDx = endHalfDx * 1.16;
+      const softEndHalfDy = endHalfDy * 1.16;
+      this.fillGradientGroundPolygon(
+        buffer,
+        layout,
+        [
+          { x: shadowBase.startA.x + rootOffsetX, y: shadowBase.startA.y + rootOffsetY },
+          { x: shadowBase.startB.x + rootOffsetX, y: shadowBase.startB.y + rootOffsetY },
+          {
+            x: endCenterX + softEndHalfDx + endOffsetX,
+            y: endCenterY + softEndHalfDy + endOffsetY,
+          },
+          {
+            x: endCenterX - softEndHalfDx + endOffsetX,
+            y: endCenterY - softEndHalfDy + endOffsetY,
+          },
+        ],
+        { x: shadowBase.centerX + rootOffsetX, y: shadowBase.centerY + rootOffsetY },
+        { x: endCenterX + endOffsetX, y: endCenterY + endOffsetY },
+        alpha * 0.08,
+      );
+    }
+
+    this.stampProjectedBlob(
+      buffer,
+      layout,
+      endCenterX - projection.directionX * shadowBase.contactHeight,
+      endCenterY - projection.directionY * shadowBase.contactHeight,
+      Math.max(shadowBase.contactWidth, Math.hypot(endHalfDx, endHalfDy) * 2) * 1.08,
+      Math.max(shadowBase.contactHeight * 2.4, projection.length * 0.14),
+      projection.rotation,
+      alpha * 0.18,
+    );
 
     this.fillGradientGroundPolygon(
       buffer,
@@ -691,6 +1003,38 @@ export class DayNightSystem {
       (worldX - layout.left) * layout.pixelsPerWorld,
       (worldY - layout.top) * layout.pixelsPerWorld,
     );
+    ctx.scale(
+      (width / source.width) * layout.pixelsPerWorld,
+      (height / source.height) * layout.pixelsPerWorld,
+    );
+    ctx.drawImage(source, -source.width * 0.5, -source.height * 0.5);
+    ctx.restore();
+  }
+
+  private stampProjectedBlob(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    worldX: number,
+    worldY: number,
+    width: number,
+    height: number,
+    rotation: number,
+    alpha: number,
+  ): void {
+    if (alpha <= 0 || !this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+
+    const source = this.scene.textures
+      .get(CONTACT_SHADOW_KEY)
+      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    const ctx = buffer.texture.context;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(
+      (worldX - layout.left) * layout.pixelsPerWorld,
+      (worldY - layout.top) * layout.pixelsPerWorld,
+    );
+    ctx.rotate(rotation);
     ctx.scale(
       (width / source.width) * layout.pixelsPerWorld,
       (height / source.height) * layout.pixelsPerWorld,

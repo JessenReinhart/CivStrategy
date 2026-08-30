@@ -75,7 +75,7 @@ export class InfiniteMapSystem {
             const fGfx = this.scene.add.graphics();
             fGfx.setDepth(-9500);
             const iso = toIso(fx, fy);
-            fGfx.fillStyle(0x3e2723, 0.2);
+            fGfx.fillStyle(0x3e2723, 0.06);
             fGfx.fillEllipse(iso.x, iso.y, radius * 2, radius);
         }
     }

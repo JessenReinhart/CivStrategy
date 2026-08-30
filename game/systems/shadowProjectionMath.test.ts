@@ -40,11 +40,11 @@ describe('calculateShadowProjection', () => {
     const farRight = calculateShadowProjection({ ...baseInput, shadowAngleRad: 0 });
     const down = calculateShadowProjection({ ...baseInput, shadowAngleRad: Math.PI / 2 });
 
-    const maxSideways = Math.sin(35 * Math.PI / 180);
+    const maxSideways = Math.sin(60 * Math.PI / 180);
     expect(Math.abs(farLeft.directionX)).toBeLessThanOrEqual(maxSideways + 0.001);
     expect(Math.abs(farRight.directionX)).toBeLessThanOrEqual(maxSideways + 0.001);
-    expect(farLeft.directionY).toBeGreaterThan(0.8);
-    expect(farRight.directionY).toBeGreaterThan(0.8);
+    expect(farLeft.directionY).toBeGreaterThanOrEqual(0.49);
+    expect(farRight.directionY).toBeGreaterThanOrEqual(0.49);
     expect(down.directionY).toBeGreaterThan(0.99);
     expect(Math.hypot(farLeft.directionX, farLeft.directionY)).toBeCloseTo(1, 5);
     expect(Math.hypot(farRight.directionX, farRight.directionY)).toBeCloseTo(1, 5);
