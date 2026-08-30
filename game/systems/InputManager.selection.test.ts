@@ -48,6 +48,7 @@ describe('InputManager player command selection', () => {
             proceduralSound: { playUIClick, playCommandAck },
             unitSystem: { commandMove, commandAttack },
             units: { getChildren: vi.fn(() => []) },
+            cameras: { main: { zoom: 1, getWorldPoint: vi.fn((x: number, y: number) => ({ x, y })) } },
         };
 
         const manager = Object.create(InputManager.prototype) as InputManager;
@@ -130,7 +131,7 @@ describe('InputManager player command selection', () => {
         expect(playCommandAck).toHaveBeenCalledOnce();
     });
 
-    it('accepts a right-click near a visible enemy body when Phaser misses its interactive hit area', () => {
+    it('uses main-camera coordinates to target a visible enemy when Phaser world coordinates are stale', () => {
         const commandMove = vi.fn();
         const commandAttack = vi.fn();
         const playCommandAck = vi.fn();
@@ -150,11 +151,13 @@ describe('InputManager player command selection', () => {
             visual: enemyVisual,
             getData: vi.fn((key: string) => key === 'owner' ? 1 : undefined),
         };
+        const getWorldPoint = vi.fn(() => ({ x: 640, y: 360 }));
         const scene = {
             input: { hitTestPointer: vi.fn(() => []) },
             proceduralSound: { playCommandAck },
             unitSystem: { commandMove, commandAttack },
             units: { getChildren: vi.fn(() => [enemyUnit]) },
+            cameras: { main: { zoom: 1.5, getWorldPoint } },
         };
         const manager = Object.create(InputManager.prototype) as InputManager;
         Object.defineProperty(manager, 'scene', { value: scene });
@@ -165,10 +168,11 @@ describe('InputManager player command selection', () => {
             handleRightClick(pointer: unknown): void;
         }).handleRightClick.bind(manager);
 
-        rightClick({ worldX: 640, worldY: 360, event: { shiftKey: false } });
+        rightClick({ x: 864, y: 608, worldX: 272, worldY: 566, event: { shiftKey: false } });
 
+        expect(getWorldPoint).toHaveBeenCalledWith(864, 608);
         expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
         expect(commandMove).not.toHaveBeenCalled();
-        expect(playCommandAck).toHaveBeenCalledOnce();
+        expect(playCommandAck).toHaveBeenCalledWith(640, 360);
     });
 });
