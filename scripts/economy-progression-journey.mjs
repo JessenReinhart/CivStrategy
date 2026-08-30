@@ -102,11 +102,21 @@ async function cartesianScreenPoint(page, point) {
   }, point);
 }
 
-async function rightClickThroughFrame(page, x, y) {
+async function rightClickThroughFrame(page, x, y, targetKind) {
   await page.mouse.move(x, y);
   const beforeMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, beforeMove, { timeout: 30_000 });
   await page.mouse.move(x, y);
+  if (targetKind === 'camp') {
+    await page.waitForFunction(() => {
+      const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+      const camp = window.__economyProgressionProbe?.camp;
+      const pointer = scene?.input?.activePointer;
+      if (!scene || !camp || !pointer) return false;
+      return scene.input.hitTestPointer(pointer)
+        .some((target) => target.getData?.('building') === camp);
+    }, undefined, { timeout: 30_000 });
+  }
   const beforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.down({ button: 'right' });
   try {
@@ -214,8 +224,14 @@ try {
   await page.waitForFunction(() => Boolean(window.__economyProgressionProbe.villager.visual?.getData('workforceSelectionRing')?.active), undefined, { timeout: 30_000 });
 
   evidence.phase = 'assign-work';
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__economyProgressionProbe;
+    scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
+  });
+  await waitForCameraSync(page);
   const campPoint = await screenPoint(page, 'camp');
-  await rightClickThroughFrame(page, box.x + campPoint.x, box.y + campPoint.y);
+  await rightClickThroughFrame(page, box.x + campPoint.x, box.y + campPoint.y, 'camp');
   await page.waitForFunction(() => {
     const { villager, camp } = window.__economyProgressionProbe;
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
