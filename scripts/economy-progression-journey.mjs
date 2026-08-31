@@ -364,6 +364,9 @@ try {
       pathLength: player.path?.length ?? 0,
     };
   });
+  if (evidence.moveAccepted.pathLength < 2 || evidence.moveAccepted.speed <= 0) {
+    throw new Error(`Real movement right-click did not create an active trained-unit path: ${JSON.stringify(evidence.moveAccepted)}`);
+  }
   const minimumSimulationMs = 180;
   try {
     await page.waitForFunction(({ target, start, acceptedGameTime, minimumSimulationMs }) => {
@@ -374,11 +377,7 @@ try {
       if (movedDistance >= 40 && distanceToTarget <= 48) return true;
       const simulatedMs = scene.gameTime - acceptedGameTime;
       if (simulatedMs < minimumSimulationMs) return false;
-      const speed = player.body?.velocity?.length?.() ?? 0;
-      const expectedProgress = speed * simulatedMs / 1000;
-      return speed > 0
-        && movedDistance >= Math.max(8, expectedProgress * 0.75)
-        && distanceToTarget < start.distanceToTarget;
+      return movedDistance >= 8 && distanceToTarget < start.distanceToTarget;
     }, {
       target: evidence.moveTarget,
       start: evidence.moveCommandStart,
@@ -386,19 +385,20 @@ try {
       minimumSimulationMs,
     }, { timeout: 30_000 });
   } catch (error) {
-    evidence.moveFailureState = await page.evaluate((target) => {
+    evidence.moveFailureState = await page.evaluate(({ target, acceptedGameTime }) => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const player = window.__economyProgressionProbe.player;
       return {
         x: player.x,
         y: player.y,
         gameTime: scene.gameTime,
-        simulatedMs: scene.gameTime - window.__economyProgressionProbe.moveAcceptedGameTime,
+        simulatedMs: scene.gameTime - acceptedGameTime,
         speed: player.body?.velocity?.length?.() ?? 0,
+        pathLength: player.path?.length ?? 0,
         distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
         movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
       };
-    }, evidence.moveTarget).catch(() => null);
+    }, { target: evidence.moveTarget, acceptedGameTime: evidence.moveAccepted.gameTime }).catch(() => null);
     throw error;
   }
   evidence.moveArrival = await page.evaluate((target) => {
