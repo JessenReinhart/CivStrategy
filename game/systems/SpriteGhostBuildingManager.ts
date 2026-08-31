@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import type { MainScene } from '../MainScene';
 import { BuildingType } from '../../types';
 import { BUILDINGS } from '../../constants';
-import { toCartesian } from '../utils/iso';
+import { toCartesianElev } from '../utils/iso';
 import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
 import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
@@ -45,12 +45,18 @@ export class SpriteGhostBuildingManager extends BuildingManager {
         }) as Phaser.GameObjects.Image | undefined;
         if (!ghost) return;
 
-        const cart = toCartesian(worldX, worldY);
         const def = BUILDINGS[this.previewBuildingType];
-        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const cx = gx + def.width / 2;
-        const cy = gy + def.height / 2;
+        const cart = toCartesianElev(
+            worldX,
+            worldY,
+            (x, y) => this.ghostScene.terrainSystem.getHeightAt(x, y),
+        );
+        const halfW = def.width / 2;
+        const halfH = def.height / 2;
+        const gx = Math.round((cart.x - halfW) / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const gy = Math.round((cart.y - halfH) / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const cx = gx + halfW;
+        const cy = gy + halfH;
         const managerValidity = this as unknown as {
             checkBuildValidity(x: number, y: number, type: BuildingType): boolean;
         };
