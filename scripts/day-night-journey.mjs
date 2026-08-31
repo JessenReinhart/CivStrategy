@@ -209,7 +209,7 @@ try {
   assert(maxAmbientAlphaStep < 0.16, `Ambient cycle contains a visible alpha jump (${maxAmbientAlphaStep.toFixed(3)}).`);
   assert(
     Math.abs(continuity[0].ambientAlpha - continuity.at(-1).ambientAlpha) < 0.01,
-    `Day/night ambient loop does not wrap continuously from 24:00 to 00:00 (${continuity[0].ambientAlpha} vs ${continuity.at(-1].ambientAlpha}).`,
+    `Day/night ambient loop does not wrap continuously from 24:00 to 00:00 (${continuity[0].ambientAlpha} vs ${continuity.at(-1).ambientAlpha}).`,
   );
   telemetry.continuity = { samples: continuity, maxAmbientAlphaStep };
 
