@@ -66,7 +66,7 @@ try {
     );
   }, undefined, { timeout: 45_000 });
 
-  const result = await page.evaluate(() => {
+  const result = await page.evaluate(async () => {
     const game = window.__civStrategyGame;
     const scene = game.scene.getScene('MainScene');
     const manager = scene.buildingManager;
@@ -76,11 +76,14 @@ try {
     scene.resources.gold = 100_000;
 
     const GRID = 16;
-    const dims = {
-      House: { width: 48, height: 48 },
-      Farm: { width: 48, height: 48 },
-      Barracks: { width: 72, height: 72 },
-    };
+    const { BUILDINGS } = await import('/constants.ts');
+    const dims = Object.fromEntries(
+      ['House', 'Farm', 'Barracks'].map((type) => {
+        const def = BUILDINGS[type];
+        if (!def) throw new Error(`${type} definition was not available from the running game.`);
+        return [type, { width: def.width, height: def.height }];
+      }),
+    );
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const buildings = () => scene.buildings.getChildren();
