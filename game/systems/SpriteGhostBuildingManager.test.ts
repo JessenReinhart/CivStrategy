@@ -18,7 +18,6 @@ vi.mock('phaser', () => ({
 
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
-import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import { BuildingManager } from './BuildingManager';
 import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
@@ -37,6 +36,11 @@ function makePreviewManager(isValid: boolean) {
     Object.assign(manager as unknown as Record<string, unknown>, {
         previewBuilding: { list: [ghost] },
         previewBuildingType: BuildingType.HOUSE,
+        ghostScene: {
+            terrainSystem: {
+                getHeightAt: vi.fn(() => 0),
+            },
+        },
         checkBuildValidity,
     });
 
@@ -57,11 +61,7 @@ describe('SpriteGhostBuildingManager placement feedback', () => {
 
         manager.updatePreview(0, 0);
 
-        expect(checkBuildValidity).toHaveBeenCalledWith(
-            BUILDINGS[BuildingType.HOUSE].width / 2,
-            BUILDINGS[BuildingType.HOUSE].height / 2,
-            BuildingType.HOUSE,
-        );
+        expect(checkBuildValidity).toHaveBeenCalledWith(0, 0, BuildingType.HOUSE);
         expect(ghost.setTint).toHaveBeenCalledWith(0xffffff);
         expect(ghost.setAlpha).toHaveBeenCalledWith(0.62);
     });
