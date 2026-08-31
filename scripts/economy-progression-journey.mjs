@@ -209,47 +209,43 @@ try {
     const startingResources = { ...scene.resources };
     const villager = scene.villagerSystem.getIdleVillagers(0)[0];
     if (!villager?.visual) throw new Error('No idle player villager available.');
-    const trees = scene.trees.getChildren().filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'));
-    const tree = trees.sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))[0];
-    if (!tree) throw new Error('No live tree available.');
+    const trees = scene.trees.getChildren()
+      .filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'))
+      .sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))
+      .slice(0, 12);
+    if (trees.length === 0) throw new Error('No live tree available.');
 
     const manager = scene.buildingManager;
     const baseline = new Set(scene.buildings.getChildren());
-    const footprint = 48;
-    const half = footprint / 2;
-    const grid = 16;
-    const snapTopLeft = (center) => Math.floor((center - half) / grid) * grid;
-    let placement = null;
-    const radii = [64, 80, 96, 112, 128];
-    for (const radius of radii) {
-      for (let step = 0; step < 16; step++) {
-        const angle = (step / 16) * Math.PI * 2;
-        const topLeftX = snapTopLeft(tree.x + Math.cos(angle) * radius);
-        const topLeftY = snapTopLeft(tree.y + Math.sin(angle) * radius);
-        const centerX = topLeftX + half;
-        const centerY = topLeftY + half;
-        if (manager.getBuildValidity(centerX, centerY, 'Lumber Camp').valid) {
-          placement = { topLeftX, topLeftY, centerX, centerY };
-          break;
-        }
-      }
-      if (placement) break;
-    }
-    if (!placement) throw new Error('No valid fresh-game Lumber Camp placement found near live wood.');
-
     manager.enterBuildMode('Lumber Camp');
-    const iso = {
-      x: placement.topLeftX - placement.topLeftY,
-      y: (placement.topLeftX + placement.topLeftY) * 0.5,
-    };
-    manager.tryBuild(iso.x, iso.y);
+    let camp = null;
+    let sourceTree = null;
+    const radii = [48, 64, 80, 96, 112, 128];
+    for (const tree of trees) {
+      for (const radius of radii) {
+        for (let step = 0; step < 16; step++) {
+          const angle = (step / 16) * Math.PI * 2;
+          const cartX = tree.x + Math.cos(angle) * radius;
+          const cartY = tree.y + Math.sin(angle) * radius;
+          const isoX = cartX - cartY;
+          const isoY = (cartX + cartY) * 0.5;
+          manager.tryBuild(isoX, isoY);
+          camp = scene.buildings.getChildren().find((building) => (
+            !baseline.has(building)
+            && building.getData('owner') === 0
+            && building.getData('def')?.type === 'Lumber Camp'
+          ));
+          if (camp) {
+            sourceTree = tree;
+            break;
+          }
+        }
+        if (camp) break;
+      }
+      if (camp) break;
+    }
     manager.cancelBuildMode();
-    const camp = scene.buildings.getChildren().find((building) => (
-      !baseline.has(building)
-      && building.getData('owner') === 0
-      && building.getData('def')?.type === 'Lumber Camp'
-    ));
-    if (!camp) throw new Error('Fresh-game Lumber Camp was not created through BuildingManager.');
+    if (!camp || !sourceTree) throw new Error('No valid fresh-game Lumber Camp placement found near live wood.');
     const afterCamp = { ...scene.resources };
     scene.gameSpeed = previousGameSpeed;
 
@@ -265,7 +261,7 @@ try {
       villagerId: villager.id,
       campX: camp.x,
       campY: camp.y,
-      treeDistance: Math.hypot(camp.x - tree.x, camp.y - tree.y),
+      treeDistance: Math.hypot(camp.x - sourceTree.x, camp.y - sourceTree.y),
     };
   });
   if (evidence.gatherSetup.campCostWood !== 25) {
