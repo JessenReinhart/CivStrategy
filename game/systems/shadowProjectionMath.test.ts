@@ -61,7 +61,7 @@ describe('calculateShadowProjection', () => {
 });
 
 describe('shadow emitter detection', () => {
-  it('keeps asymmetric left/right coordinates from the widest row', () => {
+  it('anchors to the lowest broad asymmetric row instead of the widest row above it', () => {
     const width = 10;
     const height = 10;
     const profile = detectShadowEmitterProfile(
@@ -69,16 +69,37 @@ describe('shadow emitter detection', () => {
         { y: 5, left: 2, right: 7 },
         { y: 6, left: 1, right: 9 },
         { y: 7, left: 3, right: 8 },
+        { y: 8, left: 4, right: 5 },
       ]),
       width,
       height,
-      { minYNorm: 0.4, maxYNorm: 0.8 },
+      { minYNorm: 0.4, maxYNorm: 0.9 },
     );
 
     expect(profile).not.toBeNull();
-    expect(profile?.leftNorm).toBeCloseTo(1 / 9);
-    expect(profile?.rightNorm).toBeCloseTo(1);
-    expect(profile?.yNorm).toBeCloseTo(6 / 9);
+    expect(profile?.leftNorm).toBeCloseTo(3 / 9);
+    expect(profile?.rightNorm).toBeCloseTo(8 / 9);
+    expect(profile?.yNorm).toBeCloseTo(7 / 9);
+  });
+
+  it('does not let narrow feet or decorative pixels drag the emitter below the broad base', () => {
+    const width = 12;
+    const height = 12;
+    const profile = detectShadowEmitterProfile(
+      alphaMask(width, height, [
+        { y: 7, left: 1, right: 10 },
+        { y: 8, left: 2, right: 9 },
+        { y: 9, left: 5, right: 6 },
+      ]),
+      width,
+      height,
+      { minYNorm: 0.5, maxYNorm: 0.9 },
+    );
+
+    expect(profile).not.toBeNull();
+    expect(profile?.leftNorm).toBeCloseTo(2 / 11);
+    expect(profile?.rightNorm).toBeCloseTo(9 / 11);
+    expect(profile?.yNorm).toBeCloseTo(8 / 11);
   });
 
   it('ignores a wider roof row outside the configured ground-facing band', () => {
