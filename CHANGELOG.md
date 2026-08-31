@@ -2,6 +2,7 @@
 
 ## 2026-08-31
 
+- **Settlements can be packed more tightly without breaking the playable journey (#210):** Common buildings now use a denser Stronghold-like scale, Farms keep a larger footprint, and small utility buildings no longer look oversized. Placement tests now read the same live building definitions as the game, and the full gather, build, train, fight, save, reload, Large-map, camera, demolition, and day/night journeys all pass on the landed implementation.
 - **The full gather-to-combat-to-reload journey now passes in one real game session (#207):** Verification now carries fresh-game resource progression through Lumber Camp placement, House and Barracks construction, visible Pikesman training, real movement and combat, save/reload, and continued post-load movement. The same pass also hardens right-click targeting, camera coordinate handling, click-vs-drag behavior, and day/night performance acceptance.
 
 ## 2026-08-29
