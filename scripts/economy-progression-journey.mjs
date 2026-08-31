@@ -107,7 +107,7 @@ async function rightClickThroughFrame(page, x, y, targetKind) {
   const beforeMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, beforeMove, { timeout: 30_000 });
   await page.mouse.move(x, y);
-  if (targetKind === 'camp' || targetKind === 'enemy') {
+  if (targetKind === 'camp') {
     await page.waitForFunction((kind) => {
       const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
       const probe = window.__economyProgressionProbe;
