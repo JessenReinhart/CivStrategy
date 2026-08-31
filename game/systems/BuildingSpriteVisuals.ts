@@ -1,5 +1,9 @@
 import { BuildingType } from '../../types';
+import { applyBuildingWorldScale } from '../worldScale';
 import type { ShadowEmitterProfile, ShadowEmitterScanBand } from './shadowEmitterMath';
+
+// Apply footprint hierarchy before any building system consumes BUILDINGS.
+applyBuildingWorldScale();
 
 export type BuildingSpriteVisualConfig = {
     key: string;
@@ -43,17 +47,17 @@ export const BUILDING_SPRITE_VISUALS: Record<BuildingType, BuildingSpriteVisualC
         shadowEmitterScanBand: { minYNorm: 0.48, maxYNorm: 0.88 },
     },
     [BuildingType.LUMBER_CAMP]: {
-        key: 'lumber', scaleMultiplier: 1.7, originY: 0.75,
+        key: 'lumber', scaleMultiplier: 1.5, originY: 0.75,
         shadowHeightScale: 0.72, shadowEndWidthScale: 0.98,
         shadowEmitterScanBand: { minYNorm: 0.60, maxYNorm: 0.92 },
     },
     [BuildingType.HUNTERS_LODGE]: {
-        key: 'lodge', scaleMultiplier: 1.6, originY: 0.75,
+        key: 'lodge', scaleMultiplier: 1.4, originY: 0.75,
         shadowHeightScale: 0.68, shadowEndWidthScale: 0.98,
         shadowEmitterScanBand: { minYNorm: 0.62, maxYNorm: 0.92 },
     },
     [BuildingType.BONFIRE]: {
-        key: 'bonfire', scaleMultiplier: 2.1, originY: 0.82,
+        key: 'bonfire', scaleMultiplier: 1.45, originY: 0.82,
         shadowHeightScale: 0.18, shadowEndWidthScale: 0.96,
         shadowEmitterScanBand: { minYNorm: 0.56, maxYNorm: 0.90 },
     },
