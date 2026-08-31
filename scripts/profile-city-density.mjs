@@ -90,7 +90,7 @@ async function stopServer() {
     console.log('[profile-city-density] canvas detected');
 
     console.log('[profile-city-density] waiting for window.__perf API...');
-    await page.waitForFunction(() => typeof window.__perf !== 'undefined', { timeout: 30000 });
+    await page.waitForFunction(() => typeof window.__perf !== 'undefined', undefined, { timeout: 30000 });
     console.log('[profile-city-density] __perf API available');
 
     console.log('[profile-city-density] waiting for city scene readiness...');
@@ -129,22 +129,45 @@ async function stopServer() {
         console.log(`[stress-wait] city ready: buildings=${buildingCount}, ambient=${ambientCount}, population=${population}`);
         return true;
       },
+      undefined,
       { timeout: 180000 },
     );
 
     console.log('[profile-city-density] city settlement confirmed');
 
-    // Verify ambient citizens are not gameplay units.
+    // Verify ambient citizens remain decorative-only and that the running game
+    // actually renders nearby population with the detailed near LOD frame.
     const ambientIsolation = await page.evaluate(() => {
       const game = window.__civStrategyGame;
       const scene = game?.scene?.getScenes(true)?.[0];
       if (!scene) return { ok: false, reason: 'no scene' };
       const units = scene.units?.getChildren?.() ?? [];
-      const bobs = scene.ambientSystem?.blitter?.children?.list ?? [];
+      const ambientSystem = scene.ambientSystem;
+      const bobs = ambientSystem?.blitter?.children?.list ?? [];
       const bobInUnits = units.some((u) => bobs.some((b) => b === u));
-      return { ok: !bobInUnits, bobCount: bobs.length, unitCount: units.length };
+      const citizenCount = ambientSystem?.getCitizenCount?.() ?? 0;
+      let nearTierCount = 0;
+      let nearFrameCount = 0;
+      let nearFrameMismatchCount = 0;
+      for (let i = 0; i < citizenCount; i++) {
+        const tier = ambientSystem?.getCitizenTier?.(i);
+        if (tier !== 0) continue;
+        nearTierCount++;
+        const frame = ambientSystem?.getCitizenFrame?.(i);
+        if (typeof frame === 'string' && frame.endsWith('.near')) nearFrameCount++;
+        else nearFrameMismatchCount++;
+      }
+      return {
+        ok: !bobInUnits && nearTierCount > 0 && nearFrameMismatchCount === 0,
+        bobCount: bobs.length,
+        unitCount: units.length,
+        citizenCount,
+        nearTierCount,
+        nearFrameCount,
+        nearFrameMismatchCount,
+      };
     });
-    console.log('[profile-city-density] ambient isolation:', ambientIsolation);
+    console.log('[profile-city-density] ambient isolation/LOD:', ambientIsolation);
 
     console.log(`[profile-city-density] warming up ${WARMUP_MS}ms...`);
     await sleep(WARMUP_MS);
@@ -203,18 +226,24 @@ async function stopServer() {
       isFiniteNumber(minFrameMs) && isFiniteNumber(avgFps) &&
       isFiniteNumber(minFps) && isFiniteNumber(maxFps);
 
-    const pass = hasSufficientData && p95FrameMs <= 16.67 && minFps >= 60;
+    const pass = hasSufficientData && ambientIsolation.ok && p95FrameMs <= 16.67 && minFps >= 60;
 
     let note;
     if (!hasSufficientData) {
       note = `city settlement reached but ${allSamples.length === 0 ? 'no post-warmup perf snapshot was emitted' : `only ${allSamples.length} sample(s) with non-finite metrics`}`;
+    } else if (!ambientIsolation.ok) {
+      const reasons = [];
+      if ((ambientIsolation.nearTierCount ?? 0) <= 0) reasons.push('no nearby ambient citizen was available to verify near LOD');
+      if ((ambientIsolation.nearFrameMismatchCount ?? 0) > 0) reasons.push(`${ambientIsolation.nearFrameMismatchCount} nearby ambient citizen(s) did not use a .near frame`);
+      if ((ambientIsolation.bobCount ?? 0) > 0 && ambientIsolation.unitCount === ambientIsolation.bobCount) reasons.push('ambient/gameplay unit isolation could not be proven');
+      note = reasons.length > 0 ? reasons.join('; ') : 'ambient population isolation/LOD invariant failed';
     } else if (!pass) {
       const reasons = [];
       if (p95FrameMs > 16.67) reasons.push(`p95 ${p95FrameMs}ms > 16.67ms`);
       if (minFps < 60) reasons.push(`min FPS ${minFps} < 60`);
       note = reasons.join('; ');
     } else {
-      note = 'meets 60 FPS target under dense city settlement';
+      note = 'near ambient LOD is active and the dense settlement meets the 60 FPS target';
     }
 
     const result = {

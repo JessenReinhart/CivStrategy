@@ -93,6 +93,13 @@ jobs:
           set -o pipefail
           npm run test:day-night-journey 2>&1 | tee artifacts/day-night-journey.log
 
+      - name: Browser dense city population and performance journey
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          node scripts/profile-city-density.mjs 2>&1 | tee artifacts/city-density-journey.log
+
       - name: Upload gameplay journey evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -102,4 +109,5 @@ jobs:
             artifacts/*.png
             artifacts/*.json
             artifacts/*.log
+            profile-city-results.json
           if-no-files-found: ignore

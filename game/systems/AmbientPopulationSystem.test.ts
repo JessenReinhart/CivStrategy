@@ -216,23 +216,36 @@ describe('AmbientPopulationSystem', () => {
   });
 
   describe('LOD tiers and texture switching', () => {
-    it('selects the generated role-specific sprite frame for nearby townfolk', () => {
+    it('selects the generated role-specific near frame for nearby townfolk', () => {
       const market = makeBuilding(BuildingType.MARKET, 320, 260, 0, 100);
       const scene = makeMockScene({ population: 10, maxPopulation: 10, buildings: [market] });
       const ambient = new AmbientPopulationSystem(scene);
 
       tickUpdate(scene, ambient, 16);
 
-      expect(ambient.getCitizenFrame(0)).toBe('merchant.mid');
+      expect(ambient.getCitizenFrame(0)).toBe('merchant.near');
     });
 
-    it('uses the compact mid frame for citizens close to the camera', () => {
+    it('uses the detailed near frame for citizens close to the camera', () => {
       scene = makeMockScene({
         buildings: [makeBuilding(BuildingType.HOUSE, 400, 300, 1, 100)],
       });
       ambient = new AmbientPopulationSystem(scene);
       tickUpdate(scene, ambient, 16);
       expect(ambient.getCitizenTier(0)).toBe(0);
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.near');
+    });
+
+    it('uses the mid frame for citizens between the near and far thresholds', () => {
+      scene = makeMockScene({
+        buildings: [makeBuilding(BuildingType.HOUSE, 1200, 1200, 1, 100)],
+      });
+      (scene as any).cameras.main.worldView = {
+        left: -1000, top: -1000, right: 2500, bottom: 2500, centerX: 400, centerY: 300,
+      };
+      ambient = new AmbientPopulationSystem(scene);
+      tickUpdate(scene, ambient, 16);
+      expect(ambient.getCitizenTier(0)).toBe(1);
       expect(ambient.getCitizenFrame(0)).toBe('civilian.mid');
     });
 
@@ -255,7 +268,7 @@ describe('AmbientPopulationSystem', () => {
       });
       ambient = new AmbientPopulationSystem(scene);
       tickUpdate(scene, ambient, 16);
-      expect(ambient.getCitizenFrame(0)).toBe('civilian.mid');
+      expect(ambient.getCitizenFrame(0)).toBe('civilian.near');
 
       // Move camera far away by changing worldView center while keeping the
       // citizen inside the expanded visible world.
