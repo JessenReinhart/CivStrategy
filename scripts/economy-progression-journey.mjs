@@ -204,25 +204,82 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
     scene.economySystem.assignJobs = () => {};
-    scene.resources.wood = 10_000;
-    scene.resources.food = 10_000;
-    scene.resources.gold = 10_000;
-    scene.economySystem.updateStats();
+    const previousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    const startingResources = { ...scene.resources };
     const villager = scene.villagerSystem.getIdleVillagers(0)[0];
     if (!villager?.visual) throw new Error('No idle player villager available.');
     const trees = scene.trees.getChildren().filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'));
     const tree = trees.sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))[0];
     if (!tree) throw new Error('No live tree available.');
-    const dx = tree.x - villager.x;
-    const dy = tree.y - villager.y;
-    const length = Math.max(1, Math.hypot(dx, dy));
-    const camp = scene.entityFactory.spawnBuilding('Lumber Camp', villager.x + (-dy / length) * 64, villager.y + (dx / length) * 64, 0);
+
+    const manager = scene.buildingManager;
+    const baseline = new Set(scene.buildings.getChildren());
+    const footprint = 48;
+    const half = footprint / 2;
+    const grid = 16;
+    const snapTopLeft = (center) => Math.floor((center - half) / grid) * grid;
+    let placement = null;
+    const radii = [64, 80, 96, 112, 128];
+    for (const radius of radii) {
+      for (let step = 0; step < 16; step++) {
+        const angle = (step / 16) * Math.PI * 2;
+        const topLeftX = snapTopLeft(tree.x + Math.cos(angle) * radius);
+        const topLeftY = snapTopLeft(tree.y + Math.sin(angle) * radius);
+        const centerX = topLeftX + half;
+        const centerY = topLeftY + half;
+        if (manager.getBuildValidity(centerX, centerY, 'Lumber Camp').valid) {
+          placement = { topLeftX, topLeftY, centerX, centerY };
+          break;
+        }
+      }
+      if (placement) break;
+    }
+    if (!placement) throw new Error('No valid fresh-game Lumber Camp placement found near live wood.');
+
+    manager.enterBuildMode('Lumber Camp');
+    const iso = {
+      x: placement.topLeftX - placement.topLeftY,
+      y: (placement.topLeftX + placement.topLeftY) * 0.5,
+    };
+    manager.tryBuild(iso.x, iso.y);
+    manager.cancelBuildMode();
+    const camp = scene.buildings.getChildren().find((building) => (
+      !baseline.has(building)
+      && building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+    ));
+    if (!camp) throw new Error('Fresh-game Lumber Camp was not created through BuildingManager.');
+    const afterCamp = { ...scene.resources };
+    scene.gameSpeed = previousGameSpeed;
+
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
     scene.inputManager.clearSelection();
     window.__economyProgressionProbe = { villager, camp, player: null, enemy: null };
-    return { wood: scene.resources.wood, villagerId: villager.id };
+    return {
+      startingResources,
+      afterCamp,
+      campCostWood: startingResources.wood - afterCamp.wood,
+      wood: afterCamp.wood,
+      villagerId: villager.id,
+      campX: camp.x,
+      campY: camp.y,
+      treeDistance: Math.hypot(camp.x - tree.x, camp.y - tree.y),
+    };
   });
+  if (evidence.gatherSetup.campCostWood !== 25) {
+    throw new Error(`Fresh-game Lumber Camp did not cost exactly 25 wood: ${JSON.stringify(evidence.gatherSetup)}`);
+  }
+  if (evidence.gatherSetup.afterCamp.food !== evidence.gatherSetup.startingResources.food
+    || evidence.gatherSetup.afterCamp.gold !== evidence.gatherSetup.startingResources.gold) {
+    throw new Error('Fresh-game Lumber Camp mutated non-wood resources.');
+  }
+  if (evidence.gatherSetup.afterCamp.wood < 200
+    || evidence.gatherSetup.afterCamp.food < 100
+    || evidence.gatherSetup.afterCamp.gold < 100) {
+    throw new Error(`Fresh opening cannot fund House + Barracks + Pikesman progression after Lumber Camp: ${JSON.stringify(evidence.gatherSetup.afterCamp)}`);
+  }
   await waitForCameraSync(page);
   const canvas = page.locator('canvas').first();
   let box = await canvas.boundingBox();
