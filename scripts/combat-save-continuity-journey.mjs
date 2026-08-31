@@ -293,11 +293,17 @@ try {
 
     const GRID = 16;
     const dims = {
-      House: { width: 48, height: 48 },
-      Barracks: { width: 72, height: 72 },
+      House: { width: 32, height: 32 },
+      Barracks: { width: 48, height: 48 },
     };
+    const waterLevel = 0.38;
+    const heightLift = 200;
     const snap = (value) => Math.floor(value / GRID) * GRID;
-    const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
+    const toIso = (center) => {
+      const terrainHeight = scene.terrainSystem.getHeightAt(center.x, center.y);
+      const lift = Math.max(0, terrainHeight - waterLevel) * heightLift;
+      return { x: center.x - center.y, y: (center.x + center.y) * 0.5 - lift };
+    };
 
     function findPlacement(type) {
       const def = dims[type];
@@ -317,8 +323,7 @@ try {
 
     function build(type) {
       const center = findPlacement(type);
-      const def = dims[type];
-      const input = toIso(center.x - def.width / 2, center.y - def.height / 2);
+      const input = toIso(center);
       const before = new Set(buildings());
       manager.enterBuildMode(type);
       manager.updatePreview(input.x, input.y);
