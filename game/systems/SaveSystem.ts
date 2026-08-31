@@ -16,6 +16,13 @@ type SerializedBuildingWithWaypoint = SerializedBuilding & {
   waypoint?: { x: number; y: number };
 };
 
+type VillagerCarryType = 'wood' | 'food' | 'gold';
+type SerializedVillagerUnit = SerializedUnit & {
+  carryAmount?: number;
+  carryType?: VillagerCarryType | null;
+};
+
+const VILLAGER_CARRY_TYPES = new Set<VillagerCarryType>(['wood', 'food', 'gold']);
 const VILLAGER_TRANSIENT_STATES = new Set<UnitState>([
   UnitState.MOVING_TO_WORK,
   UnitState.WORKING,
@@ -33,6 +40,17 @@ const VILLAGER_TRANSIENT_STATES = new Set<UnitState>([
  */
 export function normalizeVillagerStateForSaveLoad(state: UnitState): UnitState {
   return VILLAGER_TRANSIENT_STATES.has(state) ? UnitState.IDLE : state;
+}
+
+function readSerializedVillagerCarry(unit: SerializedUnit): { amount: number; type: VillagerCarryType | null } {
+  const saved = unit as SerializedVillagerUnit;
+  const amount = typeof saved.carryAmount === 'number' && Number.isFinite(saved.carryAmount) && saved.carryAmount > 0
+    ? saved.carryAmount
+    : 0;
+  const type = saved.carryType && VILLAGER_CARRY_TYPES.has(saved.carryType)
+    ? saved.carryType
+    : null;
+  return amount > 0 && type ? { amount, type } : { amount: 0, type: null };
 }
 
 // ─── Serialize ──────────────────────────────────────────────────────────
@@ -103,10 +121,13 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
     });
   }
 
-  // Villagers from VillagerSystem. Work/navigation references are runtime-only,
-  // so persist a state that can safely restart without those references.
+  // Work/navigation references are runtime-only, but gathered resources are
+  // durable economy state. Persist valid carry and resume it as CARRYING after
+  // load so the next simulation tick deposits it before normal job assignment.
   const villagers = scene.villagerSystem?.getAllVillagers() ?? [];
   for (const v of villagers) {
+    const carryAmount = Number.isFinite(v.carryAmount) && v.carryAmount > 0 ? v.carryAmount : 0;
+    const carryType = carryAmount > 0 && v.carryType ? v.carryType : null;
     units.push({
       type: UnitType.VILLAGER,
       owner: v.owner,
@@ -114,9 +135,11 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
       y: v.y,
       hp: 100,
       maxHp: 100,
-      state: normalizeVillagerStateForSaveLoad(v.state),
+      state: carryType ? UnitState.CARRYING : normalizeVillagerStateForSaveLoad(v.state),
       stance: UnitStance.HOLD,
-    });
+      carryAmount,
+      carryType,
+    } as SerializedVillagerUnit);
   }
 
   return units;
@@ -245,8 +268,8 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   respawnUnits(scene, save);
 
   // 7. Reconnect idle villagers to worker buildings now that both sides exist.
-  // Runtime job references are intentionally not serialized, so without this
-  // pass loaded farms/lumber camps stay vacant until the next scheduler tick.
+  // Villagers carrying restored resources stay CARRYING and are intentionally
+  // skipped until their next update deposits that durable carry exactly once.
   scene.economySystem?.assignJobs?.();
 
   // 8. Recompute economy stats
@@ -370,9 +393,13 @@ function respawnUnits(scene: MainScene, save: SaveGame): void {
   for (const u of save.units) {
     if (u.type === UnitType.VILLAGER) {
       const villager = scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
-      // Sanitize old saves too: transient work/navigation references are not
-      // restored, so their dependent states cannot safely resume after load.
-      villager.state = normalizeVillagerStateForSaveLoad(u.state);
+      const carry = readSerializedVillagerCarry(u);
+      villager.carryAmount = carry.amount;
+      villager.carryType = carry.type;
+      // A preserved carry has already been gathered, so it must survive even
+      // though its old navigation/job references cannot. The normal CARRYING
+      // update deposits it once, then returns the villager to the idle pipeline.
+      villager.state = carry.amount > 0 ? UnitState.CARRYING : normalizeVillagerStateForSaveLoad(u.state);
       // VillagerData doesn't have hp or stance, skip
     } else {
       const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);

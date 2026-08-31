@@ -65,6 +65,9 @@ jobs:
       - name: Browser save reload journey
         run: npm run test:save-reload-journey
 
+      - name: Browser villager carry reload continuity
+        run: node scripts/villager-carry-save-reload-journey.mjs
+
       - name: Browser army combat journey
         run: npm run test:army-combat-journey
 

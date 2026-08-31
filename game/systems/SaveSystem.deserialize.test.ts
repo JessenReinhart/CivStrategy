@@ -44,7 +44,7 @@ function createScene(overrides: Record<string, unknown> = {}): MainScene {
     villagerSystem: {
       getAllVillagers: () => [],
       destroyVillager: vi.fn(),
-      spawnVillager: vi.fn(() => ({ state: UnitState.IDLE })),
+      spawnVillager: vi.fn(() => ({ state: UnitState.IDLE, carryAmount: 0, carryType: null })),
     },
     unitSpatialHash: { remove: vi.fn() },
     pathfinder: { markGrid: vi.fn(), updateTerrainCosts: vi.fn() },
@@ -66,7 +66,7 @@ function createScene(overrides: Record<string, unknown> = {}): MainScene {
 
 describe('SaveSystem load continuity', () => {
   it('rebuilds worker assignments after villagers respawn and before stats publish', () => {
-    const villager = { state: UnitState.IDLE };
+    const villager = { state: UnitState.IDLE, carryAmount: 0, carryType: null };
     const spawnVillager = vi.fn(() => villager);
     const assignJobs = vi.fn();
     const updateStats = vi.fn();
@@ -97,6 +97,110 @@ describe('SaveSystem load continuity', () => {
     expect(updateStats).toHaveBeenCalledTimes(1);
     expect(spawnVillager.mock.invocationCallOrder[0]).toBeLessThan(assignJobs.mock.invocationCallOrder[0]);
     expect(assignJobs.mock.invocationCallOrder[0]).toBeLessThan(updateStats.mock.invocationCallOrder[0]);
+  });
+
+  it('round-trips gathered villager carry without exposing it to job reassignment first', () => {
+    const sourceVillager = {
+      owner: 0,
+      x: 180,
+      y: 220,
+      state: UnitState.GATHERING,
+      carryAmount: 7,
+      carryType: 'wood' as const,
+    };
+    const sourceScene = createScene({
+      faction: 'Romans',
+      enemyFaction: 'Gauls',
+      mapMode: 'Fixed Map',
+      isFowEnabled: true,
+      peacefulMode: false,
+      treatyLength: 300_000,
+      aiDisabled: false,
+      mapSeed: 42,
+      mapPreset: 'standard',
+      gameTime: 12_000,
+      currentAge: 'Village',
+      ageProgress: 0,
+      isAdvancing: false,
+      nextAge: null,
+      currentSeason: 'Spring',
+      seasonTimer: 500,
+      resources: { wood: 100, food: 100, gold: 100 },
+      population: 1,
+      happiness: 70,
+      gameSpeed: 1,
+      taxRate: 0,
+      bloomIntensity: 1,
+      dominanceProgress: 0,
+      playerTerritoryPercent: 0,
+      gameResult: null,
+      victoryType: null,
+      villagerSystem: {
+        getAllVillagers: () => [sourceVillager],
+        destroyVillager: vi.fn(),
+        spawnVillager: vi.fn(),
+      },
+    });
+
+    const save = serializeGame(sourceScene);
+    const savedVillager = save.units.find((unit) => unit.type === UnitType.VILLAGER) as SaveGame['units'][number] & {
+      carryAmount?: number;
+      carryType?: 'wood' | 'food' | 'gold' | null;
+    };
+    expect(savedVillager).toMatchObject({
+      state: UnitState.CARRYING,
+      carryAmount: 7,
+      carryType: 'wood',
+    });
+
+    const restoredVillager = { state: UnitState.IDLE, carryAmount: 0, carryType: null as 'wood' | 'food' | 'gold' | null };
+    const spawnVillager = vi.fn(() => restoredVillager);
+    const assignJobs = vi.fn();
+    const loadScene = createScene({
+      villagerSystem: {
+        getAllVillagers: () => [],
+        destroyVillager: vi.fn(),
+        spawnVillager,
+      },
+      economySystem: { assignJobs, updateStats: vi.fn() },
+    });
+
+    deserializeGame(loadScene, save);
+
+    expect(restoredVillager).toMatchObject({
+      state: UnitState.CARRYING,
+      carryAmount: 7,
+      carryType: 'wood',
+    });
+    expect(assignJobs).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps older version-1 villager saves without carry fields backward-compatible', () => {
+    const restoredVillager = { state: UnitState.IDLE, carryAmount: 0, carryType: null };
+    const scene = createScene({
+      villagerSystem: {
+        getAllVillagers: () => [],
+        destroyVillager: vi.fn(),
+        spawnVillager: vi.fn(() => restoredVillager),
+      },
+    });
+    const oldSave = createSave([{
+      type: UnitType.VILLAGER,
+      owner: 0,
+      x: 120,
+      y: 140,
+      hp: 100,
+      maxHp: 100,
+      state: UnitState.CARRYING,
+    } as SaveGame['units'][number]]);
+
+    deserializeGame(scene, oldSave);
+
+    expect(restoredVillager).toEqual({
+      state: UnitState.IDLE,
+      carryAmount: 0,
+      carryType: null,
+    });
   });
 
   it('clears player selection before destroying entities from the current world', () => {
