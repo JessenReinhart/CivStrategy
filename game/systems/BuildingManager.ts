@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
-import { toIso, toIsoElev, toCartesian } from '../utils/iso';
+import { toIso, toIsoElev, toCartesianElev } from '../utils/iso';
 
 export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
 
@@ -99,17 +99,31 @@ export class BuildingManager {
         }
     }
 
+    private getPlacementCenter(worldX: number, worldY: number, def: BuildingDef): { cx: number; cy: number } {
+        const cart = toCartesianElev(
+            worldX,
+            worldY,
+            (x, y) => this.scene.terrainSystem.getHeightAt(x, y),
+        );
+
+        // Keep footprint edges on the placement grid while choosing the valid
+        // center nearest the pointer. The old math snapped the pointer as if it
+        // were the top-left corner and then added half the footprint, causing a
+        // second size-dependent cursor offset even on flat terrain.
+        const halfW = def.width / 2;
+        const halfH = def.height / 2;
+        const gx = Math.round((cart.x - halfW) / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        const gy = Math.round((cart.y - halfH) / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
+        return { cx: gx + halfW, cy: gy + halfH };
+    }
+
     public updatePreview(worldX: number, worldY: number) {
         if (!this.previewBuildingType || !this.previewBuilding) return;
 
         this.previewBuilding.setVisible(true);
 
-        const cart = toCartesian(worldX, worldY);
-        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
-        const cx = gx + def.width / 2;
-        const cy = gy + def.height / 2;
+        const { cx, cy } = this.getPlacementCenter(worldX, worldY, def);
 
         const iso = toIsoElev(cx, cy, this.scene.terrainSystem.getHeightAt(cx, cy));
         this.previewBuilding.setPosition(iso.x, iso.y);
@@ -245,19 +259,15 @@ export class BuildingManager {
     public tryBuild(worldX: number, worldY: number) {
         if (!this.previewBuildingType) return;
 
-        const cart = toCartesian(worldX, worldY);
-        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
         const def = BUILDINGS[this.previewBuildingType];
-        const cx = gx + def.width / 2;
-        const cy = gy + def.height / 2;
+        const { cx, cy } = this.getPlacementCenter(worldX, worldY, def);
 
         const validity = this.getBuildValidity(cx, cy, this.previewBuildingType);
 
         if (validity.valid) {
             // Juice: Screen shake (subtle) - only if near camera center
             const cam = this.scene.cameras.main;
-            const iso = toIso(cx, cy);
+            const iso = toIsoElev(cx, cy, this.scene.terrainSystem.getHeightAt(cx, cy));
             const dx = iso.x - cam.scrollX - cam.width / 2;
             const dy = iso.y - cam.scrollY - cam.height / 2;
             if (Math.sqrt(dx * dx + dy * dy) < 500) {
