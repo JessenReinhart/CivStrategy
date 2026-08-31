@@ -37,3 +37,34 @@ export const toCartesian = (isoX: number, isoY: number): { x: number, y: number 
     y: isoY - isoX * 0.5
   };
 };
+
+/**
+ * Inverse of toIsoElev for pointer/ground picking.
+ *
+ * A flat toCartesian() conversion interprets an elevated screen point as if it
+ * lived on the zero-height plane. Re-projecting that cartesian point with
+ * terrain elevation then lifts it a second time, which makes placement ghosts
+ * appear above the cursor. Iteratively correct both cartesian axes by the
+ * remaining projected screen-Y error until the point lies on the rendered
+ * terrain surface.
+ */
+export const toCartesianElev = (
+  isoX: number,
+  isoY: number,
+  getTerrainHeight: (x: number, y: number) => number,
+  heightRef: number = TERRAIN_CONFIG.WATER_LEVEL,
+): { x: number; y: number } => {
+  const cart = toCartesian(isoX, isoY);
+
+  for (let i = 0; i < 8; i++) {
+    const projected = toIsoElev(cart.x, cart.y, getTerrainHeight(cart.x, cart.y), heightRef);
+    const correction = isoY - projected.y;
+    if (Math.abs(correction) < 0.25) break;
+
+    // Moving x and y together by d preserves isoX and moves base isoY by d.
+    cart.x += correction;
+    cart.y += correction;
+  }
+
+  return cart;
+};
