@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-08-31
+
+- **The full gather-to-combat-to-reload journey now passes in one real game session (#207):** Verification now carries fresh-game resource progression through Lumber Camp placement, House and Barracks construction, visible Pikesman training, real movement and combat, save/reload, and continued post-load movement. The same pass also hardens right-click targeting, camera coordinate handling, click-vs-drag behavior, and day/night performance acceptance.
+
 ## 2026-08-29
 
 - **Gathering, construction, and unit training are now verified in one continuous game session (#200):** The real Chromium journey selects and assigns a Villager through canvas input, proves a wood deposit, returns to the visible build UI, places a House and Barracks, checks the economy and population changes, and trains a Pikesman without resetting the match between those steps.
