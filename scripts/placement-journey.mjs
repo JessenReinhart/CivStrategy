@@ -76,12 +76,18 @@ try {
     scene.resources.gold = 100_000;
 
     const GRID = 16;
+    const WATER_LEVEL = 0.38;
+    const HEIGHT_LIFT = 200;
     const dims = {
-      House: { width: 48, height: 48 },
-      Farm: { width: 48, height: 48 },
-      Barracks: { width: 72, height: 72 },
+      House: { width: 32, height: 32 },
+      Farm: { width: 64, height: 64 },
+      Barracks: { width: 48, height: 48 },
     };
-    const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
+    const toIsoElev = (x, y) => {
+      const terrainHeight = scene.terrainSystem.getHeightAt(x, y);
+      const lift = Math.max(0, terrainHeight - WATER_LEVEL) * HEIGHT_LIFT;
+      return { x: x - y, y: (x + y) * 0.5 - lift };
+    };
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const buildings = () => scene.buildings.getChildren();
     const getDef = (building) => building.getData('def');
@@ -129,14 +135,13 @@ try {
       throw new Error(`Could not find a valid ${type} placement inside player territory.`);
     }
 
-    function inputForCenter(center, type) {
-      const def = dims[type];
-      return toIso(center.x - def.width / 2, center.y - def.height / 2);
+    function inputForCenter(center) {
+      return toIsoElev(center.x, center.y);
     }
 
     function ghostSnapshot(type, center) {
       manager.enterBuildMode(type);
-      const input = inputForCenter(center, type);
+      const input = inputForCenter(center);
       manager.updatePreview(input.x, input.y);
       const preview = manager.previewBuilding;
       const ghost = preview.list.find((child) => child.getData?.('placementGhostSprite') === true);
