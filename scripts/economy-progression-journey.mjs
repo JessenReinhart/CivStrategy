@@ -107,15 +107,18 @@ async function rightClickThroughFrame(page, x, y, targetKind) {
   const beforeMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, beforeMove, { timeout: 30_000 });
   await page.mouse.move(x, y);
-  if (targetKind === 'camp') {
-    await page.waitForFunction(() => {
+  if (targetKind === 'camp' || targetKind === 'enemy') {
+    await page.waitForFunction((kind) => {
       const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-      const camp = window.__economyProgressionProbe?.camp;
+      const probe = window.__economyProgressionProbe;
+      const target = kind === 'camp' ? probe?.camp : probe?.enemy;
       const pointer = scene?.input?.activePointer;
-      if (!scene || !camp || !pointer) return false;
+      if (!scene || !target || !pointer) return false;
       return scene.input.hitTestPointer(pointer)
-        .some((target) => target.getData?.('building') === camp);
-    }, undefined, { timeout: 30_000 });
+        .some((hit) => kind === 'camp'
+          ? hit.getData?.('building') === target
+          : hit.getData?.('unit') === target);
+    }, targetKind, { timeout: 30_000 });
   }
   const beforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.down({ button: 'right' });
@@ -433,6 +436,7 @@ try {
     window.__economyProgressionProbe.enemy = enemy;
     window.__economyProgressionProbe.enemyX = enemy.x;
     window.__economyProgressionProbe.enemyY = enemy.y;
+    scene.cameras.main.panEffect?.reset();
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
     return {
@@ -477,7 +481,7 @@ try {
     };
   });
   evidence.attackIssuedAtFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await rightClickThroughFrame(page, enemyPagePoint.x, enemyPagePoint.y);
+  await rightClickThroughFrame(page, enemyPagePoint.x, enemyPagePoint.y, 'enemy');
   await page.waitForFunction(() => {
     const { player, enemy } = window.__economyProgressionProbe;
     return player.target === enemy && player.getData('explicitTarget') === true;
