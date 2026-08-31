@@ -82,12 +82,19 @@ async function unitScreenPoint(page, key) {
   return page.evaluate((probeKey) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__economyProgressionProbe[probeKey];
-    const visual = unit.visual;
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
+    let worldX = unit.visual.x;
+    let worldY = unit.visual.y - 10;
+    if (probeKey === 'enemy') {
+      const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
+      const lift = Math.max(0, height - 0.38) * 200;
+      worldX = unit.x - unit.y;
+      worldY = (unit.x + unit.y) * 0.5 - lift - 10;
+    }
     return {
-      x: (visual.x - topLeft.x) * camera.zoom,
-      y: (visual.y - 10 - topLeft.y) * camera.zoom,
+      x: (worldX - topLeft.x) * camera.zoom,
+      y: (worldY - topLeft.y) * camera.zoom,
     };
   }, key);
 }
@@ -438,11 +445,20 @@ try {
     window.__economyProgressionProbe.enemyY = enemy.y;
     scene.cameras.main.panEffect?.reset();
     scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
+    const project = (unit) => {
+      const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
+      const lift = Math.max(0, height - 0.38) * 200;
+      return { x: unit.x - unit.y, y: (unit.x + unit.y) * 0.5 - lift - 10 };
+    };
+    const playerProjected = project(player);
+    const enemyProjected = project(enemy);
+    scene.cameras.main.centerOn((playerProjected.x + enemyProjected.x) * 0.5, (playerProjected.y + enemyProjected.y) * 0.5);
     return {
       distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
       pausedAtGameTime: scene.gameTime,
       previousGameSpeed: window.__economyCombatPreviousSpeed,
+      playerProjected,
+      enemyProjected,
     };
   });
   if (evidence.combat.distance > 40) throw new Error(`Deterministic enemy exceeded Pikesman attack range (${evidence.combat.distance.toFixed(2)}px).`);
