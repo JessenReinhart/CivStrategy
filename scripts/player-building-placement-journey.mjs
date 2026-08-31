@@ -82,8 +82,14 @@ try {
     const GRID = 16;
     const width = 32;
     const height = 32;
+    const WATER_LEVEL = 0.38;
+    const HEIGHT_LIFT = 200;
     const snap = (value) => Math.floor(value / GRID) * GRID;
-    const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
+    const toIsoElev = (x, y) => {
+      const terrainHeight = scene.terrainSystem.getHeightAt(x, y);
+      const lift = Math.max(0, terrainHeight - WATER_LEVEL) * HEIGHT_LIFT;
+      return { x: x - y, y: (x + y) * 0.5 - lift };
+    };
     const baseX = snap(tc.x - 280);
     const baseY = snap(tc.y - 280);
     let center = null;
@@ -102,7 +108,10 @@ try {
     }
     if (!center) throw new Error('Could not find a valid House placement inside player territory.');
 
-    const input = toIso(center.x - width / 2, center.y - height / 2);
+    // Placement now treats the real player pointer as the desired building center.
+    // Project that center onto the rendered terrain surface before converting it
+    // to a canvas click, matching the terrain-aware pointer contract in-game.
+    const input = toIsoElev(center.x, center.y);
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(input.x, input.y);
 
