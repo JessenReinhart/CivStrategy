@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-01
+
+- **Villagers no longer lose gathered resources when a game is reloaded (#215):** Wood, food, or gold already being carried by a Villager is now preserved through save/load and deposited exactly once after the game resumes. Older saves without carry data still load safely, and the full build, gather, combat, save/reload, Large-map, camera, day/night, and dense-city gameplay verification remained green.
+
 ## 2026-08-31
 
 - **Settlements can be packed more tightly without breaking the playable journey (#210):** Common buildings now use a denser Stronghold-like scale, Farms keep a larger footprint, and small utility buildings no longer look oversized. Placement tests now read the same live building definitions as the game, and the full gather, build, train, fight, save, reload, Large-map, camera, demolition, and day/night journeys all pass on the landed implementation.
