@@ -26,7 +26,7 @@ interface AmbientKeyframe {
 // bright full-screen wash. Dusk/night remain intentionally much stronger.
 const AMBIENT_KEYFRAMES: readonly AmbientKeyframe[] = [
     { hour: 0, color: 0x06152d, alpha: 0.58 },
-    { hour: 4.8, color: 0x0a1a35, alpha: 0.54 },
+    { hour: 4.5, color: 0x0a1a35, alpha: 0.54 },
     { hour: 6, color: 0x49303f, alpha: 0.32 },
     { hour: 7.2, color: 0xe8793f, alpha: 0.24 },
     { hour: 10, color: 0xffedc7, alpha: 0.07 },
