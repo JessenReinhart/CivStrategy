@@ -72,10 +72,13 @@ try {
   await economyButton.waitFor({ state: 'visible', timeout: 45_000 });
 
   evidence.phase = 'placement-setup';
-  const setup = await page.evaluate(() => {
+  const setup = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
     const buildings = scene.buildings.getChildren();
+    const { BUILDINGS } = await import('/constants.ts');
+    const houseDef = BUILDINGS.House;
+    if (!houseDef) throw new Error('House definition was not available from the running game.');
     const tc = buildings.find((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Town Center');
     if (!tc) throw new Error('Player Town Center was not available after world load.');
 
@@ -87,8 +90,7 @@ try {
     scene.inputManager.deselectBuilding?.();
 
     const GRID = 16;
-    const width = 48;
-    const height = 48;
+    const { width, height } = houseDef;
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
     const baseX = snap(tc.x - 280);

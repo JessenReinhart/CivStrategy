@@ -137,11 +137,12 @@ async function rightClickThroughFrame(page, x, y, targetKind) {
 }
 
 async function preparePlacement(page, type) {
-  return page.evaluate((buildingType) => {
+  return page.evaluate(async (buildingType) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
+    const { BUILDINGS } = await import('/constants.ts');
     const tc = scene.buildings.getChildren().find((b) => b.getData('owner') === 0 && b.getData('def')?.type === 'Town Center');
-    const def = { House: { width: 48, height: 48 }, Barracks: { width: 72, height: 72 } }[buildingType];
+    const def = BUILDINGS[buildingType];
     if (!tc || !def) throw new Error(`Cannot prepare ${buildingType} placement.`);
     const grid = 16;
     const snap = (v) => Math.floor(v / grid) * grid;
