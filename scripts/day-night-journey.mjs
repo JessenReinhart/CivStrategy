@@ -177,7 +177,7 @@ try {
   telemetry.phases = { morning, noon, sunset, evening, midnight };
 
   telemetry.phase = 'cycle-continuity';
-  const continuity = await page.evaluate(async ({ dayLengthMs, startHour }) => {
+  const continuity = await page.evaluate(async ({ dayLengthMs, startHour, samplesPerHour }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const system = scene.dayNightSystem ?? scene.data.get('dayNightSystem');
     scene.gameSpeed = 0;
@@ -187,13 +187,17 @@ try {
       return dayLengthMs * (offset / 24);
     };
 
-    for (let hour = 0; hour <= 24; hour++) {
-      scene.gameTime = toTime(hour % 24);
+    // Sub-hour samples distinguish a real interpolation discontinuity from a large but
+    // intentional lighting change accumulated across a full in-game hour.
+    for (let index = 0; index <= 24 * samplesPerHour; index++) {
+      const requestedHour = index / samplesPerHour;
+      const wrappedHour = requestedHour === 24 ? 0 : requestedHour;
+      scene.gameTime = toTime(wrappedHour);
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      samples.push({ requestedHour: hour, ...system.getState() });
+      samples.push({ requestedHour, ...system.getState() });
     }
     return samples;
-  }, { dayLengthMs: DAY_LENGTH_MS, startHour: DAY_START_HOUR });
+  }, { dayLengthMs: DAY_LENGTH_MS, startHour: DAY_START_HOUR, samplesPerHour: 4 });
 
   let maxAmbientAlphaStep = 0;
   for (let i = 1; i < continuity.length; i++) {
@@ -205,7 +209,7 @@ try {
   assert(maxAmbientAlphaStep < 0.16, `Ambient cycle contains a visible alpha jump (${maxAmbientAlphaStep.toFixed(3)}).`);
   assert(
     Math.abs(continuity[0].ambientAlpha - continuity.at(-1).ambientAlpha) < 0.01,
-    `Day/night ambient loop does not wrap continuously from 24:00 to 00:00 (${continuity[0].ambientAlpha} vs ${continuity.at(-1).ambientAlpha}).`,
+    `Day/night ambient loop does not wrap continuously from 24:00 to 00:00 (${continuity[0].ambientAlpha} vs ${continuity.at(-1].ambientAlpha}).`,
   );
   telemetry.continuity = { samples: continuity, maxAmbientAlphaStep };
 
