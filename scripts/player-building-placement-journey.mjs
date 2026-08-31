@@ -80,8 +80,8 @@ try {
     scene.inputManager.deselectBuilding?.();
 
     const GRID = 16;
-    const width = 48;
-    const height = 48;
+    const width = 32;
+    const height = 32;
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
     const baseX = snap(tc.x - 280);
