@@ -15,7 +15,7 @@ const LOD_NEAR_DISTANCE = 900;
 const LOD_MID_DISTANCE = 1800;
 
 const TEXTURE_KEY = 'civilian-atlas';
-const FRAME_NEAR = 'civilian.mid';
+const FRAME_NEAR = 'civilian.near';
 
 interface AmbientAnchor {
   x: number;
@@ -132,6 +132,7 @@ export class AmbientPopulationSystem {
   public getRoleForAnchor(type: BuildingType): AmbientRole {
     return this.roleForAnchor(type);
   }
+
   /** Read-only activity profile for deterministic tests and telemetry. */
   public getActivityProfile(type: BuildingType): ActivityProfile | null {
     return this.getAnchorConfig(type)?.profile ?? null;
@@ -289,10 +290,10 @@ export class AmbientPopulationSystem {
 
   private applyTextureForTier(citizen: AmbientCitizen): void {
     if (citizen.tier === 0) {
-      citizen.frameKey = `${citizen.role}.mid`;
+      citizen.frameKey = `${citizen.role}.near`;
       citizen.bob.setFrame(citizen.frameKey);
     } else if (citizen.tier === 1) {
-      citizen.frameKey = `${citizen.role}.far`;
+      citizen.frameKey = `${citizen.role}.mid`;
       citizen.bob.setFrame(citizen.frameKey);
     } else {
       citizen.frameKey = `${citizen.role}.far`;
