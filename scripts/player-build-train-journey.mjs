@@ -293,23 +293,25 @@ try {
 
   const minimumSimulationMs = 180;
   try {
-    await page.waitForFunction(({ startX, startY, targetX, targetY, startGameTime, minimumSimulationMs }) => {
+    await page.waitForFunction(({ startX, startY, targetX, targetY, startGameTime, startPathStep, minimumSimulationMs }) => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const unit = window.__buildTrainPlayer;
       const simulatedMs = scene.gameTime - startGameTime;
       const moved = Math.hypot(unit.x - startX, unit.y - startY);
+      const initialRemaining = Math.hypot(startX - targetX, startY - targetY);
       const remaining = Math.hypot(unit.x - targetX, unit.y - targetY);
       if (moved >= 40 && remaining <= 48) return true;
       if (simulatedMs < minimumSimulationMs) return false;
       const speed = unit.body?.velocity?.length?.() ?? 0;
-      const expectedProgress = speed * simulatedMs / 1000;
-      return speed > 0 && moved >= Math.max(8, expectedProgress * 0.75) && remaining < Math.hypot(startX - targetX, startY - targetY);
+      const advancedWaypoint = (unit.pathStep ?? 0) > (startPathStep ?? 0);
+      return speed > 0 && moved >= 8 && initialRemaining - remaining >= 8 && (advancedWaypoint || remaining <= 48);
     }, {
       startX: evidence.moveBefore.x,
       startY: evidence.moveBefore.y,
       targetX: evidence.moveTarget.x,
       targetY: evidence.moveTarget.y,
       startGameTime: evidence.moveAccepted.gameTime,
+      startPathStep: evidence.moveAccepted.pathStep,
       minimumSimulationMs,
     }, { timeout: 30_000 });
   } catch (error) {
