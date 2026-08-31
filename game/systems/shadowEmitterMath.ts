@@ -15,16 +15,27 @@ export interface ShadowEmitterScanBand {
 export interface ShadowEmitterDetectionOptions extends ShadowEmitterScanBand {
   alphaThreshold?: number;
   minSpanNorm?: number;
+  /** Minimum width relative to the widest candidate that can represent the grounded base. */
+  minGroundedSpanRatio?: number;
+}
+
+interface OpaqueRowSpan {
+  y: number;
+  left: number;
+  right: number;
+  span: number;
 }
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 /**
- * Finds the widest opaque row inside a configured vertical band of a sprite.
+ * Finds a broad opaque row as low as possible inside the configured ground-facing band.
  *
- * Isometric art does not guarantee that its useful shadow origin is centered or
- * at the bottom of the PNG. Returning normalized coordinates lets the renderer
- * map the detected row through the actual child sprite origin and display size.
+ * Isometric sprites often have their widest row above the painted ground contact. Using
+ * that row makes a cast shadow visibly float. We first establish the widest credible
+ * base, then choose the lowest row that remains a substantial fraction of that width.
+ * Narrow feet, posts, and decorative pixels therefore cannot drag the emitter downward,
+ * while asymmetric building silhouettes keep their real left/right grounding.
  */
 export function detectShadowEmitterProfile(
   rgba: Uint8ClampedArray,
@@ -38,13 +49,12 @@ export function detectShadowEmitterProfile(
   const maxYNorm = clamp01(Math.max(options.minYNorm, options.maxYNorm));
   const alphaThreshold = Math.max(0, Math.min(255, options.alphaThreshold ?? 24));
   const minSpan = Math.max(2, Math.ceil(width * clamp01(options.minSpanNorm ?? 0.18)));
+  const minGroundedSpanRatio = clamp01(options.minGroundedSpanRatio ?? 0.65);
   const startY = Math.max(0, Math.min(height - 1, Math.floor(minYNorm * (height - 1))));
   const endY = Math.max(startY, Math.min(height - 1, Math.ceil(maxYNorm * (height - 1))));
 
-  let bestLeft = -1;
-  let bestRight = -1;
-  let bestY = -1;
-  let bestSpan = -1;
+  const candidates: OpaqueRowSpan[] = [];
+  let widestSpan = 0;
 
   for (let y = startY; y <= endY; y++) {
     let left = -1;
@@ -61,23 +71,25 @@ export function detectShadowEmitterProfile(
     const span = right - left + 1;
     if (span < minSpan) continue;
 
-    // Prefer the widest row. If several adjacent rows are effectively tied,
-    // take the lower one so the emitter hugs the painted ground-facing mass.
-    if (span > bestSpan || (span >= bestSpan - 1 && y > bestY)) {
-      bestLeft = left;
-      bestRight = right;
-      bestY = y;
-      bestSpan = span;
-    }
+    candidates.push({ y, left, right, span });
+    widestSpan = Math.max(widestSpan, span);
   }
 
-  if (bestY < 0) return null;
+  if (candidates.length === 0) return null;
+
+  const groundedMinSpan = Math.max(minSpan, Math.ceil(widestSpan * minGroundedSpanRatio));
+  let grounded = candidates[0];
+  for (const candidate of candidates) {
+    if (candidate.span >= groundedMinSpan && candidate.y >= grounded.y) {
+      grounded = candidate;
+    }
+  }
 
   const xDenominator = Math.max(1, width - 1);
   const yDenominator = Math.max(1, height - 1);
   return {
-    leftNorm: bestLeft / xDenominator,
-    rightNorm: bestRight / xDenominator,
-    yNorm: bestY / yDenominator,
+    leftNorm: grounded.left / xDenominator,
+    rightNorm: grounded.right / xDenominator,
+    yNorm: grounded.y / yDenominator,
   };
 }
