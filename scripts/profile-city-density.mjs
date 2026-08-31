@@ -90,7 +90,7 @@ async function stopServer() {
     console.log('[profile-city-density] canvas detected');
 
     console.log('[profile-city-density] waiting for window.__perf API...');
-    await page.waitForFunction(() => typeof window.__perf !== 'undefined', { timeout: 30000 });
+    await page.waitForFunction(() => typeof window.__perf !== 'undefined', undefined, { timeout: 30000 });
     console.log('[profile-city-density] __perf API available');
 
     console.log('[profile-city-density] waiting for city scene readiness...');
@@ -129,6 +129,7 @@ async function stopServer() {
         console.log(`[stress-wait] city ready: buildings=${buildingCount}, ambient=${ambientCount}, population=${population}`);
         return true;
       },
+      undefined,
       { timeout: 180000 },
     );
 
