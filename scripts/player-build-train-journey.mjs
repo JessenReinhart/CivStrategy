@@ -43,8 +43,10 @@ async function preparePlacement(page, type) {
     const manager = scene.buildingManager;
     const tc = scene.buildings.getChildren().find((b) => b.getData('owner') === 0 && b.getData('def')?.type === 'Town Center');
     if (!tc) throw new Error('Player Town Center missing.');
-    const def = { House: { width: 48, height: 48 }, Barracks: { width: 72, height: 72 } }[buildingType];
+    const def = { House: { width: 32, height: 32 }, Barracks: { width: 48, height: 48 } }[buildingType];
     const grid = 16;
+    const waterLevel = 0.38;
+    const heightLift = 200;
     const snap = (v) => Math.floor(v / grid) * grid;
     let center = null;
     for (let oy = 0; oy <= 640 && !center; oy += grid) {
@@ -54,7 +56,9 @@ async function preparePlacement(page, type) {
       }
     }
     if (!center) throw new Error(`No valid ${buildingType} placement found.`);
-    const iso = { x: (center.x - def.width / 2) - (center.y - def.height / 2), y: ((center.x - def.width / 2) + (center.y - def.height / 2)) * 0.5 };
+    const terrainHeight = scene.terrainSystem.getHeightAt(center.x, center.y);
+    const lift = Math.max(0, terrainHeight - waterLevel) * heightLift;
+    const iso = { x: center.x - center.y, y: (center.x + center.y) * 0.5 - lift };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(iso.x, iso.y);
     window.__buildTrainBaseline = new Set(scene.buildings.getChildren());
