@@ -354,15 +354,22 @@ try {
     }
   }
 
+  // Exercise the real cold-reload player path first. Continue Game rebuilds the
+  // saved seeded world before MainScene applies pending save data, which is the
+  // required environment for persistent finite resource nodes.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await bootNewGame(page);
-  await selectStartingVillager(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
-
+  await page.getByRole('button', { name: /Continue/i }).click();
+  await waitForMainScene(page);
   await page.waitForFunction((markerWood) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
+
+  // Retain the existing live-reload selection invariant too: select a restored
+  // Villager, then load again inside the same seeded scene and verify stale
+  // Phaser selection references are released.
+  await selectStartingVillager(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     const oldVillager = window.__saveReloadSelectedVillager;
