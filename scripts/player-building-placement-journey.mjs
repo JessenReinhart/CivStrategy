@@ -64,6 +64,13 @@ try {
     return Boolean(scene?.isReady && scene?.buildingManager && scene?.inputManager && scene?.buildings?.getChildren?.().length);
   }, undefined, { timeout: 45_000 });
 
+  // MainScene can become simulation-ready before React removes the loading surface and mounts the
+  // interactive HUD. Player input begins only when the HUD is actually visible, so browser acceptance
+  // must use that same boundary rather than racing the internal scene-ready flag.
+  evidence.phase = 'hud-ready';
+  const economyButton = page.getByRole('button', { name: /Economy/i });
+  await economyButton.waitFor({ state: 'visible', timeout: 45_000 });
+
   evidence.phase = 'placement-setup';
   const setup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -120,7 +127,6 @@ try {
 
   await sleep(100);
 
-  const economyButton = page.getByRole('button', { name: /Economy/i });
   await economyButton.waitFor({ state: 'visible', timeout: 3_000 });
   await economyButton.click();
 

@@ -5,8 +5,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 const PORT = 4183;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
 const EVIDENCE_PATH = `${ARTIFACT_DIR}/economy-progression-journey.json`;
+const SCREENSHOT_PATH = `${ARTIFACT_DIR}/economy-progression-journey.png`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -33,8 +35,14 @@ async function stopServer() {
 async function waitForScene(page) {
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.isReady && scene?.villagerSystem && scene?.buildingManager && scene?.inputManager && scene?.economySystem && scene?.entityFactory);
+    return Boolean(scene?.isReady && scene?.villagerSystem && scene?.buildingManager && scene?.inputManager && scene?.economySystem && scene?.entityFactory && scene?.pathfinder && scene?.unitSpatialHash);
   }, undefined, { timeout: 45_000 });
+}
+
+async function bootNewGame(page) {
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Commence' }).click();
+  await waitForScene(page);
 }
 
 async function waitForCameraSync(page) {
@@ -70,11 +78,55 @@ async function screenPoint(page, kind) {
   }, kind);
 }
 
-async function rightClickThroughFrame(page, x, y) {
+async function unitScreenPoint(page, key) {
+  return page.evaluate((probeKey) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__economyProgressionProbe[probeKey];
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    let worldX = unit.visual.x;
+    let worldY = unit.visual.y - 10;
+    if (probeKey === 'enemy') {
+      const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
+      const lift = Math.max(0, height - 0.38) * 200;
+      worldX = unit.x - unit.y;
+      worldY = (unit.x + unit.y) * 0.5 - lift - 10;
+    }
+    return {
+      x: (worldX - topLeft.x) * camera.zoom,
+      y: (worldY - topLeft.y) * camera.zoom,
+    };
+  }, key);
+}
+
+async function cartesianScreenPoint(page, point) {
+  return page.evaluate((cart) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    const iso = { x: cart.x - cart.y, y: (cart.x + cart.y) * 0.5 };
+    return { x: (iso.x - topLeft.x) * camera.zoom, y: (iso.y - topLeft.y) * camera.zoom };
+  }, point);
+}
+
+async function rightClickThroughFrame(page, x, y, targetKind) {
   await page.mouse.move(x, y);
   const beforeMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, beforeMove, { timeout: 30_000 });
   await page.mouse.move(x, y);
+  if (targetKind === 'camp') {
+    await page.waitForFunction((kind) => {
+      const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+      const probe = window.__economyProgressionProbe;
+      const target = kind === 'camp' ? probe?.camp : probe?.enemy;
+      const pointer = scene?.input?.activePointer;
+      if (!scene || !target || !pointer) return false;
+      return scene.input.hitTestPointer(pointer)
+        .some((hit) => kind === 'camp'
+          ? hit.getData?.('building') === target
+          : hit.getData?.('unit') === target);
+    }, targetKind, { timeout: 30_000 });
+  }
   const beforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.down({ button: 'right' });
   try {
@@ -116,6 +168,7 @@ async function placeThroughUi(page, canvas, category, type) {
   await page.getByRole('button', { name: new RegExp(type, 'i') }).click();
   await page.waitForFunction((t) => window.__civStrategyGame.scene.getScene('MainScene').buildingManager.previewBuildingType === t, type, { timeout: 5_000 });
   const box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable during building placement.');
   const point = await page.evaluate((iso) => {
     const camera = window.__civStrategyGame.scene.getScene('MainScene').cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
@@ -144,37 +197,88 @@ try {
   page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on('pageerror', (error) => evidence.browserErrors.push(error.message));
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Start Game' }).click();
-  await page.getByRole('button', { name: 'Commence' }).click();
-  await waitForScene(page);
+  await bootNewGame(page);
 
   evidence.phase = 'gather-setup';
   evidence.gatherSetup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
     scene.economySystem.assignJobs = () => {};
-    scene.resources.wood = 10_000;
-    scene.resources.food = 10_000;
-    scene.resources.gold = 10_000;
-    scene.economySystem.updateStats();
+    const previousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    const startingResources = { ...scene.resources };
     const villager = scene.villagerSystem.getIdleVillagers(0)[0];
     if (!villager?.visual) throw new Error('No idle player villager available.');
-    const trees = scene.trees.getChildren().filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'));
-    const tree = trees.sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))[0];
-    if (!tree) throw new Error('No live tree available.');
-    const dx = tree.x - villager.x;
-    const dy = tree.y - villager.y;
-    const length = Math.max(1, Math.hypot(dx, dy));
-    const camp = scene.entityFactory.spawnBuilding('Lumber Camp', villager.x + (-dy / length) * 64, villager.y + (dx / length) * 64, 0);
+    const trees = scene.trees.getChildren()
+      .filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'))
+      .sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))
+      .slice(0, 12);
+    if (trees.length === 0) throw new Error('No live tree available.');
+
+    const manager = scene.buildingManager;
+    const baseline = new Set(scene.buildings.getChildren());
+    manager.enterBuildMode('Lumber Camp');
+    let camp = null;
+    let sourceTree = null;
+    const radii = [48, 64, 80, 96, 112, 128];
+    for (const tree of trees) {
+      for (const radius of radii) {
+        for (let step = 0; step < 16; step++) {
+          const angle = (step / 16) * Math.PI * 2;
+          const cartX = tree.x + Math.cos(angle) * radius;
+          const cartY = tree.y + Math.sin(angle) * radius;
+          const isoX = cartX - cartY;
+          const isoY = (cartX + cartY) * 0.5;
+          manager.tryBuild(isoX, isoY);
+          camp = scene.buildings.getChildren().find((building) => (
+            !baseline.has(building)
+            && building.getData('owner') === 0
+            && building.getData('def')?.type === 'Lumber Camp'
+          ));
+          if (camp) {
+            sourceTree = tree;
+            break;
+          }
+        }
+        if (camp) break;
+      }
+      if (camp) break;
+    }
+    manager.cancelBuildMode();
+    if (!camp || !sourceTree) throw new Error('No valid fresh-game Lumber Camp placement found near live wood.');
+    const afterCamp = { ...scene.resources };
+    scene.gameSpeed = previousGameSpeed;
+
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
     scene.inputManager.clearSelection();
-    window.__economyProgressionProbe = { villager, camp };
-    return { wood: scene.resources.wood, villagerId: villager.id };
+    window.__economyProgressionProbe = { villager, camp, player: null, enemy: null };
+    return {
+      startingResources,
+      afterCamp,
+      campCostWood: startingResources.wood - afterCamp.wood,
+      wood: afterCamp.wood,
+      villagerId: villager.id,
+      campX: camp.x,
+      campY: camp.y,
+      treeDistance: Math.hypot(camp.x - sourceTree.x, camp.y - sourceTree.y),
+    };
   });
+  if (evidence.gatherSetup.campCostWood !== 25) {
+    throw new Error(`Fresh-game Lumber Camp did not cost exactly 25 wood: ${JSON.stringify(evidence.gatherSetup)}`);
+  }
+  if (evidence.gatherSetup.afterCamp.food !== evidence.gatherSetup.startingResources.food
+    || evidence.gatherSetup.afterCamp.gold !== evidence.gatherSetup.startingResources.gold) {
+    throw new Error('Fresh-game Lumber Camp mutated non-wood resources.');
+  }
+  if (evidence.gatherSetup.afterCamp.wood < 200
+    || evidence.gatherSetup.afterCamp.food < 100
+    || evidence.gatherSetup.afterCamp.gold < 100) {
+    throw new Error(`Fresh opening cannot fund House + Barracks + Pikesman progression after Lumber Camp: ${JSON.stringify(evidence.gatherSetup.afterCamp)}`);
+  }
   await waitForCameraSync(page);
   const canvas = page.locator('canvas').first();
-  const box = await canvas.boundingBox();
+  let box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable.');
 
   evidence.phase = 'select-villager';
@@ -183,8 +287,14 @@ try {
   await page.waitForFunction(() => Boolean(window.__economyProgressionProbe.villager.visual?.getData('workforceSelectionRing')?.active), undefined, { timeout: 30_000 });
 
   evidence.phase = 'assign-work';
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__economyProgressionProbe;
+    scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
+  });
+  await waitForCameraSync(page);
   const campPoint = await screenPoint(page, 'camp');
-  await rightClickThroughFrame(page, box.x + campPoint.x, box.y + campPoint.y);
+  await rightClickThroughFrame(page, box.x + campPoint.x, box.y + campPoint.y, 'camp');
   await page.waitForFunction(() => {
     const { villager, camp } = window.__economyProgressionProbe;
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
@@ -231,6 +341,8 @@ try {
     const topLeft = camera.getWorldPoint(0, 0);
     return { x: (building.visual.x - topLeft.x) * camera.zoom, y: (building.visual.y - 24 - topLeft.y) * camera.zoom };
   });
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable for Barracks selection.');
   await page.mouse.click(box.x + barracksPoint.x, box.y + barracksPoint.y, { button: 'left' });
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__economyLastBuilding, undefined, { timeout: 5_000 });
   evidence.beforeTraining = await page.evaluate(() => {
@@ -248,6 +360,7 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const units = scene.units.getChildren().filter((u) => u.getData('owner') === 0);
     const newest = units[units.length - 1];
+    window.__economyProgressionProbe.player = newest;
     const result = { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, units: units.length, type: newest?.unitType ?? newest?.getData('unitType') };
     scene.gameSpeed = window.__economyPreviousSpeed;
     return result;
@@ -256,15 +369,342 @@ try {
   if (evidence.afterTraining.gold !== evidence.beforeTraining.gold - 50) throw new Error('Pikesman did not cost exactly 50 gold.');
   if (evidence.afterTraining.population !== evidence.beforeTraining.population + 1) throw new Error('Pikesman did not consume exactly one population.');
   if (evidence.afterTraining.units !== evidence.beforeTraining.units + 1 || evidence.afterTraining.type !== 'Pikesman') throw new Error('Visible training action did not create exactly one Pikesman.');
+
+  evidence.phase = 'move-trained-unit';
+  evidence.moveTarget = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    scene.inputManager.clearSelection();
+    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
+    const candidates = [[96, 0], [-96, 0], [0, 96], [0, -96], [72, 72], [-72, -72]];
+    for (const [dx, dy] of candidates) {
+      const target = { x: player.x + dx, y: player.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
+      const endpoint = path?.[path.length - 1];
+      if (path?.length > 1 && endpoint && Math.hypot(endpoint.x - target.x, endpoint.y - target.y) <= 36) {
+        return { ...target, pathEndpointX: endpoint.x, pathEndpointY: endpoint.y };
+      }
+    }
+    throw new Error('No reachable target found for the trained Pikesman.');
+  });
+  await waitForCameraSync(page);
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable for army movement.');
+  let playerPoint = await unitScreenPoint(page, 'player');
+  await page.mouse.click(box.x + playerPoint.x, box.y + playerPoint.y, { button: 'left' });
+  await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__economyProgressionProbe.player), undefined, { timeout: 30_000 });
+  evidence.moveCommandStart = await page.evaluate((target) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    player.setData('__economyJourneyMoveX', player.x);
+    player.setData('__economyJourneyMoveY', player.y);
+    return {
+      x: player.x,
+      y: player.y,
+      gameTime: scene.gameTime,
+      distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+    };
+  }, evidence.moveTarget);
+  let targetPoint = await cartesianScreenPoint(page, evidence.moveTarget);
+  await rightClickThroughFrame(page, box.x + targetPoint.x, box.y + targetPoint.y);
+  evidence.moveAccepted = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    return {
+      gameTime: scene.gameTime,
+      speed: player.body?.velocity?.length?.() ?? 0,
+      pathLength: player.path?.length ?? 0,
+    };
+  });
+  if (evidence.moveAccepted.pathLength < 2 || evidence.moveAccepted.speed <= 0) {
+    throw new Error(`Real movement right-click did not create an active trained-unit path: ${JSON.stringify(evidence.moveAccepted)}`);
+  }
+  const minimumSimulationMs = 180;
+  try {
+    await page.waitForFunction(({ target, start, acceptedGameTime, minimumSimulationMs }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const player = window.__economyProgressionProbe.player;
+      const movedDistance = Math.hypot(player.x - start.x, player.y - start.y);
+      const distanceToTarget = Math.hypot(player.x - target.x, player.y - target.y);
+      if (movedDistance >= 40 && distanceToTarget <= 48) return true;
+      const simulatedMs = scene.gameTime - acceptedGameTime;
+      if (simulatedMs < minimumSimulationMs) return false;
+      return movedDistance >= 8 && distanceToTarget < start.distanceToTarget;
+    }, {
+      target: evidence.moveTarget,
+      start: evidence.moveCommandStart,
+      acceptedGameTime: evidence.moveAccepted.gameTime,
+      minimumSimulationMs,
+    }, { timeout: 30_000 });
+  } catch (error) {
+    evidence.moveFailureState = await page.evaluate(({ target, acceptedGameTime }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const player = window.__economyProgressionProbe.player;
+      return {
+        x: player.x,
+        y: player.y,
+        gameTime: scene.gameTime,
+        simulatedMs: scene.gameTime - acceptedGameTime,
+        speed: player.body?.velocity?.length?.() ?? 0,
+        pathLength: player.path?.length ?? 0,
+        distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+        movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
+      };
+    }, { target: evidence.moveTarget, acceptedGameTime: evidence.moveAccepted.gameTime }).catch(() => null);
+    throw error;
+  }
+  evidence.moveArrival = await page.evaluate((target) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    return {
+      x: player.x,
+      y: player.y,
+      gameTime: scene.gameTime,
+      distanceToTarget: Math.hypot(player.x - target.x, player.y - target.y),
+      pathEndpointDistance: Math.hypot(target.pathEndpointX - target.x, target.pathEndpointY - target.y),
+      movedDistance: Math.hypot(player.x - player.getData('__economyJourneyMoveX'), player.y - player.getData('__economyJourneyMoveY')),
+      speed: player.body?.velocity?.length?.() ?? 0,
+    };
+  }, evidence.moveTarget);
+  evidence.simulatedMovementMs = evidence.moveArrival.gameTime - evidence.moveAccepted.gameTime;
+  if (evidence.moveArrival.movedDistance < 8 || evidence.simulatedMovementMs < minimumSimulationMs || evidence.moveArrival.distanceToTarget >= evidence.moveCommandStart.distanceToTarget) {
+    throw new Error(`Trained Pikesman did not make simulation-backed command progress: ${JSON.stringify({ start: evidence.moveCommandStart, accepted: evidence.moveAccepted, target: evidence.moveTarget, arrival: evidence.moveArrival, simulatedMovementMs: evidence.simulatedMovementMs })}`);
+  }
+
+  evidence.phase = 'combat';
+  evidence.combat = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    window.__economyCombatPreviousSpeed = scene.gameSpeed;
+    scene.peacefulMode = true;
+    scene.gameSpeed = 0;
+    const candidates = [[36, 0], [-36, 0], [0, 36], [0, -36]];
+    let spawn;
+    for (const [dx, dy] of candidates) {
+      const x = player.x + dx;
+      const y = player.y + dy;
+      if (!scene.pathfinder.isBlocked(x, y)) { spawn = { x, y }; break; }
+    }
+    if (!spawn) throw new Error('No in-range enemy position was available.');
+    const enemy = scene.entityFactory.spawnUnit('Pikesman', spawn.x, spawn.y, 1);
+    if (!enemy) throw new Error('Could not create deterministic combat enemy.');
+    enemy.setData('hp', 10);
+    enemy.setData('stance', 'Hold');
+    enemy.setData('anchor', { x: enemy.x, y: enemy.y });
+    player.lastAttackTime = scene.gameTime;
+    window.__economyProgressionProbe.enemy = enemy;
+    window.__economyProgressionProbe.enemyX = enemy.x;
+    window.__economyProgressionProbe.enemyY = enemy.y;
+    scene.cameras.main.panEffect?.reset();
+    scene.cameras.main.setZoom(1.5);
+    const project = (unit) => {
+      const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
+      const lift = Math.max(0, height - 0.38) * 200;
+      return { x: unit.x - unit.y, y: (unit.x + unit.y) * 0.5 - lift - 10 };
+    };
+    const playerProjected = project(player);
+    const enemyProjected = project(enemy);
+    scene.cameras.main.centerOn((playerProjected.x + enemyProjected.x) * 0.5, (playerProjected.y + enemyProjected.y) * 0.5);
+    return {
+      distance: Math.hypot(player.x - enemy.x, player.y - enemy.y),
+      pausedAtGameTime: scene.gameTime,
+      previousGameSpeed: window.__economyCombatPreviousSpeed,
+      playerProjected,
+      enemyProjected,
+    };
+  });
+  if (evidence.combat.distance > 40) throw new Error(`Deterministic enemy exceeded Pikesman attack range (${evidence.combat.distance.toFixed(2)}px).`);
+  await waitForCameraSync(page);
+  const combatCameraFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, combatCameraFrame, { timeout: 30_000 });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__economyProgressionProbe;
+    return scene.inputManager.selectedUnits.includes(player)
+      && player.visual?.active
+      && player.visual.visible
+      && enemy.active
+      && enemy.visual?.active
+      && enemy.visual.visible
+      && enemy.visual.alpha > 0;
+  }, undefined, { timeout: 30_000 });
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable for combat.');
+  const enemyPoint = await unitScreenPoint(page, 'enemy');
+  const enemyPagePoint = { x: box.x + enemyPoint.x, y: box.y + enemyPoint.y };
+  await page.mouse.move(enemyPagePoint.x, enemyPagePoint.y);
+  evidence.combatPointer = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const pointer = scene.input.activePointer;
+    const enemy = window.__economyProgressionProbe.enemy;
+    const targets = scene.input.hitTestPointer(pointer);
+    const enemyBounds = enemy.visual?.getBounds?.();
+    return {
+      pointer: { x: pointer.x, y: pointer.y, worldX: pointer.worldX, worldY: pointer.worldY },
+      enemyVisual: { x: enemy.visual?.x, y: enemy.visual?.y },
+      enemyBounds: enemyBounds ? { x: enemyBounds.x, y: enemyBounds.y, width: enemyBounds.width, height: enemyBounds.height, centerX: enemyBounds.centerX, centerY: enemyBounds.centerY } : null,
+      hitCount: targets.length,
+      hitsEnemy: targets.some((obj) => obj.getData?.('unit') === enemy),
+      hitTypes: targets.map((obj) => obj.getData?.('unit') ? `unit:${obj.getData('unit').getData('owner')}` : obj.getData?.('building') ? `building:${obj.getData('building').getData('owner')}` : obj.type ?? 'unknown'),
+    };
+  });
+  evidence.attackIssuedAtFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await rightClickThroughFrame(page, enemyPagePoint.x, enemyPagePoint.y, 'enemy');
+  await page.waitForFunction(() => {
+    const { player, enemy } = window.__economyProgressionProbe;
+    return player.target === enemy && player.getData('explicitTarget') === true;
+  }, undefined, { timeout: 5_000 });
+
+  evidence.attackCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__economyProgressionProbe;
+    return {
+      acceptedAtFrame: window.__civStrategyGame.loop.frame,
+      gameTime: scene.gameTime,
+      gameSpeed: scene.gameSpeed,
+      targetHp: enemy.active ? enemy.getData('hp') : null,
+      targetsEnemy: player.target === enemy,
+      explicitTarget: player.getData('explicitTarget') === true,
+    };
+  });
+  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) {
+    throw new Error(`Real combat right-click was not accepted by the trained Pikesman: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+  if (evidence.attackCommand.gameSpeed !== 0
+    || evidence.attackCommand.gameTime !== evidence.combat.pausedAtGameTime
+    || evidence.attackCommand.targetHp !== 10) {
+    throw new Error(`Simulation advanced during combat command capture: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+
+  evidence.combatEnabledAtGameTime = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    player.lastAttackTime = scene.gameTime - 10_000;
+    scene.peacefulMode = false;
+    scene.gameSpeed = window.__economyCombatPreviousSpeed || 1;
+    return scene.gameTime;
+  });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__economyProgressionProbe;
+    return !probe.enemy.active
+      && !scene.units.getChildren().includes(probe.enemy)
+      && !scene.unitSpatialHash.query(probe.enemyX, probe.enemyY, 96).includes(probe.enemy)
+      && probe.player.active
+      && scene.units.getChildren().includes(probe.player);
+  }, undefined, { timeout: 12_000 });
+
+  evidence.phase = 'save';
+  evidence.beforeSave = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    const owned = scene.buildings.getChildren().filter((b) => b.getData('owner') === 0);
+    const snapshot = {
+      x: player.x,
+      y: player.y,
+      type: player.unitType ?? player.getData('unitType'),
+      hp: player.getData('hp'),
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      houses: owned.filter((b) => b.getData('def')?.type === 'House').length,
+      barracks: owned.filter((b) => b.getData('def')?.type === 'Barracks').length,
+    };
+    window.dispatchEvent(new Event('save-game'));
+    return snapshot;
+  });
+  await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), SAVE_KEY, { timeout: 10_000 });
+
+  evidence.phase = 'reload';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await bootNewGame(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
+  await page.waitForFunction((saved) => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    if (!scene?.isReady) return false;
+    return scene.units.getChildren().some((unit) => unit.getData?.('owner') === 0
+      && (unit.unitType ?? unit.getData?.('unitType')) === saved.type
+      && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2);
+  }, evidence.beforeSave, { timeout: 20_000 });
+
+  evidence.restored = await page.evaluate((saved) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = scene.units.getChildren()
+      .filter((unit) => unit.getData?.('owner') === 0 && (unit.unitType ?? unit.getData?.('unitType')) === saved.type)
+      .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
+    if (!player) throw new Error('Trained surviving Pikesman was not restored.');
+    const owned = scene.buildings.getChildren().filter((b) => b.getData('owner') === 0);
+    window.__economyProgressionProbe = { player, enemy: null };
+    return {
+      x: player.x,
+      y: player.y,
+      hp: player.getData('hp'),
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      positionDelta: Math.hypot(player.x - saved.x, player.y - saved.y),
+      houses: owned.filter((b) => b.getData('def')?.type === 'House').length,
+      barracks: owned.filter((b) => b.getData('def')?.type === 'Barracks').length,
+    };
+  }, evidence.beforeSave);
+  if (evidence.restored.positionDelta > 2) throw new Error('Trained Pikesman position did not survive reload.');
+  if (evidence.restored.hp !== evidence.beforeSave.hp) throw new Error('Trained Pikesman HP did not survive reload.');
+  if (evidence.restored.population !== evidence.beforeSave.population) throw new Error('Population changed across save/reload.');
+  if (evidence.restored.maxPopulation !== evidence.beforeSave.maxPopulation) throw new Error('Housing capacity changed across save/reload.');
+  if (evidence.restored.houses !== evidence.beforeSave.houses || evidence.restored.barracks !== evidence.beforeSave.barracks) throw new Error('Player-built House/Barracks continuity changed across save/reload.');
+
+  evidence.phase = 'continue-playing';
+  evidence.postLoadTarget = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
+    const candidates = [[64, 0], [-64, 0], [0, 64], [0, -64]];
+    for (const [dx, dy] of candidates) {
+      const target = { x: player.x + dx, y: player.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
+      if (path?.length > 1) {
+        player.setData('__economyPostLoadX', player.x);
+        player.setData('__economyPostLoadY', player.y);
+        return target;
+      }
+    }
+    throw new Error('No post-load walkable target found.');
+  });
+  await waitForCameraSync(page);
+  const postReloadCanvas = page.locator('canvas').first();
+  box = await postReloadCanvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable after reload.');
+  playerPoint = await unitScreenPoint(page, 'player');
+  await page.mouse.click(box.x + playerPoint.x, box.y + playerPoint.y, { button: 'left' });
+  await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__economyProgressionProbe.player), undefined, { timeout: 30_000 });
+  targetPoint = await cartesianScreenPoint(page, evidence.postLoadTarget);
+  await page.mouse.click(box.x + targetPoint.x, box.y + targetPoint.y, { button: 'right' });
+  await page.waitForFunction(() => {
+    const player = window.__economyProgressionProbe.player;
+    return Math.hypot(player.x - player.getData('__economyPostLoadX'), player.y - player.getData('__economyPostLoadY')) > 5;
+  }, undefined, { timeout: 12_000 });
+  evidence.afterContinue = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__economyProgressionProbe.player;
+    return {
+      selected: scene.inputManager.selectedUnits.includes(player),
+      movedDistance: Math.hypot(player.x - player.getData('__economyPostLoadX'), player.y - player.getData('__economyPostLoadY')),
+    };
+  });
+  if (!evidence.afterContinue.selected || evidence.afterContinue.movedDistance <= 5) throw new Error('Restored trained Pikesman could not continue under real player input.');
   if (evidence.browserErrors.length) throw new Error(`Browser errors:\n${evidence.browserErrors.join('\n')}`);
 
   evidence.phase = 'complete';
-  await page.screenshot({ path: `${ARTIFACT_DIR}/economy-progression-journey.png`, fullPage: true });
+  await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true });
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   console.log(JSON.stringify(evidence, null, 2));
 } catch (error) {
   evidence.phase = `failed:${evidence.phase}`;
   evidence.error = error instanceof Error ? error.stack ?? error.message : String(error);
+  if (page) {
+    try { await page.screenshot({ path: SCREENSHOT_PATH, fullPage: true }); } catch {}
+  }
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
   throw error;
 } finally {
