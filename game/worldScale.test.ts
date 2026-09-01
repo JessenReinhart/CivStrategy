@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { BUILDINGS } from '../constants';
 import { BuildingType } from '../types';
 import { BUILDING_SPRITE_VISUALS } from './systems/BuildingSpriteVisuals';
-import { applyBuildingWorldScale } from './worldScale';
+import { applyBuildingWorldScale, WORLD_CHARACTER_SCALE } from './worldScale';
 
 describe('settlement world scale', () => {
   it('uses dense common footprints while farms occupy more land', () => {
@@ -35,5 +35,9 @@ describe('settlement world scale', () => {
     expect(visualWidth(BuildingType.MARKET)).toBeLessThan(visualWidth(BuildingType.TOWN_CENTER));
     expect(visualWidth(BuildingType.TOWN_CENTER)).toBeLessThan(visualWidth(BuildingType.CATHEDRAL));
     expect(visualWidth(BuildingType.CATHEDRAL)).toBeLessThan(visualWidth(BuildingType.CASTLE));
+  });
+
+  it('uses the shared 80% presentation scale for human-sized actors', () => {
+    expect(WORLD_CHARACTER_SCALE).toBe(0.8);
   });
 });

@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { AmbientRole, BuildingType, MapMode } from '../../types';
 import type { MainScene } from '../MainScene';
 import { toIso, toIsoElev } from '../utils/iso';
+import { WORLD_CHARACTER_SCALE } from '../worldScale';
 
 const MAX_CITIZENS = 220;
 const MIN_CITIZENS = 8;
@@ -14,7 +15,8 @@ const NEARBY_ANCHOR_DISTANCE = 320;
 const LOD_NEAR_DISTANCE = 900;
 const LOD_MID_DISTANCE = 1800;
 
-const TEXTURE_KEY = 'civilian-atlas';
+const SOURCE_TEXTURE_KEY = 'civilian-atlas';
+const TEXTURE_KEY = 'civilian-atlas-world-scale';
 const FRAME_NEAR = 'civilian.near';
 
 interface AmbientAnchor {
@@ -155,44 +157,60 @@ export class AmbientPopulationSystem {
   }
 
   private ensureTextures(): void {
-    if (this.scene.textures.exists(TEXTURE_KEY)) {
-      this.addCivilianFrames(this.scene.textures.get(TEXTURE_KEY));
-      return;
+    if (this.scene.textures.exists(TEXTURE_KEY)) return;
+
+    if (this.scene.textures.exists(SOURCE_TEXTURE_KEY)) {
+      const sourceTexture = this.scene.textures.get(SOURCE_TEXTURE_KEY);
+      const source = sourceTexture.getSourceImage() as CanvasImageSource & { width: number; height: number };
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(source.width * WORLD_CHARACTER_SCALE));
+      canvas.height = Math.max(1, Math.round(source.height * WORLD_CHARACTER_SCALE));
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, canvas.width, canvas.height);
+        const scaledTexture = this.scene.textures.addCanvas(TEXTURE_KEY, canvas);
+        if (scaledTexture) {
+          this.addCivilianFrames(scaledTexture, WORLD_CHARACTER_SCALE);
+          return;
+        }
+      }
     }
 
+    // Fallback procedural silhouettes, generated directly at world-character scale.
     const canvas = document.createElement('canvas');
-    canvas.width = 14;
-    canvas.height = 8;
+    canvas.width = 12;
+    canvas.height = 7;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     ctx.fillStyle = 'rgba(255,255,255,0.92)';
 
-    // Near: 6x8 colored person.
+    // Near: compact person.
     ctx.beginPath();
-    ctx.arc(3, 2, 1.6, 0, Math.PI * 2);
+    ctx.arc(2.5, 1.6, 1.25, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillRect(1.5, 3.5, 3, 4.5);
+    ctx.fillRect(1.25, 2.8, 2.5, 3.8);
 
-    // Mid: 4x4 rounded silhouette.
+    // Mid: compact rounded silhouette.
     ctx.beginPath();
-    ctx.arc(10, 2, 1.8, 0, Math.PI * 2);
+    ctx.arc(8.5, 1.6, 1.4, 0, Math.PI * 2);
     ctx.fill();
 
-    // Far: 2x2 dot.
-    ctx.fillRect(8, 4, 2, 2);
+    // Far: tiny dot.
+    ctx.fillRect(7.5, 3.8, 1.5, 1.5);
 
     const texture = this.scene.textures.addCanvas(TEXTURE_KEY, canvas);
     if (!texture) return;
     for (const role of Object.values(AmbientRole)) {
-      texture.add(`${role}.near`, 0, 0, 0, 6, 8);
-      texture.add(`${role}.mid`, 0, 8, 0, 4, 4);
-      texture.add(`${role}.far`, 0, 8, 4, 2, 2);
+      texture.add(`${role}.near`, 0, 0, 0, 5, 7);
+      texture.add(`${role}.mid`, 0, 7, 0, 3, 3);
+      texture.add(`${role}.far`, 0, 7, 4, 2, 2);
     }
   }
 
-  /** Register the three LOD frames for every role in the generated citizen atlas. */
-  private addCivilianFrames(texture: Phaser.Textures.Texture): void {
+  /** Register scaled LOD frames for every role in the derived citizen atlas. */
+  private addCivilianFrames(texture: Phaser.Textures.Texture, scale: number): void {
     const roleOffsets: Record<AmbientRole, number> = {
       [AmbientRole.CIVILIAN]: 0,
       [AmbientRole.WORKER]: 32,
@@ -200,9 +218,9 @@ export class AmbientPopulationSystem {
       [AmbientRole.FARMER]: 96,
     };
     for (const [role, y] of Object.entries(roleOffsets) as Array<[AmbientRole, number]>) {
-      texture.add(`${role}.near`, 0, 0, y, 32, 32);
-      texture.add(`${role}.mid`, 0, 32, y + 8, 16, 16);
-      texture.add(`${role}.far`, 0, 48, y + 12, 8, 8);
+      texture.add(`${role}.near`, 0, 0, Math.round(y * scale), Math.round(32 * scale), Math.round(32 * scale));
+      texture.add(`${role}.mid`, 0, Math.round(32 * scale), Math.round((y + 8) * scale), Math.round(16 * scale), Math.round(16 * scale));
+      texture.add(`${role}.far`, 0, Math.round(48 * scale), Math.round((y + 12) * scale), Math.max(2, Math.round(8 * scale)), Math.max(2, Math.round(8 * scale)));
     }
   }
 

@@ -3,6 +3,7 @@ import { MainScene } from '../MainScene';
 import { UnitType, FormationType, UnitState, GameUnit, SoldierSteeringMode } from '../../types';
 import { UNIT_STATS, STRESS_RENDER_INTERVAL, FRONT_RANK_RADIUS, CROWD_PUSH_SCALE, COMBAT_JITTER_AMPLITUDE, COMBAT_JITTER_PERIOD_MS, CHARGE_THRUST_RATIO, CROWD_PUSH_FORWARD_RATIO, CHARGE_TIMER_DECAY_MS, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIsoElev } from '../utils/iso';
+import { WORLD_CHARACTER_SCALE } from '../worldScale';
 import { FormationSystem } from './FormationSystem';
 
 /**
@@ -66,6 +67,7 @@ const UNIT_ICON_FRAME: Partial<Record<UnitType, number>> = {
 };
 
 const POOL_INITIAL_SIZE = 200;
+const SOLDIER_SPRITE_SCALE = 0.5 * WORLD_CHARACTER_SCALE;
 const OVERHEAD_ICON_SCREEN_SIZE = 36;
 const OVERHEAD_ICON_SOURCE_SIZE = 48;
 // Clear cavalry, pikes, and dense formation footprints at close zoom as well.
@@ -117,7 +119,7 @@ export class SquadSystem {
             for (let i = 0; i < POOL_INITIAL_SIZE; i++) {
                 const sprite = this.scene.add.sprite(0, 0, textureKey)
                     .setOrigin(0.5, 1)
-                    .setScale(0.5)
+                    .setScale(SOLDIER_SPRITE_SCALE)
                     .setVisible(false)
                     .setActive(false);
                 this.scene.worldLayer?.add(sprite);
@@ -142,7 +144,7 @@ export class SquadSystem {
         // Pool exhausted — create one more
         const extra = this.scene.add.sprite(0, 0, textureKey)
             .setOrigin(0.5, 1)
-            .setScale(0.5);
+            .setScale(SOLDIER_SPRITE_SCALE);
         this.scene.worldLayer?.add(extra);
         this.scene.uiCamera?.ignore(extra);
         return extra;
@@ -536,7 +538,7 @@ export class SquadSystem {
         if (unit.isSelected) {
             const stats = UNIT_STATS[unit.unitType as UnitType];
             gfx.lineStyle(2, 0xffffff, 0.8);
-            const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7;
+            const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7 * WORLD_CHARACTER_SCALE;
             gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
         }
 
@@ -791,7 +793,7 @@ export class SquadSystem {
 
         const count = soldiers.length;
         const stats = UNIT_STATS[unit.getData('unitType') as UnitType];
-        const spacing = stats?.squadSpacing || 10;
+        const spacing = (stats?.squadSpacing || 10) * WORLD_CHARACTER_SCALE;
 
         const offsets = FormationSystem.getFormationOffsets(formationType, count, spacing);
 
