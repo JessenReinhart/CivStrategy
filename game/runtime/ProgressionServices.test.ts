@@ -92,6 +92,7 @@ describe('ProgressionServices victory boundary', () => {
         building(760, 220, 0, 420),
         building(220, 760, 0, 420),
         building(760, 760, 0, 420),
+        building(512, 512, 0, 64),
         building(980, 980, 1, 256),
       ],
       { dominanceProgress: DOMINANCE_HOLD_TIME_MS - 1000 },
@@ -117,6 +118,7 @@ describe('ProgressionServices victory boundary', () => {
         building(260, 240, 0, 256),
         building(260, 400, 0, 256),
         building(260, 624, 0, 256),
+        building(260, 800, 0, 256),
         building(900, 512, 1, 256),
       ],
       {
