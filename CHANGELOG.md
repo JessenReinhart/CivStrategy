@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-02
+
+- **Dense building footprints now come directly from the authoritative building definitions (#236):** House, Lumber Camp, Barracks, and Farm physical sizes no longer depend on runtime or rendering initialization order. Placement, collision, pathfinding, save/reload, and dense-city behavior all consume the same definitions, and the full browser/gameplay gauntlet passed before merge.
+
 ## 2026-09-01
 
 - **Dominance victory now requires the player's own expansion (#232):** Enemy expansion can still contest territory, but it can no longer satisfy the player's anti-rush building requirement and trigger an unintended early dominance win. The full gameplay/browser gauntlet passed before merge.
