@@ -5,12 +5,24 @@ vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
 import { UnitType } from '../../types';
 import type { MainScene } from '../MainScene';
+import { WORLD_CHARACTER_SCALE } from '../worldScale';
 import { installLegacyVillagerSpawnBridge } from './VillagerSpawnBridge';
 
+function makeVillagerVisual() {
+  const sprite = { setScale: vi.fn() };
+  const shadow = { setScale: vi.fn() };
+  const visual = {
+    getData: vi.fn((key: string) => key === 'villagerSprite' ? sprite : undefined),
+    list: [shadow],
+  };
+  return { villager: { visual }, sprite, shadow };
+}
+
 describe('installLegacyVillagerSpawnBridge', () => {
-  it('routes villager requests into VillagerSystem', () => {
+  it('routes villager requests into VillagerSystem and applies presentation scale', () => {
     const originalSpawnUnit = vi.fn();
-    const spawnVillager = vi.fn();
+    const { villager, sprite, shadow } = makeVillagerVisual();
+    const spawnVillager = vi.fn(() => villager);
     const scene = {
       entityFactory: { spawnUnit: originalSpawnUnit },
       villagerSystem: { spawnVillager },
@@ -22,7 +34,26 @@ describe('installLegacyVillagerSpawnBridge', () => {
     expect(result).toBeUndefined();
     expect(spawnVillager).toHaveBeenCalledTimes(1);
     expect(spawnVillager).toHaveBeenCalledWith(54, 54, 0);
+    expect(sprite.setScale).toHaveBeenCalledWith(0.22 * WORLD_CHARACTER_SCALE);
+    expect(shadow.setScale).toHaveBeenCalledWith(WORLD_CHARACTER_SCALE);
     expect(originalSpawnUnit).not.toHaveBeenCalled();
+  });
+
+  it('also scales callers that use VillagerSystem.spawnVillager directly', () => {
+    const { villager, sprite, shadow } = makeVillagerVisual();
+    const spawnVillager = vi.fn(() => villager);
+    const scene = {
+      entityFactory: { spawnUnit: vi.fn() },
+      villagerSystem: { spawnVillager },
+    } as unknown as MainScene;
+
+    installLegacyVillagerSpawnBridge(scene);
+    const result = scene.villagerSystem.spawnVillager(10, 20, 1);
+
+    expect(result).toBe(villager);
+    expect(spawnVillager).toHaveBeenCalledWith(10, 20, 1);
+    expect(sprite.setScale).toHaveBeenCalledWith(0.22 * WORLD_CHARACTER_SCALE);
+    expect(shadow.setScale).toHaveBeenCalledWith(WORLD_CHARACTER_SCALE);
   });
 
   it('preserves EntityFactory spawning for non-villager units', () => {
