@@ -2,9 +2,9 @@ import type Phaser from 'phaser';
 import type { MainScene } from '../MainScene';
 import { BuildingType } from '../../types';
 import { BUILDINGS } from '../../constants';
-import { toCartesian } from '../utils/iso';
 import { BUILD_PLACEMENT_GRID_SIZE, BuildingManager } from './BuildingManager';
 import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
+import { resolveCursorAlignedPlacement } from './buildingPlacementSnap';
 
 /**
  * Adds the same textured building visual used by placed structures to the
@@ -36,29 +36,55 @@ export class SpriteGhostBuildingManager extends BuildingManager {
     }
 
     public override updatePreview(worldX: number, worldY: number): void {
-        super.updatePreview(worldX, worldY);
+        if (!this.previewBuildingType) {
+            super.updatePreview(worldX, worldY);
+            return;
+        }
 
-        if (!this.previewBuilding || !this.previewBuildingType) return;
+        const def = BUILDINGS[this.previewBuildingType];
+        const placement = resolveCursorAlignedPlacement(
+            worldX,
+            worldY,
+            def.width,
+            def.height,
+            BUILD_PLACEMENT_GRID_SIZE,
+        );
+        super.updatePreview(placement.inputWorldX, placement.inputWorldY);
+
+        if (!this.previewBuilding) return;
         const ghost = this.previewBuilding.list.find((child) => {
             const candidate = child as Phaser.GameObjects.Image;
             return typeof candidate.getData === 'function' && candidate.getData('placementGhostSprite') === true;
         }) as Phaser.GameObjects.Image | undefined;
         if (!ghost) return;
 
-        const cart = toCartesian(worldX, worldY);
-        const def = BUILDINGS[this.previewBuildingType];
-        const gx = Math.floor(cart.x / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const gy = Math.floor(cart.y / BUILD_PLACEMENT_GRID_SIZE) * BUILD_PLACEMENT_GRID_SIZE;
-        const cx = gx + def.width / 2;
-        const cy = gy + def.height / 2;
         const managerValidity = this as unknown as {
             checkBuildValidity(x: number, y: number, type: BuildingType): boolean;
         };
-        const isValid = managerValidity.checkBuildValidity(cx, cy, this.previewBuildingType);
+        const isValid = managerValidity.checkBuildValidity(
+            placement.centerX,
+            placement.centerY,
+            this.previewBuildingType,
+        );
 
-        // Keep valid previews close to the final art; invalid placement must be
-        // readable on the building itself rather than only on a debug-style overlay.
         ghost.setTint(isValid ? 0xffffff : 0xff5555);
         ghost.setAlpha(isValid ? 0.62 : 0.76);
+    }
+
+    public override tryBuild(worldX: number, worldY: number): void {
+        if (!this.previewBuildingType) {
+            super.tryBuild(worldX, worldY);
+            return;
+        }
+
+        const def = BUILDINGS[this.previewBuildingType];
+        const placement = resolveCursorAlignedPlacement(
+            worldX,
+            worldY,
+            def.width,
+            def.height,
+            BUILD_PLACEMENT_GRID_SIZE,
+        );
+        super.tryBuild(placement.inputWorldX, placement.inputWorldY);
     }
 }
