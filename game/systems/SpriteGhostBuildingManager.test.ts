@@ -18,7 +18,6 @@ vi.mock('phaser', () => ({
 
 vi.mock('../MainScene', () => ({ MainScene: class {} }));
 
-import { BUILDINGS } from '../../constants';
 import { BuildingType } from '../../types';
 import { BuildingManager } from './BuildingManager';
 import { SpriteGhostBuildingManager } from './SpriteGhostBuildingManager';
