@@ -23,6 +23,7 @@ import { createMainSceneWorldBridge } from '../runtime/MainSceneWorldBridge';
 import type { WorldRuntimeHost } from '../runtime/WorldRuntimeHost';
 import { createMainSceneProgressionBridge } from '../runtime/MainSceneProgressionBridge';
 import type { ProgressionRuntimeHost } from '../runtime/ProgressionRuntimeHost';
+import { spawnStartingResourceNodes } from './StartingResourceBootstrap';
 import { WaterBootstrap } from './WaterBootstrap';
 import { WorldBootstrap } from './WorldBootstrap';
 
@@ -178,8 +179,7 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     scene.entityFactory.spawnUnit(UnitType.SLINGER, centerX - 60 + (i * 15), centerY + 80, 0);
   }
 
-  scene.mapGenerationSystem.spawnStartingForest(centerX, centerY);
-  scene.mapGenerationSystem.spawnStartingGoldMines(centerX, centerY);
+  spawnStartingResourceNodes(scene, centerX, centerY);
 
   if (!hasPendingLoad) {
     const aiTC = scene.entityFactory.spawnBuilding(BuildingType.TOWN_CENTER, scene.enemyAI.baseX, scene.enemyAI.baseY, 1);
@@ -189,8 +189,6 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     scene.enemyAI.resources.gold -= 100;
     scene.villagerSystem.spawnVillager(scene.enemyAI.baseX + 50, scene.enemyAI.baseY + 50, 1);
     scene.villagerSystem.spawnVillager(scene.enemyAI.baseX - 50, scene.enemyAI.baseY + 50, 1);
-    scene.mapGenerationSystem.spawnStartingForest(scene.enemyAI.baseX, scene.enemyAI.baseY);
-    scene.mapGenerationSystem.spawnStartingGoldMines(scene.enemyAI.baseX, scene.enemyAI.baseY);
   }
 
   report(0.88, 'Founding civilizations', 'Starting units and nearby resources are ready');
