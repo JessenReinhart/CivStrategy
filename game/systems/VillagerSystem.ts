@@ -3,6 +3,7 @@ import { MainScene } from '../MainScene';
 import { UnitState, VillagerData, BuildingType } from '../../types';
 import { VILLAGER_SPEED, VILLAGER_CARRY_CAPACITY, VILLAGER_GATHER_RATE_MS, GOLD_MINE_SEARCH_RADIUS } from '../../constants';
 import { toIsoElev } from '../utils/iso';
+import { WORLD_CHARACTER_SCALE } from '../worldScale';
 
 // ── Carry-bar colors by resource type ─────────────────────────────────
 const CARRY_COLORS: Record<string, number> = {
@@ -13,6 +14,9 @@ const CARRY_COLORS: Record<string, number> = {
 
 const TREE_SEARCH_RADIUS = 300;
 const PATH_ARRIVAL_TOLERANCE = 64;
+const VILLAGER_SPRITE_SCALE = 0.22 * WORLD_CHARACTER_SCALE;
+const VILLAGER_SHADOW_WIDTH = 12 * WORLD_CHARACTER_SCALE;
+const VILLAGER_SHADOW_HEIGHT = 6 * WORLD_CHARACTER_SCALE;
 
 // Wood is the opening construction bottleneck. Keep the shared 2.5s gather
 // cadence, but make each chop worth more and amortize travel over a larger load.
@@ -61,10 +65,10 @@ export class VillagerSystem {
 
         const primaryColor = this.scene.getFactionColor(owner);
         const shadow = this.scene.add.graphics();
-        shadow.fillStyle(primaryColor, 0.35).fillEllipse(0, 0, 12, 6);
+        shadow.fillStyle(primaryColor, 0.35).fillEllipse(0, 0, VILLAGER_SHADOW_WIDTH, VILLAGER_SHADOW_HEIGHT);
         const sprite = this.scene.add.image(0, 0, VILLAGER_FACING_TEXTURES.south)
             .setOrigin(0.5, 0.91)
-            .setScale(0.22);
+            .setScale(VILLAGER_SPRITE_SCALE);
         visual.add([
             shadow,
             sprite,
