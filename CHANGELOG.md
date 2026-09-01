@@ -2,6 +2,7 @@
 
 ## 2026-09-01
 
+- **Gold mines no longer refill when a saved game is reloaded (#217):** Partially harvested and fully depleted finite gold mines now keep their remaining gold, depleted state, respawn timing, and stump appearance after save/reload, preventing players from duplicating harvestable gold by reloading a game. Older saves without this resource-node data still load safely, and the full gameplay/browser gauntlet remained green.
 - **Villagers no longer lose gathered resources when a game is reloaded (#215):** Wood, food, or gold already being carried by a Villager is now preserved through save/load and deposited exactly once after the game resumes. Older saves without carry data still load safely, and the full build, gather, combat, save/reload, Large-map, camera, day/night, and dense-city gameplay verification remained green.
 
 ## 2026-08-31
