@@ -299,6 +299,41 @@ try {
   }, undefined, { timeout: POINTER_STATE_TIMEOUT_MS });
   telemetry.afterAssignment = await readProbe();
 
+  telemetry.phase = 'reject-unreachable-rally';
+  telemetry.rejectedRally = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__villagerGatherProbe;
+    const originalFindPath = scene.pathfinder.findPath;
+    const before = {
+      state: villager.state,
+      pathLength: villager.path?.length ?? 0,
+      pathStep: villager.pathStep ?? 0,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
+    };
+
+    // Deterministically exercise the pathfinder's real one-point no-route
+    // contract without tying CI to whichever blocked tile a generated map happens to contain.
+    scene.pathfinder.findPath = (start) => [{ x: start.x, y: start.y }];
+    try {
+      scene.villagerSystem.sendToRallyPoint(villager, villager.x + 1200, villager.y + 1200);
+    } finally {
+      scene.pathfinder.findPath = originalFindPath;
+    }
+
+    return {
+      before,
+      after: {
+        state: villager.state,
+        pathLength: villager.path?.length ?? 0,
+        pathStep: villager.pathStep ?? 0,
+        assignedToCamp: villager.jobBuilding === camp,
+        campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
+      },
+    };
+  });
+  telemetry.afterRejectedRally = await readProbe();
+
   telemetry.phase = 'gather-deposit';
   telemetry.simulationAdvance = await page.evaluate((initialWood) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -338,6 +373,15 @@ try {
   }
   if (!telemetry.afterAssignment.villager.assignedToCamp) {
     throw new Error('Real right-click did not assign the selected villager to the Lumber Camp.');
+  }
+  if (!telemetry.rejectedRally.after.assignedToCamp
+      || telemetry.rejectedRally.after.campAssignedWorkerId !== telemetry.afterAssignment.villager.id) {
+    throw new Error('Rejected rally command destroyed the last valid workforce assignment.');
+  }
+  if (telemetry.rejectedRally.after.state !== telemetry.rejectedRally.before.state
+      || telemetry.rejectedRally.after.pathLength !== telemetry.rejectedRally.before.pathLength
+      || telemetry.rejectedRally.after.pathStep !== telemetry.rejectedRally.before.pathStep) {
+    throw new Error('Rejected rally command did not preserve the worker state/path that was already in progress.');
   }
   if (telemetry.woodDeposited <= 0) {
     throw new Error(`Gather loop did not deposit wood after ${telemetry.simulationAdvance.simulatedMs} ms simulated (${telemetry.woodDeposited}).`);

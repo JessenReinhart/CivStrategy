@@ -32,6 +32,7 @@ const FARM = 'Farm';
 const LUMBER_CAMP = 'Lumber Camp';
 const IDLE = 'idle';
 const MOVING_TO_WORK = 'moving_to_work';
+const MOVING_TO_RALLY = 'moving_to_rally';
 const GATHERING = 'gathering';
 
 function makeBuilding(type: string, x: number, y: number) {
@@ -149,6 +150,40 @@ describe('VillagerSystem worker path handoff', () => {
 
         expect(villager.state).toBe(IDLE);
         expect(villager.rallyPoint).toBeUndefined();
+    });
+
+    it('keeps a productive worker assigned when a rally command is unreachable', () => {
+        const farm = makeBuilding(FARM, 16, 16);
+        const villager = makeVillager(10, 10);
+        const findPath = vi.fn()
+            .mockReturnValueOnce([{ x: farm.x, y: farm.y }])
+            .mockReturnValueOnce([{ x: villager.x, y: villager.y }]);
+        const system = new VillagerSystem(makeScene(findPath));
+
+        system.assignJob(villager, farm as never);
+        system.sendToRallyPoint(villager, 500, 500);
+
+        expect(villager.state).toBe(GATHERING);
+        expect(villager.jobBuilding).toBe(farm);
+        expect(villager.targetResource).toBe(farm);
+        expect(farm.getData('assignedWorker')).toBe(villager);
+    });
+
+    it('releases productive work only after a rally route is accepted', () => {
+        const farm = makeBuilding(FARM, 16, 16);
+        const villager = makeVillager(10, 10);
+        const findPath = vi.fn()
+            .mockReturnValueOnce([{ x: farm.x, y: farm.y }])
+            .mockReturnValueOnce([{ x: villager.x, y: villager.y }, { x: 500, y: 500 }]);
+        const system = new VillagerSystem(makeScene(findPath));
+
+        system.assignJob(villager, farm as never);
+        system.sendToRallyPoint(villager, 500, 500);
+
+        expect(villager.state).toBe(MOVING_TO_RALLY);
+        expect(villager.path).toHaveLength(2);
+        expect(villager.jobBuilding).toBeUndefined();
+        expect(farm.getData('assignedWorker')).toBeUndefined();
     });
 });
 

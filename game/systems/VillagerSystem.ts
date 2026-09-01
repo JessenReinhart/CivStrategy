@@ -584,12 +584,30 @@ export class VillagerSystem {
     }
 
     public sendToRallyPoint(villager: VillagerData, rallyX: number, rallyY: number): void {
-        this.clearJobBuilding(villager);
-        villager.state = UnitState.MOVING_TO_RALLY;
+        // A rejected command must be non-destructive. `pathTo` owns path mutation,
+        // so keep the last valid route/state until the replacement route is known.
+        const previousPath = villager.path;
+        const previousPathStep = villager.pathStep;
+        const previousState = villager.state;
+        const previousRallyPoint = villager.rallyPoint;
+
         const result = this.pathTo(villager, rallyX, rallyY);
-        if (result !== 'moving') {
-            villager.state = UnitState.IDLE;
-            villager.rallyPoint = undefined;
+        if (result === 'unreachable') {
+            villager.path = previousPath;
+            villager.pathStep = previousPathStep;
+            villager.state = previousState;
+            villager.rallyPoint = previousRallyPoint;
+            return;
         }
+
+        // Only an accepted movement command supersedes productive work.
+        this.clearJobBuilding(villager);
+        if (result === 'moving') {
+            villager.state = UnitState.MOVING_TO_RALLY;
+            return;
+        }
+
+        villager.state = UnitState.IDLE;
+        villager.rallyPoint = undefined;
     }
 }
