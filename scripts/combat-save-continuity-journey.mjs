@@ -315,8 +315,7 @@ try {
 
     function build(type) {
       const center = findPlacement(type);
-      const def = BUILDINGS[type];
-      const input = toIso(center.x - def.width / 2, center.y - def.height / 2);
+      const input = toIso(center.x, center.y);
       const before = new Set(buildings());
       manager.enterBuildMode(type);
       manager.updatePreview(input.x, input.y);
