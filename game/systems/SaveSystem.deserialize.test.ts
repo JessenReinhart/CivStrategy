@@ -41,6 +41,7 @@ function createScene(overrides: Record<string, unknown> = {}): MainScene {
   const scene = {
     units: { getChildren: () => [], remove: vi.fn() },
     buildings: { getChildren: () => [], remove: vi.fn() },
+    trees: { getChildren: () => [] },
     villagerSystem: {
       getAllVillagers: () => [],
       destroyVillager: vi.fn(),
@@ -225,6 +226,125 @@ describe('SaveSystem load continuity', () => {
     expect(removeBuilding).toHaveBeenCalledTimes(1);
     expect(clearSelection.mock.invocationCallOrder[0]).toBeLessThan(removeUnit.mock.invocationCallOrder[0]);
     expect(deselectBuilding.mock.invocationCallOrder[0]).toBeLessThan(removeBuilding.mock.invocationCallOrder[0]);
+  });
+
+  it('round-trips partial and depleted finite gold mines without replenishing them', () => {
+    const partialData: Record<string, unknown> = {
+      isGoldMine: true,
+      goldRemaining: 37,
+      isDepleted: false,
+      isChopped: false,
+    };
+    const depletedData: Record<string, unknown> = {
+      isGoldMine: true,
+      goldRemaining: 0,
+      isDepleted: true,
+      isChopped: true,
+      depletedAt: 8_000,
+    };
+    const sourceMines = [
+      { x: 240, y: 360, getData: (key: string) => partialData[key] },
+      { x: 640, y: 480, getData: (key: string) => depletedData[key] },
+    ];
+    const sourceScene = createScene({
+      faction: 'Romans',
+      enemyFaction: 'Gauls',
+      mapMode: 'Fixed Map',
+      isFowEnabled: true,
+      peacefulMode: false,
+      treatyLength: 300_000,
+      aiDisabled: false,
+      mapSeed: 42,
+      mapPreset: 'standard',
+      gameTime: 12_000,
+      currentAge: 'Village',
+      ageProgress: 0,
+      isAdvancing: false,
+      nextAge: null,
+      currentSeason: 'Spring',
+      seasonTimer: 500,
+      resources: { wood: 100, food: 100, gold: 163 },
+      population: 1,
+      happiness: 70,
+      gameSpeed: 1,
+      taxRate: 0,
+      bloomIntensity: 1,
+      dominanceProgress: 0,
+      playerTerritoryPercent: 0,
+      gameResult: null,
+      victoryType: null,
+      trees: { getChildren: () => sourceMines },
+    });
+
+    const save = serializeGame(sourceScene) as SaveGame & {
+      resourceNodes?: {
+        goldMines: Array<{
+          x: number;
+          y: number;
+          goldRemaining: number;
+          isDepleted: boolean;
+          isChopped: boolean;
+          depletedAt?: number;
+        }>;
+      };
+    };
+    expect(save.resourceNodes?.goldMines).toEqual([
+      { x: 240, y: 360, goldRemaining: 37, isDepleted: false, isChopped: false, depletedAt: undefined },
+      { x: 640, y: 480, goldRemaining: 0, isDepleted: true, isChopped: true, depletedAt: 8_000 },
+    ]);
+
+    const partialSetData = vi.fn();
+    const depletedSetData = vi.fn();
+    const setTexture = vi.fn();
+    const setTint = vi.fn();
+    const setScale = vi.fn();
+    const restoredMines = [
+      {
+        x: 240,
+        y: 360,
+        getData: (key: string) => key === 'isGoldMine',
+        setData: partialSetData,
+      },
+      {
+        x: 640,
+        y: 480,
+        getData: (key: string) => key === 'isGoldMine',
+        setData: depletedSetData,
+        visual: { active: true, setTexture, setTint, setScale },
+      },
+    ];
+    const loadScene = createScene({ trees: { getChildren: () => restoredMines } });
+
+    deserializeGame(loadScene, save);
+
+    expect(partialSetData).toHaveBeenCalledWith('goldRemaining', 37);
+    expect(partialSetData).toHaveBeenCalledWith('isDepleted', false);
+    expect(partialSetData).toHaveBeenCalledWith('isChopped', false);
+    expect(depletedSetData).toHaveBeenCalledWith('goldRemaining', 0);
+    expect(depletedSetData).toHaveBeenCalledWith('isDepleted', true);
+    expect(depletedSetData).toHaveBeenCalledWith('isChopped', true);
+    expect(depletedSetData).toHaveBeenCalledWith('depletedAt', 8_000);
+    expect(setTexture).toHaveBeenCalledWith('stump');
+    expect(setTint).toHaveBeenCalledWith(0xffffff);
+    expect(setScale).toHaveBeenCalledWith(0.075);
+  });
+
+  it('keeps older version-1 saves without resource-node state backward-compatible', () => {
+    const setData = vi.fn();
+    const scene = createScene({
+      trees: {
+        getChildren: () => [{
+          x: 240,
+          y: 360,
+          getData: (key: string) => key === 'isGoldMine',
+          setData,
+        }],
+      },
+    });
+
+    deserializeGame(scene, createSave());
+
+    expect(setData).not.toHaveBeenCalled();
   });
 
   it('preserves a Barracks rally waypoint through a save/load round trip', () => {

@@ -237,6 +237,27 @@ try {
     ));
     if (!townCenter) throw new Error('Player Town Center missing before save.');
 
+    const goldMines = scene.trees.getChildren().filter((node) => node.getData('isGoldMine')).slice(0, 2);
+    if (goldMines.length < 2) throw new Error('Need two seeded gold mines for save/reload depletion continuity.');
+    const [partialMine, depletedMine] = goldMines;
+    partialMine.setData('goldRemaining', 37);
+    partialMine.setData('isDepleted', false);
+    partialMine.setData('isChopped', false);
+    partialMine.setData('depletedAt', 0);
+    const depletedAt = Math.max(0, scene.gameTime - 1_000);
+    depletedMine.setData('goldRemaining', 0);
+    depletedMine.setData('isDepleted', true);
+    depletedMine.setData('isChopped', true);
+    depletedMine.setData('depletedAt', depletedAt);
+    depletedMine.setData('visualTexture', 'stump');
+    depletedMine.setData('visualTint', 0xffffff);
+    depletedMine.setData('visualScale', 0.075);
+    if (depletedMine.visual?.active) {
+      depletedMine.visual.setTexture('stump');
+      depletedMine.visual.setTint(0xffffff);
+      depletedMine.visual.setScale(0.075);
+    }
+
     const maxPopulationBeforeHousing = scene.maxPopulation;
     const house = scene.entityFactory.spawnBuilding('House', townCenter.x - 192, townCenter.y + 192, 0);
     if (!house || scene.maxPopulation <= maxPopulationBeforeHousing) {
@@ -292,6 +313,10 @@ try {
       lumberCamp: { x: lumberCamp.x, y: lumberCamp.y },
       assignedWorkerId: assignedWorker.id,
       rallyWaypoint,
+      goldMines: [
+        { x: partialMine.x, y: partialMine.y, goldRemaining: 37, isDepleted: false, isChopped: false, depletedAt: 0 },
+        { x: depletedMine.x, y: depletedMine.y, goldRemaining: 0, isDepleted: true, isChopped: true, depletedAt },
+      ],
       gameTime: scene.gameTime,
     };
   }, MARKER_WOOD);
@@ -318,16 +343,33 @@ try {
   if (storedBarracks.waypoint?.x !== beforeSave.rallyWaypoint.x || storedBarracks.waypoint?.y !== beforeSave.rallyWaypoint.y) {
     throw new Error('Stored save did not preserve the Barracks rally waypoint.');
   }
+  for (const expected of beforeSave.goldMines) {
+    const storedMine = storedSave.resourceNodes?.goldMines?.find((mine) => mine.x === expected.x && mine.y === expected.y);
+    if (!storedMine) throw new Error(`Stored save did not contain gold mine at ${expected.x},${expected.y}.`);
+    if (storedMine.goldRemaining !== expected.goldRemaining
+      || storedMine.isDepleted !== expected.isDepleted
+      || storedMine.isChopped !== expected.isChopped
+      || storedMine.depletedAt !== expected.depletedAt) {
+      throw new Error(`Stored gold mine state changed before reload at ${expected.x},${expected.y}.`);
+    }
+  }
 
+  // Exercise the real cold-reload player path first. Continue Game rebuilds the
+  // saved seeded world before MainScene applies pending save data, which is the
+  // required environment for persistent finite resource nodes.
   await page.reload({ waitUntil: 'domcontentloaded' });
-  await bootNewGame(page);
-  await selectStartingVillager(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
-
+  await page.getByRole('button', { name: /Continue/i }).click();
+  await waitForMainScene(page);
   await page.waitForFunction((markerWood) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
+
+  // Retain the existing live-reload selection invariant too: select a restored
+  // Villager, then load again inside the same seeded scene and verify stale
+  // Phaser selection references are released.
+  await selectStartingVillager(page);
+  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     const oldVillager = window.__saveReloadSelectedVillager;
@@ -338,7 +380,7 @@ try {
     return scene?.isReady && !oldRing?.active && currentRing === false;
   }, undefined, { timeout: 5_000 });
 
-  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition, lumberCampPosition }) => {
+  const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition, lumberCampPosition, goldMines }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const findBuilding = (type, position) => scene.buildings.getChildren().find((building) => (
       building.getData('owner') === 0
@@ -353,6 +395,34 @@ try {
     const barracks = findBuilding('Barracks', barracksPosition);
     const lumberCamp = findBuilding('Lumber Camp', lumberCampPosition);
     if (!townCenter || !house || !barracks || !lumberCamp) throw new Error('One or more saved player buildings are missing after load.');
+
+    const restoredGoldMines = goldMines.map((expected) => {
+      const mine = scene.trees.getChildren().find((node) => (
+        node.getData('isGoldMine')
+        && Math.abs(node.x - expected.x) <= 0.5
+        && Math.abs(node.y - expected.y) <= 0.5
+      ));
+      if (!mine) throw new Error(`Restored seeded gold mine missing at ${expected.x},${expected.y}.`);
+      const actual = {
+        x: mine.x,
+        y: mine.y,
+        goldRemaining: mine.getData('goldRemaining'),
+        isDepleted: mine.getData('isDepleted') === true,
+        isChopped: mine.getData('isChopped') === true,
+        depletedAt: mine.getData('depletedAt') ?? 0,
+        visualTexture: mine.visual?.texture?.key ?? mine.getData('visualTexture') ?? null,
+      };
+      if (actual.goldRemaining !== expected.goldRemaining
+        || actual.isDepleted !== expected.isDepleted
+        || actual.isChopped !== expected.isChopped
+        || actual.depletedAt !== expected.depletedAt) {
+        throw new Error(`Gold mine state replenished or changed across reload at ${expected.x},${expected.y}: ${JSON.stringify(actual)}.`);
+      }
+      if (expected.isDepleted && actual.visualTexture !== 'stump') {
+        throw new Error(`Depleted gold mine did not keep stump visual after reload: ${actual.visualTexture ?? 'missing'}.`);
+      }
+      return actual;
+    });
 
     const loadedWood = scene.resources.wood;
     const loadedPopulation = scene.population;
@@ -398,6 +468,7 @@ try {
       assignedWorkerId: assignedWorker.id,
       assignedWorkerState: assignedWorker.state,
       rallyWaypoint,
+      restoredGoldMines,
       loadedGameTime,
       resumedGameTime,
       simulatedMs,
@@ -409,6 +480,7 @@ try {
     housePosition: beforeSave.house,
     barracksPosition: beforeSave.barracks,
     lumberCampPosition: beforeSave.lumberCamp,
+    goldMines: beforeSave.goldMines,
   });
 
   if (afterLoad.population !== beforeSave.population) {
