@@ -2,6 +2,8 @@
 
 ## 2026-09-01
 
+- **A rejected unreachable rally command no longer silently unstaffs a working Villager (#219):** If a ground command has no valid route, the Villager keeps its previous productive assignment and route instead of dropping the building job. A valid replacement rally still releases the worker normally, and the full gameplay/browser gauntlet passed.
+- **World generation failures now have a clear recovery path (#221):** A failed world bootstrap is shown as a terminal loading error instead of leaving the player trapped near 99% forever. The failure screen preserves useful error detail and provides a hard return to the main menu so a fresh session can be started cleanly.
 - **Gold mines no longer refill when a saved game is reloaded (#217):** Partially harvested and fully depleted finite gold mines now keep their remaining gold, depleted state, respawn timing, and stump appearance after save/reload, preventing players from duplicating harvestable gold by reloading a game. Older saves without this resource-node data still load safely, and the full gameplay/browser gauntlet remained green.
 - **Villagers no longer lose gathered resources when a game is reloaded (#215):** Wood, food, or gold already being carried by a Villager is now preserved through save/load and deposited exactly once after the game resumes. Older saves without carry data still load safely, and the full build, gather, combat, save/reload, Large-map, camera, day/night, and dense-city gameplay verification remained green.
 
