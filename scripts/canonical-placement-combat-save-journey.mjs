@@ -188,6 +188,7 @@ try {
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__canonicalVerticalProbe.barracks, undefined, { timeout: 5_000 });
   evidence.beforeTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = 0;
     return { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, military: scene.units.getChildren().filter((u) => u.getData('owner') === 0).length };
   });
   await page.getByRole('button', { name: /Pikesman/i }).click();
@@ -200,6 +201,7 @@ try {
     const units = scene.units.getChildren().filter((u) => u.getData('owner') === 0);
     const player = units[units.length - 1];
     window.__canonicalVerticalProbe.player = player;
+    scene.gameSpeed = 0.75;
     return { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, type: player.unitType ?? player.getData('unitType') };
   });
   if (evidence.afterTraining.type !== 'Pikesman') throw new Error('Barracks UI did not train a Pikesman.');
