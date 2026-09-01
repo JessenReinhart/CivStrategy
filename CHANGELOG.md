@@ -2,6 +2,8 @@
 
 ## 2026-09-01
 
+- **Dominance victory now requires the player's own expansion (#232):** Enemy expansion can still contest territory, but it can no longer satisfy the player's anti-rush building requirement and trigger an unintended early dominance win. The full gameplay/browser gauntlet passed before merge.
+- **Real building placement is now verified through training and reload (#234):** Browser acceptance now carries House and Barracks placement through the visible build UI and canvas, real Pikesman training, save/reload, and restored-unit movement in one connected journey.
 - **Building placement now follows the cursor consistently (#227):** The textured preview and final building placement now use the same cursor-centered footprint snap while keeping the existing 16 px placement lattice and exact edge adjacency. The full running-game/browser gauntlet passed, including build, train, gather, combat, save/reload, Large-map, day/night, and dense-city performance checks.
 - **Enemy resource nodes now survive save and reload correctly (#230):** Starting forest and gold nodes are recreated for both factions before save hydration, so enemy finite-resource state has live generated nodes to restore onto instead of disappearing after reload. The existing save/reload and combat continuity verification stayed green.
 - **A rejected unreachable rally command no longer silently unstaffs a working Villager (#219):** If a ground command has no valid route, the Villager keeps its previous productive assignment and route instead of dropping the building job. A valid replacement rally still releases the worker normally, and the full gameplay/browser gauntlet passed.
