@@ -1,5 +1,5 @@
 import { UnitType } from '../types';
-import { dispatchGameLoadProgress } from '../utils/gameLoading';
+import { createGameLoadFailureDetail, dispatchGameLoadProgress } from '../utils/gameLoading';
 import { bootstrapPlayerScene } from './bootstrap/PlayerSceneBootstrap';
 import { MainScene } from './MainScene';
 import { handlePlayerTrainingRequest } from './playerTrainingRequest';
@@ -26,11 +26,7 @@ export class PlayerMainScene extends MainScene {
       })
       .catch((error: unknown) => {
         console.error('[PlayerMainScene] World bootstrap failed:', error);
-        dispatchGameLoadProgress({
-          progress: 0.99,
-          phase: 'World generation failed',
-          detail: error instanceof Error ? error.message : 'Unexpected startup error',
-        });
+        dispatchGameLoadProgress(createGameLoadFailureDetail(error));
       });
   }
 
