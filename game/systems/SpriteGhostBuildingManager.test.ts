@@ -52,14 +52,14 @@ describe('SpriteGhostBuildingManager placement feedback', () => {
         expect(Object.keys(BUILDING_SPRITE_VISUALS).sort()).toEqual(Object.values(BuildingType).sort());
     });
 
-    it('keeps a valid building ghost close to the final sprite appearance', () => {
+    it('keeps a valid building ghost centered on the snapped pointer position', () => {
         const { manager, ghost, checkBuildValidity } = makePreviewManager(true);
 
         manager.updatePreview(0, 0);
 
         expect(checkBuildValidity).toHaveBeenCalledWith(
-            BUILDINGS[BuildingType.HOUSE].width / 2,
-            BUILDINGS[BuildingType.HOUSE].height / 2,
+            0,
+            0,
             BuildingType.HOUSE,
         );
         expect(ghost.setTint).toHaveBeenCalledWith(0xffffff);
