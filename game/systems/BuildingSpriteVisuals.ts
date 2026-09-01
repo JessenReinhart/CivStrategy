@@ -1,8 +1,5 @@
 import { BuildingType } from '../../types';
-import { applyBuildingWorldScale } from '../worldScale';
 import type { ShadowEmitterProfile, ShadowEmitterScanBand } from './shadowEmitterMath';
-
-applyBuildingWorldScale();
 
 export type BuildingSpriteVisualConfig = {
     key: string;

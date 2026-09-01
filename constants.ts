@@ -232,8 +232,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.HOUSE,
     name: 'House',
     cost: { wood: 50, food: 0, gold: 0 },
-    width: 48,
-    height: 48,
+    width: 32,
+    height: 32,
     color: 0x92400e,
     description: 'Increases max population.',
     maxHp: 300,
@@ -243,8 +243,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.FARM,
     name: 'Farm',
     cost: { wood: 50, food: 0, gold: 0 },
-    width: 48,
-    height: 48,
+    width: 64,
+    height: 64,
     color: 0xfacc15,
     description: 'Requires a peasant to generate food.',
     maxHp: 200,
@@ -255,8 +255,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.LUMBER_CAMP,
     name: 'Lumber Camp',
     cost: { wood: 25, food: 0, gold: 0 },
-    width: 48,
-    height: 48,
+    width: 32,
+    height: 32,
     color: 0x166534,
     description: 'Requires a peasant to generate wood.',
     maxHp: 250,
@@ -290,8 +290,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: BuildingType.BARRACKS,
     name: 'Barracks',
     cost: { wood: 150, food: 0, gold: 50 },
-    width: 72,
-    height: 72,
+    width: 48,
+    height: 48,
     color: 0xb91c1c,
     description: 'Trains military units. Unlocks more units as you advance ages.',
     maxHp: 800,
@@ -443,7 +443,7 @@ export const TERRAIN_CONFIG = {
     { color: { r: 194, g: 178, b: 128 }, minHeight: 0.38, label: 'sand' },          // shore
     { color: { r: 72, g: 98, b: 52 }, minHeight: 0.42, label: 'swamp' },            // wetlands
     { color: { r: 62, g: 148, b: 58 }, minHeight: 0.46, label: 'grass' },           // lowland
-    { color: { r: 38, g: 115, b: 50 }, minHeight: 0.53, label: 'jungle' },          // tropical dense
+    { color: { r: 38, g: 115, b: 50 }, minHeight: 0.53, label: 'jungle' },           // tropical dense
     { color: { r: 45, g: 122, b: 42 }, minHeight: 0.60, label: 'forest' },          // mid
     { color: { r: 148, g: 158, b: 152 }, minHeight: 0.68, label: 'tundra' },        // cold plateau
     { color: { r: 107, g: 95, b: 67 }, minHeight: 0.75, label: 'scrub' },           // highland
