@@ -243,7 +243,9 @@ try {
   evidence.combat = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
-    scene.peacefulMode = false;
+    const previousGameSpeed = scene.gameSpeed;
+    scene.peacefulMode = true;
+    scene.gameSpeed = 0;
     let enemy = null;
     for (const [dx, dy] of [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18]]) {
       const x = player.x + dx;
@@ -256,21 +258,47 @@ try {
     enemy.setData('hp', 10);
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
-    player.lastAttackTime = -10_000;
+    player.lastAttackTime = scene.gameTime;
     window.__canonicalVerticalProbe.enemy = enemy;
     window.__canonicalVerticalProbe.enemyX = enemy.x;
     window.__canonicalVerticalProbe.enemyY = enemy.y;
+    window.__canonicalVerticalProbe.previousGameSpeed = previousGameSpeed;
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
-    return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y) };
+    return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y), pausedAtGameTime: scene.gameTime };
   });
   await waitForCameraSync(page);
   point = await unitScreenPoint(page, 'enemy');
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
+  evidence.attackCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__canonicalVerticalProbe;
+    return {
+      targetsEnemy: probe.player.target === probe.enemy,
+      explicitTarget: probe.player.getData('explicitTarget') === true,
+      state: probe.player.state,
+      gameSpeed: scene.gameSpeed,
+      gameTime: scene.gameTime,
+      targetHp: probe.enemy.active ? probe.enemy.getData('hp') : null,
+    };
+  });
+  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) {
+    throw new Error(`Attack command was not accepted by the selected Pikesman: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+  if (evidence.attackCommand.gameSpeed !== 0 || evidence.attackCommand.gameTime !== evidence.combat.pausedAtGameTime || evidence.attackCommand.targetHp !== 10) {
+    throw new Error(`Simulation advanced during attack-command capture: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__canonicalVerticalProbe;
+    probe.player.lastAttackTime = scene.gameTime - 10_000;
+    scene.peacefulMode = false;
+    scene.gameSpeed = probe.previousGameSpeed || 1;
+  });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__canonicalVerticalProbe;
     return !probe.enemy.active && !scene.units.getChildren().includes(probe.enemy) && !scene.unitSpatialHash.query(probe.enemyX, probe.enemyY, 96).includes(probe.enemy) && probe.player.active;
-  }, undefined, { timeout: 12_000 });
+  }, undefined, { timeout: 15_000 });
 
   evidence.phase = 'save';
   evidence.beforeSave = await page.evaluate(() => {
