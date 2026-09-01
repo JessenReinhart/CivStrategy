@@ -57,6 +57,9 @@ jobs:
       - name: Browser real player build to train journey
         run: node scripts/player-build-train-journey.mjs
 
+      - name: Browser real placement training save reload bridge
+        run: node scripts/real-placement-training-save-journey.mjs
+
       # Keep independent canonical gather/combat/persistence evidence ahead of the long integrated
       # session so a late state-coupling failure does not hide whether these player contracts work alone.
       - name: Browser villager gathering journey
