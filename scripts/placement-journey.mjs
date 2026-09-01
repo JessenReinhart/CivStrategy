@@ -132,14 +132,13 @@ try {
       throw new Error(`Could not find a valid ${type} placement inside player territory.`);
     }
 
-    function inputForCenter(center, type) {
-      const def = dims[type];
-      return toIso(center.x - def.width / 2, center.y - def.height / 2);
+    function inputForCenter(center) {
+      return toIso(center.x, center.y);
     }
 
     function ghostSnapshot(type, center) {
       manager.enterBuildMode(type);
-      const input = inputForCenter(center, type);
+      const input = inputForCenter(center);
       manager.updatePreview(input.x, input.y);
       const preview = manager.previewBuilding;
       const ghost = preview.list.find((child) => child.getData?.('placementGhostSprite') === true);

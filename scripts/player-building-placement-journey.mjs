@@ -17,7 +17,6 @@ const server = spawn(
 let serverOutput = '';
 server.stdout.on('data', (chunk) => { serverOutput += chunk.toString(); });
 server.stderr.on('data', (chunk) => { serverOutput += chunk.toString(); });
-
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitForServer(timeoutMs = 30_000) {
@@ -26,9 +25,7 @@ async function waitForServer(timeoutMs = 30_000) {
     try {
       const response = await fetch(BASE_URL);
       if (response.ok) return;
-    } catch {
-      // Vite is still starting.
-    }
+    } catch {}
     await sleep(250);
   }
   throw new Error(`Vite did not become ready.\n${serverOutput}`);
@@ -42,12 +39,8 @@ async function stopServer() {
 }
 
 await mkdir(ARTIFACT_DIR, { recursive: true });
-
 let browser;
-const evidence = {
-  phase: 'boot',
-  browserErrors: [],
-};
+const evidence = { phase: 'boot', browserErrors: [] };
 
 try {
   await waitForServer();
@@ -58,15 +51,11 @@ try {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
-
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.isReady && scene?.buildingManager && scene?.inputManager && scene?.buildings?.getChildren?.().length);
+    return Boolean(scene?.isReady && scene?.buildingManager && scene?.buildings?.getChildren?.().length);
   }, undefined, { timeout: 45_000 });
 
-  // MainScene can become simulation-ready before React removes the loading surface and mounts the
-  // interactive HUD. Player input begins only when the HUD is actually visible, so browser acceptance
-  // must use that same boundary rather than racing the internal scene-ready flag.
   evidence.phase = 'hud-ready';
   const economyButton = page.getByRole('button', { name: /Economy/i });
   await economyButton.waitFor({ state: 'visible', timeout: 45_000 });
@@ -78,9 +67,8 @@ try {
     const buildings = scene.buildings.getChildren();
     const { BUILDINGS } = await import('/constants.ts');
     const houseDef = BUILDINGS.House;
-    if (!houseDef) throw new Error('House definition was not available from the running game.');
     const tc = buildings.find((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Town Center');
-    if (!tc) throw new Error('Player Town Center was not available after world load.');
+    if (!houseDef || !tc) throw new Error('Placement prerequisites unavailable after world load.');
 
     scene.resources.wood = 10_000;
     scene.resources.food = 10_000;
@@ -99,10 +87,7 @@ try {
 
     for (let oy = 0; oy <= 560 && !center; oy += GRID) {
       for (let ox = 0; ox <= 560; ox += GRID) {
-        const candidate = {
-          x: baseX + ox + width / 2,
-          y: baseY + oy + height / 2,
-        };
+        const candidate = { x: baseX + ox + width / 2, y: baseY + oy + height / 2 };
         if (manager.getBuildValidity(candidate.x, candidate.y, 'House').valid) {
           center = candidate;
           break;
@@ -111,11 +96,13 @@ try {
     }
     if (!center) throw new Error('Could not find a valid House placement inside player territory.');
 
-    const input = toIso(center.x - width / 2, center.y - height / 2);
+    // The player points at the building center. Runtime snapping preserves the
+    // footprint-origin lattice internally instead of requiring a half-footprint cursor offset.
+    const input = toIso(center.x, center.y);
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(input.x, input.y);
-
     window.__playerPlacementBaselineBuildings = new Set(buildings);
+
     return {
       input,
       center,
@@ -127,19 +114,13 @@ try {
     };
   });
 
-  await sleep(100);
-
-  await economyButton.waitFor({ state: 'visible', timeout: 3_000 });
   await economyButton.click();
-
   const houseButton = page.getByRole('button', { name: /House/i });
   await houseButton.waitFor({ state: 'visible', timeout: 3_000 });
   await houseButton.click();
-
-  await page.waitForFunction(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.buildingManager.previewBuildingType === 'House';
-  }, undefined, { timeout: 3_000 });
+  await page.waitForFunction(() => (
+    window.__civStrategyGame.scene.getScene('MainScene').buildingManager.previewBuildingType === 'House'
+  ), undefined, { timeout: 3_000 });
 
   evidence.phase = 'real-canvas-placement';
   const canvas = page.locator('canvas').first();
@@ -147,29 +128,22 @@ try {
   if (!canvasBox) throw new Error('Game canvas was not measurable for House placement.');
 
   const screenPoint = await page.evaluate((input) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const camera = scene.cameras.main;
+    const camera = window.__civStrategyGame.scene.getScene('MainScene').cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    return {
-      x: (input.x - topLeft.x) * camera.zoom,
-      y: (input.y - topLeft.y) * camera.zoom,
-    };
+    return { x: (input.x - topLeft.x) * camera.zoom, y: (input.y - topLeft.y) * camera.zoom };
   }, setup.input);
 
   await page.mouse.move(canvasBox.x + screenPoint.x, canvasBox.y + screenPoint.y);
-  await page.waitForFunction(() => {
-    const manager = window.__civStrategyGame.scene.getScene('MainScene').buildingManager;
-    return Boolean(manager.previewBuilding?.visible);
-  }, undefined, { timeout: 3_000 });
+  await page.waitForFunction(() => Boolean(
+    window.__civStrategyGame.scene.getScene('MainScene').buildingManager.previewBuilding?.visible
+  ), undefined, { timeout: 3_000 });
   await page.mouse.click(canvasBox.x + screenPoint.x, canvasBox.y + screenPoint.y, { button: 'left' });
 
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const baseline = window.__playerPlacementBaselineBuildings;
     return scene.buildings.getChildren().some((building) => (
-      !baseline.has(building)
-      && building.getData('owner') === 0
-      && building.getData('def')?.type === 'House'
+      !baseline.has(building) && building.getData('owner') === 0 && building.getData('def')?.type === 'House'
     ));
   }, undefined, { timeout: 5_000 });
 
@@ -177,9 +151,7 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const baseline = window.__playerPlacementBaselineBuildings;
     const built = scene.buildings.getChildren().find((building) => (
-      !baseline.has(building)
-      && building.getData('owner') === 0
-      && building.getData('def')?.type === 'House'
+      !baseline.has(building) && building.getData('owner') === 0 && building.getData('def')?.type === 'House'
     ));
     if (!built) throw new Error('Real canvas placement did not create an owned House.');
     return {
@@ -192,21 +164,11 @@ try {
     };
   }, setup.center);
 
-  if (after.wood !== setup.before.wood - 50) {
-    throw new Error(`Real House placement charged the wrong wood cost: ${setup.before.wood} -> ${after.wood}.`);
-  }
-  if (after.maxPopulation !== setup.before.maxPopulation + 8) {
-    throw new Error(`Real House placement changed population cap incorrectly: ${setup.before.maxPopulation} -> ${after.maxPopulation}.`);
-  }
-  if (after.buildingCount !== setup.before.buildingCount + 1) {
-    throw new Error(`Real House placement created ${after.buildingCount - setup.before.buildingCount} buildings instead of exactly one.`);
-  }
-  if (after.centerDelta > 0.01) {
-    throw new Error(`Real House placement landed ${after.centerDelta}px away from the validated snapped center.`);
-  }
-  if (after.previewType !== 'House') {
-    throw new Error('Placement mode did not remain coherent after a successful House placement.');
-  }
+  if (after.wood !== setup.before.wood - 50) throw new Error('Real House placement charged the wrong wood cost.');
+  if (after.maxPopulation !== setup.before.maxPopulation + 8) throw new Error('Real House placement changed population cap incorrectly.');
+  if (after.buildingCount !== setup.before.buildingCount + 1) throw new Error('Real House placement did not create exactly one building.');
+  if (after.centerDelta > 0.01) throw new Error(`Real House placement landed ${after.centerDelta}px away from the cursor-aligned center.`);
+  if (after.previewType !== 'House') throw new Error('Placement mode did not remain coherent after a successful House placement.');
 
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => {
@@ -217,10 +179,7 @@ try {
   evidence.phase = 'complete';
   evidence.setup = setup;
   evidence.after = after;
-
-  if (evidence.browserErrors.length > 0) {
-    throw new Error(`Browser page errors during real player placement:\n${evidence.browserErrors.join('\n')}`);
-  }
+  if (evidence.browserErrors.length) throw new Error(`Browser page errors:\n${evidence.browserErrors.join('\n')}`);
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/player-building-placement.png`, fullPage: true });
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');

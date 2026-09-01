@@ -154,7 +154,7 @@ async function preparePlacement(page, type) {
       }
     }
     if (!center) throw new Error(`No valid ${buildingType} placement found.`);
-    const iso = { x: (center.x - def.width / 2) - (center.y - def.height / 2), y: ((center.x - def.width / 2) + (center.y - def.height / 2)) * 0.5 };
+    const iso = { x: center.x - center.y, y: (center.x + center.y) * 0.5 };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(iso.x, iso.y);
     window.__economyPlacementBaseline = new Set(scene.buildings.getChildren());

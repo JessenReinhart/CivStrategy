@@ -108,7 +108,7 @@ try {
 
     const beforeBuildings = new Set(buildings());
     manager.enterBuildMode('House');
-    const input = toIso(center.x - HOUSE_SIZE / 2, center.y - HOUSE_SIZE / 2);
+    const input = toIso(center.x, center.y);
     manager.tryBuild(input.x, input.y);
     manager.cancelBuildMode();
 
