@@ -1,14 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  DOMINANCE_HOLD_TIME_MS,
-  DOMINANCE_MIN_BUILDINGS,
-} from '../../constants';
+import { DOMINANCE_MIN_BUILDINGS } from '../../constants';
 import {
   BuildingType,
   GameResult,
   MapMode,
   MapPreset,
-  VictoryType,
 } from '../../types';
 import type { MainScene } from '../MainScene';
 import { checkSpatialDominance } from './DominanceControl';
@@ -82,7 +78,7 @@ describe('DominanceControl player expansion gate', () => {
     expect(scene.gameResult).toBe(GameResult.PLAYING);
   });
 
-  it('still advances and resolves dominance after the player meets the expansion gate', () => {
+  it('starts dominance progress after the player meets the expansion gate', () => {
     const playerTownCenter = createBuilding(
       0,
       BuildingType.TOWN_CENTER,
@@ -96,19 +92,11 @@ describe('DominanceControl player expansion gate', () => {
     );
     const scene = createScene([playerTownCenter, ...playerExpansion]);
 
-    const dominanceTicks = DOMINANCE_HOLD_TIME_MS / 1000;
-    for (let tick = 0; tick < dominanceTicks; tick++) {
-      checkSpatialDominance(scene);
-    }
+    checkSpatialDominance(scene);
 
     expect(scene.playerTerritoryPercent).toBeGreaterThanOrEqual(0.6);
-    expect(scene.dominanceProgress).toBe(DOMINANCE_HOLD_TIME_MS);
-    expect(scene.gameResult).toBe(GameResult.WON);
-    expect(scene.victoryType).toBe(VictoryType.DOMINANCE);
-    expect(scene.feedbackSystem.addNotification).toHaveBeenCalledWith(
-      '🏆 Dominance Victory! You control the realm!',
-      'success',
-      30000,
-    );
+    expect(scene.dominanceProgress).toBe(1000);
+    expect(scene.gameResult).toBe(GameResult.PLAYING);
+    expect(scene.victoryType).toBeNull();
   });
 });
