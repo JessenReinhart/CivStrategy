@@ -11,6 +11,7 @@ export interface GameLoadProgressDetail {
   detail: string;
   processed?: number;
   total?: number;
+  failed?: boolean;
 }
 
 export interface LoadingWorkProgress {
@@ -51,11 +52,24 @@ export const normalizeGameLoadProgress = (detail: unknown): GameLoadProgressDeta
       detail: candidate.detail || 'Working…',
       processed: typeof candidate.processed === 'number' ? candidate.processed : undefined,
       total: typeof candidate.total === 'number' ? candidate.total : undefined,
+      failed: candidate.failed === true || undefined,
     };
   }
 
   return INITIAL_GAME_LOAD_PROGRESS;
 };
+
+/**
+ * A rejected world bootstrap is terminal for the current Phaser scene. Keep
+ * it distinct from ordinary progress so the React shell can offer a clean
+ * escape instead of presenting a permanently active 99% loading screen.
+ */
+export const createGameLoadFailureDetail = (error: unknown): GameLoadProgressDetail => ({
+  progress: 0.99,
+  phase: 'World generation failed',
+  detail: error instanceof Error ? error.message : 'Unexpected startup error',
+  failed: true,
+});
 
 export const dispatchGameLoadProgress = (detail: GameLoadProgressDetail): void => {
   window.dispatchEvent(new CustomEvent(GAME_LOADING_EVENTS.PROGRESS, { detail }));
