@@ -64,13 +64,14 @@ export function checkSpatialDominance(scene: MainScene): void {
     return;
   }
 
-  // Preserve the existing anti-rush gate: geographical control only becomes a
-  // victory condition after the realm contains enough non-Town-Center expansion.
-  const expansionBuildingCount = buildings.filter((building) => {
+  // Player dominance is earned through player expansion. Enemy structures can
+  // contest spatial control, but must never satisfy the player's anti-rush gate.
+  const playerExpansionBuildingCount = buildings.filter((building) => {
+    const owner = building.getData('owner');
     const def = building.getData('def') as BuildingDefinition | undefined;
-    return def?.type !== BuildingType.TOWN_CENTER;
+    return owner === 0 && def?.type !== BuildingType.TOWN_CENTER;
   }).length;
-  if (expansionBuildingCount < DOMINANCE_MIN_BUILDINGS) {
+  if (playerExpansionBuildingCount < DOMINANCE_MIN_BUILDINGS) {
     resetDominance(scene);
     return;
   }
