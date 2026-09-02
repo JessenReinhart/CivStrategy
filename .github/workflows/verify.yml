@@ -54,6 +54,9 @@ jobs:
       - name: Browser gather to real building placement journey
         run: node scripts/canonical-gather-build-journey.mjs
 
+      - name: Browser full canonical playable session
+        run: node scripts/canonical-play-session-journey.mjs
+
       - name: Browser real player building placement journey
         run: node scripts/player-building-placement-journey.mjs
 
