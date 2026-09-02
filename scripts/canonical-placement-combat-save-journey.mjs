@@ -247,10 +247,12 @@ try {
     scene.peacefulMode = true;
     scene.gameSpeed = 0;
     let enemy = null;
-    for (const [dx, dy] of [[24, 0], [-24, 0], [0, 24], [0, -24], [18, 18]]) {
+    for (const [dx, dy] of [[64, 0], [-64, 0], [0, 64], [0, -64], [48, 48]]) {
       const x = player.x + dx;
       const y = player.y + dy;
       if (scene.pathfinder.isBlocked(x, y)) continue;
+      const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, { x, y });
+      if (!path?.length) continue;
       enemy = scene.entityFactory.spawnUnit('Pikesman', x, y, 1);
       break;
     }
@@ -266,6 +268,14 @@ try {
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
     return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y), pausedAtGameTime: scene.gameTime };
   });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__canonicalVerticalProbe;
+    return Boolean(probe.enemy?.visual)
+      && Number.isFinite(probe.enemy.visual.x)
+      && Number.isFinite(probe.enemy.visual.y)
+      && scene.inputManager.selectedUnits.includes(probe.player);
+  }, undefined, { timeout: 5_000 });
   await waitForCameraSync(page);
   point = await unitScreenPoint(page, 'enemy');
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
@@ -276,6 +286,7 @@ try {
       targetsEnemy: probe.player.target === probe.enemy,
       explicitTarget: probe.player.getData('explicitTarget') === true,
       state: probe.player.state,
+      selected: scene.inputManager.selectedUnits.includes(probe.player),
       gameSpeed: scene.gameSpeed,
       gameTime: scene.gameTime,
       targetHp: probe.enemy.active ? probe.enemy.getData('hp') : null,
