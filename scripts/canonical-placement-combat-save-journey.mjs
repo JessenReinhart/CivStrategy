@@ -354,7 +354,7 @@ try {
     window.__canonicalVerticalProbe = { player };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
-    return { x: player.x, y: player.y, hp: player.getData('hp'), population: scene.population, maxPopulation: scene.maxPopulation };
+    return { x: player.x, y: player.y, hp: player.getData('hp'), population: scene.population, maxPopulation: scene.maxPopulation, gameSpeed: scene.gameSpeed };
   }, evidence.beforeSave);
   if (Math.hypot(evidence.restored.x - evidence.beforeSave.x, evidence.restored.y - evidence.beforeSave.y) > 2) throw new Error('Trained survivor position changed across reload.');
   if (evidence.restored.hp !== evidence.beforeSave.hp || evidence.restored.population !== evidence.beforeSave.population || evidence.restored.maxPopulation !== evidence.beforeSave.maxPopulation) throw new Error('Canonical combat state changed across reload.');
@@ -375,12 +375,34 @@ try {
     }
     throw new Error('No post-load move target.');
   });
+  await page.locator('button:has(svg.lucide-menu)').first().click();
+  await page.getByRole('button', { name: /Save game/i }).waitFor({ state: 'hidden', timeout: 5_000 });
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
   point = await unitScreenPoint(page, 'player');
+  await page.mouse.move(box.x + point.x, box.y + point.y);
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__canonicalVerticalProbe.player;
+    return scene.input.hitTestPointer(scene.input.activePointer).some((obj) => obj.getData?.('unit') === player);
+  }, undefined, { timeout: 5_000 });
   await page.mouse.click(box.x + point.x, box.y + point.y);
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.inputManager.selectedUnits.includes(window.__canonicalVerticalProbe.player);
+  }, undefined, { timeout: 5_000 });
   point = await cartesianScreenPoint(page, evidence.postLoadTarget);
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
+  evidence.postLoadCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__canonicalVerticalProbe.player;
+    return {
+      selected: scene.inputManager.selectedUnits.includes(player),
+      gameSpeed: scene.gameSpeed,
+      state: player.state,
+      pathLength: Array.isArray(player.path) ? player.path.length : null,
+    };
+  });
   await page.waitForFunction(() => {
     const player = window.__canonicalVerticalProbe.player;
     return Math.hypot(player.x - player.getData('__postLoadX'), player.y - player.getData('__postLoadY')) > 5;
