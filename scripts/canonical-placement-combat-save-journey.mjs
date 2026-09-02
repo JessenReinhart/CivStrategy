@@ -78,6 +78,32 @@ async function authoritativeUnitScreenPoint(page, key) {
   }, key);
 }
 
+async function enemyTargetScreenPoint(page, box) {
+  const visual = await unitScreenPoint(page, 'enemy');
+  const authoritative = await authoritativeUnitScreenPoint(page, 'enemy');
+  const candidates = [
+    { ...visual, source: 'visual-center' },
+    ...[[0, -8], [0, 8], [-8, 0], [8, 0], [0, -16], [0, 16], [-16, 0], [16, 0]].map(([dx, dy]) => ({
+      x: visual.x + dx,
+      y: visual.y + dy,
+      source: `visual-offset:${dx},${dy}`,
+    })),
+    { ...authoritative, source: 'authoritative' },
+  ];
+
+  for (const candidate of candidates) {
+    await page.mouse.move(box.x + candidate.x, box.y + candidate.y);
+    const hitsEnemy = await page.evaluate(() => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const enemy = window.__canonicalVerticalProbe.enemy;
+      return scene.input.hitTestPointer(scene.input.activePointer).some((obj) => obj.getData?.('unit') === enemy);
+    });
+    if (hitsEnemy) return candidate;
+  }
+
+  return { ...authoritative, source: 'authoritative-fallback' };
+}
+
 async function cartesianScreenPoint(page, target) {
   return screenPointForIso(page, { x: target.x - target.y, y: (target.x + target.y) * 0.5 });
 }
@@ -260,7 +286,7 @@ try {
     scene.peacefulMode = true;
     scene.gameSpeed = 0;
     let enemy = null;
-    for (const [dx, dy] of [[64, 0], [-64, 0], [0, 64], [0, -64], [48, 48]]) {
+    for (const [dx, dy] of [[36, 0], [-36, 0], [0, 36], [0, -36], [28, 28]]) {
       const x = player.x + dx;
       const y = player.y + dy;
       if (scene.pathfinder.isBlocked(x, y)) continue;
@@ -278,6 +304,7 @@ try {
     window.__canonicalVerticalProbe.enemyX = enemy.x;
     window.__canonicalVerticalProbe.enemyY = enemy.y;
     window.__canonicalVerticalProbe.previousGameSpeed = previousGameSpeed;
+    scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
     return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y), pausedAtGameTime: scene.gameTime };
   });
@@ -290,8 +317,9 @@ try {
       && scene.inputManager.selectedUnits.includes(probe.player);
   }, undefined, { timeout: 5_000 });
   await waitForCameraSync(page);
-  point = await authoritativeUnitScreenPoint(page, 'enemy');
-  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
+  const targetPoint = await enemyTargetScreenPoint(page, box);
+  evidence.targetAcquisition = { source: targetPoint.source, x: targetPoint.x, y: targetPoint.y };
+  await page.mouse.click(box.x + targetPoint.x, box.y + targetPoint.y, { button: 'right' });
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__canonicalVerticalProbe;
