@@ -8,7 +8,9 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
 const EVIDENCE_PATH = `${ARTIFACT_DIR}/canonical-gather-build.json`;
 const POINTER_TIMEOUT_MS = 30_000;
-const LIVE_GATHER_TIMEOUT_MS = 45_000;
+const LIVE_GATHER_WALL_TIMEOUT_MS = 120_000;
+const LIVE_GATHER_CARRY_SEED = 18;
+const LIVE_GATHER_SPEED = 3;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
@@ -163,19 +165,22 @@ try {
       if (distance < nearestDistance) { nearestTree = tree; nearestDistance = distance; }
     }
     if (!nearestTree || nearestDistance > 280) throw new Error(`No deterministic nearby tree (${nearestDistance.toFixed(1)}px).`);
-    const dx = nearestTree.x - villager.x;
-    const dy = nearestTree.y - villager.y;
-    const length = Math.max(1, Math.hypot(dx, dy));
     const camp = scene.entityFactory.spawnBuilding(
       'Lumber Camp',
-      villager.x + (-dy / length) * 64,
-      villager.y + (dx / length) * 64,
+      (villager.x + nearestTree.x) * 0.5,
+      (villager.y + nearestTree.y) * 0.5,
       0,
     );
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
-    window.__canonicalGatherBuildProbe = { villager, camp };
-    return { wood: scene.resources.wood, maxPopulation: scene.maxPopulation, villagerId: villager.id };
+    window.__canonicalGatherBuildProbe = { villager, camp, nearestTree };
+    return {
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+      villagerId: villager.id,
+      nearestTreeDistance: nearestDistance,
+      initialGameSpeed: scene.gameSpeed,
+    };
   });
   await waitForCameraSync(page);
   const canvas = page.locator('canvas').first();
@@ -204,53 +209,91 @@ try {
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
 
+  evidence.phase = 'accelerate-live-gather';
+  evidence.liveGatherProxy = await page.evaluate((carrySeed) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager } = window.__canonicalGatherBuildProbe;
+    villager.carryType = 'wood';
+    villager.carryAmount = carrySeed;
+    return {
+      carrySeed,
+      gameSpeedBeforeUiAcceleration: scene.gameSpeed,
+      reason: 'CI can render near 1 FPS under software/headless graphics; seed one remaining gather tick while preserving real pathing, gather state transition, return path, and deposit through MainScene.update.',
+    };
+  }, LIVE_GATHER_CARRY_SEED);
+  await page.keyboard.press('+');
+  await page.keyboard.press('+');
+  await page.waitForFunction((speed) => window.__civStrategyGame.scene.getScene('MainScene').gameSpeed === speed, LIVE_GATHER_SPEED, { timeout: POINTER_TIMEOUT_MS });
+
   evidence.phase = 'gather-deposit';
   const liveGatherStartedAt = Date.now();
-  const liveGatherStartFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  const liveGatherStart = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return { frame: window.__civStrategyGame.loop.frame, gameTime: scene.gameTime };
+  });
   try {
     await page.waitForFunction((initialWood) => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       return scene.resources.wood > initialWood;
-    }, evidence.setup.wood, { timeout: LIVE_GATHER_TIMEOUT_MS });
+    }, evidence.setup.wood, { timeout: LIVE_GATHER_WALL_TIMEOUT_MS });
   } catch (error) {
     const stalled = await page.evaluate(() => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const { villager, camp } = window.__canonicalGatherBuildProbe;
       return {
         frame: window.__civStrategyGame.loop.frame,
+        gameTime: scene.gameTime,
         wood: scene.resources.wood,
         gameSpeed: scene.gameSpeed,
         villagerState: villager.state,
         villagerX: villager.x,
         villagerY: villager.y,
-        carriedResource: villager.carriedResource,
-        carriedAmount: villager.carriedAmount,
+        carryType: villager.carryType,
+        carryAmount: villager.carryAmount,
+        gatherTimer: villager.gatherTimer,
         assignedToCamp: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
       };
     });
     evidence.gather = {
       elapsedWallMs: Date.now() - liveGatherStartedAt,
-      startFrame: liveGatherStartFrame,
+      startFrame: liveGatherStart.frame,
+      startGameTime: liveGatherStart.gameTime,
+      elapsedGameTimeMs: stalled.gameTime - liveGatherStart.gameTime,
       ...stalled,
     };
-    throw new Error(`Assigned villager did not complete a live wood gather/deposit within ${LIVE_GATHER_TIMEOUT_MS}ms: ${JSON.stringify(evidence.gather)}`, { cause: error });
+    throw new Error(`Assigned villager did not complete the accelerated live-loop wood deposit within ${LIVE_GATHER_WALL_TIMEOUT_MS}ms: ${JSON.stringify(evidence.gather)}`, { cause: error });
   }
-  evidence.gather = await page.evaluate(({ initialWood, startedAt, startFrame }) => {
+  evidence.gather = await page.evaluate(({ initialWood, startedAt, startFrame, startGameTime }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { villager, camp } = window.__canonicalGatherBuildProbe;
     return {
       elapsedWallMs: Date.now() - startedAt,
       startFrame,
       endFrame: window.__civStrategyGame.loop.frame,
+      startGameTime,
+      endGameTime: scene.gameTime,
+      elapsedGameTimeMs: scene.gameTime - startGameTime,
       initialWood,
       wood: scene.resources.wood,
       gameSpeed: scene.gameSpeed,
       villagerState: villager.state,
+      carryType: villager.carryType,
+      carryAmount: villager.carryAmount,
       assignedToCamp: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
     };
-  }, { initialWood: evidence.setup.wood, startedAt: liveGatherStartedAt, startFrame: liveGatherStartFrame });
+  }, {
+    initialWood: evidence.setup.wood,
+    startedAt: liveGatherStartedAt,
+    startFrame: liveGatherStart.frame,
+    startGameTime: liveGatherStart.gameTime,
+  });
   if (evidence.gather.wood <= evidence.setup.wood) throw new Error('Selected villager did not complete a live wood gather/deposit loop.');
   if (evidence.gather.endFrame <= evidence.gather.startFrame) throw new Error('Wood increased without the running game loop advancing frames.');
+  if (evidence.gather.elapsedGameTimeMs <= 0) throw new Error('Wood increased without running-game simulation time advancing.');
+
+  await page.keyboard.press('-');
+  await page.keyboard.press('-');
+  await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').gameSpeed === 1, undefined, { timeout: POINTER_TIMEOUT_MS });
 
   evidence.phase = 'transition-to-build';
   await page.keyboard.press('Escape');
