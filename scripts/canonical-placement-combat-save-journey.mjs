@@ -65,6 +65,19 @@ async function unitScreenPoint(page, key) {
   }, key);
 }
 
+async function authoritativeUnitScreenPoint(page, key) {
+  return page.evaluate(async (probeKey) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const unit = window.__canonicalVerticalProbe[probeKey];
+    const { toIsoElev } = await import('/game/utils/iso.ts');
+    const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
+    const projected = toIsoElev(unit.x, unit.y, height);
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return { x: (projected.x - topLeft.x) * camera.zoom, y: (projected.y - 10 - topLeft.y) * camera.zoom };
+  }, key);
+}
+
 async function cartesianScreenPoint(page, target) {
   return screenPointForIso(page, { x: target.x - target.y, y: (target.x + target.y) * 0.5 });
 }
@@ -277,7 +290,7 @@ try {
       && scene.inputManager.selectedUnits.includes(probe.player);
   }, undefined, { timeout: 5_000 });
   await waitForCameraSync(page);
-  point = await unitScreenPoint(page, 'enemy');
+  point = await authoritativeUnitScreenPoint(page, 'enemy');
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
