@@ -66,6 +66,9 @@ jobs:
       - name: Browser one-session placement combat save reload gauntlet
         run: node scripts/canonical-placement-combat-save-journey.mjs
 
+      - name: Browser save load through real game menu
+        run: node scripts/save-load-menu-journey.mjs
+
       # Keep independent canonical gather/combat/persistence evidence ahead of the long integrated
       # session so a late state-coupling failure does not hide whether these player contracts work alone.
       - name: Browser villager gathering journey
