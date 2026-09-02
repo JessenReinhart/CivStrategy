@@ -207,7 +207,13 @@ async function placeThroughUi(page, canvas, category, type) {
       !baseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === buildingType
     ));
     window.__canonicalPlaySessionProbe[buildingType === 'Barracks' ? 'barracks' : 'house'] = building;
-    return { wood: scene.resources.wood, population: scene.population, maxPopulation: scene.maxPopulation };
+    return {
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+    };
   }, type);
   await page.keyboard.press('Escape');
   return result;
@@ -327,22 +333,24 @@ try {
   if (evidence.afterHouse.wood !== evidence.beforeHouse.wood - 50) throw new Error('House did not deduct exactly 50 wood from the post-gather economy state.');
   if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) throw new Error('House did not add 8 population capacity.');
 
-  evidence.phase = 'prepare-military';
-  await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    scene.resources.wood = 10_000;
-    scene.resources.food = 10_000;
-    scene.resources.gold = 10_000;
-    scene.economySystem.updateStats();
-  });
-
   evidence.phase = 'barracks-placement';
   evidence.beforeBarracks = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return { wood: scene.resources.wood };
+    return {
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+    };
   });
+  if (evidence.beforeBarracks.wood < 150 || evidence.beforeBarracks.food < 100 || evidence.beforeBarracks.gold < 100) {
+    throw new Error(`Canonical economy cannot fund Barracks + Pikesman without injected resources: ${JSON.stringify(evidence.beforeBarracks)}`);
+  }
   evidence.afterBarracks = await placeThroughUi(page, canvas, 'Military', 'Barracks');
-  if (evidence.afterBarracks.wood >= evidence.beforeBarracks.wood) throw new Error('Barracks placement did not deduct wood.');
+  if (evidence.afterBarracks.wood !== evidence.beforeBarracks.wood - 150
+    || evidence.afterBarracks.food !== evidence.beforeBarracks.food
+    || evidence.afterBarracks.gold !== evidence.beforeBarracks.gold - 50) {
+    throw new Error('Barracks did not charge exactly 150 wood and 50 gold from the carried-forward economy state.');
+  }
 
   evidence.phase = 'train';
   await page.evaluate(() => {
@@ -374,6 +382,9 @@ try {
       military: scene.units.getChildren().filter((u) => u.getData('owner') === 0).length,
     };
   });
+  if (evidence.beforeTraining.food !== evidence.afterBarracks.food || evidence.beforeTraining.gold !== evidence.afterBarracks.gold) {
+    throw new Error('Economy state changed unexpectedly between Barracks placement and training.');
+  }
   await page.getByRole('button', { name: /Pikesman/i }).click();
   await page.waitForFunction((before) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
