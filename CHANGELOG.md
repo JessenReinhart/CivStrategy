@@ -2,6 +2,7 @@
 
 ## 2026-09-02
 
+- **The core build-to-combat-to-reload path is now verified in one uninterrupted browser session (#238):** Release verification now places a House and Barracks through the real UI, checks housing and economy effects, trains and commands a Pikesman through movement and combat, saves, reloads, and proves the restored survivor can keep moving. The full gameplay/browser gauntlet passed before merge.
 - **Dense building footprints now come directly from the authoritative building definitions (#236):** House, Lumber Camp, Barracks, and Farm physical sizes no longer depend on runtime or rendering initialization order. Placement, collision, pathfinding, save/reload, and dense-city behavior all consume the same definitions, and the full browser/gameplay gauntlet passed before merge.
 
 ## 2026-09-01
