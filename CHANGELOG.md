@@ -2,6 +2,7 @@
 
 ## 2026-09-02
 
+- **Gathering now flows into real construction in one browser session (#240):** Release verification now selects a real Villager, assigns it to a Lumber Camp through the actual right-click workforce path, proves the gather/carry/deposit loop increases wood, then places a House through the real build UI in the same match and verifies the 50 wood cost and +8 housing capacity.
 - **The core build-to-combat-to-reload path is now verified in one uninterrupted browser session (#238):** Release verification now places a House and Barracks through the real UI, checks housing and economy effects, trains and commands a Pikesman through movement and combat, saves, reloads, and proves the restored survivor can keep moving. The full gameplay/browser gauntlet passed before merge.
 - **Dense building footprints now come directly from the authoritative building definitions (#236):** House, Lumber Camp, Barracks, and Farm physical sizes no longer depend on runtime or rendering initialization order. Placement, collision, pathfinding, save/reload, and dense-city behavior all consume the same definitions, and the full browser/gameplay gauntlet passed before merge.
 
