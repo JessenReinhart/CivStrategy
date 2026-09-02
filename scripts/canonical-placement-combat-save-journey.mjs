@@ -92,6 +92,8 @@ async function enemyTargetScreenPoint(page, box) {
   ];
 
   for (const candidate of candidates) {
+    const insideCanvas = candidate.x >= 0 && candidate.y >= 0 && candidate.x <= box.width && candidate.y <= box.height;
+    if (!insideCanvas) continue;
     await page.mouse.move(box.x + candidate.x, box.y + candidate.y);
     const hitsEnemy = await page.evaluate(() => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -101,7 +103,7 @@ async function enemyTargetScreenPoint(page, box) {
     if (hitsEnemy) return candidate;
   }
 
-  return { ...authoritative, source: 'authoritative-fallback' };
+  throw new Error(`Spawned combat target is not visibly targetable: visual=${JSON.stringify(visual)} authoritative=${JSON.stringify(authoritative)} canvas=${JSON.stringify({ width: box.width, height: box.height })}`);
 }
 
 async function cartesianScreenPoint(page, target) {
@@ -250,10 +252,20 @@ try {
   evidence.moveTarget = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
+    const barracks = window.__canonicalVerticalProbe.barracks;
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding?.();
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
-    for (const [dx, dy] of [[96, 0], [-96, 0], [0, 96], [0, -96], [72, 72]]) {
+    const towardX = Math.sign(barracks.x - player.x) || -1;
+    const towardY = Math.sign(barracks.y - player.y) || -1;
+    const offsets = [
+      [towardX * 96, 0],
+      [0, towardY * 96],
+      [towardX * 72, towardY * 72],
+      [-towardX * 96, 0],
+      [0, -towardY * 96],
+    ];
+    for (const [dx, dy] of offsets) {
       const target = { x: player.x + dx, y: player.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
