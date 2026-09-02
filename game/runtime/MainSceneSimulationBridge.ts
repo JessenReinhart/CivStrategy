@@ -1,4 +1,5 @@
 import type { MainScene } from '../MainScene';
+import { EVENTS } from '../../constants';
 import { SimulationRuntime } from './SimulationRuntime';
 import { SimulationRuntimeHost } from './SimulationRuntimeHost';
 import { createSimulationServices } from './SimulationServices';
@@ -13,6 +14,10 @@ export function createMainSceneSimulationBridge(
   scene: MainScene,
   profile: (label: string, work: () => void) => void,
 ): SimulationRuntimeHost {
+  // Establish the same 1x baseline that the player-facing speed control shows.
+  // Use the normal speed event so scene time, physics, and tweens stay aligned.
+  scene.game.events.emit(EVENTS.SET_GAME_SPEED, 1);
+
   return new SimulationRuntimeHost(
     new SimulationRuntime(),
     createSimulationServices(scene),
