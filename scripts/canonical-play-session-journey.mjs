@@ -531,6 +531,8 @@ try {
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalPlaySessionProbe.player;
+    const gameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
     return {
       x: player.x,
       y: player.y,
@@ -541,6 +543,7 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      gameSpeed,
     };
   });
   await openGameMenu(page);
@@ -552,6 +555,9 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0;
+  });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
@@ -564,6 +570,7 @@ try {
   }, evidence.beforeSave, { timeout: 20_000 });
   evidence.restored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = 0;
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
@@ -590,6 +597,9 @@ try {
   }
 
   evidence.phase = 'continue-playing';
+  await page.evaluate((gameSpeed) => {
+    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = gameSpeed || 1;
+  }, evidence.beforeSave.gameSpeed);
   evidence.postLoadTarget = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalPlaySessionProbe.player;
