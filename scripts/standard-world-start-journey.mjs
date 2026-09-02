@@ -146,6 +146,9 @@ try {
         buildingCount: scene.buildings.getChildren().length,
         unitCount: scene.units.getChildren().length,
         isReady: scene.isReady,
+        gameSpeed: scene.gameSpeed,
+        physicsTimeScale: scene.physics.world.timeScale,
+        tweenTimeScale: scene.tweens.timeScale,
       };
     });
 
@@ -159,6 +162,12 @@ try {
     if (!world.isReady) throw new Error(`Attempt ${attempt} did not leave MainScene ready.`);
     if (world.buildingCount <= 0) throw new Error(`Attempt ${attempt} loaded no buildings.`);
     if (world.unitCount <= 0) throw new Error(`Attempt ${attempt} loaded no units.`);
+    if (world.gameSpeed !== 1 || world.physicsTimeScale !== 1 || world.tweenTimeScale !== 1) {
+      throw new Error(
+        `Attempt ${attempt} did not start at a coherent 1x runtime speed: `
+        + `game=${world.gameSpeed}, physics=${world.physicsTimeScale}, tweens=${world.tweenTimeScale}.`,
+      );
+    }
     if (!hud.resourceHudVisible) throw new Error(`Attempt ${attempt} did not expose the critical resource HUD.`);
     if (attemptErrors.length > 0) {
       throw new Error(`Browser errors during startup attempt ${attempt}:\n${attemptErrors.join('\n')}`);
