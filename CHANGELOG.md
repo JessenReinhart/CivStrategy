@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-09-03
+
+- **One uninterrupted browser session now proves the full playable journey (#245):** Release verification carries a real match from menu and camera control through Villager gathering and deposit, House and Barracks placement, economy and housing changes, Pikesman training, movement and combat, visible Save/Load, reload, restored state, and continued control without injecting extra resources into the military phase. The full gameplay and performance gauntlet passed before merge.
+
 ## 2026-09-02
 
 - **The canonical combat-save-reload journey now uses the real in-game menu (#243):** Release verification no longer bypasses the player-facing Save and Load controls with internal events. The uninterrupted placement, training, combat, persistence, and continued-control journey now opens the visible game menu, clicks Save game and Load game, and still proves survivor state, population/housing, and post-load movement.
