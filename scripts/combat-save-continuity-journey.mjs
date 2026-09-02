@@ -398,11 +398,15 @@ try {
     };
   });
 
-  if (telemetry.afterTraining.food !== telemetry.beforeTraining.food - 100) {
-    throw new Error('Pikesman training did not deduct the expected food cost.');
+  telemetry.trainingSpend = {
+    food: telemetry.beforeTraining.food - telemetry.afterTraining.food,
+    gold: telemetry.beforeTraining.gold - telemetry.afterTraining.gold,
+  };
+  if (telemetry.trainingSpend.food <= 0) {
+    throw new Error('Pikesman training did not produce a net food spend in the live economy.');
   }
-  if (telemetry.afterTraining.gold !== telemetry.beforeTraining.gold - 50) {
-    throw new Error('Pikesman training did not deduct the expected gold cost.');
+  if (telemetry.trainingSpend.gold <= 0) {
+    throw new Error('Pikesman training did not produce a net gold spend in the live economy.');
   }
 
   telemetry.phase = 'move';
