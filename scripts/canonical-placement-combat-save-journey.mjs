@@ -47,6 +47,13 @@ async function waitForCameraSync(page) {
   }));
 }
 
+async function openGameMenu(page) {
+  const menuButton = page.locator('button:has(svg.lucide-menu)').first();
+  await menuButton.waitFor({ state: 'visible', timeout: 10_000 });
+  await menuButton.click();
+  await page.getByRole('button', { name: /Save game/i }).waitFor({ state: 'visible', timeout: 5_000 });
+}
+
 async function screenPointForIso(page, iso) {
   return page.evaluate((point) => {
     const camera = window.__civStrategyGame.scene.getScene('MainScene').cameras.main;
@@ -323,10 +330,10 @@ try {
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
-    const saved = { x: player.x, y: player.y, hp: player.getData('hp'), type: player.unitType ?? player.getData('unitType'), population: scene.population, maxPopulation: scene.maxPopulation };
-    window.dispatchEvent(new Event('save-game'));
-    return saved;
+    return { x: player.x, y: player.y, hp: player.getData('hp'), type: player.unitType ?? player.getData('unitType'), population: scene.population, maxPopulation: scene.maxPopulation };
   });
+  await openGameMenu(page);
+  await page.getByRole('button', { name: /Save game/i }).click();
   await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), SAVE_KEY, { timeout: 10_000 });
 
   evidence.phase = 'reload';
@@ -334,7 +341,8 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
+  await openGameMenu(page);
+  await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.units.getChildren().some((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2);
