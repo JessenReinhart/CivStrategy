@@ -69,7 +69,7 @@ try {
   }, undefined, { timeout: 45_000 });
   await checkpoint('world-ready');
 
-  const fixture = await page.evaluate(() => {
+  const fixture = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
     const buildings = () => scene.buildings.getChildren();
@@ -84,10 +84,12 @@ try {
     scene.resources.food = 10_000;
     scene.resources.gold = 10_000;
 
+    const { BUILDINGS } = await import('/constants.ts');
+    const houseDef = BUILDINGS.House;
+    if (!houseDef) throw new Error('House definition was unavailable for demolition acceptance.');
+
     const GRID = 16;
-    const HOUSE_SIZE = 48;
     const snap = (value) => Math.floor(value / GRID) * GRID;
-    const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
     const baseX = snap(townCenter.x - 280);
     const baseY = snap(townCenter.y - 280);
     let center = null;
@@ -95,8 +97,8 @@ try {
     for (let oy = 0; oy <= 560 && !center; oy += GRID) {
       for (let ox = 0; ox <= 560; ox += GRID) {
         const candidate = {
-          x: baseX + ox + HOUSE_SIZE / 2,
-          y: baseY + oy + HOUSE_SIZE / 2,
+          x: baseX + ox + houseDef.width / 2,
+          y: baseY + oy + houseDef.height / 2,
         };
         if (manager.getBuildValidity(candidate.x, candidate.y, 'House').valid) {
           center = candidate;
@@ -106,18 +108,14 @@ try {
     }
     if (!center) throw new Error('Could not find a valid House location for demolition acceptance.');
 
-    const beforeBuildings = new Set(buildings());
-    manager.enterBuildMode('House');
-    const input = toIso(center.x, center.y);
-    manager.tryBuild(input.x, input.y);
-    manager.cancelBuildMode();
-
-    const house = buildings().find(
-      (building) => !beforeBuildings.has(building)
-        && getOwner(building) === 0
-        && getDef(building)?.type === 'House',
-    );
-    if (!house) throw new Error('Live House was not created for demolition acceptance.');
+    // Demolition is the behavior under test. Build placement already has dedicated
+    // real-canvas acceptance, so create a valid live House without reusing cursor-space
+    // placement semantics as fixture setup.
+    const house = scene.entityFactory.spawnBuilding('House', center.x, center.y, 0);
+    scene.economySystem.updateStats();
+    if (!house || !buildings().includes(house)) {
+      throw new Error('Live House was not created for demolition acceptance.');
+    }
 
     const def = getDef(house);
     window.__buildingDemolitionJourneyHouse = house;

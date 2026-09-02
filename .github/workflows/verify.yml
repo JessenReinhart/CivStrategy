@@ -60,6 +60,9 @@ jobs:
       - name: Browser real placement training save reload bridge
         run: node scripts/real-placement-training-save-journey.mjs
 
+      - name: Browser one-session placement combat save reload gauntlet
+        run: node scripts/canonical-placement-combat-save-journey.mjs
+
       # Keep independent canonical gather/combat/persistence evidence ahead of the long integrated
       # session so a late state-coupling failure does not hide whether these player contracts work alone.
       - name: Browser villager gathering journey
