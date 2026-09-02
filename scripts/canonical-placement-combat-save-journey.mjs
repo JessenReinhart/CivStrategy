@@ -17,6 +17,13 @@ let serverOutput = '';
 server.stdout.on('data', (chunk) => { serverOutput += chunk.toString(); });
 server.stderr.on('data', (chunk) => { serverOutput += chunk.toString(); });
 
+async function stopServer() {
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  server.kill('SIGTERM');
+  await Promise.race([once(server, 'exit'), sleep(2_000)]);
+  if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
+}
+
 async function waitForServer(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -24,13 +31,6 @@ async function waitForServer(timeoutMs = 30_000) {
     await sleep(250);
   }
   throw new Error(`Vite did not become ready.\n${serverOutput}`);
-}
-
-async function stopServer() {
-  if (server.exitCode !== null || server.signalCode !== null) return;
-  server.kill('SIGTERM');
-  await Promise.race([once(server, 'exit'), sleep(2_000)]);
-  if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
 }
 
 async function waitForScene(page) {
@@ -65,47 +65,6 @@ async function unitScreenPoint(page, key) {
   }, key);
 }
 
-async function authoritativeUnitScreenPoint(page, key) {
-  return page.evaluate(async (probeKey) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const unit = window.__canonicalVerticalProbe[probeKey];
-    const { toIsoElev } = await import('/game/utils/iso.ts');
-    const height = scene.terrainSystem.getHeightAt(unit.x, unit.y);
-    const projected = toIsoElev(unit.x, unit.y, height);
-    const camera = scene.cameras.main;
-    const topLeft = camera.getWorldPoint(0, 0);
-    return { x: (projected.x - topLeft.x) * camera.zoom, y: (projected.y - 10 - topLeft.y) * camera.zoom };
-  }, key);
-}
-
-async function enemyTargetScreenPoint(page, box) {
-  const visual = await unitScreenPoint(page, 'enemy');
-  const authoritative = await authoritativeUnitScreenPoint(page, 'enemy');
-  const candidates = [
-    { ...visual, source: 'visual-center' },
-    ...[[0, -8], [0, 8], [-8, 0], [8, 0], [0, -16], [0, 16], [-16, 0], [16, 0]].map(([dx, dy]) => ({
-      x: visual.x + dx,
-      y: visual.y + dy,
-      source: `visual-offset:${dx},${dy}`,
-    })),
-    { ...authoritative, source: 'authoritative' },
-  ];
-
-  for (const candidate of candidates) {
-    const insideCanvas = candidate.x >= 0 && candidate.y >= 0 && candidate.x <= box.width && candidate.y <= box.height;
-    if (!insideCanvas) continue;
-    await page.mouse.move(box.x + candidate.x, box.y + candidate.y);
-    const hitsEnemy = await page.evaluate(() => {
-      const scene = window.__civStrategyGame.scene.getScene('MainScene');
-      const enemy = window.__canonicalVerticalProbe.enemy;
-      return scene.input.hitTestPointer(scene.input.activePointer).some((obj) => obj.getData?.('unit') === enemy);
-    });
-    if (hitsEnemy) return candidate;
-  }
-
-  throw new Error(`Spawned combat target is not visibly targetable: visual=${JSON.stringify(visual)} authoritative=${JSON.stringify(authoritative)} canvas=${JSON.stringify({ width: box.width, height: box.height })}`);
-}
-
 async function cartesianScreenPoint(page, target) {
   return screenPointForIso(page, { x: target.x - target.y, y: (target.x + target.y) * 0.5 });
 }
@@ -113,19 +72,17 @@ async function cartesianScreenPoint(page, target) {
 async function preparePlacement(page, type) {
   return page.evaluate(async (buildingType) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const manager = scene.buildingManager;
     const tc = scene.buildings.getChildren().find((b) => b.getData('owner') === 0 && b.getData('def')?.type === 'Town Center');
     if (!tc) throw new Error('Player Town Center missing.');
     const { BUILDINGS } = await import('/constants.ts');
     const def = BUILDINGS[buildingType];
-    if (!def) throw new Error(`${buildingType} definition missing.`);
     const grid = 16;
     const snap = (v) => Math.floor(v / grid) * grid;
     let center = null;
     for (let oy = 0; oy <= 640 && !center; oy += grid) {
       for (let ox = 0; ox <= 640; ox += grid) {
         const candidate = { x: snap(tc.x - 320) + ox + def.width / 2, y: snap(tc.y - 320) + oy + def.height / 2 };
-        if (manager.getBuildValidity(candidate.x, candidate.y, buildingType).valid) { center = candidate; break; }
+        if (scene.buildingManager.getBuildValidity(candidate.x, candidate.y, buildingType).valid) { center = candidate; break; }
       }
     }
     if (!center) throw new Error(`No valid ${buildingType} placement found.`);
@@ -133,7 +90,7 @@ async function preparePlacement(page, type) {
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(iso.x, iso.y);
     window.__canonicalPlacementBaseline = new Set(scene.buildings.getChildren());
-    return { center, iso };
+    return { iso };
   }, type);
 }
 
@@ -150,16 +107,13 @@ async function placeThroughUi(page, canvas, category, type) {
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
   await page.waitForFunction((t) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const baseline = window.__canonicalPlacementBaseline;
-    return scene.buildings.getChildren().some((b) => !baseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
+    return scene.buildings.getChildren().some((b) => !window.__canonicalPlacementBaseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
   }, type, { timeout: 5_000 });
   const result = await page.evaluate((t) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const baseline = window.__canonicalPlacementBaseline;
-    const building = scene.buildings.getChildren().find((b) => !baseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
-    window.__canonicalVerticalProbe ??= {};
+    const building = scene.buildings.getChildren().find((b) => !window.__canonicalPlacementBaseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
     window.__canonicalVerticalProbe[t === 'Barracks' ? 'barracks' : 'house'] = building;
-    return { wood: scene.resources.wood, population: scene.population, maxPopulation: scene.maxPopulation, x: building.x, y: building.y };
+    return { wood: scene.resources.wood, population: scene.population, maxPopulation: scene.maxPopulation };
   }, type);
   await page.keyboard.press('Escape');
   return result;
@@ -172,8 +126,9 @@ const evidence = { phase: 'boot', browserErrors: [] };
 
 async function persistEvidence() {
   await writeFile(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
-  if (!page) return;
-  try { await page.screenshot({ path: `${ARTIFACT_DIR}/canonical-placement-combat-save.png`, fullPage: true }); } catch {}
+  if (page) {
+    try { await page.screenshot({ path: `${ARTIFACT_DIR}/canonical-placement-combat-save.png`, fullPage: true }); } catch {}
+  }
 }
 
 try {
@@ -196,7 +151,7 @@ try {
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding?.();
     window.__canonicalVerticalProbe = {};
-    return { wood: scene.resources.wood, food: scene.resources.food, gold: scene.resources.gold, population: scene.population, maxPopulation: scene.maxPopulation };
+    return { wood: scene.resources.wood, population: scene.population, maxPopulation: scene.maxPopulation };
   });
 
   const canvas = page.locator('canvas').first();
@@ -217,7 +172,7 @@ try {
   });
   await waitForCameraSync(page);
   let box = await canvas.boundingBox();
-  if (!box) throw new Error('Canvas unavailable for Barracks selection.');
+  if (!box) throw new Error('Canvas unavailable for training.');
   const barracksPoint = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const building = window.__canonicalVerticalProbe.barracks;
@@ -225,7 +180,7 @@ try {
     const topLeft = camera.getWorldPoint(0, 0);
     return { x: (building.visual.x - topLeft.x) * camera.zoom, y: (building.visual.y - 24 - topLeft.y) * camera.zoom };
   });
-  await page.mouse.click(box.x + barracksPoint.x, box.y + barracksPoint.y, { button: 'left' });
+  await page.mouse.click(box.x + barracksPoint.x, box.y + barracksPoint.y);
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__canonicalVerticalProbe.barracks, undefined, { timeout: 5_000 });
   evidence.beforeTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -239,8 +194,7 @@ try {
   }, evidence.beforeTraining, { timeout: 5_000 });
   evidence.afterTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const units = scene.units.getChildren().filter((u) => u.getData('owner') === 0);
-    const player = units[units.length - 1];
+    const player = scene.units.getChildren().filter((u) => u.getData('owner') === 0).at(-1);
     window.__canonicalVerticalProbe.player = player;
     scene.gameSpeed = 0.75;
     return { food: scene.resources.food, gold: scene.resources.gold, population: scene.population, type: player.unitType ?? player.getData('unitType') };
@@ -249,39 +203,38 @@ try {
   if (evidence.afterTraining.food !== evidence.beforeTraining.food - 100 || evidence.afterTraining.gold !== evidence.beforeTraining.gold - 50) throw new Error('Pikesman training charged the wrong resources.');
 
   evidence.phase = 'move';
-  evidence.moveTarget = await page.evaluate(() => {
+  await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
-    const barracks = window.__canonicalVerticalProbe.barracks;
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding?.();
+    scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
-    const towardX = Math.sign(barracks.x - player.x) || -1;
-    const towardY = Math.sign(barracks.y - player.y) || -1;
-    const offsets = [
-      [towardX * 96, 0],
-      [0, towardY * 96],
-      [towardX * 72, towardY * 72],
-      [-towardX * 96, 0],
-      [0, -towardY * 96],
-    ];
-    for (const [dx, dy] of offsets) {
+  });
+  await waitForCameraSync(page);
+  evidence.moveTarget = await page.evaluate(async () => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__canonicalVerticalProbe.player;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    const { toIsoElev } = await import('/game/utils/iso.ts');
+    for (const [dx, dy] of [[48, 0], [-48, 0], [0, 48], [0, -48], [36, 36], [-36, -36]]) {
       const target = { x: player.x + dx, y: player.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
-      if (path?.length > 1) {
-        player.setData('__journeyStartX', player.x);
-        player.setData('__journeyStartY', player.y);
-        return target;
-      }
+      if (!path?.length || path.length <= 1) continue;
+      const projected = toIsoElev(target.x, target.y, scene.terrainSystem.getHeightAt(target.x, target.y));
+      const screen = { x: (projected.x - topLeft.x) * camera.zoom, y: (projected.y - topLeft.y) * camera.zoom };
+      if (screen.x < 160 || screen.x > 1280 || screen.y < 140 || screen.y > 760) continue;
+      player.setData('__journeyStartX', player.x);
+      player.setData('__journeyStartY', player.y);
+      return target;
     }
-    throw new Error('No walkable move target for trained Pikesman.');
+    throw new Error('No visible walkable move target for trained Pikesman.');
   });
-  await waitForCameraSync(page);
   box = await canvas.boundingBox();
-  if (!box) throw new Error('Canvas unavailable for movement.');
   let point = await unitScreenPoint(page, 'player');
-  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
+  await page.mouse.click(box.x + point.x, box.y + point.y);
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalVerticalProbe.player), undefined, { timeout: 5_000 });
   point = await cartesianScreenPoint(page, evidence.moveTarget);
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
@@ -291,23 +244,31 @@ try {
   }, undefined, { timeout: 12_000 });
 
   evidence.phase = 'combat';
-  evidence.combat = await page.evaluate(() => {
+  evidence.combat = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
     const previousGameSpeed = scene.gameSpeed;
     scene.peacefulMode = true;
     scene.gameSpeed = 0;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    const { toIsoElev } = await import('/game/utils/iso.ts');
     let enemy = null;
-    for (const [dx, dy] of [[36, 0], [-36, 0], [0, 36], [0, -36], [28, 28]]) {
+    let targetScreen = null;
+    for (const [dx, dy] of [[36, 0], [-36, 0], [0, 36], [0, -36], [28, 28], [-28, -28]]) {
       const x = player.x + dx;
       const y = player.y + dy;
       if (scene.pathfinder.isBlocked(x, y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, { x, y });
       if (!path?.length) continue;
+      const projected = toIsoElev(x, y, scene.terrainSystem.getHeightAt(x, y));
+      const screen = { x: (projected.x - topLeft.x) * camera.zoom, y: (projected.y - 10 - topLeft.y) * camera.zoom };
+      if (screen.x < 120 || screen.x > 1320 || screen.y < 120 || screen.y > 780) continue;
       enemy = scene.entityFactory.spawnUnit('Pikesman', x, y, 1);
+      targetScreen = screen;
       break;
     }
-    if (!enemy) throw new Error('Could not spawn deterministic combat target.');
+    if (!enemy) throw new Error('Could not spawn a reachable on-screen combat target.');
     enemy.setData('hp', 10);
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
@@ -316,41 +277,35 @@ try {
     window.__canonicalVerticalProbe.enemyX = enemy.x;
     window.__canonicalVerticalProbe.enemyY = enemy.y;
     window.__canonicalVerticalProbe.previousGameSpeed = previousGameSpeed;
-    scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
-    return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y), pausedAtGameTime: scene.gameTime };
+    return { distance: Math.hypot(player.x - enemy.x, player.y - enemy.y), pausedAtGameTime: scene.gameTime, targetScreen };
   });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__canonicalVerticalProbe;
-    return Boolean(probe.enemy?.visual)
-      && Number.isFinite(probe.enemy.visual.x)
-      && Number.isFinite(probe.enemy.visual.y)
-      && scene.inputManager.selectedUnits.includes(probe.player);
+    return Boolean(probe.enemy?.visual) && scene.inputManager.selectedUnits.includes(probe.player);
   }, undefined, { timeout: 5_000 });
-  await waitForCameraSync(page);
-  const targetPoint = await enemyTargetScreenPoint(page, box);
-  evidence.targetAcquisition = { source: targetPoint.source, x: targetPoint.x, y: targetPoint.y };
-  await page.mouse.click(box.x + targetPoint.x, box.y + targetPoint.y, { button: 'right' });
+  await page.mouse.move(box.x + evidence.combat.targetScreen.x, box.y + evidence.combat.targetScreen.y);
+  const hit = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__canonicalVerticalProbe.enemy;
+    return scene.input.hitTestPointer(scene.input.activePointer).some((obj) => obj.getData?.('unit') === enemy);
+  });
+  if (!hit) throw new Error(`On-screen combat target was not hit-testable at ${JSON.stringify(evidence.combat.targetScreen)}.`);
+  await page.mouse.click(box.x + evidence.combat.targetScreen.x, box.y + evidence.combat.targetScreen.y, { button: 'right' });
   evidence.attackCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__canonicalVerticalProbe;
     return {
       targetsEnemy: probe.player.target === probe.enemy,
       explicitTarget: probe.player.getData('explicitTarget') === true,
-      state: probe.player.state,
       selected: scene.inputManager.selectedUnits.includes(probe.player),
       gameSpeed: scene.gameSpeed,
       gameTime: scene.gameTime,
       targetHp: probe.enemy.active ? probe.enemy.getData('hp') : null,
     };
   });
-  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) {
-    throw new Error(`Attack command was not accepted by the selected Pikesman: ${JSON.stringify(evidence.attackCommand)}`);
-  }
-  if (evidence.attackCommand.gameSpeed !== 0 || evidence.attackCommand.gameTime !== evidence.combat.pausedAtGameTime || evidence.attackCommand.targetHp !== 10) {
-    throw new Error(`Simulation advanced during attack-command capture: ${JSON.stringify(evidence.attackCommand)}`);
-  }
+  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) throw new Error(`Attack command was not accepted: ${JSON.stringify(evidence.attackCommand)}`);
+  if (evidence.attackCommand.gameSpeed !== 0 || evidence.attackCommand.gameTime !== evidence.combat.pausedAtGameTime || evidence.attackCommand.targetHp !== 10) throw new Error('Simulation advanced while capturing the attack command.');
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const probe = window.__canonicalVerticalProbe;
@@ -400,7 +355,7 @@ try {
   evidence.postLoadTarget = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalVerticalProbe.player;
-    for (const [dx, dy] of [[64, 0], [-64, 0], [0, 64], [0, -64]]) {
+    for (const [dx, dy] of [[48, 0], [-48, 0], [0, 48], [0, -48]]) {
       const target = { x: player.x + dx, y: player.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
@@ -415,7 +370,7 @@ try {
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
   point = await unitScreenPoint(page, 'player');
-  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
+  await page.mouse.click(box.x + point.x, box.y + point.y);
   point = await cartesianScreenPoint(page, evidence.postLoadTarget);
   await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
   await page.waitForFunction(() => {
