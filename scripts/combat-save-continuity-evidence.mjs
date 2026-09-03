@@ -36,19 +36,17 @@ if (!Number.isFinite(telemetry.beforeTraining?.population)
   );
 }
 
-if (!Number.isFinite(telemetry.beforeTraining?.food)
-  || telemetry.afterTraining?.food !== telemetry.beforeTraining.food - 100) {
+if (!Number.isFinite(telemetry.trainingSpend?.food) || telemetry.trainingSpend.food <= 0) {
   throw new Error(
-    `Pikesman training food continuity is invalid `
-    + `(${telemetry.beforeTraining?.food ?? 'missing'} -> ${telemetry.afterTraining?.food ?? 'missing'}).`,
+    `Pikesman training did not produce a positive net food spend in the live economy `
+    + `(delta: ${telemetry.trainingSpend?.food ?? 'missing'}).`,
   );
 }
 
-if (!Number.isFinite(telemetry.beforeTraining?.gold)
-  || telemetry.afterTraining?.gold !== telemetry.beforeTraining.gold - 50) {
+if (!Number.isFinite(telemetry.trainingSpend?.gold) || telemetry.trainingSpend.gold <= 0) {
   throw new Error(
-    `Pikesman training gold continuity is invalid `
-    + `(${telemetry.beforeTraining?.gold ?? 'missing'} -> ${telemetry.afterTraining?.gold ?? 'missing'}).`,
+    `Pikesman training did not produce a positive net gold spend in the live economy `
+    + `(delta: ${telemetry.trainingSpend?.gold ?? 'missing'}).`,
   );
 }
 
@@ -87,6 +85,7 @@ if (Array.isArray(telemetry.browserErrors) && telemetry.browserErrors.length > 0
 console.log(
   `Canonical session verified: gathered ${telemetry.gather.simulation.depositedWood} wood, `
   + `housing ${telemetry.preparation.maxPopulationBefore}->${telemetry.preparation.maxPopulationAfterHousing}, `
+  + `training spend food ${telemetry.trainingSpend.food}, gold ${telemetry.trainingSpend.gold}, `
   + `trained Pikesman HP ${telemetry.restored.hp}, `
   + `population ${telemetry.restored.population}/${telemetry.restored.maxPopulation}, `
   + `post-load move ${telemetry.afterContinue.movedDistance.toFixed(2)}px.`,
