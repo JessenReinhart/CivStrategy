@@ -269,6 +269,8 @@ export class EntityFactory {
         if (key !== DAY_NIGHT_STATE_DATA_KEY) return;
         const state = value as { shadowAlpha?: number } | undefined;
         const shadowAlpha = typeof state?.shadowAlpha === 'number' ? state.shadowAlpha : 0;
+        // Guard against NaN/infinite values - treat as 0 (shadow disappears) for safety.
+        if (!Number.isFinite(shadowAlpha)) return;
 
         for (const [shadow, dims] of this.buildingShadows) {
             if (!shadow || !shadow.active) continue;
@@ -279,6 +281,8 @@ export class EntityFactory {
             shadow.fillStyle(modulatedColor, modulatedAlpha);
             shadow.fillEllipse(0, 0, dims.width, dims.height);
         }
+        // Also modulate villager contact discs.
+        this.scene.villagerSystem.applyDayNightState(shadowAlpha);
     }
 
     /**

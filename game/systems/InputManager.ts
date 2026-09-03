@@ -35,6 +35,11 @@ export class InputManager {
     private lastClickTime = 0;
     private lastClickPos = new Phaser.Math.Vector2();
 
+    // Camera recenter keys (C / Home) — registered once, polled in update() with debounce
+    private cKey?: Phaser.Input.Keyboard.Key;
+    private homeKey?: Phaser.Input.Keyboard.Key;
+    private recenterDebounceMs = 0;
+
     constructor(scene: MainScene) {
         this.scene = scene;
         this.selectionGraphics = this.scene.add.graphics().setDepth(Number.MAX_VALUE);
@@ -131,7 +136,7 @@ export class InputManager {
             }
         });
 
-        // Q — Activate ability for selected units
+               // Q — Activate ability for selected units
         kb.on('keydown-Q', () => {
             for (const unitObj of this.selectedUnits) {
                 const unit = unitObj as GameUnit;
@@ -140,6 +145,10 @@ export class InputManager {
                 }
             }
         });
+
+        // C / Home — Recenter camera on Town Center (polled in update with debounce)
+        this.cKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.C);
+        this.homeKey = kb.addKey(Phaser.Input.Keyboard.KeyCodes.HOME);
 
         // Listen for ability activation from UI button and release the global listener with the scene.
         const removeAbilityListener = addAbilityWindowListener(window, ((e: CustomEvent) => {
@@ -158,6 +167,21 @@ export class InputManager {
         this.handleCameraMovement(delta);
         this.handleEdgePan(delta);
         this.handleZoomSmoothing(delta);
+        this.handleRecenterKeys(delta);
+    }
+
+    private handleRecenterKeys(delta: number) {
+        // Simple debounce to prevent multi-fire while a key is held down.
+        if (this.recenterDebounceMs > 0) {
+            this.recenterDebounceMs = Math.max(0, this.recenterDebounceMs - delta);
+            return;
+        }
+        const cPressed = this.cKey !== undefined && Phaser.Input.Keyboard.JustDown(this.cKey);
+        const homePressed = this.homeKey !== undefined && Phaser.Input.Keyboard.JustDown(this.homeKey);
+        if (cPressed || homePressed) {
+            this.scene.centerCameraOnTownCenter();
+            this.recenterDebounceMs = 250;
+        }
     }
 
     private handleZoom(deltaY: number) {
@@ -520,6 +544,7 @@ export class InputManager {
 
         // Standard Move
         const cart = toCartesian(pointerWorld.x, pointerWorld.y);
+        this.addCommandAck(pointerWorld);
         this.scene.proceduralSound.playCommandAck(pointerWorld.x, pointerWorld.y);
         this.scene.unitSystem.commandMove(this.selectedUnits, new Phaser.Math.Vector2(cart.x, cart.y), pointer.event.shiftKey);
     }

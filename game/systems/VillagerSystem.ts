@@ -20,6 +20,13 @@ const PATH_ARRIVAL_TOLERANCE = 64;
 const WOOD_GATHER_AMOUNT_PER_TICK = 2;
 const WOOD_CARRY_CAPACITY = 20;
 
+// Day/night shadow modulation. Reference matches EntityFactory's building shadow
+// baseline so buildings and villagers fade in lock-step with the solar cycle.
+const DAY_NIGHT_SHADOW_ALPHA_REFERENCE = 0.30;
+const VILLAGER_SHADOW_BASE_ALPHA = 0.25;
+const VILLAGER_SHADOW_WIDTH = 10;
+const VILLAGER_SHADOW_HEIGHT = 5;
+
 type PathResult = 'moving' | 'arrived' | 'unreachable';
 type VillagerFacing = 'north' | 'south' | 'east' | 'west';
 
@@ -60,8 +67,9 @@ export class VillagerSystem {
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
         // Faint contact shadow (pooled per-villager; throttled by no-update path).
+        // Alpha is modulated by applyDayNightState as the solar cycle changes.
         const shadow = this.scene.add.graphics();
-        shadow.fillStyle(0x000000, 0.25).fillEllipse(0, 0, 10, 5);
+        shadow.fillStyle(0x000000, VILLAGER_SHADOW_BASE_ALPHA).fillEllipse(0, 0, VILLAGER_SHADOW_WIDTH, VILLAGER_SHADOW_HEIGHT);
         const sprite = this.scene.add.image(0, 0, VILLAGER_FACING_TEXTURES.south)
             .setOrigin(0.5, 0.91)
             .setScale(0.22);
@@ -590,6 +598,22 @@ export class VillagerSystem {
         if (result !== 'moving') {
             villager.state = UnitState.IDLE;
             villager.rallyPoint = undefined;
+        }
+    }
+
+    /** Modulate villager contact disc alpha from day/night shadow state. */
+    public applyDayNightState(alpha: number): void {
+        // Guard against NaN/infinite values.
+        if (!Number.isFinite(alpha)) alpha = 0;
+        const factor = Math.max(0, Math.min(1, alpha / DAY_NIGHT_SHADOW_ALPHA_REFERENCE));
+        const modulatedAlpha = VILLAGER_SHADOW_BASE_ALPHA * factor;
+        for (const villager of this.villagers) {
+            const visual = villager.visual;
+            if (!visual || !visual.active) continue;
+            const shadow = visual.getAt(0) as Phaser.GameObjects.Graphics;
+            if (!shadow || !shadow.active) continue;
+            shadow.clear();
+            shadow.fillStyle(0x000000, modulatedAlpha).fillEllipse(0, 0, VILLAGER_SHADOW_WIDTH, VILLAGER_SHADOW_HEIGHT);
         }
     }
 }
