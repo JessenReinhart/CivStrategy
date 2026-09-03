@@ -287,7 +287,10 @@ _Pending fresh‑context critic inspection of the live game at http://127.0.0.1:
 - **Files touched:**
   - `game/systems/AmbientPopulationSystem.ts` (only)
 
-- **Verification:** *Pending builder completion; tsc/lint/test must all exit 0 with 309/309 tests passing before commit.*
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass, 47/47 files)
 
 - **How to verify:** Once implemented, start `npm run dev`, open a match, pan the camera to a group of ambient citizens near the Town Center, and use time‑of‑day controls. Ambient citizens should subtly darken as the sun sets and brighten as it rises, blending them with the overall atmospheric tint instead of appearing flat and always at full brightness.
 
