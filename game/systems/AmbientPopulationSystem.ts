@@ -300,6 +300,15 @@ export class AmbientPopulationSystem {
       if (tier === 0) {
         citizen.bob.y += bobY;
         citizen.bob.alpha = alphaPulse;
+        // ambient-citizen-tint-implemented
+        let solarFactor = 1;
+        const dayNightState = this.scene.data?.get?.('dayNightState') as { sunIntensity?: number } | undefined;
+        if (dayNightState && Number.isFinite(dayNightState.sunIntensity)) {
+          solarFactor = dayNightState.sunIntensity as number;
+        }
+        if (Number.isFinite(solarFactor)) {
+          citizen.bob.alpha *= solarFactor;
+        }
       }
     }
   }
