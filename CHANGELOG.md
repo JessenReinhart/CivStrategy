@@ -2,6 +2,10 @@
 
 ## 2026-09-03
 
+- **Fresh games now really start at the displayed 1× speed (#249):** The simulation, physics, tweens, and visible speed controls now agree when a new match starts, removing the hidden 0.75× runtime mismatch while preserving explicitly saved speed on reload.
+- **Combat/save training checks now tolerate a live economy (#251):** Release verification still trains a real Pikesman through the Barracks and requires real resource spending, population/military progression, combat, save/reload, and continued play, but no longer expects an impossible exact food/gold snapshot while passive production is running.
+- **Post-combat army recovery is checked against simulation time instead of CI wall time (#253):** Browser verification still requires every surviving unit to accept a real rally path and move after combat, but software-rendered CI is no longer allowed to misclassify a commandable army as stuck simply because very little game simulation advanced during the wall-clock timeout.
+- **Dense-city CI now separates catastrophic stalls from the real 60 FPS product target (#255):** Shared headless CI still blocks broken population/render invariants, runtime errors, invalid samples, and severe starvation, while the actual 60 FPS / 16.67 ms dense-city target remains explicit representative-hardware acceptance debt instead of an impossible software-rendered merge gate.
 - **One uninterrupted browser session now proves the full playable journey (#245):** Release verification carries a real match from menu and camera control through Villager gathering and deposit, House and Barracks placement, economy and housing changes, Pikesman training, movement and combat, visible Save/Load, reload, restored state, and continued control without injecting extra resources into the military phase. The full gameplay and performance gauntlet passed before merge.
 
 ## 2026-09-02
