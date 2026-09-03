@@ -95,6 +95,54 @@ async function requireCriticalHud(page) {
   };
 }
 
+async function readRuntimeSpeed(page) {
+  return page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    return {
+      gameSpeed: scene?.gameSpeed,
+      physicsTimeScale: scene?.physics?.world?.timeScale,
+      tweenTimeScale: scene?.tweens?.timeScale,
+    };
+  });
+}
+
+function assertCoherentSpeed(speed, expected, label) {
+  const expectedPhysics = 1 / expected;
+  if (
+    speed.gameSpeed !== expected
+    || Math.abs(speed.physicsTimeScale - expectedPhysics) > 0.0001
+    || speed.tweenTimeScale !== expected
+  ) {
+    throw new Error(
+      `${label} is not a coherent ${expected}x runtime speed: `
+      + `game=${speed.gameSpeed}, physics=${speed.physicsTimeScale}, tweens=${speed.tweenTimeScale}.`,
+    );
+  }
+}
+
+async function requireSpeedInput(page) {
+  const initial = await readRuntimeSpeed(page);
+  assertCoherentSpeed(initial, 1, 'Fresh game');
+
+  await page.keyboard.press('=');
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    return scene?.gameSpeed === 2 && scene?.tweens?.timeScale === 2;
+  }, undefined, { timeout: 5_000 });
+  const accelerated = await readRuntimeSpeed(page);
+  assertCoherentSpeed(accelerated, 2, 'Speed-up control');
+
+  await page.keyboard.press('-');
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    return scene?.gameSpeed === 1 && scene?.tweens?.timeScale === 1;
+  }, undefined, { timeout: 5_000 });
+  const restored = await readRuntimeSpeed(page);
+  assertCoherentSpeed(restored, 1, 'Speed-down control');
+
+  return { initial, accelerated, restored };
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 
 let browser;
@@ -152,6 +200,9 @@ try {
     phase = `attempt-${attempt}-critical-hud`;
     const hud = await requireCriticalHud(page);
 
+    phase = `attempt-${attempt}-speed-input`;
+    const speed = await requireSpeedInput(page);
+
     phase = `attempt-${attempt}-camera-input`;
     const camera = await requireCameraInput(page);
     const attemptErrors = browserErrors.slice(errorCountBeforeAttempt);
@@ -169,6 +220,7 @@ try {
       loadDurationMs: Date.now() - startedAt,
       ...world,
       hud,
+      speed,
       camera,
       browserErrors: attemptErrors,
     });
