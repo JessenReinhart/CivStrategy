@@ -226,4 +226,38 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 
 ### Round 5 — Settlement ambience (critic verdict)
 
-_Pending fresh-context critic inspection of the live game at http://127.0.0.1:5173._
+- **What I could verify:** The fallback critic could not open the browser UI or watch the live game from the sandbox; it inspected the source only. Code matches the spec for all three features, so the implementation exists; visual believability was **not** verified by direct game observation.
+
+- **Feature verdicts:**
+
+  | Feature | Visual believability* | Implementation cost / risk | Verdict |
+  |---|---|---|---|
+  | a. Ambient villagers (sine bob + alpha pulse) | Not observable – no visual confirmation | Low–medium (bob time, LOD checks, sine bob & alpha pulse) | **Pass** on implementation, **Poor** on believability (unverified) |
+  | b. Dust motes (capped 60) | Not observable | Low (one emitter, 60-particle cap, 2 s lifespan) | **Pass** on both implementation and assumed believability |
+  | c. Town Center flag (wind-driven) | Not observable | Low (flag added, rotation driven by `AtmosphericSystem.getWindSway`) | **Pass** on implementation, **Poor** on believability (unverified) |
+
+  *“Poor” means the critic could not confirm the feature meets the Manor Lords bar from a player perspective; it may be acceptable but is unproven.
+
+- **Overall rating:** **Borderline** – the mechanics are present and the cost is low, but visual polish cannot be validated without an in‑game view. Sits just below the Manor Lords bar and well beneath Stronghold clarity.
+
+- **Biggest remaining gap:** Ambient citizens are rendered with a simple blitter and never receive the day‑night tint/atmospheric lighting that other world elements get, so they look flat compared to the rest of the settlement and break settlement believability.
+
+- **Recommended next slice:** Add a small, LOD‑gated tint update to `AmbientPopulationSystem.handleUpdate` that multiplies each citizen’s `bob.tint` by the current solar tint (or a simplified brightness factor) each frame. A few lines, uses data already computed by `AtmosphericSystem`, and will make ambient villagers blend with the time‑of‑day palette.
+
+### Round 6 — Solar overlay directional gradient + RGB‑lerp + state seed (builder result)
+
+- **What I did:** In `AtmosphericSystem.ts` only: (1) Constructor now seeds `solarState` (sun intensity, sun elevation, hour) and `sunAzimuth` from `scene.data.get('dayNightState')` with `Number.isFinite` guards + `Phaser.Math.Clamp` / wrap, falling back to the noon defaults if the value is missing or garbage – eliminates the first‑frame full‑noon flash. (2) Per‑frame update now lerps the **RGB channels** of both `seasonalTintCurrent` and `solarTintCurrent` toward their targets via a new scalar `lerpRgbColor` helper (same `t = 0.03` as the alpha lerp), so hue transitions settle over ~30 frames instead of snapping at the 250 ms publish. (3) Replaced the flat single `fillRect` solar wash with an `GRADIENT_BAND_COUNT` (8) horizontal‑band vertical gradient: top edge warm (horizon color derived from existing `computeSolarTint`), middle neutral (near seasonal tint at low alpha), bottom edge cool slate `0x28395c`; the warm pool is biased to the sun‑facing side via `Math.cos(sunAzimuth)`. (4) `solarTintTarget` is re‑seeded from the same `computeSolarTint` so the RGB lerp has a meaningful hue target. (5) Bloom factor unchanged.
+
+- **Files touched:**
+  - `game/systems/AtmosphericSystem.ts` (only)
+
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass, 47/47 files)
+
+- **How to verify:** Start `npm run dev`, open a match, and use the time‑of‑day controls. As the sun moves, the scene tint should now cross‑fade smoothly without hue snap, and the screen should show a directional warm‑to‑cool gradient whose warm side is tied to the sun’s azimuth (it should rotate as the day advances). The first painted frame should already match the time of day rather than a flash of full‑noon light.
+
+### Round 6 — Solar overlay directional gradient + RGB‑lerp + state seed (critic verdict)
+
+_Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
