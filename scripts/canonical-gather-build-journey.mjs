@@ -173,7 +173,7 @@ try {
     );
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
-    window.__canonicalGatherBuildProbe = { villager, camp };
+    window.__canonicalGatherBuildProbe = { villager, camp, tree: nearestTree };
     return { wood: scene.resources.wood, maxPopulation: scene.maxPopulation, villagerId: villager.id };
   });
   await waitForCameraSync(page);
@@ -203,17 +203,92 @@ try {
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
 
-  evidence.phase = 'gather-deposit';
-  evidence.gather = await page.evaluate((initialWood) => {
+  evidence.phase = 'prime-live-gather';
+  evidence.gatherStart = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    let simulatedMs = 0;
-    for (let i = 0; i < 2_000 && scene.resources.wood <= initialWood; i++) {
-      scene.villagerSystem.update(scene.gameTime + simulatedMs, 100);
-      simulatedMs += 100;
-    }
-    return { simulatedMs, wood: scene.resources.wood };
-  }, evidence.setup.wood);
-  if (evidence.gather.wood <= evidence.setup.wood) throw new Error('Selected villager did not complete a wood gather/deposit loop.');
+    const { villager, camp, tree } = window.__canonicalGatherBuildProbe;
+    const [{ UnitState }, { VILLAGER_GATHER_RATE_MS }] = await Promise.all([
+      import('/types.ts'),
+      import('/constants.ts'),
+    ]);
+
+    // Keep the real workforce assignment, but bound CI cost to the final
+    // simulation transition. The normal MainScene loop must execute the last
+    // gather tick, deposit the full load, and resume the lumber loop.
+    villager.x = camp.x;
+    villager.y = camp.y;
+    villager.path = undefined;
+    villager.pathStep = 0;
+    villager.targetResource = tree;
+    villager.carryType = 'wood';
+    villager.carryAmount = 18;
+    villager.gatherTimer = VILLAGER_GATHER_RATE_MS - 1;
+    villager.state = UnitState.GATHERING;
+
+    return {
+      frame: window.__civStrategyGame.loop.frame,
+      gameTime: scene.gameTime,
+      wood: scene.resources.wood,
+      state: villager.state,
+      carryAmount: villager.carryAmount,
+      carryType: villager.carryType,
+      assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
+  });
+
+  evidence.phase = 'gather-deposit';
+  const gatherWallStartedAt = Date.now();
+  try {
+    await page.waitForFunction(({ initialWood, startFrame }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager, camp } = window.__canonicalGatherBuildProbe;
+      return window.__civStrategyGame.loop.frame > startFrame
+        && scene.resources.wood >= initialWood + 20
+        && villager.carryAmount === 0
+        && villager.jobBuilding === camp
+        && camp.getData('assignedWorker') === villager;
+    }, { initialWood: evidence.gatherStart.wood, startFrame: evidence.gatherStart.frame }, { timeout: POINTER_TIMEOUT_MS });
+  } catch (error) {
+    evidence.gather = await page.evaluate((start) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager, camp } = window.__canonicalGatherBuildProbe;
+      return {
+        wallMs: Date.now() - start.wallStartedAt,
+        frame: window.__civStrategyGame.loop.frame,
+        frameDelta: window.__civStrategyGame.loop.frame - start.frame,
+        gameTime: scene.gameTime,
+        gameTimeDelta: scene.gameTime - start.gameTime,
+        wood: scene.resources.wood,
+        state: villager.state,
+        carryAmount: villager.carryAmount,
+        carryType: villager.carryType,
+        gatherTimer: villager.gatherTimer,
+        assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+      };
+    }, { ...evidence.gatherStart, wallStartedAt: gatherWallStartedAt });
+    throw new Error(`Live MainScene gather/deposit did not complete: ${JSON.stringify(evidence.gather)}`, { cause: error });
+  }
+
+  evidence.gather = await page.evaluate((start) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__canonicalGatherBuildProbe;
+    return {
+      wallMs: Date.now() - start.wallStartedAt,
+      frame: window.__civStrategyGame.loop.frame,
+      frameDelta: window.__civStrategyGame.loop.frame - start.frame,
+      gameTime: scene.gameTime,
+      gameTimeDelta: scene.gameTime - start.gameTime,
+      wood: scene.resources.wood,
+      woodDelta: scene.resources.wood - start.wood,
+      state: villager.state,
+      carryAmount: villager.carryAmount,
+      carryType: villager.carryType,
+      assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
+  }, { ...evidence.gatherStart, wallStartedAt: gatherWallStartedAt });
+  if (evidence.gather.woodDelta < 20 || evidence.gather.carryAmount !== 0) {
+    throw new Error(`Selected villager did not deposit its live-loop wood load: ${JSON.stringify(evidence.gather)}`);
+  }
 
   evidence.phase = 'transition-to-build';
   await page.keyboard.press('Escape');
