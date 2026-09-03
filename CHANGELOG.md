@@ -2,6 +2,7 @@
 
 ## 2026-09-03
 
+- **Canonical gathering now proves the live game loop actually deposits wood (#258):** The focused gather→build journey and the uninterrupted playable-session journey no longer advance Villager work by calling the subsystem directly. They keep real player assignment, require the running MainScene loop to complete the final 20-wood deposit, preserve worker ownership, and then continue through real construction and the rest of the playable journey.
 - **Combat-save evidence now follows the live economy (#257):** Release verification now uses the canonical journey's measured net food and gold training spend instead of reconstructing exact resource snapshots while passive production is running, while keeping training, combat, persistence, survivor state, population/housing, and continued-control checks intact.
 - **Fresh games now really start at the displayed 1× speed (#249):** The simulation, physics, tweens, and visible speed controls now agree when a new match starts, removing the hidden 0.75× runtime mismatch while preserving explicitly saved speed on reload.
 - **Combat/save training checks now tolerate a live economy (#251):** Release verification still trains a real Pikesman through the Barracks and requires real resource spending, population/military progression, combat, save/reload, and continued play, but no longer expects an impossible exact food/gold snapshot while passive production is running.
