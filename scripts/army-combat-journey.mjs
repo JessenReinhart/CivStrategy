@@ -7,6 +7,9 @@ const PORT = 4177;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
 const PLAYER_COUNT = 3;
+const RALLY_MIN_SIMULATION_MS = 200;
+const RALLY_MIN_MOVEMENT_PX = 1;
+const RALLY_WALL_TIMEOUT_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
@@ -403,24 +406,59 @@ try {
       unit.setData('__postCombatX', unit.x);
       unit.setData('__postCombatY', unit.y);
     });
-    return { target, survivorCount: survivors.length };
+    return { target, survivorCount: survivors.length, commandGameTime: scene.gameTime };
   });
 
   const rallyPoint = await cartesianScreenPoint(telemetry.rally.target);
   await page.mouse.click(canvasBox.x + rallyPoint.x, canvasBox.y + rallyPoint.y, { button: 'right' });
 
-  await page.waitForFunction(() => {
+  telemetry.rallyCommand = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const survivors = window.__armyCombatProbe.players.filter(
       (unit) => unit.active && scene.units.getChildren().includes(unit)
     );
+    return {
+      gameTime: scene.gameTime,
+      units: survivors.map((unit) => ({
+        pathLength: unit.path?.length ?? 0,
+        state: unit.state,
+      })),
+    };
+  });
+  if (telemetry.rallyCommand.units.length !== telemetry.rally.survivorCount
+    || telemetry.rallyCommand.units.some((unit) => unit.pathLength === 0)) {
+    throw new Error(`Post-combat rally command was not accepted by every survivor: ${JSON.stringify(telemetry.rallyCommand)}`);
+  }
+
+  await page.waitForFunction(({ startGameTime, minSimulationMs, minMovementPx }) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const survivors = window.__armyCombatProbe.players.filter(
+      (unit) => unit.active && scene.units.getChildren().includes(unit)
+    );
+    if (scene.gameTime - startGameTime < minSimulationMs) return false;
     return survivors.length > 0 && survivors.every((unit) => Math.hypot(
       unit.x - unit.getData('__postCombatX'),
       unit.y - unit.getData('__postCombatY'),
-    ) > 5);
-  }, undefined, { timeout: 15_000 });
+    ) > minMovementPx);
+  }, {
+    startGameTime: telemetry.rallyCommand.gameTime,
+    minSimulationMs: RALLY_MIN_SIMULATION_MS,
+    minMovementPx: RALLY_MIN_MOVEMENT_PX,
+  }, { timeout: RALLY_WALL_TIMEOUT_MS });
 
   telemetry.afterRally = await readRuntimeProbe();
+  telemetry.rallyEvidence = {
+    simulatedMs: telemetry.afterRally.gameTime - telemetry.rallyCommand.gameTime,
+    movementPx: telemetry.afterRally.players
+      .filter((unit) => unit.active && unit.inUnitGroup)
+      .map((unit, index) => {
+        const player = window?.__unused;
+        return Math.hypot(
+          unit.x - telemetry.afterCombat.players[index].x,
+          unit.y - telemetry.afterCombat.players[index].y,
+        );
+      }),
+  };
   const survivorCount = telemetry.afterRally.players.filter((unit) => unit.active && unit.inUnitGroup).length;
   if (survivorCount !== telemetry.rally.survivorCount) {
     throw new Error(`Survivor count changed during post-combat rally: ${telemetry.rally.survivorCount} -> ${survivorCount}`);
