@@ -175,3 +175,29 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 - **Biggest remaining gap:** Atmospheric layer (sky tint, bloom, ambient light) remains static; the world's ground shadows react to time but the overhead illumination does not.
 
 - **Suggested next slice:** Add a day/night modulated overlay tint or bloom adjustment in `AtmosphericSystem` that follows the solar cycle, closing the final visual gap between ground shadows and ambient light.
+
+### Round 4 — Solar cycle integration (builder result)
+
+- **Summary:** SquadSystem soldiers now dim/lighten with the solar cycle (same 0.30 reference as building/villager shadows) via `applyDayNightState` called from EntityFactory's changedata listener; LOD bobs and sprites set alpha per publish cadence (~250 ms). AtmosphericSystem adds a full-scene solar overlay tint (warm dawn/dusk, near-clear noon, cool night) blended with the seasonal tint, plus a mild bloom adjustment (0.72× at night, 1.15× at full sun), both updated on the same publish cadence with per-frame lerp. No public API changes.
+
+- **Files touched:**
+  - `game/systems/SquadSystem.ts`
+  - `game/systems/EntityFactory.ts`
+  - `game/systems/AtmosphericSystem.ts`
+
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass)
+
+- **How to verify:** Start `npm run dev`, open a match, and use the time-control buttons to advance from dawn through noon to night. Observe unit silhouettes (soldier sprites/blitters) subtly darken/lighten in lock-step with building and villager shadows. Also watch the scene's overall tint shift warm near sunrise/sunset and take on a cool wash at night, with bloom strength subtly reduced at night and slightly brighter at high sun.
+
+### Round 4 — Atmospheric overlay (critic verdict)
+
+- **What I saw:** `AtmosphericSystem` registers a `changedata` listener for the `dayNightState` key (line 49) and copies only scalar fields in `handleDayNightDataChange` (lines 61–83): `sunIntensity` clamped [0,1] via `Phaser.Math.Clamp` after `Number.isFinite` (default 1), `sunElevation` clamped [0,1] after `Number.isFinite` (default 1), and `hour` wrapped [0,24] after `Number.isFinite` (default 12). `computeSolarTint` (lines 91–109) returns a cool slate `0x28395c @ 0.085` at `sunIntensity ≤ 0.01`, a warm horizon wash (`1 - sunElevation/0.32` warmth, alpha `clamp(warmth * intensity * 0.12, 0, 0.11)` with a `hour > 12 ? 0xE07B3C : 0xF2B366` dusk bias) when alpha exceeds 0.012, and a near-clear `0xFFF2D0 @ 0.015` otherwise. Bloom uses `Phaser.Math.Linear(0.72, 1.15, this.solarState.sunIntensity)` (line 297) multiplied into the zoom/pulse-based strength and clamped [0,2]. Per frame `update()` lerps the two target alphas at `t = 0.03`, then `blendTint` (lines 118–138) source-over composites two plain `{color, alpha}` objects into one flat fill; the GPU `fillRect` only runs when `seasonalTintDirty` or `alphaChanged` is true. `EntityFactory.handleDayNightDataChange` now calls `this.scene.squadSystem?.applyDayNightState(shadowAlpha)` (line 287).
+
+- **Comparison to Manor Lords:** The hue direction is correct — warm amber at the horizon, near-clear noon, cool slate at night, plus a redder dusk bias — and the scalar-only per-frame blend plus the dirty-check redraw is genuinely cheap (no full-screen Graphics clear/fill every frame). The guard discipline (`Number.isFinite` + clamp/wrap on every input) is exactly right. But it is still a *flat uniform full-screen rectangle* driven only by `sunIntensity`/`sunElevation`/`hour`; it has no horizon gradient, no directional falloff, and no dependence on sun azimuth, so it reads as a global color wash rather than Manor Lords' sun-keyed sky/lighting where warm light pools directionally on one horizon and the world's light direction actually moves.
+
+- **Biggest remaining gap:** The solar tint is a uniform fill with discrete color snap — `solarTintCurrent.color = this.solarTintTarget.color` (line 315) sets the hue instantly, so the horizon→noon and night→dawn transitions pop color even though alpha is lerped. Secondary: `solarState` defaults to `sunIntensity: 1` (lines 36–40), so the first frames before the ~250 ms publish run full-noon daylight tint even if the match starts at night.
+
+- **Suggested next slice:** (1) Lerp the RGB channels of `solarTintCurrent`/`seasonalTintCurrent` toward target the same way alpha is lerped, so hue crossings settle over ~30 frames instead of snapping. (2) Replace the flat `fillRect` with a two-stop vertical gradient (warm at the sun-facing horizon edge → neutral overhead → cool at the opposite edge) or a radial warm bloom behind the sun azimuth, so the overlay has directional presence like Manor Lords. (3) Seed `solarState` from an initial `scene.data.get('dayNightState')` read in the constructor (falling back to the noon default) so the first painted frames match the actual time of day.
