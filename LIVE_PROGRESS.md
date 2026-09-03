@@ -50,7 +50,7 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 
 ### Round 1 — Building grounding (builder result)
 
-- **Summary:** Directional ground shadows under every building (soft ellipse, 0x1a1208 at 35 % alpha, footprint‑sized), faint black contact shadows for villagers (10×5 px at 25 % alpha) and military units (throttled per‑frame), and a pulsing brass outline ring (0xDAA520, 0.5–1.0 α, 1.2 s ease) on selection that briefly brightens the ground shadow for hover readability. No public API change to `EntityFactory.spawnBuilding`.
+- **Summary:** Directional ground shadows under every building (soft ellipse, 0x1a1208 at 35 % alpha, footprint-sized), faint black contact shadows for villagers (10×5 px at 25 % alpha) and military units (throttled per-frame), and a pulsing brass outline ring (0xDAA520, 0.5–1.0 α, 1.2 s ease) on selection that briefly brightens the ground shadow for hover readability. No public API change to `EntityFactory.spawnBuilding`.
 - **Files touched:**
   - `game/systems/EntityFactory.ts`
   - `game/systems/BuildingManager.ts`
@@ -74,16 +74,44 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 
 ### Round 2 — HUD contrast (builder result)
 
-- **Summary:** Raised `--hud-muted` opacity from `.62` to `.85` in `index.html` (keeps the parchment‑brass tone but is clearly legible at 1080p), set `.hud-tooltip-body` to fully opaque `var(--dust-white)` for a luminance contrast ratio ≥4.5:1 against the dark tooltip panel background, and changed seven low‑contrast `text-stone-500` secondary top‑bar labels in `components/GameUI.tsx` to `text-stone-300`-equivalent ("Click TC to advance", tax‑slider "Benevolent/Tyrant", both clear‑selection X buttons, and the three "Right Click …" movement hints). Default tooltip placement is `'top'`; the top‑bar tooltips explicitly use `placement="bottom"`, and the `.hud-tooltip-bottom` rule (`top: 100%` + 6 px margin) drops the panel below the centered top bar so it cannot clip the viewport top edge and easily clears the command dock — no class adjustment was needed.
+- **Summary:** Raised `--hud-muted` opacity from `.62` to `.85` in `index.html` (keeps the parchment‑brass tone but is clearly legible at 1080p), set `.hud-tooltip-body` to fully opaque `var(--dust-white)` for a luminance contrast ratio ≥4.5:1 against the dark tooltip panel background, and changed seven low‑contrast `text-stone-500` secondary top‑bar labels in `components/GameUI.tsx` to `text-stone-300`-equivalent ("Click TC to advance", tax‑slider "Benevolent/Tyrant", both clear‑selection X buttons, and the three "Right Click …" movement hints). Default tooltip placement is `'top'`; the top‑bar tooltips explicitly use `placement="bottom"`, and the `.hud-tooltip-bottom` rule (`top: 100%` + 6 px margin) drops the panel below the centered top bar so it cannot clip the viewport top edge and easily clears the command dock — no class adjustment was needed.
 - **Files touched:** `index.html`, `components/GameUI.tsx`
 - **How to verify:** start `npm run dev`, hover the resource icons (wood/food/gold/population/age/happiness/season/diplomacy) and confirm the tooltip body is clearly readable; also confirm the muted sub‑labels ("Click TC to advance", tax labels, "Right Click to Move") no longer require squinting at 1080p.
 
 ---
 
+### Round 2 — Dynamic shadows (critic verdict)
+
+- **What I saw:** `handleDayNightDataChange` listens to `changedata` for `dayNightState`, extracts `shadowAlpha` (default 0), clamps it to [0,1] via division by `DAY_NIGHT_SHADOW_ALPHA_REFERENCE`, computes `factor`. It scales the base shadow alpha (0.35) and shifts the base color (0x1a1208) with `modulateBuildingShadowColor`, then clears and redraws each active building shadow graphic. Shadows with `shadowAlpha=0` become fully transparent; destroyed graphics are removed from the map on destroy, so they are safely ignored.
+- **Comparison to Manor Lords:** Provides dynamic solar‑aware building shadows, aligning with Manor Lords' day/night lighting. However only building contact shadows are updated; unit shadows and ambient illumination remain static.
+- **Biggest remaining gap:** Unit shadows and ambient light lack day/night modulation; also no explicit NaN guard could lead to invalid colour/alpha if `shadowAlpha` were ever NaN.
+- **Suggested next slice:** Add day/night modulation for unit shadows (similar loop or separate handler) and guard `shadowAlpha` with `Number.isFinite` before factor calculation.
+---
+
 ### Round 2 — Dynamic shadows (builder result)
 
-- **Summary:** Building ground shadows in EntityFactory now modulate alpha and colour via DayNightSystem state (~250 ms publish interval). The warm‑dark ellipse (0x1a1208) cools as the sun lowers, and each villager’s contact disc scales its 0.25 alpha proportionally, so shadows fade and cool together with the solar cycle.
+- **Summary:** Building ground shadows in EntityFactory now modulate alpha and colour via DayNightSystem state (~250 ms publish interval). The warm-dark ellipse (0x1a1208) cools as the sun lowers, and each villager's contact disc scales its 0.25 alpha proportionally, so shadows fade and cool together with the solar cycle.
 - **Files touched:** `game/systems/EntityFactory.ts`
-- **How to verify:** Run `npm run dev`, start a match, use the time‑control buttons to advance from dawn to night; watch building shadows fade and cool, and note villagers’ discs do the same.
+- **How to verify:** Run `npm run dev`, start a match, use the time-control buttons to advance from dawn to night; watch building shadows fade and cool, and note villagers' discs do the same.
 
 ---
+
+### Round 2 — Dynamic shadows (critic verdict)
+
+- **What I saw:** `handleDayNightDataChange` listens to `changedata` for `dayNightState`, extracts `shadowAlpha` (default 0), clamps it to [0,1] via division by `DAY_NIGHT_SHADOW_ALPHA_REFERENCE`, computes `factor`. It scales the base shadow alpha (0.35) and shifts the base color (0x1a1208) with `modulateBuildingShadowColor`, then clears and redraws each active building shadow graphic. Shadows with `shadowAlpha=0` become fully transparent; destroyed graphics are removed from the map on destroy, so they are safely ignored.
+- **Comparison to Manor Lords:** Provides dynamic solar‑aware building shadows, aligning with Manor Lords' day/night lighting. However only building contact shadows are updated; unit shadows and ambient illumination remain static.
+- **Biggest remaining gap:** Unit shadows and ambient light lack day/night modulation; also no explicit NaN guard could lead to invalid colour/alpha if `shadowAlpha` were ever NaN.
+- **Suggested next slice:** Add day/night modulation for unit shadows (similar loop or separate handler) and guard `shadowAlpha` with `Number.isFinite` before factor calculation.
+
+---
+
+### Round 3 — Camera feedback wiring (builder result)
+
+- **Summary:** Wired `addCommandAck` into the ground right-click command path by passing `pointerWorld` (world coordinates) instead of converting to cartesian. C/Home keybindings for camera recentering were already in place from Round 2 but were verified and remain functional.
+- **Files touched:**
+  - `game/systems/InputManager.ts`
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 tests pass)
+- **How to verify:** Start `npm run dev`, open a match, right-click the ground with selected units to see the expanding command ring appear at the click location, and press `C` or `Home` to recenter the camera on the Town Center.
