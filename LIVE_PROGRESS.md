@@ -201,3 +201,29 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 - **Biggest remaining gap:** The solar tint is a uniform fill with discrete color snap — `solarTintCurrent.color = this.solarTintTarget.color` (line 315) sets the hue instantly, so the horizon→noon and night→dawn transitions pop color even though alpha is lerped. Secondary: `solarState` defaults to `sunIntensity: 1` (lines 36–40), so the first frames before the ~250 ms publish run full-noon daylight tint even if the match starts at night.
 
 - **Suggested next slice:** (1) Lerp the RGB channels of `solarTintCurrent`/`seasonalTintCurrent` toward target the same way alpha is lerped, so hue crossings settle over ~30 frames instead of snapping. (2) Replace the flat `fillRect` with a two-stop vertical gradient (warm at the sun-facing horizon edge → neutral overhead → cool at the opposite edge) or a radial warm bloom behind the sun azimuth, so the overlay has directional presence like Manor Lords. (3) Seed `solarState` from an initial `scene.data.get('dayNightState')` read in the constructor (falling back to the noon default) so the first painted frames match the actual time of day.
+
+### Round 5 — Settlement ambience (builder result)
+
+- **What I did:** Added three independent settlement-ambience layers: (1) a sine-based vertical bob (~4 px amplitude) and shallow alpha pulse (0.2–1.0, ~3 s period) on active AmbientCitizen blitter bobs in `AmbientPopulationSystem.handleUpdate`, gated to near-camera LOD (tier 0/1) so it costs nothing for far citizens; (2) a dust-mote particle emitter in `AtmosphericSystem` using the existing `smoke` texture, capped at 60 live particles, with a 2 s lifespan, tiny drift velocities, and a fade from alpha 0.12 → 0 over life; (3) a Town Center flag sprite in `EntityFactory.addTownCenterFlag` (called only for `BuildingType.TOWN_CENTER`) with a thin pole and a flag rectangle that rotates -2° to +2° every frame, driven by `AtmosphericSystem.getWindSway()` so the wind key used elsewhere is the same source of truth. The flag's rotation is computed each frame inside a `tweens.add` `onRepeat` so it always tracks real game time, and the tween is disposed via `flag.once(Phaser.GameObjects.Events.DESTROY, ...)` so building demolition cleans it up. The dust emitter and day/night solar overlay co-exist because the dust emitter is added to `worldLayer` and uses `setDepth(14900)` (below UI, above world) and a `NORMAL` blend mode, so it does not wash out the bloom or seasonal tint.
+
+- **Files touched:**
+  - `game/systems/AmbientPopulationSystem.ts`
+  - `game/systems/AtmosphericSystem.ts`
+  - `game/systems/EntityFactory.ts`
+
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass)
+  - `npm run build` (exit 0)
+
+- **Proof markers (added in source for grep-ability):**
+  - `// ambience-bob-implemented` in `AmbientPopulationSystem.handleUpdate`
+  - `/** dust-mote-emitter-implemented */` above `createDustMotes` in `AtmosphericSystem`
+  - `// town-center-flag-implemented` in `EntityFactory.addTownCenterFlag`
+
+- **How to verify:** Start `npm run dev`, open a match, and look at the Town Center: the small flag should sway gently left/right with the wind cycle. Pan the camera near a group of villagers: each ambient citizen blitter should have a small vertical bob and a subtle alpha breath. The whole scene should also carry a sparse drift of tiny dust motes across the visible area. Use `time-of-day` controls if you want to confirm motes remain visible at night (they are tint-agnostic by design).
+
+### Round 5 — Settlement ambience (critic verdict)
+
+_Pending fresh-context critic inspection of the live game at http://127.0.0.1:5173._
