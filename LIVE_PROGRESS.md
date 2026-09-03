@@ -278,11 +278,19 @@ _Pending fresh‑context critic inspection of the live game at http://127.0.0.1:
 
 ### Round 7 — Sun‑azimuth ground‑shadow direction (critic verdict)
 
-_Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
+- **What I could verify:** Fresh‑context critic used Playwright on http://127.0.0.1:5173, entered the game, paused time, and captured screenshots at 08:00, 12:00, 17:00, 00:00. Day/night telemetry confirms `sunAzimuthRad` rotates (-2.62 → -1.57 → -0.26 → 0) and `sunIntensity` drops to 0 at night. Night screenshot shows the ground shadow practically invisible (alpha faded). Daytime screenshots display a soft dark ellipse directly beneath each building; **its position does not visibly shift** between morning, noon, and sunset because the computed offset (~11 px for a 64 px‑wide house) stays inside the ellipse's footprint.
+
+- **Feature verdict:** **Borderline** – the implementation satisfies the cheap‑math/no‑allocation requirement and fades shadows at night, but the directional slide is too subtle to be perceived.
+
+- **Comparison to the bar:** Manor Lords shows clear, elongated shadows that rotate and vary in length with sun position; Stronghold demands shadow clarity at game zoom. CivStrategy's contact ellipse is static and lacks the directional cue.
+
+- **Biggest remaining gap:** The offset magnitude is smaller than the ellipse's radius, so the shadow never appears to move; the player cannot infer sun direction from building shadows.
+
+- **Recommended next slice:** Replace the tiny contact‑ellipse offset with a **proper projected shadow silhouette** – a stretched, angled shadow polygon (length proportional to building height, angle = `sunAzimuth + π/2`) behind each building, alpha‑modulated by `sunIntensity`. Yields a visible directional cue at all zoom levels while keeping scalar math and no per‑frame allocations.
 
 ### Round 8 — Ambient‑citizen day‑night tint (builder result)
 
-- **What I did:** In `AmbientPopulationSystem.ts` only: inside the LOD‑gated loop that applies the sine‑based vertical bob and shallow alpha pulse to active near‑camera ambient citizens, read a daylight factor from the atmospheric system (`this.scene.atmosphericSystem.solarTintCurrent.alpha` or fallback to `solarState.sunIntensity`) with `Number.isFinite` guards, then multiply each citizen's `bob.alpha` by that factor. Comment marker `// ambient-citizen-tint-implemented` placed before the tint code.
+- **What I did:** In `AmbientPopulationSystem.ts` only: inside the LOD‑gated (tier‑0) loop that already applies the sine‑based vertical bob and shallow alpha pulse, read a daylight factor from the public `dayNightState` data on the scene (`this.scene.data?.get?.('dayNightState')?.sunIntensity`) with a `Number.isFinite` guard, then multiply each citizen's `bob.alpha` by that factor. Comment marker `// ambient-citizen-tint-implemented` placed before the tint code. Implementation avoids private `AtmosphericSystem` fields by reading the day/night scalar published by `DayNightSystem` instead.
 
 - **Files touched:**
   - `game/systems/AmbientPopulationSystem.ts` (only)
@@ -292,8 +300,24 @@ _Pending fresh‑context critic inspection of the live game at http://127.0.0.1:
   - `npm run lint` (exit 0)
   - `npm run test` (309/309 pass, 47/47 files)
 
-- **How to verify:** Once implemented, start `npm run dev`, open a match, pan the camera to a group of ambient citizens near the Town Center, and use time‑of‑day controls. Ambient citizens should subtly darken as the sun sets and brighten as it rises, blending them with the overall atmospheric tint instead of appearing flat and always at full brightness.
+- **How to verify:** Start `npm run dev`, open a match, pan the camera to a group of ambient citizens near the Town Center, and use time‑of‑day controls. Near‑LOD (tier‑0) ambient citizens should subtly darken as the sun sets and brighten as it rises, blending them with the overall atmospheric tint instead of appearing flat and always at full brightness.
 
 ### Round 8 — Ambient‑citizen day‑night tint (critic verdict)
+
+- **What I could verify:** Fresh‑context critic inspected `AmbientPopulationSystem.ts`. The live game was not accessible from that sandbox. Code confirmed: only tier‑0 (near) citizens receive day‑night modulation, combined with the existing alpha pulse (0.6–1.0), reading `sunIntensity` from `dayNightState`.
+
+- **Feature verdict:** **Borderline**.
+
+- **Comparison to the bar:** Manor Lords villagers' sprites and cast shadows change with time of day (HDR‑style light transport); Stronghold has clear, flicker‑free ambient transitions with all units visibly affected. CivStrategy only modulates near‑citizen brightness – no hue shift, far citizens remain static.
+
+- **Biggest remaining gap:** **No hue shift** – night/dusk should cool (slate/blue) and dawn/dusk warm (amber). Current implementation only modulates brightness via `sunIntensity`. Secondary: far‑tier citizens (tier 1–2) never receive day/night updates, risking a visible "pop" when a citizen crosses the tier boundary.
+
+- **Recommended next slice:** Add a subtle 20–30° hue lerp tied to `hour`/`sunElevation` (e.g., publish a `solarColor` from `dayNightState` and apply `citizen.bob.tint = solarColor`), and extend the tint to tier 1–2 to avoid boundary pop.
+
+### Round 9 — Projected shadow silhouettes (builder result)
+
+_Pending builder implementation._
+
+### Round 9 — Projected shadow silhouettes (critic verdict)
 
 _Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
