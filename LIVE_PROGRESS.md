@@ -261,3 +261,36 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 ### Round 6 — Solar overlay directional gradient + RGB‑lerp + state seed (critic verdict)
 
 _Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
+
+### Round 7 — Sun‑azimuth ground‑shadow direction (builder result)
+
+- **What I did:** In `EntityFactory.ts` only: (1) Store the building's ground shadow reference on the visual's `DataManager` via `visual.setData('buildingShadow', groundShadow)` right after the shadow is created. (2) Add a public method `updateBuildingShadows(sunAzimuth, sunIntensity)` that iterates all active buildings, reads each visual's stored shadow and building `def.width`, computes a horizontal offset `offsetX = Math.cos(sunAzimuth) * width * 0.18` and a slight vertical offset `offsetY = Math.abs(Math.sin(sunAzimuth)) * width * 0.05`, then calls `shadow.setPosition(offsetX, offsetY)` and modulates `shadow.alpha` by `sunIntensity` (all values guarded with `Number.isFinite`). The method allocates no objects per frame; it reuses scalar math and the existing shadow reference. (3) In `handleDayNightDataChange` (the day/night publish hook), read `azimuth` and `sunIntensity` from the `dayNightState` payload with `Number.isFinite` guards (falling back to noon defaults), and call `this.updateBuildingShadows(solarAzimuth, solarIntensity)`. The comment marker `// sun-azimuth-shadow-direction-implemented` was placed above the new method.
+
+- **Files touched:**
+  - `game/systems/EntityFactory.ts` (only)
+
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass, 47/47 files)
+
+- **How to verify:** Start `npm run dev`, open a match, and use the time‑of‑day controls. As the sun moves east‑to‑west, each building's ground shadow should slide horizontally (with a small vertical component) in lock‑step with the sun's azimuth, so shadows point away from the sun like in Manor Lords rather than being static blobs. At night the shadows fade (α scaled by `sunIntensity`).
+
+### Round 7 — Sun‑azimuth ground‑shadow direction (critic verdict)
+
+_Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
+
+### Round 8 — Ambient‑citizen day‑night tint (builder result)
+
+- **What I did:** In `AmbientPopulationSystem.ts` only: inside the LOD‑gated loop that applies the sine‑based vertical bob and shallow alpha pulse to active near‑camera ambient citizens, read a daylight factor from the atmospheric system (`this.scene.atmosphericSystem.solarTintCurrent.alpha` or fallback to `solarState.sunIntensity`) with `Number.isFinite` guards, then multiply each citizen's `bob.alpha` by that factor. Comment marker `// ambient-citizen-tint-implemented` placed before the tint code.
+
+- **Files touched:**
+  - `game/systems/AmbientPopulationSystem.ts` (only)
+
+- **Verification:** *Pending builder completion; tsc/lint/test must all exit 0 with 309/309 tests passing before commit.*
+
+- **How to verify:** Once implemented, start `npm run dev`, open a match, pan the camera to a group of ambient citizens near the Town Center, and use time‑of‑day controls. Ambient citizens should subtly darken as the sun sets and brighten as it rises, blending them with the overall atmospheric tint instead of appearing flat and always at full brightness.
+
+### Round 8 — Ambient‑citizen day‑night tint (critic verdict)
+
+_Pending fresh‑context critic inspection of the live game at http://127.0.0.1:5173._
