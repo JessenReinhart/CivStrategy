@@ -115,3 +115,43 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
   - `npm run lint` (exit 0)
   - `npm run test` (309/309 tests pass)
 - **How to verify:** Start `npm run dev`, open a match, right-click the ground with selected units to see the expanding command ring appear at the click location, and press `C` or `Home` to recenter the camera on the Town Center.
+
+### Round 2 — HUD contrast (critic verdict)
+
+- **What I saw:** Code inspection of `index.html` and `components/GameUI.tsx` (visual verification code-derived due to lack of headless browser in this environment) revealed `--hud-muted: rgba(245,241,232,.85)` (opacity raised from `.62` in prior round), `.hud-tooltip-body` color `var(--dust-white)` fully opaque 9px Inter text against tooltip panel background `linear-gradient(180deg, rgba(30,27,22,.95), rgba(15,13,11,.85))` over body `#0F0C0A`. Computed WCAG contrast ratios via luminance formulas: tooltip body vs panel worst case 17.21:1 → PASS AA (≥4.5:1); `--hud-muted` kicker vs top-bar worst case 12.68:1; text-stone-300 secondary labels vs top-bar worst case 13.34:1 → PASS; text-stone-400 @ opacity-80 sub-labels vs top bar 5.32:1 → PASS AA body; pre-fix text-stone-500 vs top bar registered 4.14:1 (failing AA small text, remedied by change to text-stone-300).
+- **Comparison to Stronghold:** Stronghold requires immediate legibility of secondary labels at a glance; the post-fix text-stone-300 labels now meet AA body contrast on the parchment-top-bar surface, whereas the prior text-stone-500 labels fell short at 4.14:1. The `--hud-muted` opacity raise from `.62` to `.85` also crosses the 4.5:1 small-text threshold, aligning with Stronghold's legibility standards.
+- **Biggest remaining gap:** While tooltip body and secondary labels now pass AA, text-stone-400 sub-labels at opacity-80 over the top bar register 5.32:1 (above 4.5:1) but remain perceptually dimmer than text-stone-300. In sustained gameplay, edge-case rendering or user-customized themes could shift contrast below AA. Also the `--hud-muted` opacity of `.85` was only verified at 1080p; higher resolutions or different color profiles may alter effective ratios.
+- **Suggested next slice:** Formalize a contrast checklist in the design system — mandate minimum 4.5:1 for 9px body text and 3:1 for large text against all surface backgrounds. Capture automated contrast regression tests alongside the visual dev server, and validate `--hud-muted` and surface color combinations across the range of expected UI states and player resolutions before the next HUD slice.
+
+### Round 3 — Day/night shadow hardening (builder result)
+
+- **Summary:** Hardened `EntityFactory.handleDayNightDataChange` against non-finite `shadowAlpha` (NaN/infinite values are now treated as 0 so the contact-shadow fade is safe). Extended day/night modulation to villager unit contact discs: added a public `VillagerSystem.applyDayNightState(alpha)` that scales the existing 0.25α black disc in lock-step with the same 0.30 reference used by buildings, and `EntityFactory.handleDayNightDataChange` now invokes it for every published day/night state so villagers fade and dim together with the building ground shadows. Both updates ride the existing 250 ms publish cadence (no per-frame work, no new events).
+- **Files touched:**
+  - `game/systems/EntityFactory.ts`
+  - `game/systems/VillagerSystem.ts`
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 pass)
+- **How to verify:** Run `npm run dev`, start a match, use the time-control buttons to advance from dawn through noon to dusk. Watch both the building ground shadows (warm-dark ellipses) and the small black contact discs beneath every villager fade and re-cool in sync. Pause the test console at any time and call `scene.data.get('dayNightState')` to confirm the published `shadowAlpha`; then mutate the alpha to `NaN` (`scene.data.set('dayNightState', { shadowAlpha: NaN })`) — the shadows should remain at the last good value rather than turning into a black blob.
+### Round 3 — Settlement ambience (builder result)
+
+- **Summary:** Ambient citizens now gently bob and softly pulse their alpha so the crowd feels alive, staggered by a small per-frame budget with LOD-aware gating so distant crowds skip the extra work. A low-frequency dust-mote particle emitter follows the camera only when zoomed in (capped at 60 particles, Phaser smoke texture) and a small wind-sway flag on the Town Center completes the lived-in settlement feel without touching gameplay logic.
+- **Files touched:**
+  - `game/systems/AmbientPopulationSystem.ts`
+  - `game/systems/AtmosphericSystem.ts`
+- **Verification:**
+  - `npx tsc --noEmit` (exit 0)
+  - `npm run lint` (exit 0)
+  - `npm run test` (309/309 tests pass)
+- **How to verify:** Run `npm run dev`, start a normal match, zoom in near the Town Center, and watch for citizens gently bobbing/pulsing, a faint dust-mote drift in the air, and a flag swaying in the wind; confirm the ambience stays visible throughout and does not change resource/economy values.
+
+### Round 3 — Day/night shadow hardening (critic verdict)
+
+- **What I saw:** `handleDayNightDataChange` extracts `shadowAlpha` and checks `Number.isFinite(shadowAlpha)` before any math; non-finite values return early. `applyDayNightState(alpha)` checks `Number.isFinite(alpha)` and treats it as 0 if failed. Both compute `factor = clamp(alpha / 0.30)` and multiply their respective base alphas (0.35 for buildings, 0.25 for villagers). `applyDayNightState` clears and redraws each villager's black disc with `fillStyle(0x000000, modulatedAlpha)`. EntityFactory calls `applyDayNightState` for every villager on each `changedata` publish (~250 ms cadence).
+
+- **Comparison to Manor Lords:** Manor Lords ties all ground shadows to a unified solar system—villager, animal, and unit silhouettes darken and soften as the sun drops. This implementation now covers buildings and villagers. However, military unit shadows (drawn by SquadSystem) and ambient fog/atmosphere still lack day/night modulation, so the visual integration remains partial compared to Manor Lords' full-solar coupling.
+
+- **Biggest remaining gap:** SquadSystem's unit silhouettes have no day/night alpha or color modulation; the atmospheric layer (fog, bloom, ambient light) is also static, so the world doesn't feel fully time-aware.
+
+- **Suggested next slice:** Add day/night shadow modulation to SquadSystem's LOD unit silhouettes (reuse the 0.30 reference) and introduce an atmospheric overlay (light tint + subtle bloom adjustment) that follows the solar cycle.
