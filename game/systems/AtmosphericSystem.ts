@@ -34,13 +34,22 @@ export class AtmosphericSystem {
     private solarTintTarget = { color: 0xFFFFFF, alpha: 0 };
     private solarTintCurrent = { color: 0xFFFFFF, alpha: 0 };
 
-    // Cached day/night publish snapshot (sun intensity / elevation / hour).
+    // Cached day/night publish snapshot (sun intensity / elevation / hour / azimuth).
     // Updated on the ~250 ms changedata cadence, never sampled per frame.
-    private solarState: { sunIntensity: number; sunElevation: number; hour: number } = {
+    private solarState: { sunIntensity: number; sunElevation: number; hour: number; sunAzimuth: number } = {
         sunIntensity: 1,
         sunElevation: 1,
         hour: 12,
+        sunAzimuth: Math.PI / 2,
     };
+    // Sun azimuth in radians [0, 2π). East-to-west noon defaults to π/2. Used
+    // to bias the warm edge of the solar gradient toward the sun-facing side.
+    private sunAzimuth: number = Math.PI / 2;
+    // Number of horizontal bands used to approximate the directional solar
+    // gradient. Phaser Graphics has no native multi-stop gradient, so we lerp
+    // between three stops (warm horizon / neutral mid / cool opposite horizon)
+    // in N scalar segments per paint. Capped at 8 to keep per-frame work tiny.
+    private static readonly GRADIENT_BAND_COUNT = 8;
     private static readonly DAY_NIGHT_STATE_DATA_KEY = 'dayNightState';
 
     constructor(scene: MainScene) {
@@ -50,6 +59,33 @@ export class AtmosphericSystem {
         this.setupBloom();
         this.createSeasonalTint();
         this.createDustMotes();
+        
+        // Seed solarState from current dayNightState to avoid first-frame flash.
+        const dayNightState = this.scene.data.get('dayNightState');
+        if (dayNightState && typeof dayNightState === 'object') {
+            const s = dayNightState as { sunIntensity?: number; sunElevation?: number; hour?: number; azimuth?: number };
+            if (typeof s.sunIntensity === 'number' && Number.isFinite(s.sunIntensity)) {
+                this.solarState.sunIntensity = Phaser.Math.Clamp(s.sunIntensity, 0, 1);
+            }
+            if (typeof s.sunElevation === 'number' && Number.isFinite(s.sunElevation)) {
+                this.solarState.sunElevation = Phaser.Math.Clamp(s.sunElevation, 0, 1);
+            }
+            if (typeof s.hour === 'number' && Number.isFinite(s.hour)) {
+                this.solarState.hour = Phaser.Math.Wrap(s.hour, 0, 24);
+            }
+            if (typeof s.azimuth === 'number' && Number.isFinite(s.azimuth)) {
+                this.solarState.sunAzimuth = s.azimuth;
+                this.sunAzimuth = s.azimuth;
+            }
+        }
+        
+        this.solarTintTarget = AtmosphericSystem.computeSolarTint(
+            this.solarState.sunIntensity,
+            this.solarState.sunElevation,
+            this.solarState.hour,
+        );
+        this.seasonalTintDirty = true;
+        
         this.scene.events.on('changedata', this.handleDayNightDataChange, this);
         this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
             this.scene.events.off('changedata', this.handleDayNightDataChange, this);
@@ -95,6 +131,7 @@ export class AtmosphericSystem {
             sunIntensity?: number;
             sunElevation?: number;
             hour?: number;
+            azimuth?: number;
         } | undefined;
         if (!state) return;
 
@@ -107,8 +144,14 @@ export class AtmosphericSystem {
         const hour = typeof state.hour === 'number' && Number.isFinite(state.hour)
             ? Phaser.Math.Wrap(state.hour, 0, 24)
             : 12;
+        const sunAzimuth = typeof state.azimuth === 'number' && Number.isFinite(state.azimuth)
+            ? Phaser.Math.Wrap(state.azimuth, 0, Math.PI * 2)
+            : Math.PI / 2;
 
-        this.solarState = { sunIntensity, sunElevation, hour };
+        this.solarState = { sunIntensity, sunElevation, hour, sunAzimuth };
+        this.sunAzimuth = sunAzimuth;
+        // Re-target the solar tint from the gradient so the RGB lerp has a
+        // meaningful hue to settle on instead of a single flat color.
         this.solarTintTarget = AtmosphericSystem.computeSolarTint(sunIntensity, sunElevation, hour);
         this.seasonalTintDirty = true;
     }
@@ -166,6 +209,56 @@ export class AtmosphericSystem {
         );
 
         return { color: (red << 16) | (green << 8) | blue, alpha: outAlpha };
+    }
+
+    /**
+     * Linearly interpolate a single RGB color toward a target by the given
+     * lerp factor t (0-1). No allocation — returns the blended color int.
+     * Used per‑frame so hue transitions settle smoothly over ~30 frames instead
+     * of snapping at publish time.
+     */
+    private static lerpRgbColor(
+        a: number,
+        b: number,
+        t: number,
+    ): number {
+        const aa = (a >> 16) & 0xff;
+        const ab = (a >> 8) & 0xff;
+        const ac = a & 0xff;
+
+        const ba = (b >> 16) & 0xff;
+        const bb = (b >> 8) & 0xff;
+        const bc = b & 0xff;
+
+        const r = Math.round(aa + (ba - aa) * t);
+        const g = Math.round(ab + (bb - ab) * t);
+        const bl = Math.round(ac + (bc - ac) * t);
+        return (r << 16) | (g << 8) | bl;
+    }
+
+    /**
+     * Sample a gradient stop between three stops (warm, mid, cool) at a
+     * normalized position u in [0,1] across the full band. u <= 0.5 maps from
+     * warm→mid, u > 0.5 maps from mid→cool. No allocation, returns a plain
+     * { color, alpha } pair.
+     */
+    private static sampleGradientStops(
+        warm: { color: number; alpha: number },
+        mid: { color: number; alpha: number },
+        cool: { color: number; alpha: number },
+        u: number,
+    ): { color: number; alpha: number } {
+        if (u <= 0.5) {
+            const t = u * 2; // 0..1 across warm↔mid
+            const color = AtmosphericSystem.lerpRgbColor(warm.color, mid.color, t);
+            const alpha = warm.alpha + (mid.alpha - warm.alpha) * t;
+            return { color, alpha };
+        } else {
+            const t = (u - 0.5) * 2; // 0..1 across mid↔cool
+            const color = AtmosphericSystem.lerpRgbColor(mid.color, cool.color, t);
+            const alpha = mid.alpha + (cool.alpha - mid.alpha) * t;
+            return { color, alpha };
+        }
     }
     // Camera rect tracking for seasonal tint redraw
     private prevViewRect: Phaser.Geom.Rectangle | null = null;
@@ -334,27 +427,72 @@ export class AtmosphericSystem {
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
-        // Smoothly interpolate seasonal + solar tints into a single blended fill (one fillRect saves ~0.3ms)
+        // Smoothly interpolate seasonal + solar tints into a gradient fill
         if (this.seasonalTint) {
             const t = 0.03; // ~30 frames to settle
-            // Lerp seasonal tint current toward target
+            // Lerp seasonal tint current toward target (alpha + per-channel RGB)
             const prevAlpha = this.seasonalTintCurrent.alpha;
             this.seasonalTintCurrent.alpha = Phaser.Math.Linear(this.seasonalTintCurrent.alpha, this.seasonalTintTarget.alpha, t);
-            this.seasonalTintCurrent.color = this.seasonalTintTarget.color;
-            // Lerp solar tint current toward target
+            this.seasonalTintCurrent.color = AtmosphericSystem.lerpRgbColor(
+                this.seasonalTintCurrent.color,
+                this.seasonalTintTarget.color,
+                t,
+            );
+            // Lerp solar tint current toward target (alpha + per-channel RGB)
             this.solarTintCurrent.alpha = Phaser.Math.Linear(this.solarTintCurrent.alpha, this.solarTintTarget.alpha, t);
-            this.solarTintCurrent.color = this.solarTintTarget.color;
-            
-            // Blend seasonal + solar into one effective tint
+            this.solarTintCurrent.color = AtmosphericSystem.lerpRgbColor(
+                this.solarTintCurrent.color,
+                this.solarTintTarget.color,
+                t,
+            );
+
+            // Composite seasonal + solar into a single effective tint for the
+            // warm-pool color at the sun-facing edge.
             const blended = AtmosphericSystem.blendTint(this.seasonalTintCurrent, this.solarTintCurrent);
-            
+
+            // Compute the three gradient stops once per paint:
+            //   top (sun-facing horizon): warm color blended with the seasonal hue
+            //   mid: low-alpha neutral mirror of the seasonal tint
+            //   bottom (opposite horizon): cool slate night color, low alpha
+            const warmStop = blended;
+            const midStop = {
+                color: this.seasonalTintCurrent.color,
+                alpha: this.seasonalTintCurrent.alpha * 0.5,
+            };
+            const coolStop = { color: 0x28395c, alpha: 0.06 };
+
+            // Directional axis: cos(azimuth) > 0 ⇒ warm on the LEFT, else RIGHT.
+            // Sign drives a horizontal alpha bias on the warm stop so the warm
+            // pool reads as a directional pool of light from the sun, not a
+            // uniform full-screen wash.
+            const azSign = Math.cos(this.sunAzimuth) > 0 ? 1 : -1;
+
             // Only clear/fill when blended alpha is changing (settling), camera moved, or marked dirty.
             const alphaChanged = Math.abs(blended.alpha - prevAlpha) > 0.001;
             if (this.seasonalTintDirty || alphaChanged) {
                 this.seasonalTint.clear();
-                if (blended.alpha > 0.005) {
-                    this.seasonalTint.fillStyle(blended.color, blended.alpha);
-                    this.seasonalTint.fillRect(viewRect.x - 100, viewRect.y - 100, viewRect.width + 200, viewRect.height + 200);
+                const bandCount = AtmosphericSystem.GRADIENT_BAND_COUNT;
+                const rectX = viewRect.x - 100;
+                const rectY = viewRect.y - 100;
+                const rectW = viewRect.width + 200;
+                const rectH = viewRect.height + 200;
+                const bandH = rectH / bandCount;
+                for (let i = 0; i < bandCount; i++) {
+                    // u in [0,1] top→bottom across the three-stop gradient.
+                    const u = (i + 0.5) / bandCount;
+                    const stop = AtmosphericSystem.sampleGradientStops(
+                        warmStop, midStop, coolStop, u,
+                    );
+                    if (stop.alpha <= 0.003) continue;
+                    // Bias the warm-side bands with the directional axis: edges
+                    // closer to the sun get a stronger pool, opposite edge fades
+                    // toward the cool stop.
+                    const edgeBias = 0.5 + 0.5 * Math.sin(
+                        u * Math.PI + (azSign > 0 ? 0 : Math.PI),
+                    );
+                    const biasedAlpha = stop.alpha * (0.55 + 0.45 * edgeBias);
+                    this.seasonalTint.fillStyle(stop.color, biasedAlpha);
+                    this.seasonalTint.fillRect(rectX, rectY + i * bandH, rectW, bandH + 1);
                 }
                 // Mark clean once settled and camera stable
                 if (!alphaChanged && !cameraMoved) {
