@@ -68,6 +68,7 @@ export class EntityFactory {
         groundShadow.fillStyle(0x1a1208, 0.35).fillEllipse(0, 0, groundShadowWidth, groundShadowHeight);
         visual.addAt(groundShadow, 0);
         this.registerBuildingShadow(groundShadow, groundShadowWidth, groundShadowHeight);
+        visual.setData('buildingShadow', groundShadow);
         this.scene.worldVisuals.add(visual); // Add to ignored group
         if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to rendering layer
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
@@ -273,10 +274,25 @@ export class EntityFactory {
     /** React to day/night state publishes and modulate every building contact shadow. */
     private handleDayNightDataChange(parent: Phaser.Data.DataManager, key: string, value: unknown): void {
         if (key !== DAY_NIGHT_STATE_DATA_KEY) return;
-        const state = value as { shadowAlpha?: number } | undefined;
+        const state = value as {
+            shadowAlpha?: number;
+            azimuth?: number;
+            sunIntensity?: number;
+        } | undefined;
         const shadowAlpha = typeof state?.shadowAlpha === 'number' ? state.shadowAlpha : 0;
         // Guard against NaN/infinite values - treat as 0 (shadow disappears) for safety.
         if (!Number.isFinite(shadowAlpha)) return;
+
+        // Copy the solar scalars the directional pass needs; azimuth falls back
+        // to the same east-to-west noon default AtmosphericSystem uses so the
+        // first frames before a publish still cast a plausible offset.
+        const solarAzimuth = typeof state?.azimuth === 'number' && Number.isFinite(state.azimuth)
+            ? state.azimuth
+            : Math.PI / 2;
+        const solarIntensity = typeof state?.sunIntensity === 'number' && Number.isFinite(state.sunIntensity)
+            ? state.sunIntensity
+            : 1;
+        this.updateBuildingShadows(solarAzimuth, solarIntensity);
 
         for (const [shadow, dims] of this.buildingShadows) {
             if (!shadow || !shadow.active) continue;
@@ -308,6 +324,34 @@ export class EntityFactory {
         const g = Math.min(255, Math.max(0, baseG + (shift >> 1)));
         const b = Math.min(255, Math.max(0, baseB - shift));
         return (r << 16) | (g << 8) | b;
+    }
+
+    // sun-azimuth-shadow-direction-implemented
+    /**
+     * Slide every building's ground shadow horizontally based on the sun
+     * azimuth, so shadows read as directional (Manor Lords-style) instead of a
+     * static blob at a fixed offset. Called from the day/night publish hook;
+     * scalar-only math, no per-frame allocation.
+     */
+    public updateBuildingShadows(sunAzimuth: number, sunIntensity: number): void {
+        if (!Number.isFinite(sunAzimuth)) return;
+        const intensity = Number.isFinite(sunIntensity) ? Phaser.Math.Clamp(sunIntensity, 0, 1) : 1;
+        const cosAz = Math.cos(sunAzimuth);
+        const sinAz = Math.abs(Math.sin(sunAzimuth));
+        const buildings = this.scene.buildings.getChildren();
+        for (let i = 0; i < buildings.length; i++) {
+            const b = buildings[i];
+            const visual = (b as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (!visual || !visual.active) continue;
+            const shadow = visual.getData('buildingShadow') as Phaser.GameObjects.Graphics | undefined;
+            if (!shadow || !shadow.active) continue;
+            const def = b.getData('def') as { width: number } | undefined;
+            if (!def || !Number.isFinite(def.width)) continue;
+            const offsetX = cosAz * def.width * 0.18;
+            const offsetY = sinAz * def.width * 0.05;
+            shadow.setPosition(offsetX, offsetY);
+            shadow.setAlpha(BUILDING_SHADOW_BASE_ALPHA * intensity);
+        }
     }
 
     /**
