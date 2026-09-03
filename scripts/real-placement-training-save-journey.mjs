@@ -305,12 +305,18 @@ try {
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const unit = window.__placementSaveUnit;
+    const barracks = window.__placementSaveBuilding;
     const snapshot = {
       x: unit.x,
       y: unit.y,
       hp: unit.getData('hp'),
+      barracksX: barracks.x,
+      barracksY: barracks.y,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      military: scene.units.getChildren().filter((candidate) => candidate.getData('owner') === 0).length,
     };
     window.dispatchEvent(new Event('save-game'));
     return snapshot;
@@ -324,11 +330,17 @@ try {
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     if (!scene?.isReady) return false;
-    return scene.units.getChildren().some((unit) => (
+    const survivorRestored = scene.units.getChildren().some((unit) => (
       unit.getData?.('owner') === 0
       && (unit.unitType ?? unit.getData?.('unitType')) === 'Pikesman'
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
     ));
+    const barracksRestored = scene.buildings.getChildren().some((building) => (
+      building.getData?.('owner') === 0
+      && building.getData?.('def')?.type === 'Barracks'
+      && Math.hypot(building.x - saved.barracksX, building.y - saved.barracksY) <= 2
+    ));
+    return survivorRestored && barracksRestored;
   }, evidence.beforeSave, { timeout: 20_000 });
 
   evidence.restored = await page.evaluate((saved) => {
@@ -336,24 +348,84 @@ try {
     const unit = scene.units.getChildren()
       .filter((candidate) => candidate.getData?.('owner') === 0 && (candidate.unitType ?? candidate.getData?.('unitType')) === 'Pikesman')
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
+    const barracks = scene.buildings.getChildren()
+      .filter((candidate) => candidate.getData?.('owner') === 0 && candidate.getData?.('def')?.type === 'Barracks')
+      .sort((a, b) => Math.hypot(a.x - saved.barracksX, a.y - saved.barracksY) - Math.hypot(b.x - saved.barracksX, b.y - saved.barracksY))[0];
     if (!unit) throw new Error('Trained Pikesman was not restored.');
+    if (!barracks) throw new Error('Player-placed Barracks was not restored.');
     window.__placementSaveUnit = unit;
+    window.__placementSaveBuilding = barracks;
     scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn(unit.visual.x, unit.visual.y);
+    scene.cameras.main.centerOn(barracks.visual.x, barracks.visual.y);
     return {
       x: unit.x,
       y: unit.y,
       hp: unit.getData('hp'),
+      barracksX: barracks.x,
+      barracksY: barracks.y,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      military: scene.units.getChildren().filter((candidate) => candidate.getData('owner') === 0).length,
       positionDelta: Math.hypot(unit.x - saved.x, unit.y - saved.y),
+      barracksPositionDelta: Math.hypot(barracks.x - saved.barracksX, barracks.y - saved.barracksY),
     };
   }, evidence.beforeSave);
 
   if (evidence.restored.positionDelta > 2) throw new Error('Trained Pikesman position changed across reload.');
+  if (evidence.restored.barracksPositionDelta > 2) throw new Error('Player-placed Barracks position changed across reload.');
   if (evidence.restored.hp !== evidence.beforeSave.hp) throw new Error('Trained Pikesman HP changed across reload.');
-  if (evidence.restored.population !== evidence.beforeSave.population) throw new Error('Population changed across reload.');
-  if (evidence.restored.maxPopulation !== evidence.beforeSave.maxPopulation) throw new Error('Housing capacity changed across reload.');
+  for (const key of ['food', 'gold', 'population', 'maxPopulation', 'military']) {
+    if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across save/load.`);
+  }
+
+  evidence.phase = 'post-load-production';
+  await waitForCameraSync(page);
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas unavailable for restored Barracks selection.');
+  point = await buildingScreenPoint(page);
+  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
+  await page.waitForFunction(() => (
+    window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__placementSaveBuilding
+  ), undefined, { timeout: 5_000 });
+  evidence.beforePostLoadTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = 0;
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      military: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  await page.getByRole('button', { name: /Pikesman/i }).click();
+  await page.waitForFunction((before) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const playerUnits = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+    return scene.population === before.population + 1 && playerUnits.length === before.military + 1;
+  }, evidence.beforePostLoadTraining, { timeout: 5_000 });
+  evidence.afterPostLoadTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      military: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  if (evidence.afterPostLoadTraining.food !== evidence.beforePostLoadTraining.food - 100) {
+    throw new Error('Restored Barracks Pikesman food cost was not exactly 100.');
+  }
+  if (evidence.afterPostLoadTraining.gold !== evidence.beforePostLoadTraining.gold - 50) {
+    throw new Error('Restored Barracks Pikesman gold cost was not exactly 50.');
+  }
+  if (evidence.afterPostLoadTraining.population !== evidence.beforePostLoadTraining.population + 1) {
+    throw new Error('Restored Barracks did not increase population after training.');
+  }
+  if (evidence.afterPostLoadTraining.military !== evidence.beforePostLoadTraining.military + 1) {
+    throw new Error('Restored Barracks did not create a new military unit after load.');
+  }
 
   evidence.phase = 'continue-playing';
   evidence.moveTarget = await page.evaluate(() => {
@@ -361,6 +433,8 @@ try {
     const unit = window.__placementSaveUnit;
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding?.();
+    scene.gameSpeed = 0.75;
+    scene.cameras.main.centerOn(unit.visual.x, unit.visual.y);
     const candidates = [[64, 0], [-64, 0], [0, 64], [0, -64], [48, 48], [-48, -48]];
     for (const [dx, dy] of candidates) {
       const target = { x: unit.x + dx, y: unit.y + dy };
