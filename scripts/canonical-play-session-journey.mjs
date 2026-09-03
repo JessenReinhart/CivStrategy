@@ -81,6 +81,28 @@ async function requireCameraInput(page) {
   return { before, after };
 }
 
+async function requireCriticalHud(page) {
+  const resourceHud = page.locator('.hud-surface').first();
+  await resourceHud.waitFor({ state: 'visible', timeout: 10_000 });
+
+  const speedControls = ['0.5×', '1×', '2×', '3×'];
+  const visibleSpeedControls = [];
+  for (const label of speedControls) {
+    const control = page.getByRole('button', { name: label, exact: true });
+    await control.waitFor({ state: 'visible', timeout: 10_000 });
+    if (await control.isEnabled()) visibleSpeedControls.push(label);
+  }
+
+  if (visibleSpeedControls.length !== speedControls.length) {
+    throw new Error(`Critical HUD speed controls are not usable: ${visibleSpeedControls.join(', ')}`);
+  }
+
+  return {
+    resourceHudVisible: await resourceHud.isVisible(),
+    visibleSpeedControls,
+  };
+}
+
 async function openGameMenu(page) {
   const menuButton = page.locator('button:has(svg.lucide-menu)').first();
   await menuButton.waitFor({ state: 'visible', timeout: 10_000 });
@@ -241,6 +263,9 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
+
+  evidence.phase = 'initial-critical-hud';
+  evidence.initialHud = await requireCriticalHud(page);
 
   evidence.phase = 'camera-input';
   evidence.camera = await requireCameraInput(page);
@@ -672,6 +697,9 @@ try {
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across canonical save/load.`);
   }
+
+  evidence.phase = 'post-load-critical-hud';
+  evidence.postLoadHud = await requireCriticalHud(page);
 
   evidence.phase = 'continue-playing';
   await page.evaluate((gameSpeed) => {
