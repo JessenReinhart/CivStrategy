@@ -241,8 +241,7 @@ loop and unrelated to the current AAA‑quality task:
 - `docs/MAINSCENE_DECOMPOSITION_HANDOFF.md`,
   `docs/refactoring/MAINSCENE_REFACTOR.md`,
   `docs/refactoring/MAINSCENE_PHASE3_GOAL.md` (stale refactor handoffs).
-- `docs/LIVING_CITY_NORTH_STAR.md` (stale living‑city north star from a
-  prior phase).
+
 
 The full deletion set is in the "chore(gauntlet-loop): clean stale docs
 from previous gauntlet" commit on this branch.
