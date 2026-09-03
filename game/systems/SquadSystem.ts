@@ -68,6 +68,9 @@ const UNIT_ICON_FRAME: Partial<Record<UnitType, number>> = {
 const POOL_INITIAL_SIZE = 200;
 const OVERHEAD_ICON_SCREEN_SIZE = 36;
 const OVERHEAD_ICON_SOURCE_SIZE = 48;
+// Same solar reference EntityFactory and VillagerSystem use, so soldier
+// silhouettes dim in lock-step with building and villager contact shadows.
+const DAY_NIGHT_SHADOW_ALPHA_REFERENCE = 0.30;
 // Clear cavalry, pikes, and dense formation footprints at close zoom as well.
 const OVERHEAD_ICON_SCREEN_OFFSET = 72;
 
@@ -94,6 +97,9 @@ export class SquadSystem {
     private lodRectBlitter!: Phaser.GameObjects.Blitter;
     // Sprite pool keyed by texture key (e.g. 'unit_pikesman')
     private spritePool: Map<string, Phaser.GameObjects.Sprite[]>;
+    // Day/night factor (0..1) applied to LOD soldier alpha on each render.
+    // Cached at publish cadence (~250 ms) via applyDayNightState.
+    private dayNightFactor: number = 1;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -360,6 +366,7 @@ export class SquadSystem {
                 bob.x = commanderIso.x;
                 bob.y = commanderIso.y;
                 bob.tint = color;
+                bob.alpha = this.dayNightFactor;
                 // Soldier state bookkeeping is not part of the stress render benchmark.
                 if (!stressMode) {
                     const hp = unit.getData('hp') as number;
@@ -411,6 +418,7 @@ export class SquadSystem {
                     const bob = this.lodRectBlitter.create(isoSoldier.x, isoSoldier.y);
                     if (bob) {
                         bob.tint = color;
+                        bob.alpha = this.dayNightFactor;
                     }
                 }
                 // Hide sprites when in LOW LOD
@@ -454,6 +462,17 @@ export class SquadSystem {
         if (this.frameIndex >= allUnits.length) {
             this.frameIndex = 0;
         }
+    }
+
+    /**
+     * Modulate soldier silhouette alpha from the day/night publish cadence.
+     * Mirrors the EntityFactory / VillagerSystem pattern: guard non-finite
+     * input, then normalize against the shared 0.30 shadow-alpha reference so
+     * units dim in lock-step with building and villager contact shadows.
+     */
+    public applyDayNightState(alpha: number): void {
+        if (!Number.isFinite(alpha)) alpha = 0;
+        this.dayNightFactor = Math.max(0, Math.min(1, alpha / DAY_NIGHT_SHADOW_ALPHA_REFERENCE));
     }
 
     /**
@@ -648,7 +667,11 @@ export class SquadSystem {
             // Detailed painted sprites must keep their material colors: tinting the whole
             // texture multiplies skin and shadow pixels into near-black. A small owner-
             // colored marker at the soldier's feet carries faction identity instead.
+            // Day/night modulation rides the same publish cadence as building/villager
+            // shadows; setting alpha on every renderSquad call is a single scalar write
+            // so it does not add per-frame work beyond the existing render path.
             sprite.clearTint();
+            sprite.setAlpha(this.dayNightFactor);
             gfx.fillStyle(color, 0.9);
             gfx.fillEllipse(relX, relY + 4, 4, 2);
             sprite.setVisible(true);
