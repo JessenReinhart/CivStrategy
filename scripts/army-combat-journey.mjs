@@ -406,7 +406,7 @@ try {
       unit.setData('__postCombatX', unit.x);
       unit.setData('__postCombatY', unit.y);
     });
-    return { target, survivorCount: survivors.length, commandGameTime: scene.gameTime };
+    return { target, survivorCount: survivors.length };
   });
 
   const rallyPoint = await cartesianScreenPoint(telemetry.rally.target);
@@ -447,18 +447,7 @@ try {
   }, { timeout: RALLY_WALL_TIMEOUT_MS });
 
   telemetry.afterRally = await readRuntimeProbe();
-  telemetry.rallyEvidence = {
-    simulatedMs: telemetry.afterRally.gameTime - telemetry.rallyCommand.gameTime,
-    movementPx: telemetry.afterRally.players
-      .filter((unit) => unit.active && unit.inUnitGroup)
-      .map((unit, index) => {
-        const player = window?.__unused;
-        return Math.hypot(
-          unit.x - telemetry.afterCombat.players[index].x,
-          unit.y - telemetry.afterCombat.players[index].y,
-        );
-      }),
-  };
+  telemetry.rallySimulatedMs = telemetry.afterRally.gameTime - telemetry.rallyCommand.gameTime;
   const survivorCount = telemetry.afterRally.players.filter((unit) => unit.active && unit.inUnitGroup).length;
   if (survivorCount !== telemetry.rally.survivorCount) {
     throw new Error(`Survivor count changed during post-combat rally: ${telemetry.rally.survivorCount} -> ${survivorCount}`);
