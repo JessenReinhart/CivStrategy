@@ -503,7 +503,8 @@ try {
   telemetry.phase = 'save';
   telemetry.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__canonicalSessionProbe.player;
+    const probe = window.__canonicalSessionProbe;
+    const player = probe.player;
     const snapshot = {
       x: player.x,
       y: player.y,
@@ -512,6 +513,11 @@ try {
       population: scene.population,
       maxPopulation: scene.maxPopulation,
       gameTime: scene.gameTime,
+      defeatedEnemy: {
+        x: probe.enemyX,
+        y: probe.enemyY,
+        type: probe.enemy.unitType ?? probe.enemy.getData('unitType'),
+      },
     };
     window.dispatchEvent(new Event('save-game'));
     return snapshot;
@@ -538,6 +544,12 @@ try {
       .filter((unit) => unit.getData?.('owner') === 0 && (unit.unitType ?? unit.getData?.('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
     if (!player) throw new Error('The trained surviving Pikesman was not restored.');
+    const defeatedEnemyRestored = scene.units.getChildren().some((unit) => (
+      unit.active
+      && unit.getData?.('owner') === 1
+      && (unit.unitType ?? unit.getData?.('unitType')) === saved.defeatedEnemy.type
+      && Math.hypot(unit.x - saved.defeatedEnemy.x, unit.y - saved.defeatedEnemy.y) <= 2
+    ));
     window.__canonicalSessionProbe = { player, enemy: null };
     return {
       x: player.x,
@@ -547,6 +559,7 @@ try {
       maxPopulation: scene.maxPopulation,
       gameTime: scene.gameTime,
       positionDelta: Math.hypot(player.x - saved.x, player.y - saved.y),
+      defeatedEnemyRestored,
     };
   }, telemetry.beforeSave);
 
@@ -554,6 +567,7 @@ try {
   if (telemetry.restored.hp !== telemetry.beforeSave.hp) throw new Error('Trained Pikesman HP did not survive reload.');
   if (telemetry.restored.population !== telemetry.beforeSave.population) throw new Error('Population changed across combat save/reload.');
   if (telemetry.restored.maxPopulation !== telemetry.beforeSave.maxPopulation) throw new Error('Housing capacity changed across combat save/reload.');
+  if (telemetry.restored.defeatedEnemyRestored) throw new Error('Resolved combat target was restored after save/reload.');
 
   telemetry.phase = 'continue-playing';
   telemetry.postLoadMove = await page.evaluate(() => {
