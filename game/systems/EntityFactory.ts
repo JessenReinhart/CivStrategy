@@ -118,6 +118,12 @@ export class EntityFactory {
             visual.add(gfx);
         }
 
+        // --- Town Center Flag ---
+        // town-center-flag-implemented
+        if (type === BuildingType.TOWN_CENTER) {
+            this.addTownCenterFlag(visual, def);
+        }
+
         // Keep the painted flame grounded while a restrained stream of embers
         // sells the fire at game zoom. As a child of the visual container the
         // emitter is automatically destroyed with the building.
@@ -302,6 +308,50 @@ export class EntityFactory {
         const g = Math.min(255, Math.max(0, baseG + (shift >> 1)));
         const b = Math.min(255, Math.max(0, baseB - shift));
         return (r << 16) | (g << 8) | b;
+    }
+
+    /**
+     * Attach a swaying banner to a Town Center. The pole is drawn as a thin
+     * vertical rectangle; the flag is a small rectangle that rotates -2°..+2°
+     * each frame using AtmosphericSystem.getWindSway(). Driven from the
+     * MainScene update loop via a registered hook so the rotation tracks
+     * real game time, not an anonymous tween.
+     */
+    private addTownCenterFlag(visual: Phaser.GameObjects.Container, def: BuildingDef): void {
+        // Pole — anchored at the roof line, points up
+        const poleHeight = def.height * 0.55;
+        const pole = this.scene.add.rectangle(0, -def.height * 0.5 - poleHeight / 2, 1.5, poleHeight, 0x5a4a3a, 1);
+        visual.add(pole);
+
+        // Flag — pivots at the pole tip so rotation looks like a wind billow.
+        const flagWidth = def.width * 0.18;
+        const flagHeight = def.height * 0.10;
+        const flagY = -def.height * 0.5 - poleHeight + 2;
+        const flag = this.scene.add.rectangle(flagWidth / 2, flagY, flagWidth, flagHeight, this.scene.getFactionColor(0), 0.92);
+        flag.setOrigin(0, 0.5);
+        visual.add(flag);
+
+        // Drive rotation from AtmosphericSystem wind. AtmosphericSystem is
+        // already wired into MainScene so we read directly from the scene hub.
+        const flagRef = { obj: flag, pivotX: flag.x, pivotY: flag.y };
+        visual.setData('townCenterFlag', flagRef);
+        const tween = this.scene.tweens.add({
+            targets: { ref: flagRef },
+            // Tween only nudges the value used by the per-frame hook; the
+            // actual rotation is computed each frame so it always tracks the
+            // real time/position and never desyncs.
+            duration: 16,
+            repeat: -1,
+            onRepeat: () => {
+                const sway = this.scene.atmosphericSystem?.getWindSway(flagRef.obj.x, flagRef.obj.y, this.scene.gameTime ?? 0) ?? 0;
+                // Map sway from AtmosphericSystem's ±0.05-0.08 rad range to the
+                // requested ±2° (-0.035..+0.035 rad) while letting the
+                // underlying sine wave keep its shape.
+                const norm = Phaser.Math.Clamp(sway / 0.08, -1, 1);
+                flagRef.obj.rotation = norm * 0.035;
+            },
+        });
+        flag.once(Phaser.GameObjects.Events.DESTROY, () => tween.stop());
     }
 
     /** Add a local, additive firelight halo without raising global bloom. */

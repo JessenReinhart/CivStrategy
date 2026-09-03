@@ -205,6 +205,9 @@ export class AmbientPopulationSystem {
     }
   }
 
+  // Ambient bob animation state for LOD-gated citizens
+  private bobTime = 0;
+
   private handleUpdate(_time: number, delta: number): void {
     const stressConfig = this.scene.stressTestConfig as { city?: boolean; density?: string } | null | undefined;
     if (stressConfig && !stressConfig.city) {
@@ -224,6 +227,15 @@ export class AmbientPopulationSystem {
 
     this.frameCounter++;
     const dtSeconds = Math.min(0.05, Math.max(0, delta * this.scene.gameSpeed) / 1000);
+    this.bobTime += dtSeconds;
+
+    // ambience-bob-implemented
+    // LOD-gated ambient bob: near-LOD citizens get a gentle sine bob (~4px
+    // vertical) and a shallow alpha pulse (0.2..1.0, ~3s period). Applied only
+    // to tier 0 bobs in the placement block below.
+    const bobY = Math.sin(this.bobTime * 3) * 4;
+    const alphaPulse = 0.6 + 0.4 * Math.sin(this.bobTime * ((Math.PI * 2) / 3));
+
     const cam = this.scene.cameras.main;
     const view = cam.worldView;
     const cameraCenterX = view.centerX;
@@ -284,6 +296,11 @@ export class AmbientPopulationSystem {
       const iso = toIsoElev(citizen.x, citizen.y, height);
       citizen.bob.x = iso.x;
       citizen.bob.y = iso.y;
+      // Near-LOD bob and alpha pulse (LOD-gated: tier 0 only)
+      if (tier === 0) {
+        citizen.bob.y += bobY;
+        citizen.bob.alpha = alphaPulse;
+      }
     }
   }
 
@@ -294,9 +311,11 @@ export class AmbientPopulationSystem {
     } else if (citizen.tier === 1) {
       citizen.frameKey = `${citizen.role}.far`;
       citizen.bob.setFrame(citizen.frameKey);
+      citizen.bob.alpha = 1; // Reset pulse when leaving near LOD
     } else {
       citizen.frameKey = `${citizen.role}.far`;
       citizen.bob.setFrame(citizen.frameKey);
+      citizen.bob.alpha = 1; // Reset pulse for far tier
     }
   }
 

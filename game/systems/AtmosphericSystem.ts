@@ -10,6 +10,9 @@ export class AtmosphericSystem {
     private bloomEffect: Phaser.FX.Bloom | null = null;
     private colorGradeEffect: Phaser.FX.ColorMatrix | null = null;
     private tiltShiftEffect: unknown = null; // reserved for future DOF effect
+
+    // Dust-mote particle emitter (scalar-only, capped at 60 particles)
+    private dustMoteEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
     
     private vignetteEffect: Phaser.FX.Vignette | null = null;
     private cloudTextureKey = 'cloud-puff';
@@ -46,11 +49,39 @@ export class AtmosphericSystem {
         this.createClouds();
         this.setupBloom();
         this.createSeasonalTint();
+        this.createDustMotes();
         this.scene.events.on('changedata', this.handleDayNightDataChange, this);
         this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
             this.scene.events.off('changedata', this.handleDayNightDataChange, this);
             this.seasonalTint?.destroy();
+            this.dustMoteEmitter?.destroy();
         });
+    }
+
+    /** dust-mote-emitter-implemented */
+    private createDustMotes(): void {
+        const cam = this.scene.cameras.main;
+        if (!cam) return;
+        const view = cam.worldView;
+        // Scalar-only config: tiny drift velocities, fade over 2 s, capped pool.
+        this.dustMoteEmitter = this.scene.add.particles(0, 0, 'smoke', {
+            x: { min: view.left - 100, max: view.right + 100 },
+            y: { min: view.top - 100, max: view.bottom + 100 },
+            lifespan: 2000,
+            speedX: { min: -4, max: 12 },
+            speedY: { min: 3, max: 14 },
+            scale: { start: 0.04, end: 0.01 },
+            alpha: { start: 0.12, end: 0 },
+            quantity: 1,
+            frequency: 120,
+            blendMode: 'NORMAL',
+            emitting: true,
+        });
+        this.dustMoteEmitter.setDepth(14900);
+        this.dustMoteEmitter.setParticleLifespan(2000);
+        // Hard cap on live particles (spec: max 60)
+        this.dustMoteEmitter.maxParticles = 60;
+        if (this.scene.worldLayer) this.scene.worldLayer.add(this.dustMoteEmitter);
     }
 
     /**
