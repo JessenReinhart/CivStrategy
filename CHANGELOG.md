@@ -2,6 +2,7 @@
 
 ## 2026-09-03
 
+- **Combat-save evidence now follows the live economy (#257):** Release verification now uses the canonical journey's measured net food and gold training spend instead of reconstructing exact resource snapshots while passive production is running, while keeping training, combat, persistence, survivor state, population/housing, and continued-control checks intact.
 - **Fresh games now really start at the displayed 1× speed (#249):** The simulation, physics, tweens, and visible speed controls now agree when a new match starts, removing the hidden 0.75× runtime mismatch while preserving explicitly saved speed on reload.
 - **Combat/save training checks now tolerate a live economy (#251):** Release verification still trains a real Pikesman through the Barracks and requires real resource spending, population/military progression, combat, save/reload, and continued play, but no longer expects an impossible exact food/gold snapshot while passive production is running.
 - **Post-combat army recovery is checked against simulation time instead of CI wall time (#253):** Browser verification still requires every surviving unit to accept a real rally path and move after combat, but software-rendered CI is no longer allowed to misclassify a commandable army as stuck simply because very little game simulation advanced during the wall-clock timeout.
