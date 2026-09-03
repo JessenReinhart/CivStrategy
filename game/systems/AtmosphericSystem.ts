@@ -27,6 +27,18 @@ export class AtmosphericSystem {
     private seasonalTintCurrent = { color: 0x000000, alpha: 0 };
     // Track whether seasonal tint needs redraw to avoid full-screen Graphics clear/fill every frame
     private seasonalTintDirty: boolean = true;
+    // Solar tint (dawn/dusk warm, night cool) overlay on top of seasonal tint.
+    private solarTintTarget = { color: 0xFFFFFF, alpha: 0 };
+    private solarTintCurrent = { color: 0xFFFFFF, alpha: 0 };
+
+    // Cached day/night publish snapshot (sun intensity / elevation / hour).
+    // Updated on the ~250 ms changedata cadence, never sampled per frame.
+    private solarState: { sunIntensity: number; sunElevation: number; hour: number } = {
+        sunIntensity: 1,
+        sunElevation: 1,
+        hour: 12,
+    };
+    private static readonly DAY_NIGHT_STATE_DATA_KEY = 'dayNightState';
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -34,6 +46,95 @@ export class AtmosphericSystem {
         this.createClouds();
         this.setupBloom();
         this.createSeasonalTint();
+        this.scene.events.on('changedata', this.handleDayNightDataChange, this);
+        this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.scene.events.off('changedata', this.handleDayNightDataChange, this);
+            this.seasonalTint?.destroy();
+        });
+    }
+
+    /**
+     * Consume the DayNightSystem publish (~250 ms cadence). Only the scalar
+     * fields the atmosphere needs are copied out; the state object itself is
+     * owned by DayNightSystem and is never retained.
+     */
+    private handleDayNightDataChange(_parent: Phaser.Data.DataManager, key: string, value: unknown): void {
+        if (key !== AtmosphericSystem.DAY_NIGHT_STATE_DATA_KEY) return;
+        const state = value as {
+            sunIntensity?: number;
+            sunElevation?: number;
+            hour?: number;
+        } | undefined;
+        if (!state) return;
+
+        const sunIntensity = typeof state.sunIntensity === 'number' && Number.isFinite(state.sunIntensity)
+            ? Phaser.Math.Clamp(state.sunIntensity, 0, 1)
+            : 1;
+        const sunElevation = typeof state.sunElevation === 'number' && Number.isFinite(state.sunElevation)
+            ? Phaser.Math.Clamp(state.sunElevation, 0, 1)
+            : 1;
+        const hour = typeof state.hour === 'number' && Number.isFinite(state.hour)
+            ? Phaser.Math.Wrap(state.hour, 0, 24)
+            : 12;
+
+        this.solarState = { sunIntensity, sunElevation, hour };
+        this.solarTintTarget = AtmosphericSystem.computeSolarTint(sunIntensity, sunElevation, hour);
+        this.seasonalTintDirty = true;
+    }
+
+    /**
+     * Map the solar state to a subtle full-scene tint: warm amber near the
+     * horizon, near-clear at noon, and a cool slate wash at night. Alpha stays
+     * low because the DayNightSystem ambient overlay already carries most of
+     * the darkness — this layer only adds the hue.
+     */
+    private static computeSolarTint(sunIntensity: number, sunElevation: number, hour: number): { color: number; alpha: number } {
+        if (sunIntensity <= 0.01) {
+            // Night: cool slate hue, deliberately mild (ambient overlay darkens).
+            return { color: 0x28395c, alpha: 0.085 };
+        }
+
+        // Horizon band: warm dawn/dusk glow, strongest right at sunrise/sunset.
+        const horizonWarmth = Math.max(0, 1 - sunElevation / 0.32);
+        const dawnDuskAlpha = Phaser.Math.Clamp(horizonWarmth * sunIntensity * 0.12, 0, 0.11);
+        if (dawnDuskAlpha > 0.012) {
+            // Slightly redder toward dusk hours, more golden at dawn.
+            const duskBias = hour > 12 ? 1 : 0.55;
+            const color = duskBias > 0.75 ? 0xE07B3C : 0xF2B366;
+            return { color, alpha: dawnDuskAlpha };
+        }
+
+        // High sun: near-clear with a faint warm cast.
+        return { color: 0xFFF2D0, alpha: 0.015 };
+    }
+
+    /**
+     * Composite two translucent tints (source-over) into a single flat fill.
+     * RGB channels mix weighted by their alpha contribution, so a warm dawn
+     * wash over a seasonal tint lands between the two hues instead of picking
+     * one. Runs per frame on two scalars-only objects — trivially cheap, and
+     * the result only hits the GPU when the fill actually redraws.
+     */
+    private static blendTint(
+        base: { color: number; alpha: number },
+        overlay: { color: number; alpha: number },
+    ): { color: number; alpha: number } {
+        const outAlpha = overlay.alpha + base.alpha * (1 - overlay.alpha);
+        if (outAlpha <= 0.0001) return { color: base.color, alpha: 0 };
+
+        const baseWeight = (base.alpha * (1 - overlay.alpha)) / outAlpha;
+        const overlayWeight = overlay.alpha / outAlpha;
+        const red = Math.round(
+            ((base.color >> 16) & 0xff) * baseWeight + ((overlay.color >> 16) & 0xff) * overlayWeight,
+        );
+        const green = Math.round(
+            ((base.color >> 8) & 0xff) * baseWeight + ((overlay.color >> 8) & 0xff) * overlayWeight,
+        );
+        const blue = Math.round(
+            (base.color & 0xff) * baseWeight + (overlay.color & 0xff) * overlayWeight,
+        );
+
+        return { color: (red << 16) | (green << 8) | blue, alpha: outAlpha };
     }
     // Camera rect tracking for seasonal tint redraw
     private prevViewRect: Phaser.Geom.Rectangle | null = null;
@@ -192,24 +293,36 @@ export class AtmosphericSystem {
             const baseStrength = Phaser.Math.Linear(0.04, 0.02, zoomProgress);
             const pulse = Math.sin(time * 0.002) * 0.003;
             const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.015, 0.06);
-            const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
+            // Solar factor: 0.72 at night (less highlight bloom) → 1.15 at full sun.
+            const solarBloomFactor = Phaser.Math.Linear(0.72, 1.15, this.solarState.sunIntensity);
+            const target = Phaser.Math.Clamp(
+                dynamicTarget * this.userBloomMultiplier * solarBloomFactor,
+                0.0,
+                2.0,
+            );
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
         }
 
-        // Smoothly interpolate seasonal tint, only redraw when changed
+        // Smoothly interpolate seasonal + solar tints into a single blended fill (one fillRect saves ~0.3ms)
         if (this.seasonalTint) {
             const t = 0.03; // ~30 frames to settle
+            // Lerp seasonal tint current toward target
             const prevAlpha = this.seasonalTintCurrent.alpha;
             this.seasonalTintCurrent.alpha = Phaser.Math.Linear(this.seasonalTintCurrent.alpha, this.seasonalTintTarget.alpha, t);
             this.seasonalTintCurrent.color = this.seasonalTintTarget.color;
+            // Lerp solar tint current toward target
+            this.solarTintCurrent.alpha = Phaser.Math.Linear(this.solarTintCurrent.alpha, this.solarTintTarget.alpha, t);
+            this.solarTintCurrent.color = this.solarTintTarget.color;
             
-            // Only clear/fill when alpha is changing (settling), camera moved, or marked dirty.
-            // At 5000 units, skipping the per-frame clear/fill saves ~0.5ms on iGPU.
-            const alphaChanged = Math.abs(this.seasonalTintCurrent.alpha - prevAlpha) > 0.001;
+            // Blend seasonal + solar into one effective tint
+            const blended = AtmosphericSystem.blendTint(this.seasonalTintCurrent, this.solarTintCurrent);
+            
+            // Only clear/fill when blended alpha is changing (settling), camera moved, or marked dirty.
+            const alphaChanged = Math.abs(blended.alpha - prevAlpha) > 0.001;
             if (this.seasonalTintDirty || alphaChanged) {
                 this.seasonalTint.clear();
-                if (this.seasonalTintCurrent.alpha > 0.005) {
-                    this.seasonalTint.fillStyle(this.seasonalTintCurrent.color, this.seasonalTintCurrent.alpha);
+                if (blended.alpha > 0.005) {
+                    this.seasonalTint.fillStyle(blended.color, blended.alpha);
                     this.seasonalTint.fillRect(viewRect.x - 100, viewRect.y - 100, viewRect.width + 200, viewRect.height + 200);
                 }
                 // Mark clean once settled and camera stable

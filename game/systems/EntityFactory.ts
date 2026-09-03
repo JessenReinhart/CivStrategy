@@ -283,6 +283,8 @@ export class EntityFactory {
         }
         // Also modulate villager contact discs.
         this.scene.villagerSystem.applyDayNightState(shadowAlpha);
+        // And squad soldier silhouettes (LOD sprites + blitter bobs).
+        this.scene.squadSystem?.applyDayNightState(shadowAlpha);
     }
 
     /**

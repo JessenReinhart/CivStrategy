@@ -165,3 +165,13 @@ This page is the player-facing record for the active Manor Lords / Stronghold qu
 - **Biggest remaining gap:** The entire claimed ambient-motion layer is absent from the codebase — no bobbing, no alpha pulsing, no dust-mote emitter, and no flag sway exist in either target file (both are unmodified, and grep finds none of it). The settlement therefore has no micro-motion, airborne atmosphere, or wind-driven secondary animation.
 
 - **Suggested next slice:** Actually implement (not just describe) the missing layer: (1) add a sine-based vertical bob and a shallow alpha pulse to `AmbientCitizen` blitter bobs in `handleUpdate`, gated by LOD tier so far citizens skip it; (2) add a camera-following dust-mote particle emitter in `AtmosphericSystem` capped at 60 particles using the existing `smoke` texture, visible only when zoomed in; (3) give the Town Center a small flag sprite in `EntityFactory`/`BuildingManager` whose rotation is driven by `AtmosphericSystem.getWindSway`. Then re-run the game and capture visible screenshot evidence before claiming the slice done.
+
+### Round 4 — Solar cycle integration (critic verdict)
+
+- **What I saw:** `SquadSystem` defines `DAY_NIGHT_SHADOW_ALPHA_REFERENCE = 0.30` (matching EntityFactory/VillagerSystem), maintains a `dayNightFactor` field (default 1), and exposes `applyDayNightState(alpha)` which guards against non-finite input, clamps the factor to [0,1] via `alpha / 0.30`, and applies `dayNightFactor` to all soldier visuals (`bob.alpha` for LOD_DOT/LOD_LOW blitters, `sprite.setAlpha()` for LOD_FULL/MEDIUM sprites). `EntityFactory.handleDayNightDataChange` calls `this.scene.squadSystem?.applyDayNightState(shadowAlpha)` on every `changedata` publish (~250 ms cadence).
+
+- **Comparison to Manor Lords:** All contact shadows—building footprints, villager discs, and military unit silhouettes—now modulate in lock-step with the shared 0.30 shadow-alpha reference, completing the ground-shadow coupling that Manor Lords uses to tie units to the solar cycle. The remaining gap is atmospheric: no ambient light tint or bloom adjustment follows the sun, so the sky/atmosphere still reads as static.
+
+- **Biggest remaining gap:** Atmospheric layer (sky tint, bloom, ambient light) remains static; the world's ground shadows react to time but the overhead illumination does not.
+
+- **Suggested next slice:** Add a day/night modulated overlay tint or bloom adjustment in `AtmosphericSystem` that follows the solar cycle, closing the final visual gap between ground shadows and ambient light.
