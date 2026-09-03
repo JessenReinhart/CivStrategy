@@ -1,0 +1,30 @@
+{
+  "phase": "complete",
+  "browserErrors": [],
+  "setup": {
+    "input": {
+      "x": 176,
+      "y": 824
+    },
+    "center": {
+      "x": 928,
+      "y": 752
+    },
+    "before": {
+      "wood": 10000,
+      "maxPopulation": 13,
+      "buildingCount": 3
+    }
+  },
+  "after": {
+    "wood": 9950,
+    "maxPopulation": 21,
+    "buildingCount": 4,
+    "built": {
+      "x": 928,
+      "y": 752
+    },
+    "centerDelta": 0,
+    "previewType": "House"
+  }
+}

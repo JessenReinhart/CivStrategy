@@ -1,0 +1,130 @@
+{
+  "phase": "complete",
+  "browserErrors": [],
+  "baseline": {
+    "wood": 10000,
+    "food": 10000,
+    "gold": 10000,
+    "population": 6,
+    "maxPopulation": 13
+  },
+  "afterHouse": {
+    "wood": 9950,
+    "food": 10000,
+    "gold": 10000,
+    "population": 6,
+    "maxPopulation": 21,
+    "x": 912,
+    "y": 720
+  },
+  "afterBarracks": {
+    "wood": 9800,
+    "food": 10000,
+    "gold": 9950,
+    "population": 6,
+    "maxPopulation": 21,
+    "x": 952,
+    "y": 728
+  },
+  "trainingIsolation": {
+    "previousGameSpeed": 0.75,
+    "pausedGameSpeed": 0
+  },
+  "beforeTraining": {
+    "food": 10000,
+    "gold": 9950,
+    "population": 6,
+    "military": 4
+  },
+  "afterTraining": {
+    "food": 9900,
+    "gold": 9900,
+    "population": 7,
+    "military": 5,
+    "type": "Pikesman",
+    "x": 1012,
+    "y": 788,
+    "restoredGameSpeed": 0.75
+  },
+  "moveTarget": {
+    "x": 1108,
+    "y": 788,
+    "pathLength": 2,
+    "pathEnd": {
+      "x": 1104,
+      "y": 784
+    }
+  },
+  "moveBefore": {
+    "x": 1012,
+    "y": 788,
+    "state": "idle",
+    "pathLength": 0,
+    "flowTarget": null,
+    "bodyEnabled": true,
+    "bodyMoves": true,
+    "velocityX": 0,
+    "velocityY": 0,
+    "speed": 0,
+    "gameSpeed": 0.75,
+    "gameTime": 1087.4099999999992,
+    "physicsTimeScale": 1.3333333333333333,
+    "physicsPaused": false,
+    "movementModifier": 1,
+    "target": {
+      "x": 1108,
+      "y": 788
+    },
+    "distanceToTarget": 96
+  },
+  "moveAccepted": {
+    "x": 1012,
+    "y": 788,
+    "state": "idle",
+    "pathStep": 0,
+    "pathLength": 2,
+    "pathCreatedAt": 1249.9099999999992,
+    "flowTarget": null,
+    "bodyEnabled": true,
+    "bodyMoves": true,
+    "velocityX": -63.63961030678927,
+    "velocityY": -63.63961030678928,
+    "speed": 90,
+    "gameSpeed": 0.75,
+    "gameTime": 1262.4099999999992,
+    "physicsTimeScale": 1.3333333333333333,
+    "physicsPaused": false,
+    "movementModifier": 1,
+    "target": {
+      "x": 1108,
+      "y": 788
+    },
+    "distanceToTarget": 96
+  },
+  "moveAfter": {
+    "x": 1020.4700288282561,
+    "y": 785.0263528179937,
+    "state": "idle",
+    "pathStep": 1,
+    "pathLength": 2,
+    "pathCreatedAt": 1249.9099999999992,
+    "flowTarget": null,
+    "bodyEnabled": true,
+    "bodyMoves": true,
+    "velocityX": 89.99343363483806,
+    "velocityY": -1.0871534445514845,
+    "speed": 90.00000000000001,
+    "gameSpeed": 0.75,
+    "gameTime": 1449.9099999999992,
+    "physicsTimeScale": 1.3333333333333333,
+    "physicsPaused": false,
+    "movementModifier": 1,
+    "target": {
+      "x": 1108,
+      "y": 788
+    },
+    "distanceToTarget": 87.58046831850909
+  },
+  "simulatedMovementMs": 187.5,
+  "commandDrivenDistance": 8.976857240401186
+}

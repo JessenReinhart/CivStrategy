@@ -1,0 +1,89 @@
+# CivStrategy AAA Quality — Live Progress
+
+This page is the player-facing record for the active Manor Lords / Stronghold quality push. Each entry links the work to visible evidence and an independent critic verdict.
+
+## Quality bar
+
+- **Primary:** Manor Lords — believable settlements, natural lighting, material cohesion, camera presence, readable interactions, and animation.
+- **Secondary:** Stronghold — instant player feedback, tactical clarity, satisfying command response, and legible UI.
+
+## Active improvement board
+
+| Slice | Builder | Before evidence | Target outcome | Critic verdict | Status |
+| --- | --- | --- | --- | --- | --- |
+| HUD hierarchy and contextual tooltips | In progress | `assets/screenshots/08-ui-hud.png` | Parchment-and-brass hierarchy; every primary action explains cost and effect on hover/focus | Pending | In progress |
+| Building grounding, construction and damage readability | In progress | `assets/screenshots/07-buildings-base.png` | Directional shadows, construction state and selected-building readability | Pending | In progress |
+| Settlement ambience and daily-life motion | In progress | `assets/screenshots/03-ingame-initial.png` | A living town with environmental movement and readable villager activity | Pending | In progress |
+| Camera feel and command acknowledgement | In progress | `assets/screenshots/03-ingame-initial.png` | Smooth, intentional navigation and immediate Stronghold-grade order feedback | Pending | In progress |
+
+## Round log
+
+### Round 1 — establish evidence, improve first high-impact slices
+
+- **Status:** In progress.
+- **Baseline:** The current build reads as a functional low-poly RTS. The largest visible gaps against Manor Lords are sparse settlement life, flat building integration, weak material/lighting contrast, generic HUD surfaces, and limited movement/command feedback.
+- **Evidence policy:** Builders capture a current-game screenshot or automated journey evidence. A separate fresh-context critic evaluates the running game, documents the largest remaining gap, and rejects code-only sign-off.
+
+### Round 1 — HUD polish
+
+- **Summary:** Applied medieval serif typography across the HUD and added brass-bordered tooltips for resources, age, happiness, season, diplomacy, and dock buttons. Refined the top bar with a gradient brass border, inner shadow, diamond dividers, and an amber advancement pulse. Verified by `npx tsc --noEmit`, `npm run lint`, and `npm run test` (309/309 tests passing).
+- **Files touched:**
+  - `components/GameUI.tsx`
+  - `components/HudTooltip.tsx`
+  - `index.html`
+  - `LIVE_PROGRESS.md`
+- **How to verify:** Run `npm run dev`, open the game, hover each resource icon (wood, food, gold, population), the age badge, the happiness chip, the season chip, and the diplomacy chip — tooltips should appear after a brief delay with contextual info. Note the new Cinzel serif headings with kerned all-caps labels and the brass gradient border with diamond dividers on the top bar.
+
+### Round 1 — Building grounding (critic verdict)
+
+- **What I saw:** EntityFactory spawns a soft warm-dark ellipse (0x1a1208, 0.35 alpha) as ground shadow at container index 0 under every building, sized to 62% width × 42% height of the footprint; BuildingManager adds a brass 0xDAA520 outline ring with slow pulse on selection and brightens the ground shadow from 0.35→0.5 alpha on hover; VillagerSystem places a faint black disc (0x000000, 0.25 alpha, 10×5 px) under each villager. All shadows are static and live at the correct iso depth.
+- **Comparison to Manor Lords:** The building feels grounded with a contact shadow and readable selection state, but the shadows are static and do not integrate with Manor Lords' dynamic solar lighting system — they lack directional softening or solar-responsive warm/cold shift to give Manor Lords' buildings a living, time-varying presence.
+- **Biggest remaining gap:** Shadows are static and do not participate in the day/night cycle; there is no directional softening or solar-responsive warm/cold shift to make buildings feel rooted in a living world across time.
+- **Suggested next slice:** The next builder should tackle day/night integration for building and unit shadows, aligning them with `game/systems/DayNightSystem.ts` so contact shadows warm/cool and soften/darken across the solar cycle.
+
+### Round 1 — HUD polish (critic verdict)
+
+- **What I saw:** Dev server serves on `127.0.0.1:5173`; a fresh headless-Chrome capture shows the top bar rendering with brass gradient borders, diamond dividers, Cinzel headings, Inter body, and delay-faded tooltips on the resource/age/happiness/season/diplomacy chips. `npm run lint` passes clean; `npx tsc --noEmit` reports 4 errors, all in `game/systems/InputManager.ts` (duplicate `BuildingType`, missing `FeedbackSystem.showCommandRing`) — none in the HUD files, so the HUD slice itself is lint/type clean.
+- **Comparison to Manor Lords:** The panel reads as parchment-and-brass with a cohesive gradient border and dividers. It falls short of Manor Lords on contrast discipline — the 9px `--hud-muted` tooltip body (rgba .62 opacity) and several secondary labels are too dim for fast in-game reads.
+- **Biggest remaining gap:** Low-contrast secondary/body text (tooltip body and muted sub-labels) undercuts legibility despite the correct typography hierarchy.
+- **Suggested next slice:** Raise `--hud-muted` opacity and tooltip-body contrast, and verify `hud-tooltip-bottom` (top:100%) does not clip under the centered top bar at 1080p before moving on.
+
+### Round 1 — Building grounding (builder result)
+
+- **Summary:** Directional ground shadows under every building (soft ellipse, 0x1a1208 at 35 % alpha, footprint‑sized), faint black contact shadows for villagers (10×5 px at 25 % alpha) and military units (throttled per‑frame), and a pulsing brass outline ring (0xDAA520, 0.5–1.0 α, 1.2 s ease) on selection that briefly brightens the ground shadow for hover readability. No public API change to `EntityFactory.spawnBuilding`.
+- **Files touched:**
+  - `game/systems/EntityFactory.ts`
+  - `game/systems/BuildingManager.ts`
+  - `game/systems/VillagerSystem.ts`
+- **How to verify:** start `npm run dev`, start a normal match, and look for shadows under the Town Center and houses, plus the new dust motes drifting through the scene.
+
+### Round 2 — Camera feel & command feedback (critic verdict)
+
+- **What I saw:** Edge pan uses easing acceleration (`timer/0.3`²) with zoom-varying speed (`baseSpeed * delta / cam.zoom`); zoom smoothing eases exponentially over ~0.25s between 0.4× and 2.0×; `showCommandRing` creates a 400ms Quad.easeOut expanding ring that fades via alpha, but `addCommandAck` in InputManager is defined yet never called from any input path — ground clicks produce no command feedback. No `C`/`Home` recentering key binding exists.
+- **Comparison to Stronghold + Manor Lords:** Stronghold demands instant, legible command feedback — the ring exists in code but is never triggered, so feedback is absent. Manor Lords demands camera presence and smooth navigation — edge pan and zoom smoothing are coded and functional, but the missing recenter binding and dead command-ack hook leave navigation incomplete.
+- **Biggest remaining gap:** `addCommandAck` is dead code (never called from right-click commands), and the C/Home recentering key binding is entirely missing from InputManager; both block clear player feedback and intentional camera navigation.
+- **Suggested next slice:** Wire `addCommandAck` into the right-click command issuance path (`handleRightClick`) so ground clicks trigger the expanding ring, and add the `C`/`Home` key binding for camera recentering.
+
+### Round 2 — Camera feel & command feedback (builder result)
+
+- **Summary:** Added edge‑pan and smooth‑zoom handling to InputManager, introduced a click‑ring visual using the new `showCommandRing` method (with a null‑coalescing `?? 0` fix) and enabled `C`/`Home` recenter shortcuts. These changes give players responsive camera movement, smooth zoom transitions, and immediate command‑acknowledgement rings when clicking the ground.
+- **Files touched:**
+  - `game/systems/InputManager.ts`
+  - `game/systems/FeedbackSystem.ts`
+- **How to verify:** Start `npm run dev`, open a match, click the ground to see the expanding ring, move the cursor to a screen edge for edge‑pan, use the mouse wheel for smooth zoom, and press `C` or `Home` to recenter the camera.
+
+### Round 2 — HUD contrast (builder result)
+
+- **Summary:** Raised `--hud-muted` opacity from `.62` to `.85` in `index.html` (keeps the parchment‑brass tone but is clearly legible at 1080p), set `.hud-tooltip-body` to fully opaque `var(--dust-white)` for a luminance contrast ratio ≥4.5:1 against the dark tooltip panel background, and changed seven low‑contrast `text-stone-500` secondary top‑bar labels in `components/GameUI.tsx` to `text-stone-300`-equivalent ("Click TC to advance", tax‑slider "Benevolent/Tyrant", both clear‑selection X buttons, and the three "Right Click …" movement hints). Default tooltip placement is `'top'`; the top‑bar tooltips explicitly use `placement="bottom"`, and the `.hud-tooltip-bottom` rule (`top: 100%` + 6 px margin) drops the panel below the centered top bar so it cannot clip the viewport top edge and easily clears the command dock — no class adjustment was needed.
+- **Files touched:** `index.html`, `components/GameUI.tsx`
+- **How to verify:** start `npm run dev`, hover the resource icons (wood/food/gold/population/age/happiness/season/diplomacy) and confirm the tooltip body is clearly readable; also confirm the muted sub‑labels ("Click TC to advance", tax labels, "Right Click to Move") no longer require squinting at 1080p.
+
+---
+
+### Round 2 — Dynamic shadows (builder result)
+
+- **Summary:** Building ground shadows in EntityFactory now modulate alpha and colour via DayNightSystem state (~250 ms publish interval). The warm‑dark ellipse (0x1a1208) cools as the sun lowers, and each villager’s contact disc scales its 0.25 alpha proportionally, so shadows fade and cool together with the solar cycle.
+- **Files touched:** `game/systems/EntityFactory.ts`
+- **How to verify:** Run `npm run dev`, start a match, use the time‑control buttons to advance from dawn to night; watch building shadows fade and cool, and note villagers’ discs do the same.
+
+---

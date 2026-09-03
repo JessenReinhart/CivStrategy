@@ -1,0 +1,70 @@
+{
+  "phase": "complete",
+  "browserErrors": [],
+  "gather": {
+    "initialWood": 250,
+    "initialPopulation": 6,
+    "villagerId": "villager_0",
+    "treeDistance": 151.87042551329526,
+    "simulation": {
+      "simulatedMs": 33000,
+      "finalWood": 270,
+      "depositedWood": 20,
+      "assigned": true
+    }
+  },
+  "preparation": {
+    "maxPopulationBefore": 13,
+    "maxPopulationAfterHousing": 21,
+    "initialPopulation": 6
+  },
+  "beforeTraining": {
+    "food": 100000,
+    "gold": 99950,
+    "population": 6,
+    "maxPopulation": 21,
+    "playerMilitary": 4
+  },
+  "afterTraining": {
+    "food": 99900,
+    "gold": 99900,
+    "population": 7,
+    "maxPopulation": 21,
+    "playerMilitary": 5,
+    "type": "Pikesman"
+  },
+  "moveTarget": {
+    "x": 1124,
+    "y": 804
+  },
+  "combat": {
+    "distance": 24
+  },
+  "beforeSave": {
+    "x": 1035.9297258186834,
+    "y": 811.9297258186834,
+    "type": "Pikesman",
+    "hp": 200,
+    "population": 7,
+    "maxPopulation": 21,
+    "gameTime": 1124.9150000000004
+  },
+  "restored": {
+    "x": 1035.9297258186834,
+    "y": 811.9297258186834,
+    "hp": 200,
+    "population": 7,
+    "maxPopulation": 21,
+    "gameTime": 1162.3850000000004,
+    "positionDelta": 0
+  },
+  "postLoadMove": {
+    "x": 1099.9297258186834,
+    "y": 811.9297258186834
+  },
+  "afterContinue": {
+    "selected": true,
+    "movedDistance": 5.508953624176209,
+    "gameTime": 1412.3650000000002
+  }
+}

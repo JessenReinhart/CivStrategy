@@ -1,0 +1,96 @@
+{
+  "mapWidth": 4096,
+  "mapHeight": 4096,
+  "isReady": true,
+  "durationMs": 6085.9000000003725,
+  "maxGapMs": 498.70000000018626,
+  "longestLongTaskMs": 453,
+  "longTaskObserverActive": true,
+  "heartbeatTicks": 78,
+  "progressEvents": 130,
+  "phases": [
+    "Starting simulation",
+    "Building world systems",
+    "Generating terrain",
+    "Carving terrain",
+    "Painting terrain",
+    "Preparing navigation",
+    "Terrain ready",
+    "Shaping coastlines",
+    "Rendering water",
+    "Growing world",
+    "World environment ready",
+    "Founding civilizations",
+    "Preparing visibility",
+    "Finalizing simulation",
+    "Realm ready"
+  ],
+  "lastProgress": {
+    "progress": 1,
+    "phase": "Realm ready",
+    "detail": "Simulation is ready",
+    "at": 9035.599999999627
+  },
+  "terrainRasterWidth": 4097,
+  "terrainRasterHeight": 2111,
+  "terrainRasterPixels": 8648767,
+  "terrainTextureSources": [
+    {
+      "key": "terrain_sand",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_swamp",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_grass",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_jungle",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_forest",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_tundra",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_scrub",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    },
+    {
+      "key": "terrain_stone",
+      "exists": true,
+      "width": 768,
+      "height": 768
+    }
+  ],
+  "memory": {
+    "usedJSHeapSize": 239000000,
+    "totalJSHeapSize": 254000000,
+    "jsHeapSizeLimit": 3760000000
+  },
+  "hasRealtimeCounters": true,
+  "cameraBeforeInput": -720,
+  "cameraAfterInput": -683.3400000000001,
+  "browserErrors": []
+}

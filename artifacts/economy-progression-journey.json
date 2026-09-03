@@ -1,0 +1,157 @@
+{
+  "phase": "complete",
+  "browserErrors": [],
+  "gatherSetup": {
+    "startingResources": {
+      "wood": 250,
+      "food": 300,
+      "gold": 150
+    },
+    "afterCamp": {
+      "wood": 225,
+      "food": 300,
+      "gold": 150
+    },
+    "campCostWood": 25,
+    "wood": 225,
+    "villagerId": "villager_0",
+    "campX": 1184,
+    "campY": 1152,
+    "treeDistance": 63.99403495251993
+  },
+  "gather": {
+    "simulatedMs": 30200,
+    "initialWood": 225,
+    "finalWood": 245
+  },
+  "house": {
+    "wood": 195,
+    "population": 6,
+    "maxPopulation": 21,
+    "x": 912,
+    "y": 720
+  },
+  "barracks": {
+    "wood": 45,
+    "population": 6,
+    "maxPopulation": 21,
+    "x": 1016,
+    "y": 728
+  },
+  "beforeTraining": {
+    "food": 309,
+    "gold": 105,
+    "population": 6,
+    "units": 4
+  },
+  "afterTraining": {
+    "food": 209,
+    "gold": 55,
+    "population": 7,
+    "units": 5,
+    "type": "Pikesman"
+  },
+  "moveTarget": {
+    "x": 1172,
+    "y": 788,
+    "pathEndpointX": 1168,
+    "pathEndpointY": 784
+  },
+  "moveCommandStart": {
+    "x": 1076,
+    "y": 788,
+    "gameTime": 1724.9050000000002,
+    "distanceToTarget": 96
+  },
+  "moveAccepted": {
+    "gameTime": 1874.9050000000002,
+    "speed": 90,
+    "pathLength": 2
+  },
+  "moveArrival": {
+    "x": 1084.4697711896151,
+    "y": 785.0263528179937,
+    "gameTime": 2062.405,
+    "distanceToTarget": 87.58072580860119,
+    "pathEndpointDistance": 5.656854249492381,
+    "movedDistance": 8.9766141483016,
+    "speed": 89.99999999999999
+  },
+  "simulatedMovementMs": 187.5,
+  "combat": {
+    "distance": 36,
+    "pausedAtGameTime": 2074.905,
+    "previousGameSpeed": 0.75,
+    "playerProjected": {
+      "x": 300.87386070849175,
+      "y": 874.8684893757003
+    },
+    "enemyProjected": {
+      "x": 336.87386070849175,
+      "y": 893.8281599193709
+    }
+  },
+  "combatPointer": {
+    "pointer": {
+      "x": 747,
+      "y": 464,
+      "worldX": 336.87386070849175,
+      "worldY": 893.6816579808689
+    },
+    "enemyVisual": {
+      "x": 336.87386070849175,
+      "y": 903.8281599193709
+    },
+    "enemyBounds": {
+      "x": 336.87386070849175,
+      "y": 903.8281599193709,
+      "width": 0,
+      "height": 0,
+      "centerX": 336.87386070849175,
+      "centerY": 903.8281599193709
+    },
+    "hitCount": 1,
+    "hitsEnemy": true,
+    "hitTypes": [
+      "unit:1"
+    ]
+  },
+  "attackIssuedAtFrame": 246,
+  "attackCommand": {
+    "acceptedAtFrame": 259,
+    "gameTime": 2074.905,
+    "gameSpeed": 0,
+    "targetHp": 10,
+    "targetsEnemy": true,
+    "explicitTarget": true
+  },
+  "combatEnabledAtGameTime": 2074.905,
+  "beforeSave": {
+    "x": 1115.2994503444456,
+    "y": 785.7796797809364,
+    "type": "Pikesman",
+    "hp": 200,
+    "population": 7,
+    "maxPopulation": 21,
+    "houses": 1,
+    "barracks": 1
+  },
+  "restored": {
+    "x": 1115.2994503444456,
+    "y": 785.7796797809364,
+    "hp": 200,
+    "population": 7,
+    "maxPopulation": 21,
+    "positionDelta": 0,
+    "houses": 1,
+    "barracks": 1
+  },
+  "postLoadTarget": {
+    "x": 1179.2994503444456,
+    "y": 785.7796797809364
+  },
+  "afterContinue": {
+    "selected": true,
+    "movedDistance": 5.685573595618978
+  }
+}

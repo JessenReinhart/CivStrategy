@@ -140,9 +140,9 @@ async function preparePlacement(page, type) {
   return page.evaluate(async (buildingType) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
-    const { BUILDINGS } = await import('/constants.ts');
     const tc = scene.buildings.getChildren().find((b) => b.getData('owner') === 0 && b.getData('def')?.type === 'Town Center');
-    const def = BUILDINGS[buildingType];
+    const { BUILDINGS } = await import('/constants.ts');
+    const def = { House: BUILDINGS.House, Barracks: BUILDINGS.Barracks }[buildingType];
     if (!tc || !def) throw new Error(`Cannot prepare ${buildingType} placement.`);
     const grid = 16;
     const snap = (v) => Math.floor(v / grid) * grid;

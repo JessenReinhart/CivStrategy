@@ -1,0 +1,1076 @@
+{
+  "phase": "camera-input",
+  "error": "Large map loading heartbeat stalled for 498.7ms (coarse watchdog limit 400ms). Total load duration is not capped.",
+  "stack": "Error: Large map loading heartbeat stalled for 498.7ms (coarse watchdog limit 400ms). Total load duration is not capped.\n    at file:///home/jessen/CivStrategy/scripts/large-map-loading-journey.mjs:275:11",
+  "serverOutput": "\n  VITE v5.4.21  ready in 227 ms\n\n  ➜  Local:   http://127.0.0.1:4175/\n",
+  "browserErrors": [],
+  "url": "http://127.0.0.1:4175/",
+  "telemetry": {
+    "tracking": false,
+    "startedAt": 2949.7999999998137,
+    "completedAt": 9035.700000000186,
+    "lastHeartbeatAt": 24837.400000000373,
+    "maxGapMs": 498.70000000018626,
+    "heartbeatTicks": 78,
+    "progress": [
+      {
+        "progress": 0.17,
+        "phase": "Starting simulation",
+        "detail": "Preparing game renderer",
+        "at": 4005.0999999996275
+      },
+      {
+        "progress": 0.196,
+        "phase": "Building world systems",
+        "detail": "Allocating world layers and spatial indexes",
+        "processed": 1,
+        "total": 4,
+        "at": 4038.4000000003725
+      },
+      {
+        "progress": 0.22,
+        "phase": "Building world systems",
+        "detail": "Starting simulation systems",
+        "processed": 2,
+        "total": 4,
+        "at": 4196.5999999996275
+      },
+      {
+        "progress": 0.23575,
+        "phase": "Generating terrain",
+        "detail": "Generating elevation noise",
+        "processed": 42,
+        "total": 256,
+        "at": 4224.799999999814
+      },
+      {
+        "progress": 0.28150000000000003,
+        "phase": "Generating terrain",
+        "detail": "Generating elevation noise",
+        "processed": 164,
+        "total": 256,
+        "at": 4252.5
+      },
+      {
+        "progress": 0.312625,
+        "phase": "Generating terrain",
+        "detail": "Generating elevation noise",
+        "processed": 247,
+        "total": 256,
+        "at": 4274.5
+      },
+      {
+        "progress": 0.31599999999999995,
+        "phase": "Generating terrain",
+        "detail": "Generating elevation noise",
+        "processed": 256,
+        "total": 256,
+        "at": 4292.5
+      },
+      {
+        "progress": 0.332,
+        "phase": "Carving terrain",
+        "detail": "Flattening spawn areas and tracing river valleys",
+        "processed": 1,
+        "total": 1,
+        "at": 4293.700000000186
+      },
+      {
+        "progress": 0.332,
+        "phase": "Painting terrain",
+        "detail": "Allocating bounded terrain raster 4097×2111",
+        "processed": 0,
+        "total": 1,
+        "at": 4307
+      },
+      {
+        "progress": 0.343073381294964,
+        "phase": "Painting terrain",
+        "detail": "Computing terrain lighting",
+        "processed": 259,
+        "total": 4865,
+        "at": 4384
+      },
+      {
+        "progress": 0.3444415210688592,
+        "phase": "Painting terrain",
+        "detail": "Computing terrain lighting",
+        "processed": 291,
+        "total": 4865,
+        "at": 4403.299999999814
+      },
+      {
+        "progress": 0.3520090441932169,
+        "phase": "Painting terrain",
+        "detail": "Computing terrain lighting",
+        "processed": 468,
+        "total": 4865,
+        "at": 4420.799999999814
+      },
+      {
+        "progress": 0.3551301130524152,
+        "phase": "Painting terrain",
+        "detail": "Smoothing terrain lighting",
+        "processed": 541,
+        "total": 4865,
+        "at": 4437.5
+      },
+      {
+        "progress": 0.36303967112024665,
+        "phase": "Painting terrain",
+        "detail": "Smoothing terrain lighting",
+        "processed": 726,
+        "total": 4865,
+        "at": 4454.200000000186
+      },
+      {
+        "progress": 0.36492086330935253,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 770,
+        "total": 4865,
+        "at": 4489.5999999996275
+      },
+      {
+        "progress": 0.3666310380267215,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 810,
+        "total": 4865,
+        "at": 4505.4000000003725
+      },
+      {
+        "progress": 0.3688115107913669,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 861,
+        "total": 4865,
+        "at": 4530.200000000186
+      },
+      {
+        "progress": 0.3714622816032888,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 923,
+        "total": 4865,
+        "at": 4557.5999999996275
+      },
+      {
+        "progress": 0.3752246659815005,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1011,
+        "total": 4865,
+        "at": 4587.0999999996275
+      },
+      {
+        "progress": 0.3787305241521069,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1093,
+        "total": 4865,
+        "at": 4622.0999999996275
+      },
+      {
+        "progress": 0.3822791366906475,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1176,
+        "total": 4865,
+        "at": 4654.5
+      },
+      {
+        "progress": 0.3851864337101747,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1244,
+        "total": 4865,
+        "at": 4691.200000000186
+      },
+      {
+        "progress": 0.3883930113052415,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1319,
+        "total": 4865,
+        "at": 4725.9000000003725
+      },
+      {
+        "progress": 0.39087276464542653,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1377,
+        "total": 4865,
+        "at": 4762.5999999996275
+      },
+      {
+        "progress": 0.39412209660842756,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1453,
+        "total": 4865,
+        "at": 4797.0999999996275
+      },
+      {
+        "progress": 0.3983547790339157,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1552,
+        "total": 4865,
+        "at": 4834.4000000003725
+      },
+      {
+        "progress": 0.40250195272353545,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1649,
+        "total": 4865,
+        "at": 4871.9000000003725
+      },
+      {
+        "progress": 0.40643535457348406,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1741,
+        "total": 4865,
+        "at": 4909.0999999996275
+      },
+      {
+        "progress": 0.4097701952723536,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1819,
+        "total": 4865,
+        "at": 4946
+      },
+      {
+        "progress": 0.412720246659815,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1888,
+        "total": 4865,
+        "at": 4982.200000000186
+      },
+      {
+        "progress": 0.4163116135662899,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 1972,
+        "total": 4865,
+        "at": 5017.799999999814
+      },
+      {
+        "progress": 0.4183638232271326,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2020,
+        "total": 4865,
+        "at": 5059.299999999814
+      },
+      {
+        "progress": 0.42204069886947587,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2106,
+        "total": 4865,
+        "at": 5088.4000000003725
+      },
+      {
+        "progress": 0.424734224049332,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2169,
+        "total": 4865,
+        "at": 5128.200000000186
+      },
+      {
+        "progress": 0.4278980472764646,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2243,
+        "total": 4865,
+        "at": 5162.5999999996275
+      },
+      {
+        "progress": 0.4313611510791367,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2324,
+        "total": 4865,
+        "at": 5199
+      },
+      {
+        "progress": 0.4347387461459404,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2403,
+        "total": 4865,
+        "at": 5236.799999999814
+      },
+      {
+        "progress": 0.439056937307297,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2504,
+        "total": 4865,
+        "at": 5273.9000000003725
+      },
+      {
+        "progress": 0.443631654676259,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2611,
+        "total": 4865,
+        "at": 5317.9000000003725
+      },
+      {
+        "progress": 0.4473940390544707,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2699,
+        "total": 4865,
+        "at": 5356.5
+      },
+      {
+        "progress": 0.45119917780061664,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2788,
+        "total": 4865,
+        "at": 5392.200000000186
+      },
+      {
+        "progress": 0.45449126413155194,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2865,
+        "total": 4865,
+        "at": 5428.5999999996275
+      },
+      {
+        "progress": 0.4577405960945529,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 2941,
+        "total": 4865,
+        "at": 5459.200000000186
+      },
+      {
+        "progress": 0.46107543679342244,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3019,
+        "total": 4865,
+        "at": 5495.0999999996275
+      },
+      {
+        "progress": 0.4647095580678315,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3104,
+        "total": 4865,
+        "at": 5528.299999999814
+      },
+      {
+        "progress": 0.46808715313463517,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3183,
+        "total": 4865,
+        "at": 5566.700000000186
+      },
+      {
+        "progress": 0.47167852004111,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3267,
+        "total": 4865,
+        "at": 5602.5
+      },
+      {
+        "progress": 0.476253237410072,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3374,
+        "total": 4865,
+        "at": 5636.9000000003725
+      },
+      {
+        "progress": 0.48044316546762594,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3472,
+        "total": 4865,
+        "at": 5678.799999999814
+      },
+      {
+        "progress": 0.48476135662898256,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3573,
+        "total": 4865,
+        "at": 5715
+      },
+      {
+        "progress": 0.48694182939362796,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3624,
+        "total": 4865,
+        "at": 5761.200000000186
+      },
+      {
+        "progress": 0.48929331963001027,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3679,
+        "total": 4865,
+        "at": 5796.9000000003725
+      },
+      {
+        "progress": 0.4924998972250771,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3754,
+        "total": 4865,
+        "at": 5827.5999999996275
+      },
+      {
+        "progress": 0.4948941418293936,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3810,
+        "total": 4865,
+        "at": 5873.5999999996275
+      },
+      {
+        "progress": 0.49724563206577593,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3865,
+        "total": 4865,
+        "at": 5909.5999999996275
+      },
+      {
+        "progress": 0.5006232271325797,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 3944,
+        "total": 4865,
+        "at": 5946.5
+      },
+      {
+        "progress": 0.5038725590955806,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4020,
+        "total": 4865,
+        "at": 5989.9000000003725
+      },
+      {
+        "progress": 0.5068226104830422,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4089,
+        "total": 4865,
+        "at": 6033.9000000003725
+      },
+      {
+        "progress": 0.5097726618705036,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4158,
+        "total": 4865,
+        "at": 6072
+      },
+      {
+        "progress": 0.5142618705035971,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4263,
+        "total": 4865,
+        "at": 6105.299999999814
+      },
+      {
+        "progress": 0.5216583761562179,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4436,
+        "total": 4865,
+        "at": 6144.700000000186
+      },
+      {
+        "progress": 0.5272591983556012,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4567,
+        "total": 4865,
+        "at": 6180.5
+      },
+      {
+        "progress": 0.5308933196300103,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4652,
+        "total": 4865,
+        "at": 6218.200000000186
+      },
+      {
+        "progress": 0.5339716341212744,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4724,
+        "total": 4865,
+        "at": 6251.0999999996275
+      },
+      {
+        "progress": 0.5369644398766701,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4794,
+        "total": 4865,
+        "at": 6283.4000000003725
+      },
+      {
+        "progress": 0.539786228160329,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4860,
+        "total": 4865,
+        "at": 6317.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting canonical terrain textures 4097×2111",
+        "processed": 4865,
+        "total": 4865,
+        "at": 6346.5999999996275
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Computing terrain texture slope mask",
+        "processed": 26,
+        "total": 4352,
+        "at": 6492.9000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 273,
+        "total": 4352,
+        "at": 6529.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 362,
+        "total": 4352,
+        "at": 6549.5
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 466,
+        "total": 4352,
+        "at": 6588.799999999814
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 620,
+        "total": 4352,
+        "at": 6626.5999999996275
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 738,
+        "total": 4352,
+        "at": 6694
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 852,
+        "total": 4352,
+        "at": 6739
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 998,
+        "total": 4352,
+        "at": 6789.299999999814
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1196,
+        "total": 4352,
+        "at": 6843.700000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1333,
+        "total": 4352,
+        "at": 6897.0999999996275
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1457,
+        "total": 4352,
+        "at": 6943.700000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1567,
+        "total": 4352,
+        "at": 6996.799999999814
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1687,
+        "total": 4352,
+        "at": 7040.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1835,
+        "total": 4352,
+        "at": 7092.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 1984,
+        "total": 4352,
+        "at": 7142.700000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 2167,
+        "total": 4352,
+        "at": 7199.299999999814
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 2367,
+        "total": 4352,
+        "at": 7259.200000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 2514,
+        "total": 4352,
+        "at": 7316.700000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 2690,
+        "total": 4352,
+        "at": 7370.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 2870,
+        "total": 4352,
+        "at": 7428
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3027,
+        "total": 4352,
+        "at": 7484
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3168,
+        "total": 4352,
+        "at": 7536.200000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3292,
+        "total": 4352,
+        "at": 7591.0999999996275
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3426,
+        "total": 4352,
+        "at": 7640.799999999814
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3550,
+        "total": 4352,
+        "at": 7695.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3699,
+        "total": 4352,
+        "at": 7749
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 3972,
+        "total": 4352,
+        "at": 7801.4000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 4116,
+        "total": 4352,
+        "at": 7856.9000000003725
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 4279,
+        "total": 4352,
+        "at": 7900.700000000186
+      },
+      {
+        "progress": 0.54,
+        "phase": "Painting terrain",
+        "detail": "Painting continuous native biome textures",
+        "processed": 4352,
+        "total": 4352,
+        "at": 7950.299999999814
+      },
+      {
+        "progress": 0.556,
+        "phase": "Preparing navigation",
+        "detail": "Applying biome movement costs",
+        "processed": 1,
+        "total": 1,
+        "at": 8003.299999999814
+      },
+      {
+        "progress": 0.5800000000000001,
+        "phase": "Terrain ready",
+        "detail": "World bounds and pathfinding are ready",
+        "processed": 4,
+        "total": 4,
+        "at": 8047.5999999996275
+      },
+      {
+        "progress": 0.5848,
+        "phase": "Shaping coastlines",
+        "detail": "Tracing water mesh at 64px visual resolution",
+        "processed": 0,
+        "total": 64,
+        "at": 8060.0999999996275
+      },
+      {
+        "progress": 0.6759999999999999,
+        "phase": "Shaping coastlines",
+        "detail": "1,347 water polygons traced",
+        "processed": 64,
+        "total": 64,
+        "at": 8089.5
+      },
+      {
+        "progress": 0.6856,
+        "phase": "Rendering water",
+        "detail": "Rasterizing 1917×973 water mask",
+        "processed": 0,
+        "total": 1347,
+        "at": 8099.5
+      },
+      {
+        "progress": 0.7006913140311803,
+        "phase": "Rendering water",
+        "detail": "Painting water depth mask",
+        "processed": 605,
+        "total": 1347,
+        "at": 8119.200000000186
+      },
+      {
+        "progress": 0.7624,
+        "phase": "Preparing navigation",
+        "detail": "Blocking deep water from pathfinding",
+        "at": 8470
+      },
+      {
+        "progress": 0.7767999999999999,
+        "phase": "Growing world",
+        "detail": "Drawing terrain overlays",
+        "at": 8593.599999999627
+      },
+      {
+        "progress": 0.7911999999999999,
+        "phase": "Growing world",
+        "detail": "Finding fertile ground",
+        "at": 8606.299999999814
+      },
+      {
+        "progress": 0.8031999999999999,
+        "phase": "Growing world",
+        "detail": "Planting forests and spawning wildlife",
+        "at": 8618.700000000186
+      },
+      {
+        "progress": 0.8037538461538462,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 1,
+        "total": 26,
+        "at": 8642.5
+      },
+      {
+        "progress": 0.8037538461538462,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 1,
+        "total": 26,
+        "at": 8660.599999999627
+      },
+      {
+        "progress": 0.8048615384615384,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 3,
+        "total": 26,
+        "at": 8677.099999999627
+      },
+      {
+        "progress": 0.8054153846153846,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 4,
+        "total": 26,
+        "at": 8694.599999999627
+      },
+      {
+        "progress": 0.8065230769230769,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 6,
+        "total": 26,
+        "at": 8713.799999999814
+      },
+      {
+        "progress": 0.8076307692307692,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 8,
+        "total": 26,
+        "at": 8730.099999999627
+      },
+      {
+        "progress": 0.8081846153846153,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 9,
+        "total": 26,
+        "at": 8745.799999999814
+      },
+      {
+        "progress": 0.8087384615384615,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 10,
+        "total": 26,
+        "at": 8761
+      },
+      {
+        "progress": 0.8104,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 13,
+        "total": 26,
+        "at": 8779.099999999627
+      },
+      {
+        "progress": 0.8109538461538461,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 14,
+        "total": 26,
+        "at": 8796.200000000186
+      },
+      {
+        "progress": 0.8120615384615384,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 16,
+        "total": 26,
+        "at": 8813.900000000373
+      },
+      {
+        "progress": 0.8131692307692308,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 18,
+        "total": 26,
+        "at": 8829.099999999627
+      },
+      {
+        "progress": 0.8137230769230769,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 19,
+        "total": 26,
+        "at": 8844.099999999627
+      },
+      {
+        "progress": 0.8153846153846154,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 22,
+        "total": 26,
+        "at": 8860.200000000186
+      },
+      {
+        "progress": 0.8159384615384615,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 23,
+        "total": 26,
+        "at": 8876.5
+      },
+      {
+        "progress": 0.8170461538461538,
+        "phase": "Growing world",
+        "detail": "Planting forests",
+        "processed": 25,
+        "total": 26,
+        "at": 8893.299999999814
+      },
+      {
+        "progress": 0.8175999999999999,
+        "phase": "Growing world",
+        "detail": "Planting forests and spawning wildlife",
+        "processed": 26,
+        "total": 26,
+        "at": 8907
+      },
+      {
+        "progress": 0.82,
+        "phase": "World environment ready",
+        "detail": "Terrain, water, forests and wildlife are ready",
+        "at": 8907.099999999627
+      },
+      {
+        "progress": 0.84,
+        "phase": "Founding civilizations",
+        "detail": "Placing starting settlement and resources",
+        "at": 8917.5
+      },
+      {
+        "progress": 0.88,
+        "phase": "Founding civilizations",
+        "detail": "Starting units and nearby resources are ready",
+        "at": 8954.5
+      },
+      {
+        "progress": 0.91,
+        "phase": "Preparing visibility",
+        "detail": "Generating fog of war and minimap",
+        "at": 8973.400000000373
+      },
+      {
+        "progress": 0.97,
+        "phase": "Finalizing simulation",
+        "detail": "Connecting runtime systems",
+        "at": 9015.799999999814
+      },
+      {
+        "progress": 1,
+        "phase": "Realm ready",
+        "detail": "Simulation is ready",
+        "at": 9035.599999999627
+      }
+    ],
+    "longTasks": [
+      {
+        "duration": 122,
+        "at": 2987.5999999996275
+      },
+      {
+        "duration": 136,
+        "at": 3140.7000000001863
+      },
+      {
+        "duration": 110,
+        "at": 3325.9000000003725
+      },
+      {
+        "duration": 99,
+        "at": 4005.2000000001863
+      },
+      {
+        "duration": 88,
+        "at": 4121.700000000186
+      },
+      {
+        "duration": 74,
+        "at": 4317.200000000186
+      },
+      {
+        "duration": 175,
+        "at": 6345.200000000186
+      },
+      {
+        "duration": 92,
+        "at": 7946.4000000003725
+      },
+      {
+        "duration": 453,
+        "at": 8130
+      }
+    ],
+    "longTaskObserverActive": true,
+    "ready": true
+  }
+}

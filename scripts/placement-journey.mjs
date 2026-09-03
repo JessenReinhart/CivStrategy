@@ -75,16 +75,14 @@ try {
     scene.resources.food = 100_000;
     scene.resources.gold = 100_000;
 
-    const GRID = 16;
     const { BUILDINGS } = await import('/constants.ts');
-    const dims = Object.fromEntries(
-      ['House', 'Farm', 'Barracks'].map((type) => {
-        const def = BUILDINGS[type];
-        if (!def) throw new Error(`${type} definition was not available from the running game.`);
-        return [type, { width: def.width, height: def.height }];
-      }),
-    );
+    const dims = {
+      House: { width: BUILDINGS.House.width, height: BUILDINGS.House.height },
+      Farm: { width: BUILDINGS.Farm.width, height: BUILDINGS.Farm.height },
+      Barracks: { width: BUILDINGS.Barracks.width, height: BUILDINGS.Barracks.height },
+    };
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
+    const GRID = 16;
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const buildings = () => scene.buildings.getChildren();
     const getDef = (building) => building.getData('def');

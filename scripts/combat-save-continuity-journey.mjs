@@ -279,7 +279,6 @@ try {
   telemetry.preparation = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
-    const { BUILDINGS } = await import('/constants.ts');
     scene.resources.wood = 100_000;
     scene.resources.food = 100_000;
     scene.resources.gold = 100_000;
@@ -292,13 +291,17 @@ try {
     ));
     if (!townCenter) throw new Error('Player Town Center was not available.');
 
+    const { BUILDINGS } = await import('/constants.ts');
+    const dims = {
+      House: { width: BUILDINGS.House.width, height: BUILDINGS.House.height },
+      Barracks: { width: BUILDINGS.Barracks.width, height: BUILDINGS.Barracks.height },
+    };
     const GRID = 16;
     const snap = (value) => Math.floor(value / GRID) * GRID;
     const toIso = (x, y) => ({ x: x - y, y: (x + y) * 0.5 });
 
     function findPlacement(type) {
-      const def = BUILDINGS[type];
-      if (!def) throw new Error(`${type} definition was not available from the running game.`);
+      const def = dims[type];
       const baseX = snap(townCenter.x - 300);
       const baseY = snap(townCenter.y - 300);
       for (let oy = 0; oy <= 600; oy += GRID) {
@@ -315,7 +318,7 @@ try {
 
     function build(type) {
       const center = findPlacement(type);
-      const def = BUILDINGS[type];
+      const def = dims[type];
       const input = toIso(center.x - def.width / 2, center.y - def.height / 2);
       const before = new Set(buildings());
       manager.enterBuildMode(type);

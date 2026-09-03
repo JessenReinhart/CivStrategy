@@ -1,0 +1,63 @@
+{
+  "phase": "complete",
+  "checkpoints": [
+    {
+      "phase": "world-ready"
+    },
+    {
+      "phase": "house-created",
+      "costWood": 50,
+      "populationBonus": 8,
+      "happinessBonus": 0,
+      "position": {
+        "x": 928,
+        "y": 752
+      }
+    },
+    {
+      "phase": "house-selected"
+    },
+    {
+      "phase": "before-demolition",
+      "wood": 9950,
+      "maxPopulation": 21,
+      "happiness": 102,
+      "buildingCount": 4,
+      "registered": true,
+      "active": true
+    },
+    {
+      "phase": "complete",
+      "expectedRefund": 37
+    }
+  ],
+  "pageErrors": [],
+  "fixture": {
+    "costWood": 50,
+    "populationBonus": 8,
+    "happinessBonus": 0,
+    "position": {
+      "x": 928,
+      "y": 752
+    }
+  },
+  "before": {
+    "wood": 9950,
+    "maxPopulation": 21,
+    "happiness": 102,
+    "buildingCount": 4,
+    "registered": true,
+    "active": true
+  },
+  "after": {
+    "wood": 9987,
+    "maxPopulation": 13,
+    "happiness": 102,
+    "buildingCount": 3,
+    "registered": false,
+    "active": false,
+    "selectedBuildingIsHouse": false
+  },
+  "expectedRefund": 37,
+  "rapidClickCount": 2
+}

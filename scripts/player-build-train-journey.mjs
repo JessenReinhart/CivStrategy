@@ -78,12 +78,12 @@ async function rightClickThroughFrame(page, canvas, point) {
 }
 
 async function preparePlacement(page, type) {
-  return page.evaluate((buildingType) => {
+  return page.evaluate(async (buildingType) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const manager = scene.buildingManager;
     const tc = scene.buildings.getChildren().find((b) => b.getData('owner') === 0 && b.getData('def')?.type === 'Town Center');
-    if (!tc) throw new Error('Player Town Center missing.');
-    const def = { House: { width: 48, height: 48 }, Barracks: { width: 72, height: 72 } }[buildingType];
+    const { BUILDINGS } = await import('/constants.ts');
+    const def = { House: BUILDINGS.House, Barracks: BUILDINGS.Barracks }[buildingType];
     const grid = 16;
     const snap = (v) => Math.floor(v / grid) * grid;
     let center = null;

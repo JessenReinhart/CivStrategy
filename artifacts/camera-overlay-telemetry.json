@@ -1,0 +1,151 @@
+{
+  "phase": "passed",
+  "browserErrors": [],
+  "initial": {
+    "camera": {
+      "scrollX": -720,
+      "scrollY": 574,
+      "zoom": 1,
+      "width": 1440,
+      "height": 900,
+      "topLeftX": -720,
+      "topLeftY": 574
+    },
+    "minimap": {
+      "viewportVisible": true,
+      "viewportPath": [
+        {
+          "x": 20.0625,
+          "y": 87.5625
+        },
+        {
+          "x": 87.5625,
+          "y": 20.0625
+        },
+        {
+          "x": 171.9375,
+          "y": 104.4375
+        },
+        {
+          "x": 104.4375,
+          "y": 171.9375
+        }
+      ],
+      "viewportCenter": {
+        "x": 96,
+        "y": 96
+      },
+      "textureX": 24,
+      "textureY": 684,
+      "textureScaleX": 1
+    },
+    "fog": {
+      "topLeftX": -720,
+      "topLeftY": 574,
+      "textureX": 0,
+      "textureY": 0,
+      "textureScaleX": 4
+    }
+  },
+  "afterPan": {
+    "camera": {
+      "scrollX": -703.3333333333334,
+      "scrollY": 574,
+      "zoom": 1,
+      "width": 1440,
+      "height": 900,
+      "topLeftX": -703.3333333333334,
+      "topLeftY": 574
+    },
+    "minimap": {
+      "viewportVisible": true,
+      "viewportPath": [
+        {
+          "x": 20.84375,
+          "y": 86.78125
+        },
+        {
+          "x": 88.34375,
+          "y": 19.28125
+        },
+        {
+          "x": 172.71875,
+          "y": 103.65625
+        },
+        {
+          "x": 105.21875,
+          "y": 171.15625
+        }
+      ],
+      "viewportCenter": {
+        "x": 96.78125,
+        "y": 95.21875
+      },
+      "textureX": 24,
+      "textureY": 684,
+      "textureScaleX": 1
+    },
+    "fog": {
+      "topLeftX": -703.3333333333334,
+      "topLeftY": 574,
+      "textureX": 0,
+      "textureY": 0,
+      "textureScaleX": 4
+    }
+  },
+  "cameraPan": 16.66666666666663,
+  "viewportPan": 1.1048543456039805,
+  "panFogError": 0,
+  "afterZoom": {
+    "camera": {
+      "scrollX": -703.3333333333334,
+      "scrollY": 574,
+      "zoom": 1.5,
+      "width": 1440,
+      "height": 900,
+      "topLeftX": -463.33333333333326,
+      "topLeftY": 724
+    },
+    "minimap": {
+      "viewportVisible": true,
+      "viewportPath": [
+        {
+          "x": 31.265625,
+          "y": 130.171875
+        },
+        {
+          "x": 98.765625,
+          "y": 62.671875
+        },
+        {
+          "x": 183.140625,
+          "y": 147.046875
+        },
+        {
+          "x": 115.640625,
+          "y": 214.546875
+        }
+      ],
+      "viewportCenter": {
+        "x": 107.203125,
+        "y": 138.609375
+      },
+      "textureX": 256,
+      "textureY": 606,
+      "textureScaleX": 0.6666666666666666
+    },
+    "fog": {
+      "topLeftX": -463.33333333333337,
+      "topLeftY": 724,
+      "textureX": 240.00000000000003,
+      "textureY": 150.00000000000003,
+      "textureScaleX": 2.6666666666666665
+    }
+  },
+  "zoomDelta": 0.5,
+  "expectedMinimapScale": 0.6666666666666666,
+  "expectedFogScale": 2.6666666666666665,
+  "expectedFogX": 240.00000000000003,
+  "expectedFogY": 150.00000000000003,
+  "zoomFogError": 1.1368683772161603e-13
+}

@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType, TechId } from '../types';
 import { BUILDINGS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG } from '../constants';
+import { HudTooltip } from './HudTooltip';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
@@ -42,6 +43,28 @@ const getDamageTag = (type: UnitType): { label: string; color: string } | null =
         'Crush': 'bg-amber-900/50 text-amber-300 border-amber-700/50',
     };
     return { label: `${dmgType} ${value}`, color: colors[dmgType] || 'bg-stone-800 text-stone-400' };
+};
+
+/** Buildings grouped by HUD dock category, used to populate the pop-up build panel and tooltip counts. */
+const CATEGORY_BUILDINGS: Record<'economy' | 'military' | 'civic', { type: BuildingType; icon: React.ReactNode }[]> = {
+    economy: [
+        { type: BuildingType.HOUSE, icon: <Home size={18} /> },
+        { type: BuildingType.FARM, icon: <Wheat size={18} /> },
+        { type: BuildingType.LUMBER_CAMP, icon: <Pickaxe size={18} /> },
+        { type: BuildingType.HUNTERS_LODGE, icon: <Rabbit size={18} /> },
+        { type: BuildingType.TOWN_CENTER, icon: <Tent size={18} /> },
+        { type: BuildingType.MARKET, icon: <Coins size={18} /> },
+    ],
+    civic: [
+        { type: BuildingType.BONFIRE, icon: <Flame size={18} /> },
+        { type: BuildingType.SMALL_PARK, icon: <Flower size={18} /> },
+        { type: BuildingType.CATHEDRAL, icon: <Church size={18} /> },
+    ],
+    military: [
+        { type: BuildingType.BARRACKS, icon: <Hammer size={18} /> },
+        { type: BuildingType.WALL, icon: <Shield size={18} /> },
+        { type: BuildingType.CASTLE, icon: <Crown size={18} /> },
+    ],
 };
 
 export const GameUI: React.FC<GameUIProps> = ({
@@ -188,95 +211,231 @@ export const GameUI: React.FC<GameUIProps> = ({
 
             {/* --- TOP BAR: RESOURCES --- */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto max-w-[calc(100vw-2rem)]">
-                <div className="hud-surface flex items-center gap-5 px-5 py-2.5 rounded-xl text-stone-100 transition-colors hover:border-amber-500/30">
-                    <ResourceItem
-                        icon={<Pickaxe size={16} className="text-emerald-400" />}
-                        value={stats.resources.wood}
-                        sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Wheat size={16} className="text-yellow-400" />}
-                        value={
-                            <span className="flex items-baseline gap-1">
-                                {stats.resources.food}
-                                <span className={`text-[10px] ${netFoodColor} font-bold opacity-80`}>
-                                    {`(${netFoodSign}${netFood})`}
-                                </span>
-                            </span>
+                <div
+                    className="hud-surface flex items-center gap-5 px-5 py-2.5 rounded-xl text-stone-100 transition-colors hover:border-amber-500/30"
+                    style={{
+                        border: '1px solid',
+                        borderImage: 'linear-gradient(180deg, rgba(203,163,116,0.4), rgba(168,106,66,0.15)) 1',
+                        boxShadow: '0 18px 48px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.04)',
+                    }}
+                >
+                    <HudTooltip
+                        placement="bottom"
+                        title={`Wood · ${stats.resources.wood}`}
+                        body={
+                            <>
+                                <span className="text-emerald-300">+{stats.rates.wood}/s</span> from lumber camps
+                                <br />
+                                Built from felled trees
+                            </>
                         }
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Coins size={16} className="text-amber-400" />}
-                        value={stats.resources.gold}
-                        sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<User size={16} className="text-blue-300" />}
-                        value={`${stats.population}/${stats.maxPopulation}`}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors" onClick={onAdvanceAge} title="Advance Age">
-                      <Zap size={16} className={
-                        stats.nextAge ? 'text-amber-400 animate-pulse' :
-                        stats.currentAge === Age.CITY_STATE ? 'text-amber-400' :
-                        stats.currentAge === Age.TOWN ? 'text-yellow-400' :
-                        'text-stone-400'
-                      } />
-                      <div className="flex flex-col leading-tight">
-                        <span className="text-[10px] font-bold text-stone-200 uppercase tracking-wide">{stats.currentAge}</span>
-                        {stats.nextAge && stats.ageProgress > 0 && (
-                          <div className="w-12 h-1 bg-stone-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-amber-500 rounded-full transition-all" style={{width: (stats.ageProgress * 100) + '%'}} />
+                    >
+                        <div>
+                            <ResourceItem
+                                icon={<Pickaxe size={16} className="text-emerald-400" />}
+                                value={stats.resources.wood}
+                                sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
+                            />
+                        </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title={`Food · ${stats.resources.food}`}
+                        body={
+                            <>
+                                <span className="text-emerald-300">+{stats.rates.food}/s</span> from farms
+                                <br />
+                                <span className="text-red-300">-{stats.rates.foodConsumption}/s</span> consumption
+                                <br />
+                                Net: {netFoodSign}{netFood}/s
+                            </>
+                        }
+                    >
+                        <div>
+                            <ResourceItem
+                                icon={<Wheat size={16} className="text-yellow-400" />}
+                                value={
+                                    <span className="flex items-baseline gap-1">
+                                        {stats.resources.food}
+                                        <span className={`text-[10px] ${netFoodColor} font-bold opacity-80`}>
+                                            {`(${netFoodSign}${netFood})`}
+                                        </span>
+                                    </span>
+                                }
+                            />
+                        </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title={`Gold · ${stats.resources.gold}`}
+                        body={
+                            <>
+                                <span className="text-emerald-300">+{stats.rates.gold}/s</span> from markets
+                                <br />
+                                Income boosted by tax rate
+                            </>
+                        }
+                    >
+                        <div>
+                            <ResourceItem
+                                icon={<Coins size={16} className="text-amber-400" />}
+                                value={stats.resources.gold}
+                                sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
+                            />
+                        </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title="Population"
+                        body={
+                            <>
+                                {stats.population} of {stats.maxPopulation} housed
+                                <br />
+                                Grows with surplus food
+                            </>
+                        }
+                    >
+                        <div>
+                            <ResourceItem
+                                icon={<User size={16} className="text-blue-300" />}
+                                value={`${stats.population}/${stats.maxPopulation}`}
+                            />
+                        </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title={stats.currentAge === Age.CITY_STATE && !stats.nextAge
+                            ? 'Maximum Advancement'
+                            : `${AGE_CONFIGS[stats.currentAge]?.name ?? stats.currentAge}`}
+                        body={
+                            stats.currentAge === Age.CITY_STATE && !stats.nextAge ? (
+                                <>All ages unlocked — enjoy your realm</>
+                            ) : (() => {
+                                const next = stats.nextAge ?? Age.CITY_STATE;
+                                const cfg = AGE_CONFIGS[next];
+                                const cost = cfg?.cost;
+                                return (
+                                    <>
+                                        Next: {cfg?.name ?? next}
+                                        {cost && (cost.wood > 0 || cost.food > 0 || cost.gold > 0) && (
+                                            <>
+                                                <br />
+                                                Cost: {cost.wood}W
+                                                {cost.food > 0 ? ` · ${cost.food}F` : ''}
+                                                {cost.gold > 0 ? ` · ${cost.gold}G` : ''}
+                                            </>
+                                        )}
+                                        <br />
+                                        Progress: {Math.round(stats.ageProgress * 100)}%
+                                    </>
+                                );
+                            })()
+                        }
+                    >
+                        <div
+                            className={`flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors ${stats.nextAge ? 'age-block-advance pulsing' : ''}`}
+                            onClick={onAdvanceAge}
+                            tabIndex={0}
+                            role="button"
+                            aria-label="Advance Age"
+                        >
+                          <Zap size={16} className={
+                            stats.nextAge ? 'text-amber-400' :
+                            stats.currentAge === Age.CITY_STATE ? 'text-amber-400' :
+                            stats.currentAge === Age.TOWN ? 'text-yellow-400' :
+                            'text-stone-400'
+                          } />
+                          <div className="flex flex-col leading-tight">
+                            <span className="text-[10px] font-cinzel font-semibold text-stone-200 uppercase tracking-widest">{stats.currentAge}</span>
+                            {stats.nextAge && stats.ageProgress > 0 && (
+                              <div className="w-12 h-1 bg-stone-700 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 rounded-full transition-all" style={{width: (stats.ageProgress * 100) + '%'}} />
+                              </div>
+                            )}
+                            {!stats.nextAge && stats.currentAge === Age.CITY_STATE && (
+                              <span className="text-[8px] text-amber-400 font-cinzel font-semibold tracking-widest">MAX</span>
+                            )}
+                            {!stats.nextAge && stats.currentAge !== Age.CITY_STATE && (
+                              <span className="text-[8px] text-stone-300 font-inter">Click TC to advance</span>
+                            )}
                           </div>
-                        )}
-                        {!stats.nextAge && stats.currentAge === Age.CITY_STATE && (
-                          <span className="text-[8px] text-amber-400 font-bold">MAX</span>
-                        )}
-                        {!stats.nextAge && stats.currentAge !== Age.CITY_STATE && (
-                          <span className="text-[8px] text-stone-500">Click TC to advance</span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex flex-col items-center min-w-[60px]">
-                        <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
-                            <Smile size={16} />
-                            <span>{stats.happiness}%</span>
                         </div>
-                        {stats.happiness < 50 && (
-                            <span className="text-[10px] text-red-400 animate-pulse font-bold tracking-wider">REVOLT RISK</span>
-                        )}
-                    </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1" title={stats.currentSeason}>
-                        <span className={`text-sm font-bold ${
-                            stats.currentSeason === 'spring' ? 'text-emerald-400' :
-                            stats.currentSeason === 'summer' ? 'text-yellow-400' :
-                            stats.currentSeason === 'autumn' ? 'text-orange-400' :
-                            'text-blue-300'
-                        }`}>
-                            {stats.currentSeason === 'spring' ? '🌱' : stats.currentSeason === 'summer' ? '☀️' : stats.currentSeason === 'autumn' ? '🍂' : '❄️'}
-                        </span>
-                        <span className="text-[10px] font-bold text-stone-300 uppercase tracking-wide">{stats.currentSeason}</span>
-                    </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title="Happiness"
+                        body={
+                            stats.happiness < 50
+                                ? 'Unrest spreading — build parks, cathedrals or lower taxes'
+                                : 'Your citizens are content'
+                        }
+                    >
+                        <div className="flex flex-col items-center min-w-[60px]">
+                            <div className={`flex items-center gap-2 font-cinzel font-semibold text-lg tracking-wider ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
+                                <Smile size={16} />
+                                <span>{stats.happiness}%</span>
+                            </div>
+                            {stats.happiness < 50 && (
+                                <span className="text-[10px] text-red-400 animate-pulse font-cinzel font-semibold tracking-widest uppercase">REVOLT RISK</span>
+                            )}
+                        </div>
+                    </HudTooltip>
+                    <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title={`${stats.currentSeason.charAt(0).toUpperCase() + stats.currentSeason.slice(1)}`}
+                        body={<>Season cycles affect yields and growth</>}
+                    >
+                        <div className="flex items-center gap-2 px-1">
+                            <span className={`text-sm font-bold ${
+                                stats.currentSeason === 'spring' ? 'text-emerald-400' :
+                                stats.currentSeason === 'summer' ? 'text-yellow-400' :
+                                stats.currentSeason === 'autumn' ? 'text-orange-400' :
+                                'text-blue-300'
+                            }`}>
+                                {stats.currentSeason === 'spring' ? '🌱' : stats.currentSeason === 'summer' ? '☀️' : stats.currentSeason === 'autumn' ? '🍂' : '❄️'}
+                            </span>
+                            <span className="text-[10px] font-cinzel font-semibold text-stone-300 uppercase tracking-widest">{stats.currentSeason}</span>
+                        </div>
+                    </HudTooltip>
                     {typeof stats.playerTerritoryPercent === 'number' && stats.playerTerritoryPercent > 0 && (
-                        <div className="flex items-center gap-1 px-1" title={`Territory: ${Math.round(stats.playerTerritoryPercent * 100)}%`}>
-                            <span className="text-[10px] font-bold text-cyan-400">🏰 {Math.round(stats.playerTerritoryPercent * 100)}%</span>
-                        </div>
+                        <HudTooltip
+                            placement="bottom"
+                            title="Territory"
+                            body={<>You control {Math.round(stats.playerTerritoryPercent * 100)}% of the map</>}
+                        >
+                            <div className="flex items-center gap-1 px-1">
+                                <span className="text-[10px] font-cinzel font-semibold text-cyan-400 tracking-widest">🏰 {Math.round(stats.playerTerritoryPercent * 100)}%</span>
+                            </div>
+                        </HudTooltip>
                     )}
-                     <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-1" title="Diplomacy">
-                        {stats.peacefulMode ? (
-                            <span className="text-[10px] font-bold text-emerald-400">🕊️ Peace</span>
-                        ) : stats.treatyTimeRemaining > 0 ? (
-                            <span className="text-[10px] font-bold text-amber-400">⏱ Treaty {Math.ceil(stats.treatyTimeRemaining / 1000)}s</span>
-                        ) : (
-                            <span className="text-[10px] font-bold text-red-400">⚔️ War</span>
-                        )}
-                    </div>
+                     <div className="hud-rule w-px h-7 divider-diamond" />
+                    <HudTooltip
+                        placement="bottom"
+                        title="Diplomacy"
+                        body={
+                            stats.peacefulMode
+                                ? <>Peaceful mode — no AI aggression</>
+                                : stats.treatyTimeRemaining > 0
+                                ? <>Treaty {Math.ceil(stats.treatyTimeRemaining / 1000)}s remaining</>
+                                : <>You are at war with the AI</>
+                        }
+                    >
+                        <div className="flex items-center gap-1">
+                            {stats.peacefulMode ? (
+                                <span className="text-[10px] font-cinzel font-semibold text-emerald-400 tracking-widest uppercase">🕊️ Peace</span>
+                            ) : stats.treatyTimeRemaining > 0 ? (
+                                <span className="text-[10px] font-cinzel font-semibold text-amber-400 tracking-widest uppercase">⏱ Treaty {Math.ceil(stats.treatyTimeRemaining / 1000)}s</span>
+                            ) : (
+                                <span className="text-[10px] font-cinzel font-semibold text-red-400 tracking-widest uppercase">⚔️ War</span>
+                            )}
+                        </div>
+                    </HudTooltip>
                 </div>
             </div>
 
@@ -366,7 +525,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     onChange={handleTaxChange}
                                     className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
                                 />
-                                <div className="text-[10px] text-stone-500 flex justify-between px-1">
+                                <div className="text-[10px] text-stone-300 flex justify-between px-1">
                                     <span>Benevolent</span>
                                     <span>Tyrant</span>
                                 </div>
@@ -478,9 +637,9 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <div className="flex-1 px-4 py-2 flex flex-col justify-center">
                                 {selectedBuildingType ? (
                                     <>
-                                        <h3 className="text-lg font-serif font-bold text-stone-100 flex items-center justify-between">
+                                        <h3 className="text-lg font-cinzel font-semibold text-stone-100 flex items-center justify-between tracking-wider">
                                             {BUILDINGS[selectedBuildingType].name}
-                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-500 hover:text-white">
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-300 hover:text-white">
                                                 <X size={16} />
                                             </button>
                                         </h3>
@@ -505,8 +664,8 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 ) : (
                                     <div className="flex flex-col gap-1 w-full">
                                         <div className="flex justify-between items-center mb-1">
-                                            <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">Selected Group</span>
-                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-500 hover:text-white">
+                                            <span className="text-xs font-cinzel font-semibold text-stone-400 uppercase tracking-widest">Selected Group</span>
+                                            <button onClick={() => window.dispatchEvent(new CustomEvent('clear-selection'))} className="text-stone-300 hover:text-white">
                                                 <X size={16} />
                                             </button>
                                         </div>
@@ -672,13 +831,13 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                     })}
                                             </div>
                                         )}
-                                        <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide">
+                                        <div className="text-[10px] text-stone-300 font-bold px-2 uppercase tracking-wide">
                                             Right Click to Move
                                         </div>
                                     </div>
                                 )}
                                 {selectedBuildingType === BuildingType.BARRACKS && (
-                                    <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
+                                    <div className="text-[10px] text-stone-300 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
                                         Right Click map to set waypoint
                                     </div>
                                 )}
@@ -692,7 +851,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         {(stats.selectedBuildingInfo?.garrisonCount ?? 0) > 0 && onReleaseGarrison && (
                                             <ActionButton onClick={onReleaseGarrison} icon={<LogOut size={18} />} label="Release" color="text-emerald-400" />
                                         )}
-                                        <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
+                                        <div className="text-[10px] text-stone-300 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
                                             Right Click with units to garrison
                                         </div>
                                     </div>
@@ -711,7 +870,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 <div className={`bg-black/70 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl animate-in slide-in-from-bottom-2 fade-in duration-200 mb-2 ${showTreeView ? 'w-[640px]' : 'w-[420px] overflow-hidden'}`}>
                                 {/* Header with toggle */}
                                 <div className="flex items-center justify-between mb-3">
-                                    <h3 className="text-sm font-bold text-stone-100 uppercase tracking-widest flex items-center gap-2">
+                                    <h3 className="text-sm font-cinzel font-semibold text-stone-100 uppercase tracking-widest flex items-center gap-2">
                                         <BookOpen size={16} className="text-blue-400" />
                                         Research
                                     </h3>
@@ -968,24 +1127,39 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                         {/* Main Dock */}
                         <div className="hud-surface flex items-center gap-2 p-1.5 rounded-xl">
-                            <DockButton
-                                isActive={activeCategory === 'economy'}
-                                onClick={() => { setActiveCategory(activeCategory === 'economy' ? null : 'economy'); setShowResearch(false); }}
-                                icon={<Pickaxe size={20} />}
-                                label="Economy"
-                            />
-                            <DockButton
-                                isActive={activeCategory === 'military'}
-                                onClick={() => { setActiveCategory(activeCategory === 'military' ? null : 'military'); setShowResearch(false); }}
-                                icon={<Sword size={20} />}
-                                label="Military"
-                            />
-                            <DockButton
-                                isActive={activeCategory === 'civic'}
-                                onClick={() => { setActiveCategory(activeCategory === 'civic' ? null : 'civic'); if (activeCategory === 'civic') setShowResearch(false); }}
-                                icon={<Tent size={20} />}
-                                label="Civic"
-                            />
+                            <HudTooltip
+                                title="Economy"
+                                body={<>Available: 6 building types (House, Farm, Lumber Camp, Hunter's Lodge, Town Center, Market)</>}
+                            >
+                                <DockButton
+                                    isActive={activeCategory === 'economy'}
+                                    onClick={() => { setActiveCategory(activeCategory === 'economy' ? null : 'economy'); setShowResearch(false); }}
+                                    icon={<Pickaxe size={20} />}
+                                    label="Economy"
+                                />
+                            </HudTooltip>
+                            <HudTooltip
+                                title="Military"
+                                body={<>Available: 3 building types (Barracks, Wall, Castle)</>}
+                            >
+                                <DockButton
+                                    isActive={activeCategory === 'military'}
+                                    onClick={() => { setActiveCategory(activeCategory === 'military' ? null : 'military'); setShowResearch(false); }}
+                                    icon={<Sword size={20} />}
+                                    label="Military"
+                                />
+                            </HudTooltip>
+                            <HudTooltip
+                                title="Civic"
+                                body={<>Available: 3 building types (Bonfire, Small Park, Cathedral)</>}
+                            >
+                                <DockButton
+                                    isActive={activeCategory === 'civic'}
+                                    onClick={() => { setActiveCategory(activeCategory === 'civic' ? null : 'civic'); if (activeCategory === 'civic') setShowResearch(false); }}
+                                    icon={<Tent size={20} />}
+                                    label="Civic"
+                                />
+                            </HudTooltip>
 
                             <div className="w-px h-8 bg-white/10 mx-1" />
 
@@ -1014,7 +1188,7 @@ export const GameUI: React.FC<GameUIProps> = ({
             {/* Event ledger: compact, readable feedback anchored away from the command dock. */}
             {stats.notifications && stats.notifications.length > 0 && (
                 <div className="absolute top-20 right-4 flex flex-col gap-1.5 pointer-events-auto w-[min(21rem,calc(100vw-2rem))]">
-                    <div className="hud-kicker px-1">Recent events</div>
+                    <div className="hud-kicker font-inter">Recent events</div>
                     {stats.notifications.slice(-4).map((n) => {
                         const isTaunt = !!n.personality;
                         const colors = isTaunt
@@ -1116,8 +1290,8 @@ const ResourceItem: React.FC<ResourceItemProps> = ({ icon, value, sub }) => (
             {icon}
         </div>
         <div className="flex items-baseline gap-1">
-            <span className="font-bold text-lg leading-none">{value}</span>
-            {sub && <span className="text-[10px] text-stone-400 font-mono font-bold opacity-80">{sub}</span>}
+            <span className="font-cinzel font-semibold tracking-wide text-lg leading-none text-stone-100">{value}</span>
+            {sub && <span className="text-[10px] text-stone-400 font-cinzel font-semibold tracking-wider opacity-80">{sub}</span>}
         </div>
     </div>
 );
@@ -1137,7 +1311,7 @@ const DockButton: React.FC<DockButtonProps> = ({ isActive, onClick, icon, label 
         `}
     >
         {icon}
-        <span className={`text-xs font-bold uppercase tracking-wider transition-all duration-300 ${isActive ? 'max-w-[100px] opacity-100 ml-1' : 'max-w-0 opacity-0 overflow-hidden'}`}>
+        <span className={`text-xs font-cinzel font-semibold uppercase tracking-wider transition-all duration-300 ${isActive ? 'max-w-[100px] opacity-100 ml-1' : 'max-w-0 opacity-0 overflow-hidden'}`}>
             {label}
         </span>
         {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full"></div>}
@@ -1164,27 +1338,12 @@ const ActionButton: React.FC<ActionButtonProps> = ({ onClick, icon, label, color
 // Helper to generate build icons based on category
 const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: BuildingType) => void) => {
     const list: React.ReactNode[] = [];
-
-    const renderBuildBtn = (type: BuildingType, icon: React.ReactNode) => (
-        <BuildCard key={type} type={type} stats={stats} onClick={() => onBuild(type)} icon={icon} />
-    );
-
-    if (cat === 'economy') {
-        list.push(renderBuildBtn(BuildingType.HOUSE, <Home size={18} />));
-        list.push(renderBuildBtn(BuildingType.FARM, <Wheat size={18} />));
-        list.push(renderBuildBtn(BuildingType.LUMBER_CAMP, <Pickaxe size={18} />));
-        list.push(renderBuildBtn(BuildingType.HUNTERS_LODGE, <Rabbit size={18} />));
-        list.push(renderBuildBtn(BuildingType.TOWN_CENTER, <Tent size={18} />));
-        list.push(renderBuildBtn(BuildingType.MARKET, <Coins size={18} />));
-    } else if (cat === 'civic') {
-        list.push(renderBuildBtn(BuildingType.BONFIRE, <Flame size={18} />));
-        list.push(renderBuildBtn(BuildingType.SMALL_PARK, <Flower size={18} />));
-        list.push(renderBuildBtn(BuildingType.CATHEDRAL, <Church size={18} />));
-    } else if (cat === 'military') {
-        list.push(renderBuildBtn(BuildingType.BARRACKS, <Hammer size={18} />));
-        list.push(renderBuildBtn(BuildingType.WALL, <Shield size={18} />));
-        list.push(renderBuildBtn(BuildingType.CASTLE, <Crown size={18} />));
-    }
+    const items = CATEGORY_BUILDINGS[cat as keyof typeof CATEGORY_BUILDINGS] ?? [];
+    items.forEach(({ type, icon }) => {
+        list.push(
+            <BuildCard key={type} type={type} stats={stats} onClick={() => onBuild(type)} icon={icon} />
+        );
+    });
     return list;
 };
 

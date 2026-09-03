@@ -59,9 +59,9 @@ export class VillagerSystem {
         if (this.scene.worldLayer) this.scene.worldLayer.add(visual);
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
 
-        const primaryColor = this.scene.getFactionColor(owner);
+        // Faint contact shadow (pooled per-villager; throttled by no-update path).
         const shadow = this.scene.add.graphics();
-        shadow.fillStyle(primaryColor, 0.35).fillEllipse(0, 0, 12, 6);
+        shadow.fillStyle(0x000000, 0.25).fillEllipse(0, 0, 10, 5);
         const sprite = this.scene.add.image(0, 0, VILLAGER_FACING_TEXTURES.south)
             .setOrigin(0.5, 0.91)
             .setScale(0.22);

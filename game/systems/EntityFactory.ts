@@ -6,11 +6,21 @@ import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUIL
 import { toIso, toIsoElev } from '../utils/iso';
 import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
+const BUILDING_SHADOW_BASE_COLOR = 0x1a1208;
+const BUILDING_SHADOW_BASE_ALPHA = 0.35;
+const DAY_NIGHT_SHADOW_ALPHA_REFERENCE = 0.30;
+const DAY_NIGHT_STATE_DATA_KEY = 'dayNightState';
+
 export class EntityFactory {
     private scene: MainScene;
+    private buildingShadows = new Map<Phaser.GameObjects.Graphics, { width: number; height: number }>();
 
     constructor(scene: MainScene) {
         this.scene = scene;
+        this.scene.events.on('changedata', this.handleDayNightDataChange, this);
+        this.scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+            this.scene.events.off('changedata', this.handleDayNightDataChange, this);
+        });
     }
 
     public spawnBuilding(type: BuildingType, x: number, y: number, owner: number = 0): Phaser.GameObjects.GameObject {
@@ -49,6 +59,15 @@ export class EntityFactory {
 
 
         const visual = this.scene.add.container(0, 0);
+        // Ground shadow: soft warm-dark ellipse sized to the footprint, kept
+        // below the building art so the iso base overlaps it. Added as a child
+        // of the visual container so it is destroyed with the building.
+        const groundShadow = this.scene.add.graphics();
+        const groundShadowWidth = def.width * 0.62;
+        const groundShadowHeight = def.height * 0.42;
+        groundShadow.fillStyle(0x1a1208, 0.35).fillEllipse(0, 0, groundShadowWidth, groundShadowHeight);
+        visual.addAt(groundShadow, 0);
+        this.registerBuildingShadow(groundShadow, groundShadowWidth, groundShadowHeight);
         this.scene.worldVisuals.add(visual); // Add to ignored group
         if (this.scene.worldLayer) this.scene.worldLayer.add(visual); // Add to rendering layer
         if (this.scene.uiCamera) this.scene.uiCamera.ignore(visual);
@@ -125,6 +144,9 @@ export class EntityFactory {
 
         const iso = toIsoElev(x, y, this.scene.terrainSystem.getHeightAt(x, y));
         visual.setPosition(iso.x, iso.y).setDepth(iso.y);
+        // Position ground shadow relative to iso base
+        const shadow = visual.getAt(0) as Phaser.GameObjects.Graphics;
+        shadow.setPosition(0, 0).setDepth(0);
 
         // --- VACANT / NO RES ICONS (UI Camera Only) ---
         // These are added to uiGroup so they are NOT bloomed
@@ -232,6 +254,48 @@ export class EntityFactory {
         }
 
         return b;
+    }
+
+    /** Track a building's static contact-shadow graphics so day/night updates can modulate it. */
+    private registerBuildingShadow(shadow: Phaser.GameObjects.Graphics, width: number, height: number): void {
+        this.buildingShadows.set(shadow, { width, height });
+        shadow.once(Phaser.GameObjects.Events.DESTROY, () => {
+            this.buildingShadows.delete(shadow);
+        });
+    }
+
+    /** React to day/night state publishes and modulate every building contact shadow. */
+    private handleDayNightDataChange(parent: Phaser.Data.DataManager, key: string, value: unknown): void {
+        if (key !== DAY_NIGHT_STATE_DATA_KEY) return;
+        const state = value as { shadowAlpha?: number } | undefined;
+        const shadowAlpha = typeof state?.shadowAlpha === 'number' ? state.shadowAlpha : 0;
+
+        for (const [shadow, dims] of this.buildingShadows) {
+            if (!shadow || !shadow.active) continue;
+            const factor = Math.max(0, Math.min(1, shadowAlpha / DAY_NIGHT_SHADOW_ALPHA_REFERENCE));
+            const modulatedAlpha = BUILDING_SHADOW_BASE_ALPHA * factor;
+            const modulatedColor = EntityFactory.modulateBuildingShadowColor(BUILDING_SHADOW_BASE_COLOR, factor);
+            shadow.clear();
+            shadow.fillStyle(modulatedColor, modulatedAlpha);
+            shadow.fillEllipse(0, 0, dims.width, dims.height);
+        }
+    }
+
+    /**
+     * Warm the baseline building-shadow color at full sun and cool it toward
+     * slate as the sun drops, with a small per-channel offset proportional to
+     * the day/night shadow strength.
+     */
+    private static modulateBuildingShadowColor(baseColor: number, factor: number): number {
+        const baseR = (baseColor >> 16) & 0xff;
+        const baseG = (baseColor >> 8) & 0xff;
+        const baseB = baseColor & 0xff;
+        const warmth = Math.max(0, Math.min(1, factor));
+        const shift = Math.round((warmth - 0.5) * 2 * 24);
+        const r = Math.min(255, Math.max(0, baseR + shift));
+        const g = Math.min(255, Math.max(0, baseG + (shift >> 1)));
+        const b = Math.min(255, Math.max(0, baseB - shift));
+        return (r << 16) | (g << 8) | b;
     }
 
     /** Add a local, additive firelight halo without raising global bloom. */

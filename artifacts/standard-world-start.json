@@ -1,0 +1,92 @@
+{
+  "attempts": [
+    {
+      "attempt": 1,
+      "loadDurationMs": 25599,
+      "mapWidth": 2048,
+      "mapHeight": 2048,
+      "buildingCount": 3,
+      "unitCount": 4,
+      "isReady": true,
+      "hud": {
+        "resourceHudVisible": true,
+        "visibleSpeedControls": [
+          "0.5×",
+          "1×",
+          "2×",
+          "3×"
+        ]
+      },
+      "camera": {
+        "before": {
+          "x": -720,
+          "y": 574
+        },
+        "after": {
+          "x": -703.3333333333334,
+          "y": 574
+        }
+      },
+      "browserErrors": []
+    },
+    {
+      "attempt": 2,
+      "loadDurationMs": 32383,
+      "mapWidth": 2048,
+      "mapHeight": 2048,
+      "buildingCount": 3,
+      "unitCount": 4,
+      "isReady": true,
+      "hud": {
+        "resourceHudVisible": true,
+        "visibleSpeedControls": [
+          "0.5×",
+          "1×",
+          "2×",
+          "3×"
+        ]
+      },
+      "camera": {
+        "before": {
+          "x": -720,
+          "y": 574
+        },
+        "after": {
+          "x": -703.3333333333334,
+          "y": 574
+        }
+      },
+      "browserErrors": []
+    },
+    {
+      "attempt": 3,
+      "loadDurationMs": 25891,
+      "mapWidth": 2048,
+      "mapHeight": 2048,
+      "buildingCount": 3,
+      "unitCount": 4,
+      "isReady": true,
+      "hud": {
+        "resourceHudVisible": true,
+        "visibleSpeedControls": [
+          "0.5×",
+          "1×",
+          "2×",
+          "3×"
+        ]
+      },
+      "camera": {
+        "before": {
+          "x": -720,
+          "y": 574
+        },
+        "after": {
+          "x": -703.3333333333334,
+          "y": 574
+        }
+      },
+      "browserErrors": []
+    }
+  ],
+  "browserErrors": []
+}

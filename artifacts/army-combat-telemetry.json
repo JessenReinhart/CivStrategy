@@ -1,0 +1,362 @@
+{
+  "phase": "complete",
+  "browserErrors": [],
+  "setup": {
+    "arena": {
+      "center": {
+        "x": 1284,
+        "y": 1114
+      },
+      "starts": [
+        {
+          "x": 1272,
+          "y": 1114
+        },
+        {
+          "x": 1284,
+          "y": 1114
+        },
+        {
+          "x": 1296,
+          "y": 1114
+        }
+      ],
+      "moveTarget": {
+        "x": 1356,
+        "y": 1114
+      }
+    },
+    "playerStart": [
+      {
+        "x": 1272,
+        "y": 1114,
+        "hp": 200
+      },
+      {
+        "x": 1284,
+        "y": 1114,
+        "hp": 200
+      },
+      {
+        "x": 1296,
+        "y": 1114,
+        "hp": 200
+      }
+    ]
+  },
+  "selection": {
+    "left": 678,
+    "right": 762,
+    "top": 398.7648506164552,
+    "bottom": 471.6559283733369,
+    "points": [
+      {
+        "x": 702,
+        "y": 422.7648506164552
+      },
+      {
+        "x": 720,
+        "y": 434.57922101020824
+      },
+      {
+        "x": 738,
+        "y": 447.6559283733369
+      }
+    ]
+  },
+  "afterSelection": {
+    "gameTime": 524.9350000000002,
+    "actualFps": 1.0006436153674871,
+    "selectedCount": 3,
+    "players": [
+      {
+        "x": 1272,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 0,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1284,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 0,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1296,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 0,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      }
+    ],
+    "enemies": []
+  },
+  "moveStarted": {
+    "gameTime": 562.4350000000002,
+    "actualFps": 1.0002715252331587,
+    "selectedCount": 3,
+    "players": [
+      {
+        "x": 1272,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1284,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1296,
+        "y": 1114,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 3,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      }
+    ],
+    "enemies": []
+  },
+  "afterMovement": {
+    "gameTime": 624.9350000000002,
+    "actualFps": 1.2500859122808041,
+    "selectedCount": 3,
+    "players": [
+      {
+        "x": 1268.5242626027066,
+        "y": 1109.5968542725032,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1288.3287809893554,
+        "y": 1110.4333551017173,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1296,
+        "y": 1108.2777777777774,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 3,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      }
+    ],
+    "enemies": []
+  },
+  "initialMoveDistances": [
+    5.609674032643764,
+    5.608859125013827,
+    5.722222222222626
+  ],
+  "combatSetup": {
+    "centroid": {
+      "x": 1284.3539777985063,
+      "y": 1108.295180828811
+    },
+    "pausedAtGameTime": 637.4350000000002,
+    "previousGameSpeed": 0.75,
+    "enemies": [
+      {
+        "x": 1320.3539777985063,
+        "y": 1108.295180828811,
+        "hp": 10
+      },
+      {
+        "x": 1320.3539777985063,
+        "y": 1126.295180828811,
+        "hp": 10
+      }
+    ]
+  },
+  "attackCommand": {
+    "gameTime": 637.4350000000002,
+    "gameSpeed": 0,
+    "peacefulMode": true,
+    "targetHp": 10,
+    "accepted": [
+      {
+        "targetsEnemy": true,
+        "explicitTarget": true,
+        "state": "chasing"
+      },
+      {
+        "targetsEnemy": true,
+        "explicitTarget": true,
+        "state": "attacking"
+      },
+      {
+        "targetsEnemy": true,
+        "explicitTarget": true,
+        "state": "attacking"
+      }
+    ]
+  },
+  "combatEnabledAtGameTime": 637.4350000000002,
+  "afterCombat": {
+    "gameTime": 674.9350000000002,
+    "actualFps": 1.0105624125248927,
+    "selectedCount": 3,
+    "players": [
+      {
+        "x": 1267.7428438817014,
+        "y": 1104.06305087759,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": true,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1294.6095995760834,
+        "y": 1105.4596324614529,
+        "active": true,
+        "hp": 200,
+        "state": "chasing",
+        "pathLength": 0,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": 1
+      },
+      {
+        "x": 1301.123674492282,
+        "y": 1108.3175447429749,
+        "active": true,
+        "hp": 200,
+        "state": "attacking",
+        "pathLength": 0,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": 1
+      }
+    ],
+    "enemies": [
+      {
+        "x": 1320.3539777985063,
+        "y": 1108.295180828811,
+        "active": false,
+        "hp": null,
+        "inUnitGroup": false,
+        "inSpatialHash": false
+      },
+      {
+        "x": 1319.2217333166911,
+        "y": 1125.9217603204413,
+        "active": false,
+        "hp": null,
+        "inUnitGroup": false,
+        "inSpatialHash": false
+      }
+    ]
+  },
+  "rally": {
+    "target": {
+      "x": 1360.3725387212119,
+      "y": 1105.9345243370915
+    },
+    "survivorCount": 3
+  },
+  "afterRally": {
+    "gameTime": 887.4350000000002,
+    "actualFps": 1.0000793970932216,
+    "selectedCount": 3,
+    "players": [
+      {
+        "x": 1274.8958890873325,
+        "y": 1104.06305087759,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": true,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1306.9832712713658,
+        "y": 1104.907755473555,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      },
+      {
+        "x": 1306.0772606408993,
+        "y": 1105.2769758094903,
+        "active": true,
+        "hp": 200,
+        "state": "idle",
+        "pathLength": 2,
+        "inUnitGroup": true,
+        "explicitTarget": false,
+        "targetEnemyIndex": -1
+      }
+    ],
+    "enemies": [
+      {
+        "x": 1320.3539777985063,
+        "y": 1108.295180828811,
+        "active": false,
+        "hp": null,
+        "inUnitGroup": false,
+        "inSpatialHash": false
+      },
+      {
+        "x": 1319.2217333166911,
+        "y": 1125.9217603204413,
+        "active": false,
+        "hp": null,
+        "inUnitGroup": false,
+        "inSpatialHash": false
+      }
+    ]
+  }
+}

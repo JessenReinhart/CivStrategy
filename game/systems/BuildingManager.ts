@@ -629,57 +629,44 @@ export class BuildingManager {
         const def = selected.getData('def') as BuildingDef;
         if (!def || !def.effectRadius) return;
 
-        // Create the light cylinder effect for selected building
+        // Brass outline ring on the ground (slightly inset from footprint) with a
+        // slow pulse — replaces the previous light-cylinder effect.
         const b = selected as Phaser.GameObjects.Rectangle;
         const iso = toIsoElev(b.x, b.y, this.scene.terrainSystem.getHeightAt(b.x, b.y));
-        const radius = def.effectRadius;
-        const wallHeight = 150;
-        const segments = 48;
+        const footprint = Math.max(def.width ?? 0, def.height ?? 0);
+        const ringRadius = footprint * 0.5 * 0.9;
+        const ring = this.scene.add.graphics();
+        ring.lineStyle(3, 0xDAA520, 0.7);
+        ring.strokeEllipse(0, 0, ringRadius * 2, ringRadius * 0.9);
+        ring.setPosition(iso.x, iso.y);
+        ring.setDepth(100);
+        this.scene.worldLayer.add(ring);
 
-        this.activeSelectionBeam = this.scene.add.graphics();
-        this.activeSelectionBeam.setPosition(iso.x, iso.y);
-        this.activeSelectionBeam.setDepth(100);
-        this.scene.worldLayer.add(this.activeSelectionBeam);
-
-        const graphics = this.activeSelectionBeam;
-
-        // Draw vertical wall segments around the cylinder
-        for (let i = 0; i < segments; i++) {
-            const angle1 = (i / segments) * Math.PI * 2;
-            const angle2 = ((i + 1) / segments) * Math.PI * 2;
-
-            const x1 = Math.cos(angle1) * radius;
-            const y1 = Math.sin(angle1) * radius * 0.5;
-            const x2 = Math.cos(angle2) * radius;
-            const y2 = Math.sin(angle2) * radius * 0.5;
-
-            const fadeSteps = 5;
-            for (let s = 0; s < fadeSteps; s++) {
-                const stepProgress = s / fadeSteps;
-                const nextProgress = (s + 1) / fadeSteps;
-                const stepAlpha = 0.2 * (1 - stepProgress);
-
-                const stepY1 = y1 - wallHeight * stepProgress;
-                const stepY2 = y2 - wallHeight * stepProgress;
-                const nextY1 = y1 - wallHeight * nextProgress;
-                const nextY2 = y2 - wallHeight * nextProgress;
-
-                graphics.fillStyle(0xffd700, stepAlpha);
-                graphics.beginPath();
-                graphics.moveTo(x1, stepY1);
-                graphics.lineTo(x2, stepY2);
-                graphics.lineTo(x2, nextY2);
-                graphics.lineTo(x1, nextY1);
-                graphics.closePath();
-                graphics.fillPath();
-            }
+        if (this.scene.tweens) {
+            this.scene.tweens.add({
+                targets: ring,
+                alpha: { from: 0.5, to: 1.0 },
+                duration: 1200,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut',
+            });
         }
 
-        // Draw glowing ring at the base
-        graphics.lineStyle(3, 0xffd700, 0.8);
-        graphics.strokeEllipse(0, 0, radius * 2.02, radius * 1.01);
-        graphics.lineStyle(2, 0xffffcc, 1.0);
-        graphics.strokeEllipse(0, 0, radius * 2, radius);
+        this.activeSelectionBeam = ring;
+
+        // On hover (during non-demolish play) brighten the ground shadow so the
+        // player can read the hovered target.
+        if (!this.isDemolishMode) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const visual = (selected as any).visual as Phaser.GameObjects.Container;
+            if (visual) {
+                const gs = visual.getAt(0) as Phaser.GameObjects.Graphics;
+                if (gs) {
+                    gs.fillStyle(0x1a1208, 0.5).fillEllipse(0, 0, def.width * 0.62, def.height * 0.42);
+                }
+            }
+        }
     }
 
     /** Return wall buildings within `radius` of (x, y). Optionally filter by owner. */

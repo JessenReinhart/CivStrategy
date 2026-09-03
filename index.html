@@ -21,7 +21,7 @@
         --terracotta: #8B5A2B;
         --hud-ink: rgba(12, 11, 10, .88);
         --hud-line: rgba(230, 220, 196, .16);
-        --hud-muted: rgba(245, 241, 232, .62);
+        --hud-muted: rgba(245, 241, 232, .85);
       }
 
       body {
@@ -47,6 +47,99 @@
         text-transform: uppercase;
       }
       .hud-rule { background: var(--hud-line); }
+      /* Tooltip system */
+      .hud-tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        min-width: 150px;
+        padding: 6px 8px;
+        background: linear-gradient(180deg, rgba(30,27,22,.95), rgba(15,13,11,.85));
+        border: 1px solid rgba(203,163,116,.4);
+        border-radius: 6px;
+        color: var(--dust-white);
+        font-size: 10px;
+        line-height: 1.4;
+        opacity: 0;
+        pointer-events: none;
+        z-index: 100;
+        transition: opacity 0.15s ease;
+        box-shadow: 0 4px 12px rgba(0,0,0,.3);
+      }
+      .hud-tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border: 5px solid transparent;
+        border-top-color: rgba(30,27,22,.95);
+      }
+      .hud-tooltip.active { opacity: 1; }
+      .hud-tooltip-bottom {
+        bottom: auto;
+        top: 100%;
+        margin-top: 6px;
+      }
+      .hud-tooltip-bottom::after {
+        top: -5px;
+        bottom: auto;
+        border-top-color: transparent;
+        border-bottom-color: rgba(30,27,22,.95);
+      }
+      .hud-tooltip-title {
+        font-family: 'Cinzel', serif;
+        font-weight: 600;
+        font-size: 10px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+        color: var(--gold-leaf);
+        margin-bottom: 4px;
+        display: block;
+      }
+      .hud-tooltip-body {
+        font-family: 'Inter', sans-serif;
+        font-size: 9px;
+        color: var(--dust-white);
+      }
+      /* Serif utility for headings */
+      .font-cinzel { font-family: 'Cinzel', serif; }
+      .font-inter { font-family: 'Inter', sans-serif; }
+      /* Brass border with inner shadow for surface upgrade */
+      .hud-surface-brass {
+        background: linear-gradient(180deg, rgba(203,163,116,0.4), rgba(168,106,66,0.15));
+        border: 1px solid rgba(203,163,116,.3);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, .28), inset 0 1px rgba(255,255,255,.04);
+      }
+      /* Age block glow when advance possible */
+      .age-block-advance {
+        box-shadow: 0 0 12px rgba(251,191,36,.4);
+        transition: box-shadow .2s ease;
+      }
+      .age-block-advance.pulsing {
+        animation: pulse-amber 2s ease-in-out infinite;
+      }
+      @keyframes pulse-amber {
+        0%, 100% { box-shadow: 0 0 8px rgba(251,191,36,.3); }
+        50% { box-shadow: 0 0 20px rgba(251,191,36,.6); }
+      }
+      /* Diamond divider accent */
+      .divider-diamond {
+        position: relative;
+      }
+      .divider-diamond::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%) rotate(45deg);
+        width: 5px;
+        height: 5px;
+        background: var(--gold-leaf);
+        border-radius: 1px;
+        box-shadow: 0 0 4px rgba(212,175,55,.5);
+      }
 
       /* Disable selection on game container to prevent UI text selection while dragging */
       #game-container { user-select: none; }

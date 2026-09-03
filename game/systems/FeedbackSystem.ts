@@ -189,4 +189,29 @@ export class FeedbackSystem {
             this.scene.tweens.add({ targets: flash, alpha: 0, scale: 0.3, duration: 200, onComplete: () => this.releaseDeathFlash(flash) });
         }
     }
+
+    /** Brief expanding ring at a world position, used to acknowledge issued commands. */
+    showCommandRing(worldX: number, worldY: number, color: number = 0xffffff): void {
+        const iso = toIso(worldX, worldY);
+        const graphics = this.scene.add.graphics();
+        graphics.setPosition(iso.x, iso.y).setDepth(Number.MAX_VALUE - 1);
+        const maxRadius = 30;
+        this.scene.tweens.addCounter({
+            from: 0,
+            to: maxRadius,
+            duration: 400,
+            ease: 'Quad.easeOut',
+            onUpdate: (tween: Phaser.Tweens.Tween) => {
+                const radius = tween.getValue() ?? 0;
+                const alpha = 0.8 * (1 - tween.progress);
+                graphics.clear();
+                graphics.fillStyle(color, alpha);
+                graphics.fillCircle(0, 0, radius);
+            },
+            onComplete: () => {
+                graphics.clear();
+                graphics.destroy();
+            },
+        });
+    }
 }

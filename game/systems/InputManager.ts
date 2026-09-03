@@ -21,6 +21,16 @@ export class InputManager {
     private selectionGraphics: Phaser.GameObjects.Graphics;
     private rightDragGraphics: Phaser.GameObjects.Graphics;
     private rightDragPoints: Phaser.Math.Vector2[] = [];
+    private targetZoom: number = -1;
+    private zoomMin = 0.4;
+    private zoomMax = 2.0;
+    private edgePanState = {
+        active: false,
+        dirX: 0,
+        dirY: 0,
+        timer: 0,
+        baseSpeed: 0.5,
+    };
 
     private lastClickTime = 0;
     private lastClickPos = new Phaser.Math.Vector2();
@@ -146,11 +156,13 @@ export class InputManager {
 
     public update(delta: number) {
         this.handleCameraMovement(delta);
+        this.handleEdgePan(delta);
+        this.handleZoomSmoothing(delta);
     }
 
     private handleZoom(deltaY: number) {
-        const newZoom = Phaser.Math.Clamp(this.scene.cameras.main.zoom - deltaY * 0.001, 0.5, 2);
-        this.scene.cameras.main.setZoom(newZoom);
+        const desired = Phaser.Math.Clamp(this.scene.cameras.main.zoom - deltaY * 0.001, this.zoomMin, this.zoomMax);
+        this.targetZoom = desired;
     }
 
     private handleCameraMovement(delta: number) {
@@ -159,6 +171,83 @@ export class InputManager {
         if (this.scene.cursors.right.isDown || this.scene.wasd.D.isDown) this.scene.cameras.main.scrollX += speed;
         if (this.scene.cursors.up.isDown || this.scene.wasd.W.isDown) this.scene.cameras.main.scrollY -= speed;
         if (this.scene.cursors.down.isDown || this.scene.wasd.S.isDown) this.scene.cameras.main.scrollY += speed;
+    }
+
+    private handleEdgePan(delta: number) {
+        const pointer = this.scene.input.activePointer;
+        if (!pointer) return;
+        const cam = this.scene.cameras.main;
+        const edgeSize = 40;
+        const width = cam.width;
+        const height = cam.height;
+
+        let dirX = 0;
+        let dirY = 0;
+        let factorX = 0;
+        let factorY = 0;
+
+        if (pointer.x <= edgeSize) {
+            dirX = -1;
+            factorX = (edgeSize - pointer.x) / edgeSize;
+        } else if (pointer.x >= width - edgeSize) {
+            dirX = 1;
+            factorX = (pointer.x - (width - edgeSize)) / edgeSize;
+        }
+
+        if (pointer.y <= edgeSize) {
+            dirY = -1;
+            factorY = (edgeSize - pointer.y) / edgeSize;
+        } else if (pointer.y >= height - edgeSize) {
+            dirY = 1;
+            factorY = (pointer.y - (height - edgeSize)) / edgeSize;
+        }
+
+        if (dirX === 0 && dirY === 0) {
+            this.edgePanState.active = false;
+            this.edgePanState.timer = 0;
+            return;
+        }
+
+        this.edgePanState.active = true;
+        this.edgePanState.dirX = dirX;
+        this.edgePanState.dirY = dirY;
+        this.edgePanState.timer = Math.min(this.edgePanState.timer + delta, 0.3);
+        const acceleration = this.edgePanState.timer / 0.3; // 0..1 ease-in window
+        const speedMultiplier = acceleration * acceleration; // quadratic ease-in curve
+        const speed = this.edgePanState.baseSpeed * delta * speedMultiplier / cam.zoom;
+        cam.scrollX += dirX * factorX * speed;
+        cam.scrollY += dirY * factorY * speed;
+    }
+
+    private handleZoomSmoothing(delta: number) {
+        if (this.targetZoom < 0) return;
+        const cam = this.scene.cameras.main;
+        if (Math.abs(this.targetZoom - cam.zoom) < 0.001) {
+            this.targetZoom = -1;
+            return;
+        }
+        // Frame-rate independent exponential approach toward target over ~0.25 s.
+        const t = 1 - Math.exp(-delta / 0.25);
+        let next = cam.zoom + (this.targetZoom - cam.zoom) * t;
+        next = Phaser.Math.Clamp(next, this.zoomMin, this.zoomMax);
+        cam.setZoom(next);
+        if (Math.abs(this.targetZoom - next) < 0.001) this.targetZoom = -1;
+    }
+
+    private addCommandAck(pointerWorld: Phaser.Math.Vector2) {
+        this.scene.feedbackSystem?.showCommandRing(pointerWorld.x, pointerWorld.y);
+        this.applyCameraNudge(pointerWorld.x, pointerWorld.y);
+    }
+
+    private applyCameraNudge(targetWorldX: number, targetWorldY: number) {
+        const cam = this.scene.cameras.main;
+        const dx = targetWorldX - cam.scrollX;
+        const dy = targetWorldY - cam.scrollY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 0.01) return;
+        const nudge = Math.min(5, dist);
+        cam.scrollX += (dx / dist) * nudge;
+        cam.scrollY += (dy / dist) * nudge;
     }
 
     private getMainPointerWorld(pointer: Phaser.Input.Pointer): Phaser.Math.Vector2 {
