@@ -632,7 +632,7 @@ try {
   evidence.phase = 'save';
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { player, villager, camp } = window.__canonicalPlaySessionProbe;
+    const { player, villager, camp, house, barracks } = window.__canonicalPlaySessionProbe;
     const gameSpeed = scene.gameSpeed;
     scene.gameSpeed = 0;
     return {
@@ -648,6 +648,8 @@ try {
       gameSpeed,
       worker: { x: villager.x, y: villager.y },
       camp: { x: camp.x, y: camp.y },
+      house: { x: house.x, y: house.y, type: house.getData('def')?.type },
+      barracks: { x: barracks.x, y: barracks.y, type: barracks.getData('def')?.type },
     };
   });
   await openGameMenu(page);
@@ -690,6 +692,14 @@ try {
       .sort((a, b) => Math.hypot(a.x - saved.camp.x, a.y - saved.camp.y) - Math.hypot(b.x - saved.camp.x, b.y - saved.camp.y))[0];
     if (!camp?.visual) throw new Error('Saved Lumber Camp was not restored.');
 
+    const restoreBuilding = (savedBuilding) => scene.buildings.getChildren()
+      .filter((building) => building.getData('owner') === 0 && building.getData('def')?.type === savedBuilding.type)
+      .sort((a, b) => Math.hypot(a.x - savedBuilding.x, a.y - savedBuilding.y) - Math.hypot(b.x - savedBuilding.x, b.y - savedBuilding.y))[0];
+    const house = restoreBuilding(saved.house);
+    const barracks = restoreBuilding(saved.barracks);
+    if (!house?.visual) throw new Error('Player-built House was not restored.');
+    if (!barracks?.visual) throw new Error('Player-built Barracks was not restored.');
+
     const villager = camp.getData('assignedWorker');
     if (!villager?.visual || villager.owner !== 0 || villager.jobBuilding !== camp) {
       throw new Error('Loaded Lumber Camp does not have a coherent player workforce assignment.');
@@ -700,7 +710,7 @@ try {
       .sort((a, b) => Math.hypot(a.x - camp.x, a.y - camp.y) - Math.hypot(b.x - camp.x, b.y - camp.y))[0];
     if (!tree) throw new Error('No active tree is available for post-load economy continuation.');
 
-    window.__canonicalPlaySessionProbe = { player, villager, savedVillager, camp, tree };
+    window.__canonicalPlaySessionProbe = { player, villager, savedVillager, camp, house, barracks, tree };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     return {
@@ -716,6 +726,8 @@ try {
       assignedWorkerId: villager.id,
       workerDistance: Math.hypot(savedVillager.x - saved.worker.x, savedVillager.y - saved.worker.y),
       campDistance: Math.hypot(camp.x - saved.camp.x, camp.y - saved.camp.y),
+      houseDistance: Math.hypot(house.x - saved.house.x, house.y - saved.house.y),
+      barracksDistance: Math.hypot(barracks.x - saved.barracks.x, barracks.y - saved.barracks.y),
     };
   }, evidence.beforeSave);
   if (Math.hypot(evidence.restored.x - evidence.beforeSave.x, evidence.restored.y - evidence.beforeSave.y) > 2) {
@@ -723,6 +735,8 @@ try {
   }
   if (evidence.restored.workerDistance > 2) throw new Error('Saved player villager was not restored at its saved position.');
   if (evidence.restored.campDistance > 2) throw new Error('Saved Lumber Camp was not restored at its saved position.');
+  if (evidence.restored.houseDistance > 2) throw new Error('Player-built House changed position across reload.');
+  if (evidence.restored.barracksDistance > 2) throw new Error('Player-built Barracks changed position across reload.');
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across canonical save/load.`);
   }
