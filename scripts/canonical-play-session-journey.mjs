@@ -681,21 +681,26 @@ try {
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
     if (!player) throw new Error('Trained survivor was not restored.');
 
-    const villager = scene.villagerSystem.getVillagersByOwner(0)
+    const savedVillager = scene.villagerSystem.getVillagersByOwner(0)
       .sort((a, b) => Math.hypot(a.x - saved.worker.x, a.y - saved.worker.y) - Math.hypot(b.x - saved.worker.x, b.y - saved.worker.y))[0];
-    if (!villager?.visual) throw new Error('Saved player villager was not restored.');
+    if (!savedVillager?.visual) throw new Error('Saved player villager was not restored.');
 
     const camp = scene.buildings.getChildren()
       .filter((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Lumber Camp')
       .sort((a, b) => Math.hypot(a.x - saved.camp.x, a.y - saved.camp.y) - Math.hypot(b.x - saved.camp.x, b.y - saved.camp.y))[0];
     if (!camp?.visual) throw new Error('Saved Lumber Camp was not restored.');
 
+    const villager = camp.getData('assignedWorker');
+    if (!villager?.visual || villager.owner !== 0 || villager.jobBuilding !== camp) {
+      throw new Error('Loaded Lumber Camp does not have a coherent player workforce assignment.');
+    }
+
     const tree = scene.trees.getChildren()
       .filter((candidate) => candidate.active && !candidate.getData('isGoldMine') && !candidate.getData('isChopped'))
       .sort((a, b) => Math.hypot(a.x - camp.x, a.y - camp.y) - Math.hypot(b.x - camp.x, b.y - camp.y))[0];
     if (!tree) throw new Error('No active tree is available for post-load economy continuation.');
 
-    window.__canonicalPlaySessionProbe = { player, villager, camp, tree };
+    window.__canonicalPlaySessionProbe = { player, villager, savedVillager, camp, tree };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     return {
@@ -707,7 +712,9 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
-      workerDistance: Math.hypot(villager.x - saved.worker.x, villager.y - saved.worker.y),
+      savedWorkerId: savedVillager.id,
+      assignedWorkerId: villager.id,
+      workerDistance: Math.hypot(savedVillager.x - saved.worker.x, savedVillager.y - saved.worker.y),
       campDistance: Math.hypot(camp.x - saved.camp.x, camp.y - saved.camp.y),
     };
   }, evidence.beforeSave);
@@ -738,12 +745,11 @@ try {
   if (!box) throw new Error('Canvas unavailable for post-load economy input.');
   point = await visualScreenPoint(page, 'villager');
   await page.mouse.click(box.x + point.x, box.y + point.y);
-  await page.waitForFunction(() => Boolean(window.__canonicalPlaySessionProbe.villager.visual?.getData('workforceSelectionRing')?.active), undefined, { timeout: POINTER_TIMEOUT_MS });
-  point = await visualScreenPoint(page, 'camp');
-  await pressRightButtonThroughGameFrame(page, box, point);
   await page.waitForFunction(() => {
     const { villager, camp } = window.__canonicalPlaySessionProbe;
-    return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
+    return Boolean(villager.visual?.getData('workforceSelectionRing')?.active)
+      && villager.jobBuilding === camp
+      && camp.getData('assignedWorker') === villager;
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
 
   evidence.phase = 'post-load-economy-gather';
