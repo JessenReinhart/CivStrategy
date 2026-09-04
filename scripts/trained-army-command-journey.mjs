@@ -346,6 +346,163 @@ try {
   if (evidence.afterMove.units.some((unit) => !unit.active || unit.moved <= 5)) {
     throw new Error(`One or more UI-trained army units failed to move: ${JSON.stringify(evidence.afterMove)}`);
   }
+
+  evidence.phase = 'combat-setup';
+  evidence.combatSetup = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const trained = window.__trainedArmyUnits;
+    scene.peacefulMode = true;
+    scene.gameSpeed = 0;
+
+    const centroid = trained.reduce(
+      (point, unit) => ({ x: point.x + unit.x / trained.length, y: point.y + unit.y / trained.length }),
+      { x: 0, y: 0 },
+    );
+    const bounds = scene.physics.world.bounds;
+    const offsets = [[40, 0], [-40, 0], [0, 40], [0, -40], [32, 32], [-32, -32]];
+    let point = null;
+    for (const [dx, dy] of offsets) {
+      const candidate = { x: centroid.x + dx, y: centroid.y + dy };
+      const inside = candidate.x >= bounds.x + 32 && candidate.x <= bounds.right - 32
+        && candidate.y >= bounds.y + 32 && candidate.y <= bounds.bottom - 32;
+      if (inside && !scene.pathfinder.isBlocked(candidate.x, candidate.y)) {
+        point = candidate;
+        break;
+      }
+    }
+    if (!point) throw new Error('Could not find a walkable enemy position for the UI-trained army.');
+
+    const enemy = scene.entityFactory.spawnUnit('Pikesman', point.x, point.y, 1);
+    if (!enemy) throw new Error('Could not spawn deterministic combat opposition.');
+    enemy.setData('hp', 10);
+    enemy.setData('stance', 'Hold');
+    enemy.setData('anchor', { x: enemy.x, y: enemy.y });
+    trained.forEach((unit) => { unit.lastAttackTime = scene.gameTime; });
+    window.__trainedArmyEnemy = enemy;
+
+    return {
+      enemy: { x: enemy.x, y: enemy.y, hp: enemy.getData('hp') },
+      pausedAtGameTime: scene.gameTime,
+      selectedCount: scene.inputManager.selectedUnits.length,
+    };
+  });
+  await page.waitForFunction(() => {
+    const enemy = window.__trainedArmyEnemy;
+    return Boolean(enemy?.active && enemy.visual && Number.isFinite(enemy.visual.x) && Number.isFinite(enemy.visual.y));
+  }, undefined, { timeout: 5_000 });
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const visibleUnits = [...window.__trainedArmyUnits, window.__trainedArmyEnemy]
+      .filter((unit) => unit.active && unit.visual);
+    const visualX = visibleUnits.reduce((sum, unit) => sum + unit.visual.x, 0) / visibleUnits.length;
+    const visualY = visibleUnits.reduce((sum, unit) => sum + unit.visual.y, 0) / visibleUnits.length;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(visualX, visualY);
+  });
+  await waitForCameraSync(page);
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable for trained-army attack command.');
+
+  evidence.phase = 'attack-command';
+  const enemyPoint = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__trainedArmyEnemy;
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    return {
+      x: (enemy.visual.x - topLeft.x) * camera.zoom,
+      y: (enemy.visual.y - 10 - topLeft.y) * camera.zoom,
+    };
+  });
+  await page.mouse.click(box.x + enemyPoint.x, box.y + enemyPoint.y, { button: 'right' });
+
+  evidence.attackCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__trainedArmyEnemy;
+    const accepted = window.__trainedArmyUnits.map((unit) => ({
+      targetsEnemy: unit.target === enemy,
+      explicitTarget: unit.getData('explicitTarget') === true,
+      state: unit.state,
+    }));
+    if (!accepted.every(({ targetsEnemy, explicitTarget }) => targetsEnemy && explicitTarget)) {
+      throw new Error(`Attack command was not accepted by the full UI-trained army: ${JSON.stringify(accepted)}`);
+    }
+    return {
+      gameTime: scene.gameTime,
+      gameSpeed: scene.gameSpeed,
+      targetHp: enemy.getData('hp'),
+      accepted,
+    };
+  });
+  if (evidence.attackCommand.gameSpeed !== 0
+    || evidence.attackCommand.gameTime !== evidence.combatSetup.pausedAtGameTime
+    || evidence.attackCommand.targetHp !== 10) {
+    throw new Error(`Simulation advanced during attack-command capture: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+
+  evidence.phase = 'combat-resolution';
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    window.__trainedArmyUnits.forEach((unit) => { unit.lastAttackTime = scene.gameTime - 10_000; });
+    scene.peacefulMode = false;
+    scene.gameSpeed = window.__trainedArmyPreviousGameSpeed || 1;
+  });
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__trainedArmyEnemy;
+    return !enemy.active && !scene.units.getChildren().includes(enemy);
+  }, undefined, { timeout: 15_000 });
+
+  evidence.afterCombat = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const survivors = window.__trainedArmyUnits.filter((unit) => unit.active && scene.units.getChildren().includes(unit));
+    if (survivors.length === 0) throw new Error('No UI-trained survivor remained after combat.');
+    const enemy = window.__trainedArmyEnemy;
+    const selectedSurvivors = survivors.filter((unit) => scene.inputManager.selectedUnits.includes(unit));
+    if (selectedSurvivors.length === 0) throw new Error('No trained survivor remained selected after combat.');
+    const centroid = survivors.reduce(
+      (point, unit) => ({ x: point.x + unit.x / survivors.length, y: point.y + unit.y / survivors.length }),
+      { x: 0, y: 0 },
+    );
+    const candidates = [[72, 0], [-72, 0], [0, 72], [0, -72]];
+    let rallyTarget = null;
+    for (const [dx, dy] of candidates) {
+      const target = { x: centroid.x + dx, y: centroid.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      if (selectedSurvivors.every((unit) => scene.pathfinder.findPath({ x: unit.x, y: unit.y }, target)?.length > 1)) {
+        rallyTarget = target;
+        break;
+      }
+    }
+    if (!rallyTarget) throw new Error('No reachable post-combat rally target for trained survivors.');
+    selectedSurvivors.forEach((unit) => {
+      unit.setData('__trainedArmyPostCombatX', unit.x);
+      unit.setData('__trainedArmyPostCombatY', unit.y);
+    });
+    window.__trainedArmySurvivors = selectedSurvivors;
+    return {
+      enemyRemoved: !enemy.active && !scene.units.getChildren().includes(enemy),
+      survivorCount: survivors.length,
+      selectedSurvivorCount: selectedSurvivors.length,
+      rallyTarget,
+    };
+  });
+
+  evidence.phase = 'post-combat-rally';
+  const rallyPoint = await cartesianScreenPoint(page, evidence.afterCombat.rallyTarget);
+  await page.mouse.click(box.x + rallyPoint.x, box.y + rallyPoint.y, { button: 'right' });
+  await page.waitForFunction(() => window.__trainedArmySurvivors.every((unit) => Math.hypot(
+    unit.x - unit.getData('__trainedArmyPostCombatX'),
+    unit.y - unit.getData('__trainedArmyPostCombatY'),
+  ) > 5), undefined, { timeout: 15_000 });
+  evidence.postCombat = await page.evaluate(() => ({
+    survivorCount: window.__trainedArmySurvivors.length,
+    moved: window.__trainedArmySurvivors.map((unit) => Math.hypot(
+      unit.x - unit.getData('__trainedArmyPostCombatX'),
+      unit.y - unit.getData('__trainedArmyPostCombatY'),
+    )),
+  }));
+
   if (evidence.browserErrors.length > 0) {
     throw new Error(`Browser errors occurred: ${evidence.browserErrors.join(' | ')}`);
   }
