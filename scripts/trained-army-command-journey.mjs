@@ -162,6 +162,8 @@ try {
   evidence.baseline = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
+    window.__trainedArmyPreviousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
     scene.resources.wood = 10_000;
     scene.resources.food = 10_000;
     scene.resources.gold = 10_000;
@@ -209,8 +211,6 @@ try {
   evidence.phase = 'train-army';
   evidence.beforeTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    window.__trainedArmyPreviousGameSpeed = scene.gameSpeed;
-    scene.gameSpeed = 0;
     window.__trainedArmyUnitBaseline = new Set(scene.units.getChildren());
     return {
       food: scene.resources.food,
