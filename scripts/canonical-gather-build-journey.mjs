@@ -212,6 +212,11 @@ try {
       import('/constants.ts'),
     ]);
 
+    // The gather must be the action that unlocks the next canonical step.
+    // Keep the player below the 50-wood House threshold until this live deposit lands.
+    scene.resources.wood = 30;
+    scene.economySystem.updateStats();
+
     // Keep the real workforce assignment, but bound CI cost to the final
     // simulation transition. The normal MainScene loop must execute the last
     // gather tick, deposit the full load, and resume the lumber loop.
@@ -235,6 +240,7 @@ try {
       assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
     };
   });
+  if (evidence.gatherStart.wood >= 50) throw new Error(`Gather setup did not begin below the House threshold: ${evidence.gatherStart.wood} wood.`);
 
   evidence.phase = 'gather-deposit';
   const gatherWallStartedAt = Date.now();
@@ -288,6 +294,9 @@ try {
   }, { ...evidence.gatherStart, wallStartedAt: gatherWallStartedAt });
   if (evidence.gather.woodDelta < 20 || evidence.gather.carryAmount !== 0) {
     throw new Error(`Selected villager did not deposit its live-loop wood load: ${JSON.stringify(evidence.gather)}`);
+  }
+  if (evidence.gather.wood < 50) {
+    throw new Error(`Live gather did not cross the 50-wood House threshold: ${JSON.stringify(evidence.gather)}`);
   }
 
   evidence.phase = 'transition-to-build';
