@@ -632,7 +632,7 @@ try {
   evidence.phase = 'save';
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const player = window.__canonicalPlaySessionProbe.player;
+    const { player, villager, camp } = window.__canonicalPlaySessionProbe;
     const gameSpeed = scene.gameSpeed;
     scene.gameSpeed = 0;
     return {
@@ -646,6 +646,8 @@ try {
       population: scene.population,
       maxPopulation: scene.maxPopulation,
       gameSpeed,
+      worker: { x: villager.x, y: villager.y },
+      camp: { x: camp.x, y: camp.y },
     };
   });
   await openGameMenu(page);
@@ -673,11 +675,27 @@ try {
   evidence.restored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.gameSpeed = 0;
+    scene.economySystem.assignJobs = () => {};
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
     if (!player) throw new Error('Trained survivor was not restored.');
-    window.__canonicalPlaySessionProbe = { player };
+
+    const villager = scene.villagerSystem.getVillagersByOwner(0)
+      .sort((a, b) => Math.hypot(a.x - saved.worker.x, a.y - saved.worker.y) - Math.hypot(b.x - saved.worker.x, b.y - saved.worker.y))[0];
+    if (!villager?.visual) throw new Error('Saved player villager was not restored.');
+
+    const camp = scene.buildings.getChildren()
+      .filter((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Lumber Camp')
+      .sort((a, b) => Math.hypot(a.x - saved.camp.x, a.y - saved.camp.y) - Math.hypot(b.x - saved.camp.x, b.y - saved.camp.y))[0];
+    if (!camp?.visual) throw new Error('Saved Lumber Camp was not restored.');
+
+    const tree = scene.trees.getChildren()
+      .filter((candidate) => candidate.active && !candidate.getData('isGoldMine') && !candidate.getData('isChopped'))
+      .sort((a, b) => Math.hypot(a.x - camp.x, a.y - camp.y) - Math.hypot(b.x - camp.x, b.y - camp.y))[0];
+    if (!tree) throw new Error('No active tree is available for post-load economy continuation.');
+
+    window.__canonicalPlaySessionProbe = { player, villager, camp, tree };
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(player.visual.x, player.visual.y);
     return {
@@ -689,11 +707,15 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      workerDistance: Math.hypot(villager.x - saved.worker.x, villager.y - saved.worker.y),
+      campDistance: Math.hypot(camp.x - saved.camp.x, camp.y - saved.camp.y),
     };
   }, evidence.beforeSave);
   if (Math.hypot(evidence.restored.x - evidence.beforeSave.x, evidence.restored.y - evidence.beforeSave.y) > 2) {
     throw new Error('Trained survivor position changed across reload.');
   }
+  if (evidence.restored.workerDistance > 2) throw new Error('Saved player villager was not restored at its saved position.');
+  if (evidence.restored.campDistance > 2) throw new Error('Saved Lumber Camp was not restored at its saved position.');
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across canonical save/load.`);
   }
@@ -701,9 +723,112 @@ try {
   evidence.phase = 'post-load-critical-hud';
   evidence.postLoadHud = await requireCriticalHud(page);
 
+  evidence.phase = 'post-load-economy-assignment';
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__canonicalPlaySessionProbe;
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding?.();
+    scene.gameSpeed = 0;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
+  });
+  await waitForCameraSync(page);
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas unavailable for post-load economy input.');
+  point = await visualScreenPoint(page, 'villager');
+  await page.mouse.click(box.x + point.x, box.y + point.y);
+  await page.waitForFunction(() => Boolean(window.__canonicalPlaySessionProbe.villager.visual?.getData('workforceSelectionRing')?.active), undefined, { timeout: POINTER_TIMEOUT_MS });
+  point = await visualScreenPoint(page, 'camp');
+  await pressRightButtonThroughGameFrame(page, box, point);
+  await page.waitForFunction(() => {
+    const { villager, camp } = window.__canonicalPlaySessionProbe;
+    return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
+  }, undefined, { timeout: POINTER_TIMEOUT_MS });
+
+  evidence.phase = 'post-load-economy-gather';
+  evidence.postLoadGatherStart = await page.evaluate(async (gameSpeed) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp, tree } = window.__canonicalPlaySessionProbe;
+    const [{ UnitState }, { VILLAGER_GATHER_RATE_MS }] = await Promise.all([
+      import('/types.ts'),
+      import('/constants.ts'),
+    ]);
+    villager.x = camp.x;
+    villager.y = camp.y;
+    villager.path = undefined;
+    villager.pathStep = 0;
+    villager.targetResource = tree;
+    villager.carryType = 'wood';
+    villager.carryAmount = 18;
+    villager.gatherTimer = VILLAGER_GATHER_RATE_MS - 1;
+    villager.state = UnitState.GATHERING;
+    const start = {
+      frame: window.__civStrategyGame.loop.frame,
+      gameTime: scene.gameTime,
+      wood: scene.resources.wood,
+      carryAmount: villager.carryAmount,
+      assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
+    scene.gameSpeed = gameSpeed || 1;
+    return start;
+  }, evidence.beforeSave.gameSpeed);
+  const postLoadGatherWallStartedAt = Date.now();
+  try {
+    await page.waitForFunction(({ initialWood, startFrame }) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager, camp } = window.__canonicalPlaySessionProbe;
+      return window.__civStrategyGame.loop.frame > startFrame
+        && scene.resources.wood >= initialWood + 20
+        && villager.carryAmount === 0
+        && villager.jobBuilding === camp
+        && camp.getData('assignedWorker') === villager;
+    }, { initialWood: evidence.postLoadGatherStart.wood, startFrame: evidence.postLoadGatherStart.frame }, { timeout: POINTER_TIMEOUT_MS });
+  } catch (error) {
+    evidence.postLoadGather = await page.evaluate((start) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager, camp } = window.__canonicalPlaySessionProbe;
+      return {
+        wallMs: Date.now() - start.wallStartedAt,
+        frameDelta: window.__civStrategyGame.loop.frame - start.frame,
+        gameTimeDelta: scene.gameTime - start.gameTime,
+        wood: scene.resources.wood,
+        carryAmount: villager.carryAmount,
+        gatherTimer: villager.gatherTimer,
+        state: villager.state,
+        assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+      };
+    }, { ...evidence.postLoadGatherStart, wallStartedAt: postLoadGatherWallStartedAt });
+    throw new Error(`Post-load live MainScene gather/deposit did not complete: ${JSON.stringify(evidence.postLoadGather)}`, { cause: error });
+  }
+  evidence.postLoadGather = await page.evaluate((start) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__canonicalPlaySessionProbe;
+    return {
+      wallMs: Date.now() - start.wallStartedAt,
+      frameDelta: window.__civStrategyGame.loop.frame - start.frame,
+      gameTimeDelta: scene.gameTime - start.gameTime,
+      wood: scene.resources.wood,
+      woodDelta: scene.resources.wood - start.wood,
+      carryAmount: villager.carryAmount,
+      state: villager.state,
+      assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
+  }, { ...evidence.postLoadGatherStart, wallStartedAt: postLoadGatherWallStartedAt });
+  if (evidence.postLoadGather.woodDelta < 20 || evidence.postLoadGather.carryAmount !== 0 || !evidence.postLoadGather.assigned) {
+    throw new Error(`Post-load economy did not resume a coherent wood deposit: ${JSON.stringify(evidence.postLoadGather)}`);
+  }
+
   evidence.phase = 'continue-playing';
+  await page.keyboard.press('Escape');
   await page.evaluate((gameSpeed) => {
-    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = gameSpeed || 1;
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = gameSpeed || 1;
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding?.();
+    const player = window.__canonicalPlaySessionProbe.player;
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
   }, evidence.beforeSave.gameSpeed);
   evidence.postLoadTarget = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
