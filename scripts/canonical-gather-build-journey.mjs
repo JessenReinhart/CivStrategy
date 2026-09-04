@@ -322,12 +322,42 @@ try {
   }, undefined, { timeout: 5_000 });
   evidence.afterHouse = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return { wood: scene.resources.wood, maxPopulation: scene.maxPopulation };
+    const baseline = window.__canonicalGatherBuildProbe.beforeHouseBuildings;
+    const house = scene.buildings.getChildren().find((b) => !baseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === 'House');
+    if (!house) throw new Error('Placed House disappeared before stabilization started.');
+    window.__canonicalGatherBuildProbe.house = house;
+    return {
+      frame: window.__civStrategyGame.loop.frame,
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+    };
+  });
+
+  evidence.phase = 'stabilize-house';
+  await page.waitForFunction((startFrame) => window.__civStrategyGame.loop.frame >= startFrame + 12, evidence.afterHouse.frame, { timeout: POINTER_TIMEOUT_MS });
+  evidence.stableHouse = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__canonicalGatherBuildProbe.house;
+    return {
+      frame: window.__civStrategyGame.loop.frame,
+      active: Boolean(house?.active),
+      inScene: Boolean(house && scene.buildings.getChildren().includes(house)),
+      owner: house?.getData('owner'),
+      type: house?.getData('def')?.type,
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+    };
   });
 
   evidence.phase = 'assert';
   if (evidence.afterHouse.wood !== evidence.beforeHouse.wood - 50) throw new Error('House did not deduct exactly 50 wood from the post-gather economy state.');
   if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) throw new Error('House did not add 8 population capacity after the gather-to-build transition.');
+  if (!evidence.stableHouse.active || !evidence.stableHouse.inScene || evidence.stableHouse.owner !== 0 || evidence.stableHouse.type !== 'House') {
+    throw new Error(`Placed House did not remain a stable player building after real game frames: ${JSON.stringify(evidence.stableHouse)}`);
+  }
+  if (evidence.stableHouse.wood !== evidence.afterHouse.wood || evidence.stableHouse.maxPopulation !== evidence.afterHouse.maxPopulation) {
+    throw new Error(`House economy effect did not remain stable after placement: ${JSON.stringify(evidence.stableHouse)}`);
+  }
   if (evidence.browserErrors.length) throw new Error(`Browser page errors:\n${evidence.browserErrors.join('\n')}`);
 
   evidence.phase = 'passed';
