@@ -66,6 +66,9 @@ jobs:
       - name: Browser real player build to train journey
         run: node scripts/player-build-train-journey.mjs
 
+      - name: Browser UI-trained army command journey
+        run: node scripts/trained-army-command-journey.mjs
+
       - name: Browser real placement training save reload bridge
         run: node scripts/real-placement-training-save-journey.mjs
 
