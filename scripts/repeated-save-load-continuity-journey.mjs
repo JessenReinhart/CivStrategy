@@ -55,6 +55,14 @@ async function openGameMenu(page) {
   await saveButton.waitFor({ state: 'visible', timeout: 5_000 });
 }
 
+async function closeGameMenu(page) {
+  const saveButton = page.getByRole('button', { name: /Save game/i });
+  if (!(await saveButton.isVisible().catch(() => false))) return;
+  const menuButton = page.locator('button:has(svg.lucide-menu)').first();
+  await menuButton.click();
+  await saveButton.waitFor({ state: 'hidden', timeout: 5_000 });
+}
+
 async function saveThroughUi(page) {
   const previousSave = await page.evaluate((key) => localStorage.getItem(key), SAVE_KEY);
   await openGameMenu(page);
@@ -72,6 +80,10 @@ async function reloadAndLoadThroughUi(page) {
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction(() => window.__civStrategyGame?.scene?.getScene?.('MainScene')?.isReady, undefined, { timeout: 20_000 });
+  // A player closes the system menu before issuing world commands. Keeping the menu
+  // open here made the persistence probe exercise a UI-overlay edge case instead of
+  // the intended save/load continuation contract.
+  await closeGameMenu(page);
 }
 
 async function waitForCameraSync(page) {
@@ -84,7 +96,7 @@ async function waitForCameraSync(page) {
 async function findMoveTarget(page, start) {
   return page.evaluate((origin) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    for (const [dx, dy] of [[48, 0], [-48, 0], [0, 48], [0, -48], [36, 36], [-36, -36]]) {
+    for (const [dx, dy] of [[64, 0], [-64, 0], [0, 64], [0, -64], [48, 48], [-48, -48]]) {
       const target = { x: origin.x + dx, y: origin.y + dy };
       if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
       const path = scene.pathfinder.findPath(origin, target);
@@ -244,7 +256,27 @@ try {
     scene.economySystem.assignJobs();
     const assigned = camp.getData('assignedWorker');
     if (!assigned || assigned.jobBuilding !== camp) throw new Error('Lumber Camp did not receive a worker before first save.');
-    const player = scene.entityFactory.spawnUnit('Pikesman', townCenter.x + 96, townCenter.y, 0);
+
+    const buildings = scene.buildings.getChildren();
+    let armySpawn = null;
+    for (const radius of [160, 192, 224, 256]) {
+      for (const [dx, dy] of [[radius, 0], [-radius, 0], [0, radius], [0, -radius], [radius, -radius], [-radius, -radius]]) {
+        const point = { x: townCenter.x + dx, y: townCenter.y + dy };
+        if (scene.pathfinder.isBlocked(point.x, point.y)) continue;
+        const tooCloseToBuilding = buildings.some((building) => Math.hypot(building.x - point.x, building.y - point.y) < 80);
+        if (tooCloseToBuilding) continue;
+        const hasExit = [[64, 0], [-64, 0], [0, 64], [0, -64]].some(([mx, my]) => {
+          const target = { x: point.x + mx, y: point.y + my };
+          if (scene.pathfinder.isBlocked(target.x, target.y)) return false;
+          return (scene.pathfinder.findPath(point, target)?.length ?? 0) > 1;
+        });
+        if (hasExit) { armySpawn = point; break; }
+      }
+      if (armySpawn) break;
+    }
+    if (!armySpawn) throw new Error('Could not place deterministic Pikesman on open pathable terrain.');
+    const player = scene.entityFactory.spawnUnit('Pikesman', armySpawn.x, armySpawn.y, 0);
+
     scene.resources.wood = 777;
     scene.resources.food = 555;
     scene.resources.gold = 333;
@@ -272,6 +304,7 @@ try {
 
   evidence.phase = 'first-continuation-move';
   const firstTarget = await findMoveTarget(page, evidence.firstRestored.player);
+  evidence.firstTarget = firstTarget;
   evidence.afterFirstMove = await selectAndMoveArmy(page, evidence.firstRestored.player, firstTarget);
   evidence.afterFirstArrival = await waitForArmyArrival(page, firstTarget);
 
@@ -316,6 +349,7 @@ try {
 
   evidence.phase = 'second-continuation-move';
   const secondTarget = await findMoveTarget(page, evidence.secondRestored.player);
+  evidence.secondTarget = secondTarget;
   evidence.afterSecondMove = await selectAndMoveArmy(page, evidence.secondRestored.player, secondTarget);
   if (Math.hypot(evidence.afterSecondMove.x - evidence.secondRestored.player.x, evidence.afterSecondMove.y - evidence.secondRestored.player.y) <= 5) {
     throw new Error('Second-restored army could not continue playing through real canvas movement.');
