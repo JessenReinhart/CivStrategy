@@ -891,14 +891,42 @@ try {
     }
     return { x: endpoint.x, y: endpoint.y, travelDistance };
   });
-  await page.waitForFunction((target) => {
+  evidence.postLoadMoveCompletion = await page.evaluate((timeoutMs) => new Promise((resolve, reject) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalPlaySessionProbe.player;
-    return Math.hypot(player.x - target.x, player.y - target.y) <= 6;
-  }, evidence.postLoadResolvedTarget, { timeout: POINTER_TIMEOUT_MS });
-  await page.waitForFunction(() => {
-    const player = window.__canonicalPlaySessionProbe.player;
-    return !player.path || player.pathStep >= player.path.length;
-  }, undefined, { timeout: 5_000 });
+    const commandedPath = player.path;
+    if (!commandedPath?.length) {
+      reject(new Error('Post-load move command lost its path before completion could be observed.'));
+      return;
+    }
+    const startX = player.getData('__postLoadX');
+    const startY = player.getData('__postLoadY');
+    const timer = window.setTimeout(() => {
+      scene.events.off('postupdate', onPostUpdate);
+      reject(new Error(`Post-load move path did not complete within ${timeoutMs}ms.`));
+    }, timeoutMs);
+    const onPostUpdate = () => {
+      const completed = player.path !== commandedPath || player.pathStep >= commandedPath.length;
+      if (!completed) return;
+      window.clearTimeout(timer);
+      scene.events.off('postupdate', onPostUpdate);
+      const travelDistance = Math.hypot(player.x - startX, player.y - startY);
+      const result = {
+        x: player.x,
+        y: player.y,
+        travelDistance,
+        commandPathLength: commandedPath.length,
+        pathStep: player.pathStep,
+      };
+      scene.gameSpeed = 0;
+      if (travelDistance < 24) {
+        reject(new Error(`Post-load move completed after only ${travelDistance.toFixed(1)}px of travel.`));
+        return;
+      }
+      resolve(result);
+    };
+    scene.events.on('postupdate', onPostUpdate);
+  }), POINTER_TIMEOUT_MS);
 
   evidence.phase = 'second-save';
   evidence.beforeSecondSave = await page.evaluate(() => {
