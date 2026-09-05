@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [gameState, setGameState] = useState<'menu' | 'playing' | 'stress-test'>('menu');
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
   const [loadStatus, setLoadStatus] = useState(INITIAL_GAME_LOAD_PROGRESS);
+  const [gameUiSession, setGameUiSession] = useState(0);
   const loadingCompletionDelayRef = useRef(
     createLoadingCompletionDelay(() => setIsGameLoading(false), 500),
   );
@@ -183,7 +184,6 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
 
     const selectionHandler = (data: number | { count: number; counts: Record<string, number> }) => {
-      // Handle both minimal (count only) and rich (object) payloads
       if (typeof data === 'number') {
         setSelectedCount(data);
         setSelectedCounts({});
@@ -244,6 +244,8 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
     const loadGameHandler = () => {
       gameInstance.events.emit('load-game');
+      // Loading replaces the playable world state; discard transient HUD popovers/menu state too.
+      setGameUiSession((session) => session + 1);
     };
 
     window.addEventListener('set-tax-rate-ui', taxHandler);
@@ -327,6 +329,7 @@ const [selectedCount, setSelectedCount] = useState(0);
           {!isGameLoading && gameState === 'playing' && (
             <>
               <GameUI
+                key={gameUiSession}
                 stats={stats}
                 onBuild={handleBuild}
                 onSpawnUnit={handleSpawnUnit}

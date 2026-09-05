@@ -375,8 +375,11 @@ try {
     }
     throw new Error('No post-load move target.');
   });
-  await page.locator('button:has(svg.lucide-menu)').first().click();
-  await page.getByRole('button', { name: /Save game/i }).waitFor({ state: 'hidden', timeout: 5_000 });
+  const saveButton = page.getByRole('button', { name: /Save game/i });
+  if (await saveButton.isVisible()) {
+    await page.locator('button:has(svg.lucide-menu)').first().click();
+    await saveButton.waitFor({ state: 'hidden', timeout: 5_000 });
+  }
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
   point = await unitScreenPoint(page, 'player');
