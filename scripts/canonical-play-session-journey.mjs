@@ -878,6 +878,154 @@ try {
     const player = window.__canonicalPlaySessionProbe.player;
     return Math.hypot(player.x - player.getData('__postLoadX'), player.y - player.getData('__postLoadY')) > 5;
   }, undefined, { timeout: 12_000 });
+  await page.waitForFunction((target) => {
+    const player = window.__canonicalPlaySessionProbe.player;
+    return Math.hypot(player.x - target.x, player.y - target.y) <= 6;
+  }, evidence.postLoadTarget, { timeout: POINTER_TIMEOUT_MS });
+
+  evidence.phase = 'second-save';
+  evidence.beforeSecondSave = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, camp, house, barracks } = window.__canonicalPlaySessionProbe;
+    const villager = camp.getData('assignedWorker');
+    if (!villager?.visual || villager.owner !== 0 || villager.jobBuilding !== camp) {
+      throw new Error('Continued Lumber Camp workforce is incoherent before second save.');
+    }
+    const gameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    return {
+      x: player.x,
+      y: player.y,
+      hp: player.getData('hp'),
+      type: player.unitType ?? player.getData('unitType'),
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      gameSpeed,
+      camp: { x: camp.x, y: camp.y },
+      house: { x: house.x, y: house.y, type: house.getData('def')?.type },
+      barracks: { x: barracks.x, y: barracks.y, type: barracks.getData('def')?.type },
+    };
+  });
+  const previousSavePayload = await page.evaluate((key) => localStorage.getItem(key), SAVE_KEY);
+  await openGameMenu(page);
+  await page.getByRole('button', { name: /Save game/i }).click();
+  await page.waitForFunction(({ key, previous }) => {
+    const current = localStorage.getItem(key);
+    return Boolean(current) && current !== previous;
+  }, { key: SAVE_KEY, previous: previousSavePayload }, { timeout: 10_000 });
+
+  evidence.phase = 'second-reload';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: 'Start Game' }).click();
+  await page.getByRole('button', { name: 'Commence' }).click();
+  await waitForScene(page);
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0;
+  });
+  await openGameMenu(page);
+  await page.getByRole('button', { name: /Load game/i }).click();
+  await page.waitForFunction((saved) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.units.getChildren().some((unit) => (
+      unit.getData('owner') === 0
+      && (unit.unitType ?? unit.getData('unitType')) === saved.type
+      && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
+    ));
+  }, evidence.beforeSecondSave, { timeout: 20_000 });
+  evidence.secondRestored = await page.evaluate((saved) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = 0;
+    scene.economySystem.assignJobs = () => {};
+    const player = scene.units.getChildren()
+      .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
+      .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
+    if (!player?.visual) throw new Error('Continued trained army was not restored after second load.');
+
+    const restoreBuilding = (savedBuilding) => scene.buildings.getChildren()
+      .filter((building) => building.getData('owner') === 0 && building.getData('def')?.type === savedBuilding.type)
+      .sort((a, b) => Math.hypot(a.x - savedBuilding.x, a.y - savedBuilding.y) - Math.hypot(b.x - savedBuilding.x, b.y - savedBuilding.y))[0];
+    const camp = scene.buildings.getChildren()
+      .filter((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Lumber Camp')
+      .sort((a, b) => Math.hypot(a.x - saved.camp.x, a.y - saved.camp.y) - Math.hypot(b.x - saved.camp.x, b.y - saved.camp.y))[0];
+    const house = restoreBuilding(saved.house);
+    const barracks = restoreBuilding(saved.barracks);
+    if (!camp?.visual) throw new Error('Lumber Camp was not restored after second load.');
+    if (!house?.visual) throw new Error('Player-built House was not restored after second load.');
+    if (!barracks?.visual) throw new Error('Player-built Barracks was not restored after second load.');
+
+    const villager = camp.getData('assignedWorker');
+    if (!villager?.visual || villager.owner !== 0 || villager.jobBuilding !== camp) {
+      throw new Error('Second-restored Lumber Camp does not have a coherent player workforce assignment.');
+    }
+
+    window.__canonicalPlaySessionProbe = { player, villager, camp, house, barracks };
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding?.();
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(player.visual.x, player.visual.y);
+    return {
+      x: player.x,
+      y: player.y,
+      hp: player.getData('hp'),
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      campDistance: Math.hypot(camp.x - saved.camp.x, camp.y - saved.camp.y),
+      houseDistance: Math.hypot(house.x - saved.house.x, house.y - saved.house.y),
+      barracksDistance: Math.hypot(barracks.x - saved.barracks.x, barracks.y - saved.barracks.y),
+      workforceCoherent: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
+  }, evidence.beforeSecondSave);
+  if (Math.hypot(evidence.secondRestored.x - evidence.beforeSecondSave.x, evidence.secondRestored.y - evidence.beforeSecondSave.y) > 2) {
+    throw new Error('Continued trained army position changed across the second save/load cycle.');
+  }
+  if (evidence.secondRestored.campDistance > 2) throw new Error('Lumber Camp changed position across the second save/load cycle.');
+  if (evidence.secondRestored.houseDistance > 2) throw new Error('Player-built House changed position across the second save/load cycle.');
+  if (evidence.secondRestored.barracksDistance > 2) throw new Error('Player-built Barracks changed position across the second save/load cycle.');
+  if (!evidence.secondRestored.workforceCoherent) throw new Error('Lumber Camp workforce relationship was not coherent after the second load.');
+  for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
+    if (evidence.secondRestored[key] !== evidence.beforeSecondSave[key]) {
+      throw new Error(`${key} changed across the second canonical save/load cycle.`);
+    }
+  }
+
+  evidence.phase = 'second-continue-playing';
+  await page.keyboard.press('Escape');
+  evidence.secondPostLoadTarget = await page.evaluate((gameSpeed) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const player = window.__canonicalPlaySessionProbe.player;
+    scene.gameSpeed = gameSpeed || 1;
+    for (const [dx, dy] of [[48, 0], [-48, 0], [0, 48], [0, -48], [36, 36], [-36, -36]]) {
+      const target = { x: player.x + dx, y: player.y + dy };
+      if (scene.pathfinder.isBlocked(target.x, target.y)) continue;
+      const path = scene.pathfinder.findPath({ x: player.x, y: player.y }, target);
+      if (path?.length > 1) {
+        player.setData('__secondPostLoadX', player.x);
+        player.setData('__secondPostLoadY', player.y);
+        return target;
+      }
+    }
+    throw new Error('No second-restored move target.');
+  }, evidence.beforeSecondSave.gameSpeed);
+  await waitForCameraSync(page);
+  box = await canvas.boundingBox();
+  if (!box) throw new Error('Canvas unavailable for second-restored army input.');
+  point = await unitScreenPoint(page, 'player');
+  await page.mouse.click(box.x + point.x, box.y + point.y);
+  await page.waitForFunction(() => (
+    window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalPlaySessionProbe.player)
+  ), undefined, { timeout: 5_000 });
+  point = await cartesianScreenPoint(page, evidence.secondPostLoadTarget);
+  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'right' });
+  await page.waitForFunction(() => {
+    const player = window.__canonicalPlaySessionProbe.player;
+    return Math.hypot(player.x - player.getData('__secondPostLoadX'), player.y - player.getData('__secondPostLoadY')) > 5;
+  }, undefined, { timeout: 12_000 });
 
   if (evidence.browserErrors.length) throw new Error(`Browser errors observed: ${evidence.browserErrors.join(' | ')}`);
   evidence.phase = 'complete';
