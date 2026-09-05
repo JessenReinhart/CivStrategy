@@ -10,7 +10,7 @@ describe('villager carried-resource command policy', () => {
     expect(getVillagerCarryCommandPolicy({
       carryAmount: 0,
       carryType: null,
-      jobBuilding: currentDropsite as never,
+      jobBuilding: currentDropsite,
     }, anotherBuilding)).toBe('allow');
   });
 
@@ -18,15 +18,15 @@ describe('villager carried-resource command policy', () => {
     expect(getVillagerCarryCommandPolicy({
       carryAmount: 5,
       carryType: 'gold',
-      jobBuilding: currentDropsite as never,
+      jobBuilding: currentDropsite,
     }, currentDropsite)).toBe('keep-current');
   });
 
   it('defers a different job or ground rally until the carried load is deposited', () => {
     const villager = {
       carryAmount: 5,
-      carryType: 'gold' as const,
-      jobBuilding: currentDropsite as never,
+      carryType: 'gold',
+      jobBuilding: currentDropsite,
     };
 
     expect(getVillagerCarryCommandPolicy(villager, anotherBuilding)).toBe('defer');
