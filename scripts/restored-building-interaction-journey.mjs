@@ -232,6 +232,8 @@ try {
   evidence.phase = 'train-after-reload';
   evidence.beforeTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.gameSpeed = 0;
+    window.__restoredBuildingUnitBaseline = new Set(scene.units.getChildren());
     return {
       food: scene.resources.food,
       gold: scene.resources.gold,
@@ -245,13 +247,15 @@ try {
   await page.getByRole('button', { name: /Pikesman/i }).click();
   await page.waitForFunction((before) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.population === before.population + 1
-      && scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length === before.military + 1;
+    const newPlayerUnits = scene.units.getChildren().filter((unit) => (
+      unit.getData('owner') === 0 && !window.__restoredBuildingUnitBaseline.has(unit)
+    ));
+    return scene.population === before.population + 1 && newPlayerUnits.length === 1;
   }, evidence.beforeTraining, { timeout: TIMEOUT_MS });
   evidence.afterTraining = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const playerUnits = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
-    const trained = playerUnits[playerUnits.length - 1];
+    const trained = playerUnits.find((unit) => !window.__restoredBuildingUnitBaseline.has(unit));
     return {
       food: scene.resources.food,
       gold: scene.resources.gold,
@@ -260,6 +264,9 @@ try {
       type: trained?.unitType ?? trained?.getData('unitType'),
     };
   });
+  if (evidence.afterTraining.military !== evidence.beforeTraining.military + 1) {
+    throw new Error('Post-reload training did not add exactly one player military unit.');
+  }
   if (evidence.afterTraining.type !== 'Pikesman') {
     throw new Error(`Restored Barracks trained wrong unit: ${evidence.afterTraining.type ?? 'unknown'}`);
   }
