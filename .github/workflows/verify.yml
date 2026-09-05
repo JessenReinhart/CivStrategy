@@ -97,6 +97,9 @@ jobs:
       - name: Browser combat save continuity journey
         run: npm run test:combat-save-continuity
 
+      - name: Browser restored army combat continuation journey
+        run: node scripts/restored-army-combat-journey.mjs
+
       - name: Browser same-session economy progression journey
         run: node scripts/economy-progression-journey.mjs
 
