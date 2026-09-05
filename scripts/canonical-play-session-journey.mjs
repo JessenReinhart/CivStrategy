@@ -878,10 +878,27 @@ try {
     const player = window.__canonicalPlaySessionProbe.player;
     return Math.hypot(player.x - player.getData('__postLoadX'), player.y - player.getData('__postLoadY')) > 5;
   }, undefined, { timeout: 12_000 });
+  evidence.postLoadResolvedTarget = await page.evaluate(() => {
+    const player = window.__canonicalPlaySessionProbe.player;
+    const endpoint = player.path?.at(-1);
+    if (!endpoint) throw new Error('Post-load move command did not retain a pathfinder-resolved endpoint.');
+    const travelDistance = Math.hypot(
+      endpoint.x - player.getData('__postLoadX'),
+      endpoint.y - player.getData('__postLoadY'),
+    );
+    if (travelDistance < 24) {
+      throw new Error(`Post-load move resolved to an insignificant ${travelDistance.toFixed(1)}px path.`);
+    }
+    return { x: endpoint.x, y: endpoint.y, travelDistance };
+  });
   await page.waitForFunction((target) => {
     const player = window.__canonicalPlaySessionProbe.player;
     return Math.hypot(player.x - target.x, player.y - target.y) <= 6;
-  }, evidence.postLoadTarget, { timeout: POINTER_TIMEOUT_MS });
+  }, evidence.postLoadResolvedTarget, { timeout: POINTER_TIMEOUT_MS });
+  await page.waitForFunction(() => {
+    const player = window.__canonicalPlaySessionProbe.player;
+    return !player.path || player.pathStep >= player.path.length;
+  }, undefined, { timeout: 5_000 });
 
   evidence.phase = 'second-save';
   evidence.beforeSecondSave = await page.evaluate(() => {
