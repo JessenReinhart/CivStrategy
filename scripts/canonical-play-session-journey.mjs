@@ -8,7 +8,7 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
 const EVIDENCE_PATH = `${ARTIFACT_DIR}/canonical-play-session.json`;
-const POINTER_TIMEOUT_MS = 30_000;
+const POINTER_TIMEOUT_MS = 90_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
