@@ -1,8 +1,10 @@
-import type { VillagerData } from '../../types';
-
 export type VillagerCarryCommandPolicy = 'allow' | 'keep-current' | 'defer';
 
-type CarryingVillager = Pick<VillagerData, 'carryAmount' | 'carryType' | 'jobBuilding'>;
+type CarryingVillager = {
+  carryAmount: number;
+  carryType: string | null;
+  jobBuilding?: object;
+};
 
 /**
  * A gathered load belongs to the current deposit trip until it reaches a
