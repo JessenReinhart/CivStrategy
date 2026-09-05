@@ -75,6 +75,7 @@ async function prepareBarracksPlacement(page) {
     const grid = 16;
     const snap = (value) => Math.floor(value / grid) * grid;
     scene.resources.wood = Math.max(scene.resources.wood, 1_000);
+    scene.resources.food = Math.max(scene.resources.food, 1_000);
     scene.resources.gold = Math.max(scene.resources.gold, 1_000);
 
     for (let oy = 0; oy <= 640; oy += grid) {
@@ -226,6 +227,44 @@ try {
   if (!evidence.trainingActionVisible) throw new Error('Restored Barracks selection did not expose its training action.');
   if (Math.hypot(evidence.restored.x - evidence.placed.x, evidence.restored.y - evidence.placed.y) > 2) {
     throw new Error('Restored Barracks moved across save/load.');
+  }
+
+  evidence.phase = 'train-after-reload';
+  evidence.beforeTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      military: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  if (evidence.beforeTraining.food < 100 || evidence.beforeTraining.gold < 50) {
+    throw new Error(`Restored economy cannot afford Pikesman training: ${JSON.stringify(evidence.beforeTraining)}`);
+  }
+  await page.getByRole('button', { name: /Pikesman/i }).click();
+  await page.waitForFunction((before) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.population === before.population + 1
+      && scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length === before.military + 1;
+  }, evidence.beforeTraining, { timeout: TIMEOUT_MS });
+  evidence.afterTraining = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const playerUnits = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0);
+    const trained = playerUnits[playerUnits.length - 1];
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      military: playerUnits.length,
+      type: trained?.unitType ?? trained?.getData('unitType'),
+    };
+  });
+  if (evidence.afterTraining.type !== 'Pikesman') {
+    throw new Error(`Restored Barracks trained wrong unit: ${evidence.afterTraining.type ?? 'unknown'}`);
+  }
+  if (evidence.afterTraining.food !== evidence.beforeTraining.food - 100 || evidence.afterTraining.gold !== evidence.beforeTraining.gold - 50) {
+    throw new Error('Post-reload Pikesman training charged the wrong resources.');
   }
   if (evidence.browserErrors.length) throw new Error(`Browser errors observed: ${evidence.browserErrors.join(' | ')}`);
 
