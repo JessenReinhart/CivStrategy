@@ -48,16 +48,23 @@ async function bootNewGame(page) {
 }
 
 async function openGameMenu(page) {
+  const saveButton = page.getByRole('button', { name: /Save game/i });
+  if (await saveButton.isVisible().catch(() => false)) return;
+
   const menuButton = page.locator('button:has(svg.lucide-menu)').first();
   await menuButton.waitFor({ state: 'visible', timeout: 10_000 });
   await menuButton.click();
-  await page.getByRole('button', { name: /Save game/i }).waitFor({ state: 'visible', timeout: 5_000 });
+  await saveButton.waitFor({ state: 'visible', timeout: 5_000 });
 }
 
 async function saveThroughUi(page) {
+  const previousSave = await page.evaluate((key) => localStorage.getItem(key), SAVE_KEY);
   await openGameMenu(page);
   await page.getByRole('button', { name: /Save game/i }).click();
-  await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), SAVE_KEY, { timeout: 10_000 });
+  await page.waitForFunction(({ key, previous }) => {
+    const current = localStorage.getItem(key);
+    return Boolean(current) && current !== previous;
+  }, { key: SAVE_KEY, previous: previousSave }, { timeout: 10_000 });
 }
 
 async function reloadAndLoadThroughUi(page) {
