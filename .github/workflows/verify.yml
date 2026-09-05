@@ -62,6 +62,9 @@ jobs:
       - name: Browser full canonical playable session
         run: node scripts/canonical-play-session-journey.mjs
 
+      - name: Browser repeated save load continuity journey
+        run: node scripts/repeated-save-load-continuity-journey.mjs
+
       - name: Browser player building save continuity journey
         run: node scripts/building-save-continuity-journey.mjs
 
