@@ -34,6 +34,7 @@ const IDLE = 'idle';
 const MOVING_TO_WORK = 'moving_to_work';
 const MOVING_TO_RALLY = 'moving_to_rally';
 const GATHERING = 'gathering';
+const CARRYING = 'carrying';
 
 function makeBuilding(type: string, x: number, y: number) {
     const data = new Map<string, unknown>([
@@ -223,5 +224,45 @@ describe('VillagerSystem resource production', () => {
         expect(villager.carryAmount).toBe(0);
         expect(villager.state).toBe(GATHERING);
         expect(villager.jobBuilding).toBe(camp);
+    });
+
+    it('keeps a full load bound to its dropsite until a blocked return route recovers', () => {
+        const camp = makeBuilding(LUMBER_CAMP, 0, 0);
+        const tree = makeTree(100, 0);
+        const villager = makeVillager(0, 0);
+        const depositResource = vi.fn();
+        const findPath = vi.fn(() => [{ x: tree.x, y: tree.y }])
+            .mockReturnValueOnce([{ x: camp.x, y: camp.y }])
+            .mockReturnValueOnce([{ x: tree.x, y: tree.y }])
+            .mockImplementationOnce(() => [{ x: villager.x, y: villager.y }])
+            .mockReturnValueOnce([{ x: camp.x, y: camp.y }]);
+        const system = new VillagerSystem(makeScene(findPath, [tree], depositResource));
+
+        (system as unknown as { villagers: VillagerData[] }).villagers.push(villager);
+        system.assignJob(villager, camp as never);
+        villager.x = tree.x;
+        villager.y = tree.y;
+        villager.path = undefined;
+        villager.pathStep = 0;
+        villager.carryAmount = 18;
+        villager.gatherTimer = 0;
+
+        system.update(0, 2500);
+
+        expect(villager.state).toBe(CARRYING);
+        expect(villager.carryAmount).toBe(20);
+        expect(villager.carryType).toBe('wood');
+        expect(villager.jobBuilding).toBe(camp);
+        expect(camp.getData('assignedWorker')).toBe(villager);
+        expect(system.getIdleVillagers(0)).not.toContain(villager);
+        expect(depositResource).not.toHaveBeenCalled();
+
+        system.update(500, 500);
+
+        expect(depositResource).toHaveBeenCalledTimes(1);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20);
+        expect(villager.carryAmount).toBe(0);
+        expect(villager.jobBuilding).toBe(camp);
+        expect(villager.state).toBe(GATHERING);
     });
 });
