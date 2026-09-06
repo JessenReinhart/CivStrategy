@@ -284,6 +284,10 @@ export class VillagerSystem {
             const tree = villager.targetResource;
             if (!tree || !(tree as Phaser.GameObjects.Image).active ||
                 (tree as Phaser.GameObjects.Image).getData('isChopped')) {
+                if (villager.carryAmount > 0) {
+                    this.returnPartialCarry(villager);
+                    return;
+                }
                 // Tree gone — find another or go idle
                 const next = this.findNearestTree(villager.x, villager.y);
                 if (!next) {
@@ -303,6 +307,10 @@ export class VillagerSystem {
             const mine = villager.targetResource;
             if (!mine || !(mine as Phaser.GameObjects.Image).active ||
                 (mine as Phaser.GameObjects.Image).getData('isDepleted')) {
+                if (villager.carryAmount > 0) {
+                    this.returnPartialCarry(villager);
+                    return;
+                }
                 const next = this.findNearestGoldMine(villager.x, villager.y);
                 if (!next) {
                     this.abortJob(villager);
@@ -366,6 +374,14 @@ export class VillagerSystem {
     // ──────────────────────────────────────────────────────────────────────
     //  STATE: CARRYING → deposit and restart loop
     // ──────────────────────────────────────────────────────────────────────
+
+    private returnPartialCarry(villager: VillagerData): void {
+        villager.targetResource = undefined;
+        villager.state = UnitState.CARRYING;
+        villager.gatherTimer = 0;
+        this.showCarryVisual(villager);
+        this.resumeCarryToDropsite(villager);
+    }
 
     private resumeCarryToDropsite(villager: VillagerData): void {
         const bld = villager.jobBuilding;
