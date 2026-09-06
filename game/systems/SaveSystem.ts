@@ -156,11 +156,12 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
     const carryAmount = Number.isFinite(v.carryAmount) && v.carryAmount > 0 ? v.carryAmount : 0;
     const carryType = carryAmount > 0 && v.carryType ? v.carryType : null;
     const jobDef = carryType ? v.jobBuilding?.getData?.('def') : undefined;
-    const jobBuilding = carryType && v.jobBuilding && jobDef?.type
+    const jobImage = carryType && v.jobBuilding ? v.jobBuilding as Phaser.GameObjects.Image : null;
+    const jobBuilding = jobImage && jobDef?.type
       ? {
         type: jobDef.type as BuildingType,
-        x: v.jobBuilding.x,
-        y: v.jobBuilding.y,
+        x: jobImage.x,
+        y: jobImage.y,
       }
       : undefined;
     units.push({
