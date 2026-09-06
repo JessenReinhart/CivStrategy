@@ -16,6 +16,7 @@ export class InputManager {
     private rightDragMoved = false;
     private rightDragScreenStart = new Phaser.Math.Vector2();
     private isDragging = false;
+    private dragMoved = false;
     private dragStart = new Phaser.Math.Vector2();
     private dragScreenStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
@@ -219,6 +220,7 @@ export class InputManager {
             this.lastClickPos.set(pointer.x, pointer.y);
 
             this.isDragging = true;
+            this.dragMoved = false;
             const pointerWorld = this.getMainPointerWorld(pointer);
             this.dragStart.set(pointerWorld.x, pointerWorld.y);
             this.dragScreenStart.set(pointer.x, pointer.y);
@@ -276,6 +278,12 @@ export class InputManager {
         }
 
         if (this.isDragging) {
+            const screenDist = Phaser.Math.Distance.Between(
+                this.dragScreenStart.x, this.dragScreenStart.y,
+                pointer.x, pointer.y,
+            );
+            if (screenDist >= 5) this.dragMoved = true;
+
             const pointerWorld = this.getMainPointerWorld(pointer);
             this.dragRect.setTo(
                 Math.min(this.dragStart.x, pointerWorld.x),
@@ -332,16 +340,13 @@ export class InputManager {
     private handlePointerUp(pointer: Phaser.Input.Pointer) {
         if (this.isDragging) {
             this.isDragging = false;
-            const screenDist = Phaser.Math.Distance.Between(
-                this.dragScreenStart.x, this.dragScreenStart.y,
-                pointer.x, pointer.y,
-            );
             this.selectionGraphics.clear();
-            if (screenDist < 5) {
+            if (!this.dragMoved) {
                 this.handleSingleSelection(pointer);
             } else {
                 this.selectUnitsInIsoRect(this.dragRect);
             }
+            this.dragMoved = false;
         } else if (this.isRightDragging) {
             this.isRightDragging = false;
             this.rightDragGraphics.clear();
