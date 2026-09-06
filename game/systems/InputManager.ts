@@ -17,6 +17,7 @@ export class InputManager {
     private rightDragScreenStart = new Phaser.Math.Vector2();
     private isDragging = false;
     private dragStart = new Phaser.Math.Vector2();
+    private dragScreenStart = new Phaser.Math.Vector2();
     private dragRect = new Phaser.Geom.Rectangle();
     private selectionGraphics: Phaser.GameObjects.Graphics;
     private rightDragGraphics: Phaser.GameObjects.Graphics;
@@ -218,7 +219,9 @@ export class InputManager {
             this.lastClickPos.set(pointer.x, pointer.y);
 
             this.isDragging = true;
-            this.dragStart.set(pointer.worldX, pointer.worldY);
+            const pointerWorld = this.getMainPointerWorld(pointer);
+            this.dragStart.set(pointerWorld.x, pointerWorld.y);
+            this.dragScreenStart.set(pointer.x, pointer.y);
         }
     }
 
@@ -273,11 +276,12 @@ export class InputManager {
         }
 
         if (this.isDragging) {
+            const pointerWorld = this.getMainPointerWorld(pointer);
             this.dragRect.setTo(
-                Math.min(this.dragStart.x, pointer.worldX),
-                Math.min(this.dragStart.y, pointer.worldY),
-                Math.abs(pointer.worldX - this.dragStart.x),
-                Math.abs(pointer.worldY - this.dragStart.y)
+                Math.min(this.dragStart.x, pointerWorld.x),
+                Math.min(this.dragStart.y, pointerWorld.y),
+                Math.abs(pointerWorld.x - this.dragStart.x),
+                Math.abs(pointerWorld.y - this.dragStart.y)
             );
 
             this.selectionGraphics.clear();
@@ -328,12 +332,12 @@ export class InputManager {
     private handlePointerUp(pointer: Phaser.Input.Pointer) {
         if (this.isDragging) {
             this.isDragging = false;
-            const dist = Phaser.Math.Distance.Between(
-                this.dragStart.x, this.dragStart.y,
-                pointer.worldX, pointer.worldY
+            const screenDist = Phaser.Math.Distance.Between(
+                this.dragScreenStart.x, this.dragScreenStart.y,
+                pointer.x, pointer.y,
             );
             this.selectionGraphics.clear();
-            if (dist < 5) {
+            if (screenDist < 5) {
                 this.handleSingleSelection(pointer);
             } else {
                 this.selectUnitsInIsoRect(this.dragRect);
