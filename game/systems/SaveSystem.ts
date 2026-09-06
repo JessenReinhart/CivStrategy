@@ -335,6 +335,10 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 7. Respawn units (after buildings and AI state)
   const restoredVillagers = respawnUnits(scene, save);
 
+  // Military Phaser projections are normally synchronized during the simulation
+  // frame, but load consumers can observe camera/input state before that frame.
+  scene.squadSystem?.syncPositions();
+
   // 8. Rebuild durable workforce ownership before ordinary assignment. This
   // keeps saved worker/building relationships stable while still allowing the
   // economy to fill genuinely vacant jobs and legacy saves afterward.
