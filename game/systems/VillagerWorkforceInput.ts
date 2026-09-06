@@ -7,6 +7,7 @@ import { toCartesian } from '../utils/iso';
 import { getVillagerCarryCommandPolicy } from './villagerCommandPolicy';
 
 const VILLAGER_PICK_RADIUS = 22;
+const LEFT_DRAG_THRESHOLD = 5;
 
 type WorkforceBuilding = Phaser.GameObjects.Rectangle & {
   visual?: Phaser.GameObjects.Container;
@@ -21,6 +22,8 @@ type WorkforceBuilding = Phaser.GameObjects.Rectangle & {
  */
 export function installVillagerWorkforceInput(scene: MainScene): void {
   let selectedVillager: VillagerData | null = null;
+  let leftPointerStart: Phaser.Math.Vector2 | null = null;
+  let leftDragMoved = false;
 
   const getPointerWorld = (pointer: Phaser.Input.Pointer) => (
     scene.cameras.main.getWorldPoint(pointer.x, pointer.y)
@@ -123,8 +126,31 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     return nearest;
   };
 
+  const handleLeftPointerDown = (pointer: Phaser.Input.Pointer) => {
+    if (pointer.button !== 0) return;
+    leftPointerStart = new Phaser.Math.Vector2(pointer.x, pointer.y);
+    leftDragMoved = false;
+  };
+
+  const handleLeftPointerMove = (pointer: Phaser.Input.Pointer) => {
+    if (!leftPointerStart || leftDragMoved) return;
+    if (Phaser.Math.Distance.Between(leftPointerStart.x, leftPointerStart.y, pointer.x, pointer.y) <= LEFT_DRAG_THRESHOLD) return;
+
+    leftDragMoved = true;
+    // Drag selection belongs to InputManager. Release any prior workforce-only
+    // selection without emitting a competing zero-count event on pointerup.
+    clearWorkforceSelection();
+  };
+
   const handleLeftPointerUp = (pointer: Phaser.Input.Pointer) => {
     if (pointer.button !== 0) return;
+    const wasDrag = leftDragMoved || Boolean(
+      leftPointerStart
+      && Phaser.Math.Distance.Between(leftPointerStart.x, leftPointerStart.y, pointer.x, pointer.y) > LEFT_DRAG_THRESHOLD
+    );
+    leftPointerStart = null;
+    leftDragMoved = false;
+    if (wasDrag) return;
     if (scene.buildingManager.isDemolishMode || scene.buildingManager.previewBuildingType) return;
 
     const targets = scene.input.hitTestPointer(pointer);
@@ -209,6 +235,8 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   };
 
   const keyboard = scene.input.keyboard;
+  scene.input.on('pointerdown', handleLeftPointerDown);
+  scene.input.on('pointermove', handleLeftPointerMove);
   scene.input.on('pointerup', handleLeftPointerUp);
   scene.input.on('pointerdown', handleRightPointerDown);
   scene.game.events.on('clear-selection', clearWorkforceAndEmit);
@@ -218,7 +246,11 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   window.addEventListener('load-game', clearWorkforceAndEmit, { capture: true });
 
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+    leftPointerStart = null;
+    leftDragMoved = false;
     clearWorkforceSelection();
+    scene.input.off('pointerdown', handleLeftPointerDown);
+    scene.input.off('pointermove', handleLeftPointerMove);
     scene.input.off('pointerup', handleLeftPointerUp);
     scene.input.off('pointerdown', handleRightPointerDown);
     scene.game.events.off('clear-selection', clearWorkforceAndEmit);
