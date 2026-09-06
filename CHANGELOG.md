@@ -2,6 +2,7 @@
 
 ## 2026-09-06
 
+- **Partial resource loads are no longer lost when a source runs out (#299):** If a Villager has already gathered part of a wood or gold load when the source is exhausted, it now returns through the normal carrying path and deposits that cargo exactly once instead of silently discarding it.
 - **Villagers now finish carrying gathered resources before accepting replacement commands (#294):** Ground rallies and reassignment to another worker building are deferred while a Villager still owns a gathered load, preventing resources from being stranded or reinterpreted. Re-clicking the current dropsite stays non-destructive and the player receives brief feedback.
 - **Moving armies now refresh shared routing after navigation changes (#292):** Building, terrain, and water changes now invalidate active flow-field generations, and stale shared fields refresh in place for their existing target so armies do not keep following obsolete routes or stop because their cached field became stale.
 
