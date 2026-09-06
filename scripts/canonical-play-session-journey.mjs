@@ -1065,7 +1065,11 @@ try {
   box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas unavailable for second-restored army input.');
   point = await unitScreenPoint(page, 'player');
-  await page.mouse.click(box.x + point.x, box.y + point.y);
+  const selectionRadius = 32;
+  await page.mouse.move(box.x + point.x - selectionRadius, box.y + point.y - selectionRadius);
+  await page.mouse.down();
+  await page.mouse.move(box.x + point.x + selectionRadius, box.y + point.y + selectionRadius, { steps: 4 });
+  await page.mouse.up();
   await page.waitForFunction(() => (
     window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalPlaySessionProbe.player)
   ), undefined, { timeout: 5_000 });
