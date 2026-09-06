@@ -7,9 +7,8 @@ const PORT = 4181;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SAVE_KEY = 'civstrategy-save';
 const ARTIFACT_DIR = 'artifacts';
-const MARKER_WOOD = 4321;
-const CARRY_WOOD = 7;
-const LUMBER_CAMP = 'Lumber Camp';
+const MARKER_GOLD = 4321;
+const CARRY_GOLD = 7;
 const TOWN_CENTER = 'Town Center';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -68,20 +67,19 @@ try {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
 
-  const beforeSave = await page.evaluate(({ markerWood, carryWood, preferredTypes }) => {
+  const beforeSave = await page.evaluate(({ markerGold, carryGold, townCenterType }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.resources.wood = markerWood;
+    scene.resources.gold = markerGold;
+    // Freeze unrelated simulation so the acceptance proves exact-once carry
+    // continuity without another worker racing the resource assertion.
     scene.gameSpeed = 0;
 
-    const playerBuildings = scene.buildings.getChildren().filter((building) => building.getData?.('owner') === 0);
-    const dropsite = preferredTypes
-      .map((type) => playerBuildings.find((building) => building.getData?.('def')?.type === type))
-      .find(Boolean);
-    if (!dropsite) {
-      const available = playerBuildings.map((building) => building.getData?.('def')?.type).filter(Boolean);
-      throw new Error(`No player wood dropsite available for carry persistence acceptance. Available: ${available.join(', ')}`);
-    }
+    const dropsite = scene.buildings.getChildren().find((building) => (
+      building.getData?.('owner') === 0
+      && building.getData?.('def')?.type === townCenterType
+    ));
+    if (!dropsite) throw new Error('No player Town Center available for carry persistence acceptance.');
 
     let villager = dropsite.getData('assignedWorker');
     if (!villager || villager.owner !== 0) {
@@ -98,8 +96,8 @@ try {
     villager.jobBuilding = dropsite;
     villager.x = dropsite.x;
     villager.y = dropsite.y;
-    villager.carryAmount = carryWood;
-    villager.carryType = 'wood';
+    villager.carryAmount = carryGold;
+    villager.carryType = 'gold';
     villager.state = 'carrying';
     villager.path = undefined;
     villager.pathStep = 0;
@@ -107,7 +105,7 @@ try {
 
     window.dispatchEvent(new Event('save-game'));
     return {
-      wood: scene.resources.wood,
+      gold: scene.resources.gold,
       villagerId: villager.id,
       carryAmount: villager.carryAmount,
       carryType: villager.carryType,
@@ -118,48 +116,48 @@ try {
         y: dropsite.y,
       },
     };
-  }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD, preferredTypes: [LUMBER_CAMP, TOWN_CENTER] });
+  }, { markerGold: MARKER_GOLD, carryGold: CARRY_GOLD, townCenterType: TOWN_CENTER });
 
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
-  if (storedSave.resources?.wood !== MARKER_WOOD) {
-    throw new Error(`Stored save wood mismatch: expected ${MARKER_WOOD}, got ${storedSave.resources?.wood}.`);
+  if (storedSave.resources?.gold !== MARKER_GOLD) {
+    throw new Error(`Stored save gold mismatch: expected ${MARKER_GOLD}, got ${storedSave.resources?.gold}.`);
   }
   if (storedSave.gameSpeed !== 0) throw new Error(`Carry acceptance save did not preserve paused speed: ${storedSave.gameSpeed}.`);
   const storedCarry = storedSave.units?.find((unit) => (
     unit.type === 'Villager'
     && unit.owner === 0
-    && unit.carryAmount === CARRY_WOOD
-    && unit.carryType === 'wood'
+    && unit.carryAmount === CARRY_GOLD
+    && unit.carryType === 'gold'
     && unit.state === 'carrying'
   ));
-  if (!storedCarry) throw new Error('Stored save did not preserve the Villager wood carry.');
-  if (storedCarry.jobBuilding?.type !== beforeSave.dropsite.type
+  if (!storedCarry) throw new Error('Stored save did not preserve the Villager gold carry.');
+  if (storedCarry.jobBuilding?.type !== TOWN_CENTER
     || Math.abs(storedCarry.jobBuilding.x - beforeSave.dropsite.x) > 0.5
     || Math.abs(storedCarry.jobBuilding.y - beforeSave.dropsite.y) > 0.5) {
-    throw new Error(`Stored carry lost its exact dropsite: ${JSON.stringify(storedCarry.jobBuilding)}.`);
+    throw new Error(`Stored carry lost its exact Town Center dropsite: ${JSON.stringify(storedCarry.jobBuilding)}.`);
   }
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
 
-  const restored = await page.evaluate(({ carryWood, savedDropsite }) => {
+  const restored = await page.evaluate(({ carryGold, townCenterType, savedDropsite }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const villager = scene.villagerSystem.getVillagersByOwner(0).find((candidate) => (
-      candidate.carryAmount === carryWood && candidate.carryType === 'wood'
+      candidate.carryAmount === carryGold && candidate.carryType === 'gold'
     ));
     if (!villager) throw new Error('Reloaded save did not restore the carrying Villager.');
     const dropsite = villager.jobBuilding;
     if (!dropsite) throw new Error('Reloaded carrying Villager lost its dropsite relationship.');
-    if (dropsite.getData?.('owner') !== 0 || dropsite.getData?.('def')?.type !== savedDropsite.type) {
-      throw new Error(`Reloaded carrying Villager was rebound to an incompatible dropsite: ${dropsite.getData?.('def')?.type}.`);
+    if (dropsite.getData?.('owner') !== 0 || dropsite.getData?.('def')?.type !== townCenterType) {
+      throw new Error('Reloaded carrying Villager was rebound to an incompatible dropsite.');
     }
     if (Math.abs(dropsite.x - savedDropsite.x) > 0.5 || Math.abs(dropsite.y - savedDropsite.y) > 0.5) {
-      throw new Error(`Reloaded carrying Villager was rebound to the wrong dropsite at ${dropsite.x},${dropsite.y}.`);
+      throw new Error(`Reloaded carrying Villager was rebound to the wrong Town Center at ${dropsite.x},${dropsite.y}.`);
     }
     if (dropsite.getData?.('assignedWorker') !== villager) {
-      throw new Error('Reloaded dropsite does not reserve the restored carrying Villager.');
+      throw new Error('Reloaded Town Center does not reserve the restored carrying Villager.');
     }
 
     return {
@@ -169,55 +167,58 @@ try {
       dropsite: { x: dropsite.x, y: dropsite.y, type: dropsite.getData('def')?.type },
       gameSpeed: scene.gameSpeed,
     };
-  }, { carryWood: CARRY_WOOD, savedDropsite: beforeSave.dropsite });
+  }, { carryGold: CARRY_GOLD, townCenterType: TOWN_CENTER, savedDropsite: beforeSave.dropsite });
 
   if (restored.gameSpeed !== 0) throw new Error(`Reload did not preserve paused acceptance snapshot: ${restored.gameSpeed}.`);
 
+  // CARRYING recovery is cadence-bound. Drive one real retry tick while the
+  // outer game remains paused, then assert the durable economy result.
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.villagerSystem.update(0, 500);
   });
 
-  await page.waitForFunction(({ markerWood, carryWood }) => {
+  await page.waitForFunction(({ markerGold, carryGold }) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return Boolean(scene?.isReady && scene.resources?.wood === markerWood + carryWood);
-  }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD }, { timeout: 10_000 });
+    return Boolean(scene?.isReady && scene.resources?.gold === markerGold + carryGold);
+  }, { markerGold: MARKER_GOLD, carryGold: CARRY_GOLD }, { timeout: 10_000 });
 
-  const afterLoad = await page.evaluate(({ markerWood, carryWood }) => {
+  const afterLoad = await page.evaluate(({ markerGold, carryGold }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const settledWood = scene.resources.wood;
+    const settledGold = scene.resources.gold;
     const duplicateCarry = scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
-      villager.carryAmount === carryWood && villager.carryType === 'wood'
+      villager.carryAmount === carryGold && villager.carryType === 'gold'
     ));
     if (duplicateCarry) throw new Error('Restored Villager still holds cargo after the economy received it.');
-    if (settledWood !== markerWood + carryWood) {
-      throw new Error(`Reloaded carry settled incorrectly: expected ${markerWood + carryWood}, got ${settledWood}.`);
+    if (settledGold !== markerGold + carryGold) {
+      throw new Error(`Reloaded carry settled incorrectly: expected ${markerGold + carryGold}, got ${settledGold}.`);
     }
     if (scene.gameSpeed !== 0) throw new Error(`Carry settlement unexpectedly advanced the paused game: ${scene.gameSpeed}.`);
     return {
-      wood: settledWood,
-      deposited: settledWood - markerWood,
+      gold: settledGold,
+      deposited: settledGold - markerGold,
       population: scene.population,
       gameTime: scene.gameTime,
       gameSpeed: scene.gameSpeed,
     };
-  }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD });
+  }, { markerGold: MARKER_GOLD, carryGold: CARRY_GOLD });
 
+  // A second retry tick must not duplicate-credit the settled load.
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.villagerSystem.update(500, 500);
   });
-  const frozenWood = await page.evaluate(() => window.__civStrategyGame.scene.getScene('MainScene').resources.wood);
-  if (frozenWood !== MARKER_WOOD + CARRY_WOOD) {
-    throw new Error(`Preserved carry was credited more than once: expected ${MARKER_WOOD + CARRY_WOOD}, got ${frozenWood}.`);
+  const frozenGold = await page.evaluate(() => window.__civStrategyGame.scene.getScene('MainScene').resources.gold);
+  if (frozenGold !== MARKER_GOLD + CARRY_GOLD) {
+    throw new Error(`Preserved carry was credited more than once: expected ${MARKER_GOLD + CARRY_GOLD}, got ${frozenGold}.`);
   }
-  if (afterLoad.deposited !== CARRY_WOOD) {
-    throw new Error(`Preserved carry changed across reload: expected ${CARRY_WOOD}, got ${afterLoad.deposited}.`);
+  if (afterLoad.deposited !== CARRY_GOLD) {
+    throw new Error(`Preserved carry changed across reload: expected ${CARRY_GOLD}, got ${afterLoad.deposited}.`);
   }
   if (browserErrors.length) throw new Error(`Browser errors during carry reload journey: ${browserErrors.join(' | ')}`);
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/villager-carry-save-reload.png`, fullPage: true });
-  console.log(JSON.stringify({ beforeSave, storedCarry, restored, afterLoad, frozenWood, browserErrors }, null, 2));
+  console.log(JSON.stringify({ beforeSave, storedCarry, restored, afterLoad, frozenGold, browserErrors }, null, 2));
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
