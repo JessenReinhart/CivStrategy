@@ -1065,9 +1065,28 @@ try {
   if (!box) throw new Error('Canvas unavailable for second-restored army input.');
   point = await unitScreenPoint(page, 'player');
   const selectionRadius = 32;
-  await page.mouse.move(box.x + point.x - selectionRadius, box.y + point.y - selectionRadius);
+  const canvasInset = 6;
+  const minX = box.x + canvasInset;
+  const maxX = box.x + box.width - canvasInset;
+  const minY = box.y + canvasInset;
+  const maxY = box.y + box.height - canvasInset;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  // A remounted world can clamp the camera against a map edge. Keep the real
+  // Playwright drag inside the canvas so Phaser receives pointerdown/up.
+  const dragStart = {
+    x: clamp(box.x + point.x - selectionRadius, minX, maxX),
+    y: clamp(box.y + point.y - selectionRadius, minY, maxY),
+  };
+  const dragEnd = {
+    x: clamp(box.x + point.x + selectionRadius, minX, maxX),
+    y: clamp(box.y + point.y + selectionRadius, minY, maxY),
+  };
+  if (Math.hypot(dragEnd.x - dragStart.x, dragEnd.y - dragStart.y) <= 5) {
+    throw new Error(`Second-restored selection drag collapsed at the canvas edge: ${JSON.stringify({ point, dragStart, dragEnd, box })}`);
+  }
+  await page.mouse.move(dragStart.x, dragStart.y);
   await page.mouse.down();
-  await page.mouse.move(box.x + point.x + selectionRadius, box.y + point.y + selectionRadius, { steps: 4 });
+  await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 4 });
   await page.mouse.up();
   await page.waitForFunction(() => (
     window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalPlaySessionProbe.player)
