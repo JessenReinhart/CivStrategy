@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-06
+
+- **Villagers now finish carrying gathered resources before accepting replacement commands (#294):** Ground rallies and reassignment to another worker building are deferred while a Villager still owns a gathered load, preventing resources from being stranded or reinterpreted. Re-clicking the current dropsite stays non-destructive and the player receives brief feedback.
+- **Moving armies now refresh shared routing after navigation changes (#292):** Building, terrain, and water changes now invalidate active flow-field generations, and stale shared fields refresh in place for their existing target so armies do not keep following obsolete routes or stop because their cached field became stale.
+
 ## 2026-09-03
 
 - **Canonical gathering now proves the live game loop actually deposits wood (#258):** The focused gather→build journey and the uninterrupted playable-session journey no longer advance Villager work by calling the subsystem directly. They keep real player assignment, require the running MainScene loop to complete the final 20-wood deposit, preserve worker ownership, and then continue through real construction and the rest of the playable journey.
