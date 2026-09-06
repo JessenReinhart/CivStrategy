@@ -1086,7 +1086,9 @@ try {
   }
   await page.mouse.move(dragStart.x, dragStart.y);
   await page.mouse.down();
+  const frameBeforeDragMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
   await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 4 });
+  await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, frameBeforeDragMove, { timeout: POINTER_TIMEOUT_MS });
   await page.mouse.up();
   await page.waitForFunction(() => (
     window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalPlaySessionProbe.player)
