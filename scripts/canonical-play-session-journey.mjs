@@ -1044,7 +1044,6 @@ try {
   }
 
   evidence.phase = 'second-continue-playing';
-  await page.keyboard.press('Escape');
   evidence.secondPostLoadTarget = await page.evaluate((gameSpeed) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalPlaySessionProbe.player;
