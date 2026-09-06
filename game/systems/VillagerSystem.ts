@@ -13,6 +13,7 @@ const CARRY_COLORS: Record<string, number> = {
 
 const TREE_SEARCH_RADIUS = 300;
 const PATH_ARRIVAL_TOLERANCE = 64;
+const CARRY_PATH_RETRY_MS = 500;
 
 // Wood is the opening construction bottleneck. Keep the shared 2.5s gather
 // cadence, but make each chop worth more and amortize travel over a larger load.
@@ -164,8 +165,13 @@ export class VillagerSystem {
                 this.processGathering(villager, delta);
                 break;
             case UnitState.CARRYING:
-                // Arrived at dropsite without a path — deposit immediately
-                this.depositCarry(villager);
+                // A blocked return route must not turn the worker into reusable idle labor
+                // or teleport the load. Retry the same dropsite at a bounded cadence.
+                villager.gatherTimer += delta;
+                if (villager.gatherTimer >= CARRY_PATH_RETRY_MS) {
+                    villager.gatherTimer = 0;
+                    this.resumeCarryToDropsite(villager);
+                }
                 break;
             // IDLE and MOVING_TO_RALLY wait for external assignment.
             // MOVING_TO_WORK should always own a path; assignJob resolves the
@@ -347,31 +353,12 @@ export class VillagerSystem {
             }
 
             if (villager.carryAmount >= cap) {
-                // Full — transition to CARRYING
+                // Full — transition to CARRYING. The assigned dropsite remains
+                // authoritative even when its route is temporarily unavailable.
                 villager.state = UnitState.CARRYING;
+                villager.gatherTimer = 0;
                 this.showCarryVisual(villager);
-
-                if (villager.jobBuilding) {
-                    const bx = (villager.jobBuilding as Phaser.GameObjects.Image).x;
-                    const by = (villager.jobBuilding as Phaser.GameObjects.Image).y;
-                    const dist = Phaser.Math.Distance.Between(villager.x, villager.y, bx, by);
-                    if (dist < 20) {
-                        // Already at dropsite (e.g. farm)
-                        this.depositCarry(villager);
-                    } else {
-                        const result = this.pathToBuilding(villager, villager.jobBuilding);
-                        if (result === 'arrived') {
-                            this.depositCarry(villager);
-                        } else if (result === 'unreachable') {
-                            // Keep the carried resources instead of teleport-depositing.
-                            // The assignment is released so another job can be chosen.
-                            this.clearJobBuilding(villager);
-                            villager.state = UnitState.IDLE;
-                        }
-                    }
-                } else {
-                    this.depositCarry(villager);
-                }
+                this.resumeCarryToDropsite(villager);
             }
         }
     }
@@ -379,6 +366,32 @@ export class VillagerSystem {
     // ──────────────────────────────────────────────────────────────────────
     //  STATE: CARRYING → deposit and restart loop
     // ──────────────────────────────────────────────────────────────────────
+
+    private resumeCarryToDropsite(villager: VillagerData): void {
+        const bld = villager.jobBuilding;
+        if (!bld) {
+            // Preserve the existing fallback for orphaned carry state. Normal
+            // gather loops keep their assignment, while save/load reconnects it.
+            this.depositCarry(villager);
+            return;
+        }
+
+        const bx = (bld as Phaser.GameObjects.Image).x;
+        const by = (bld as Phaser.GameObjects.Image).y;
+        const dist = Phaser.Math.Distance.Between(villager.x, villager.y, bx, by);
+        if (dist < 20) {
+            this.depositCarry(villager);
+            return;
+        }
+
+        const result = this.pathToBuilding(villager, bld);
+        if (result === 'arrived') {
+            this.depositCarry(villager);
+        }
+        // A moving result owns a path. An unreachable result deliberately keeps
+        // the CARRYING state and building reservation so later retries resume the
+        // same load instead of exposing it to ordinary idle-worker assignment.
+    }
 
     private depositCarry(villager: VillagerData): void {
         if (villager.carryAmount > 0 && villager.carryType) {
