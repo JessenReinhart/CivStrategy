@@ -10,6 +10,7 @@ const ARTIFACT_DIR = 'artifacts';
 const MARKER_WOOD = 4321;
 const CARRY_WOOD = 7;
 const LUMBER_CAMP = 'Lumber Camp';
+const TOWN_CENTER = 'Town Center';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(
@@ -67,19 +68,20 @@ try {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
 
-  const beforeSave = await page.evaluate(({ markerWood, carryWood, lumberCampType }) => {
+  const beforeSave = await page.evaluate(({ markerWood, carryWood, preferredTypes }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
     scene.resources.wood = markerWood;
-    // Freeze unrelated simulation so this acceptance can prove exact-once carry
-    // continuity without another worker racing the resource assertion.
     scene.gameSpeed = 0;
 
-    const dropsite = scene.buildings.getChildren().find((building) => (
-      building.getData?.('owner') === 0
-      && building.getData?.('def')?.type === lumberCampType
-    ));
-    if (!dropsite) throw new Error('No player Lumber Camp available for carry persistence acceptance.');
+    const playerBuildings = scene.buildings.getChildren().filter((building) => building.getData?.('owner') === 0);
+    const dropsite = preferredTypes
+      .map((type) => playerBuildings.find((building) => building.getData?.('def')?.type === type))
+      .find(Boolean);
+    if (!dropsite) {
+      const available = playerBuildings.map((building) => building.getData?.('def')?.type).filter(Boolean);
+      throw new Error(`No player wood dropsite available for carry persistence acceptance. Available: ${available.join(', ')}`);
+    }
 
     let villager = dropsite.getData('assignedWorker');
     if (!villager || villager.owner !== 0) {
@@ -94,10 +96,6 @@ try {
     }
     dropsite.setData('assignedWorker', villager);
     villager.jobBuilding = dropsite;
-
-    // Place the carrier at its real dropsite. After reload, one real 500 ms
-    // VillagerSystem retry tick should settle the load without advancing the
-    // rest of the paused game simulation.
     villager.x = dropsite.x;
     villager.y = dropsite.y;
     villager.carryAmount = carryWood;
@@ -120,7 +118,7 @@ try {
         y: dropsite.y,
       },
     };
-  }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD, lumberCampType: LUMBER_CAMP });
+  }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD, preferredTypes: [LUMBER_CAMP, TOWN_CENTER] });
 
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
@@ -136,17 +134,17 @@ try {
     && unit.state === 'carrying'
   ));
   if (!storedCarry) throw new Error('Stored save did not preserve the Villager wood carry.');
-  if (storedCarry.jobBuilding?.type !== LUMBER_CAMP
+  if (storedCarry.jobBuilding?.type !== beforeSave.dropsite.type
     || Math.abs(storedCarry.jobBuilding.x - beforeSave.dropsite.x) > 0.5
     || Math.abs(storedCarry.jobBuilding.y - beforeSave.dropsite.y) > 0.5) {
-    throw new Error(`Stored carry lost its exact Lumber Camp dropsite: ${JSON.stringify(storedCarry.jobBuilding)}.`);
+    throw new Error(`Stored carry lost its exact dropsite: ${JSON.stringify(storedCarry.jobBuilding)}.`);
   }
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
 
-  const restored = await page.evaluate(({ carryWood, lumberCampType, savedDropsite }) => {
+  const restored = await page.evaluate(({ carryWood, savedDropsite }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const villager = scene.villagerSystem.getVillagersByOwner(0).find((candidate) => (
       candidate.carryAmount === carryWood && candidate.carryType === 'wood'
@@ -154,14 +152,14 @@ try {
     if (!villager) throw new Error('Reloaded save did not restore the carrying Villager.');
     const dropsite = villager.jobBuilding;
     if (!dropsite) throw new Error('Reloaded carrying Villager lost its dropsite relationship.');
-    if (dropsite.getData?.('owner') !== 0 || dropsite.getData?.('def')?.type !== lumberCampType) {
-      throw new Error('Reloaded carrying Villager was rebound to an incompatible dropsite.');
+    if (dropsite.getData?.('owner') !== 0 || dropsite.getData?.('def')?.type !== savedDropsite.type) {
+      throw new Error(`Reloaded carrying Villager was rebound to an incompatible dropsite: ${dropsite.getData?.('def')?.type}.`);
     }
     if (Math.abs(dropsite.x - savedDropsite.x) > 0.5 || Math.abs(dropsite.y - savedDropsite.y) > 0.5) {
-      throw new Error(`Reloaded carrying Villager was rebound to the wrong Lumber Camp at ${dropsite.x},${dropsite.y}.`);
+      throw new Error(`Reloaded carrying Villager was rebound to the wrong dropsite at ${dropsite.x},${dropsite.y}.`);
     }
     if (dropsite.getData?.('assignedWorker') !== villager) {
-      throw new Error('Reloaded Lumber Camp does not reserve the restored carrying Villager.');
+      throw new Error('Reloaded dropsite does not reserve the restored carrying Villager.');
     }
 
     return {
@@ -171,12 +169,10 @@ try {
       dropsite: { x: dropsite.x, y: dropsite.y, type: dropsite.getData('def')?.type },
       gameSpeed: scene.gameSpeed,
     };
-  }, { carryWood: CARRY_WOOD, lumberCampType: LUMBER_CAMP, savedDropsite: beforeSave.dropsite });
+  }, { carryWood: CARRY_WOOD, savedDropsite: beforeSave.dropsite });
 
   if (restored.gameSpeed !== 0) throw new Error(`Reload did not preserve paused acceptance snapshot: ${restored.gameSpeed}.`);
 
-  // CARRYING recovery is intentionally cadence-bound. Drive one real retry tick
-  // while the outer game remains paused, then assert the durable economy result.
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.villagerSystem.update(0, 500);
@@ -190,7 +186,6 @@ try {
   const afterLoad = await page.evaluate(({ markerWood, carryWood }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const settledWood = scene.resources.wood;
-
     const duplicateCarry = scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
       villager.carryAmount === carryWood && villager.carryType === 'wood'
     ));
@@ -199,7 +194,6 @@ try {
       throw new Error(`Reloaded carry settled incorrectly: expected ${markerWood + carryWood}, got ${settledWood}.`);
     }
     if (scene.gameSpeed !== 0) throw new Error(`Carry settlement unexpectedly advanced the paused game: ${scene.gameSpeed}.`);
-
     return {
       wood: settledWood,
       deposited: settledWood - markerWood,
@@ -209,7 +203,6 @@ try {
     };
   }, { markerWood: MARKER_WOOD, carryWood: CARRY_WOOD });
 
-  // A second retry tick must not duplicate-credit the settled load.
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.villagerSystem.update(500, 500);
