@@ -22,6 +22,10 @@ type WorkforceBuilding = Phaser.GameObjects.Rectangle & {
 export function installVillagerWorkforceInput(scene: MainScene): void {
   let selectedVillager: VillagerData | null = null;
 
+  const getPointerWorld = (pointer: Phaser.Input.Pointer) => (
+    scene.cameras.main.getWorldPoint(pointer.x, pointer.y)
+  );
+
   const setSelectionRing = (villager: VillagerData, selected: boolean) => {
     const visual = villager.visual;
     if (!visual) return;
@@ -60,13 +64,14 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   };
 
   const findVillagerAtPointer = (pointer: Phaser.Input.Pointer): VillagerData | null => {
+    const world = getPointerWorld(pointer);
     let nearest: VillagerData | null = null;
     let nearestDistance = VILLAGER_PICK_RADIUS;
 
     for (const villager of scene.villagerSystem.getVillagersByOwner(0)) {
       const visual = villager.visual;
       if (!visual?.active || !visual.visible) continue;
-      const distance = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, visual.x, visual.y);
+      const distance = Phaser.Math.Distance.Between(world.x, world.y, visual.x, visual.y);
       if (distance <= nearestDistance) {
         nearest = villager;
         nearestDistance = distance;
@@ -91,6 +96,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     // Building art is intentionally larger than its simulation footprint. If
     // Phaser misses the container hit area for one frame, keep a real click on
     // the visible owned worker building from degrading into a ground rally.
+    const world = getPointerWorld(pointer);
     let nearest: WorkforceBuilding | null = null;
     let nearestScore = Infinity;
     for (const child of scene.buildings.getChildren()) {
@@ -102,8 +108,8 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       const halfWidth = Math.max(18, def.width * 0.75);
       const upwardReach = Math.max(24, def.height);
       const downwardReach = Math.max(10, def.height * 0.35);
-      const dx = Math.abs(pointer.worldX - visual.x);
-      const dy = pointer.worldY - visual.y;
+      const dx = Math.abs(world.x - visual.x);
+      const dy = world.y - visual.y;
       if (dx > halfWidth || dy < -upwardReach || dy > downwardReach) continue;
 
       const normalizedY = dy < 0 ? Math.abs(dy) / upwardReach : dy / downwardReach;
@@ -122,11 +128,12 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     if (scene.buildingManager.isDemolishMode || scene.buildingManager.previewBuildingType) return;
 
     const targets = scene.input.hitTestPointer(pointer);
-    const hitsUnitOrBuilding = targets.some((target) => (
-      Boolean(target.getData?.('unit')) || Boolean(target.getData?.('building'))
-    ));
+    const hitsMilitaryUnit = targets.some((target) => Boolean(target.getData?.('unit')));
 
-    const villager = hitsUnitOrBuilding ? null : findVillagerAtPointer(pointer);
+    // Civilians use a proximity pick rather than Phaser's interactive unit hit
+    // target. Let a nearby villager win over overlapping building art, matching
+    // the normal RTS expectation that units remain selectable in a dense town.
+    const villager = hitsMilitaryUnit ? null : findVillagerAtPointer(pointer);
     if (!villager) {
       clearWorkforceAndEmit();
       return;
@@ -160,11 +167,12 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     }
 
     const building = findWorkerBuildingAtPointer(pointer);
+    const world = getPointerWorld(pointer);
 
     if (building) {
       const carryPolicy = getVillagerCarryCommandPolicy(selectedVillager, building);
       if (carryPolicy === 'keep-current') {
-        scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+        scene.proceduralSound.playCommandAck(world.x, world.y);
         return;
       }
       if (carryPolicy === 'defer') {
@@ -185,7 +193,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       }
 
       scene.villagerSystem.assignJob(selectedVillager, building);
-      scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+      scene.proceduralSound.playCommandAck(world.x, world.y);
       scene.economySystem.updateStats();
       return;
     }
@@ -195,9 +203,9 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       return;
     }
 
-    const cart = toCartesian(pointer.worldX, pointer.worldY);
+    const cart = toCartesian(world.x, world.y);
     scene.villagerSystem.sendToRallyPoint(selectedVillager, cart.x, cart.y);
-    scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+    scene.proceduralSound.playCommandAck(world.x, world.y);
   };
 
   const keyboard = scene.input.keyboard;
