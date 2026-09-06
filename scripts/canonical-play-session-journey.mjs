@@ -667,8 +667,10 @@ try {
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.units.getChildren().some((unit) => (
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const units = scene?.units?.getChildren?.();
+    if (!units) return false;
+    return units.some((unit) => (
       unit.getData('owner') === 0
       && (unit.unitType ?? unit.getData('unitType')) === saved.type
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
@@ -973,8 +975,10 @@ try {
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.units.getChildren().some((unit) => (
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const units = scene?.units?.getChildren?.();
+    if (!units) return false;
+    return units.some((unit) => (
       unit.getData('owner') === 0
       && (unit.unitType ?? unit.getData('unitType')) === saved.type
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
