@@ -88,6 +88,9 @@ jobs:
       - name: Browser save reload journey
         run: npm run test:save-reload-journey
 
+      - name: Browser cross-config saved-world reload journey
+        run: node scripts/cross-config-save-reload-journey.mjs
+
       - name: Browser villager carry reload continuity
         run: node scripts/villager-carry-save-reload-journey.mjs
 
