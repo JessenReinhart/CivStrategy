@@ -17,9 +17,19 @@ type SerializedBuildingWithWaypoint = SerializedBuilding & {
 };
 
 type VillagerCarryType = 'wood' | 'food' | 'gold';
+type SerializedVillagerJobBuilding = {
+  type: BuildingType;
+  x: number;
+  y: number;
+};
 type SerializedVillagerUnit = SerializedUnit & {
   carryAmount?: number;
   carryType?: VillagerCarryType | null;
+  jobBuilding?: SerializedVillagerJobBuilding;
+};
+type RestoredVillager = {
+  villager: any;
+  saved: SerializedVillagerUnit;
 };
 
 type SerializedGoldMineState = {
@@ -140,11 +150,19 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
 
   // Work/navigation references are runtime-only, but gathered resources are
   // durable economy state. Persist valid carry and resume it as CARRYING after
-  // load so it can be reconnected to a compatible dropsite before jobs resume.
+  // load so it can be reconnected to the same dropsite before jobs resume.
   const villagers = scene.villagerSystem?.getAllVillagers() ?? [];
   for (const v of villagers) {
     const carryAmount = Number.isFinite(v.carryAmount) && v.carryAmount > 0 ? v.carryAmount : 0;
     const carryType = carryAmount > 0 && v.carryType ? v.carryType : null;
+    const jobDef = carryType ? v.jobBuilding?.getData?.('def') : undefined;
+    const jobBuilding = carryType && v.jobBuilding && jobDef?.type
+      ? {
+        type: jobDef.type as BuildingType,
+        x: v.jobBuilding.x,
+        y: v.jobBuilding.y,
+      }
+      : undefined;
     units.push({
       type: UnitType.VILLAGER,
       owner: v.owner,
@@ -156,6 +174,7 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
       stance: UnitStance.HOLD,
       carryAmount,
       carryType,
+      jobBuilding,
     } as SerializedVillagerUnit);
   }
 
@@ -312,12 +331,12 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 6. Restore AI state (after buildings are respawned so AI building array repopulates)
   restoreAIState(scene, save);
   // 7. Respawn units (after buildings and AI state)
-  respawnUnits(scene, save);
+  const restoredVillagers = respawnUnits(scene, save);
 
   // 8. Rebuild runtime-only workforce references before ordinary assignment.
   // Carrying villagers are not idle, so without this pass a paused save can
   // reload with a permanently vacant worker building until simulation resumes.
-  reconnectCarryingVillagers(scene);
+  reconnectCarryingVillagers(scene, restoredVillagers);
   scene.economySystem?.assignJobs?.();
 
   // 9. Recompute economy stats
@@ -472,16 +491,19 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
   }
 }
 
-function respawnUnits(scene: MainScene, save: SaveGame): void {
+function respawnUnits(scene: MainScene, save: SaveGame): RestoredVillager[] {
+  const restoredVillagers: RestoredVillager[] = [];
   for (const u of save.units) {
     if (u.type === UnitType.VILLAGER) {
       const villager = scene.villagerSystem.spawnVillager(u.x, u.y, u.owner);
+      const saved = u as SerializedVillagerUnit;
       const carry = readSerializedVillagerCarry(u);
       villager.carryAmount = carry.amount;
       villager.carryType = carry.type;
       // Preserve already-gathered carry across the round trip. Its old object
       // references are rebuilt separately before normal job assignment.
       villager.state = carry.amount > 0 ? UnitState.CARRYING : normalizeVillagerStateForSaveLoad(u.state);
+      restoredVillagers.push({ villager, saved });
       // VillagerData doesn't have hp or stance, skip
     } else {
       const unit = scene.entityFactory.spawnUnit(u.type, u.x, u.y, u.owner);
@@ -493,9 +515,10 @@ function respawnUnits(scene: MainScene, save: SaveGame): void {
       }
     }
   }
+  return restoredVillagers;
 }
 
-function reconnectCarryingVillagers(scene: MainScene): void {
+function reconnectCarryingVillagers(scene: MainScene, restoredVillagers: RestoredVillager[]): void {
   const compatibleBuildingType: Record<VillagerCarryType, BuildingType> = {
     wood: BuildingType.LUMBER_CAMP,
     food: BuildingType.FARM,
@@ -503,26 +526,41 @@ function reconnectCarryingVillagers(scene: MainScene): void {
   };
   const buildings = scene.buildings.getChildren() as Phaser.GameObjects.Image[];
 
-  for (const villager of scene.villagerSystem.getAllVillagers()) {
+  for (const { villager, saved } of restoredVillagers) {
     if (villager.state !== UnitState.CARRYING || !villager.carryType || villager.carryAmount <= 0 || villager.jobBuilding) {
       continue;
     }
 
     const targetType = compatibleBuildingType[villager.carryType as VillagerCarryType];
-    let closest: Phaser.GameObjects.Image | null = null;
+    const savedJob = saved.jobBuilding;
+    let closest = savedJob
+      ? buildings.find((building) => {
+        const def = building.getData('def');
+        return building.getData('owner') === villager.owner
+          && def?.type === savedJob.type
+          && Math.abs(building.x - savedJob.x) <= 0.5
+          && Math.abs(building.y - savedJob.y) <= 0.5
+          && !building.getData('assignedWorker');
+      }) ?? null
+      : null;
     let closestDistance = Number.POSITIVE_INFINITY;
 
-    for (const building of buildings) {
-      const def = building.getData('def');
-      if (building.getData('owner') !== villager.owner || def?.type !== targetType || building.getData('assignedWorker')) {
-        continue;
-      }
-      const dx = building.x - villager.x;
-      const dy = building.y - villager.y;
-      const distance = dx * dx + dy * dy;
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closest = building;
+    // Older version-1 saves have no dropsite locator. If the exact saved site
+    // no longer exists, fall back to the nearest compatible owned building so
+    // durable carry still remains recoverable instead of becoming orphaned.
+    if (!closest) {
+      for (const building of buildings) {
+        const def = building.getData('def');
+        if (building.getData('owner') !== villager.owner || def?.type !== targetType || building.getData('assignedWorker')) {
+          continue;
+        }
+        const dx = building.x - villager.x;
+        const dy = building.y - villager.y;
+        const distance = dx * dx + dy * dy;
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closest = building;
+        }
       }
     }
 
