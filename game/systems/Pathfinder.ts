@@ -79,6 +79,18 @@ interface PathRequest {
     callback: (path: Phaser.Math.Vector2[] | null) => void;
 }
 
+interface FlowField {
+    dirX: Float64Array;
+    dirY: Float64Array;
+    cols: number;
+    rows: number;
+    targetX: number;
+    targetY: number;
+    version: number;
+}
+
+type FlowFieldRef = Pick<FlowField, 'dirX' | 'dirY' | 'cols' | 'rows'> & Partial<Pick<FlowField, 'targetX' | 'targetY' | 'version'>>;
+
 export class Pathfinder {
     // Building-blocked cells (1D bit array; toggled by markGrid only)
     private blocked: Uint8Array;
@@ -109,9 +121,9 @@ export class Pathfinder {
     private maxPathsPerFrame: number = 20; // Budget: paths to compute per frame
 
     // Flow field cache (version-stamped: rejected if gridVersion changed)
-    private flowFieldCache: Map<string, { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; targetX: number; targetY: number; version: number }> = new Map();
+    private flowFieldCache: Map<string, FlowField> = new Map();
 
-    // Flow field versioning: bumped on grid changes so stale unit refs are rejected
+    // Flow field versioning: bumped on navigation-field changes so active shared refs refresh
     private gridVersion = 0;
 
     // Queue depth cap: drop oldest beyond this to prevent unbounded growth under load
@@ -145,6 +157,12 @@ export class Pathfinder {
         this.nodeOpen = new Uint8Array(total);
         this.nodeVersion = new Uint16Array(total);
     }
+
+    private invalidateFlowFields(): void {
+        this.gridVersion++;
+        this.flowFieldCache.clear();
+    }
+
     // ─── Terrain Cost Layer ─────────────────────────────────────────────────
     /** Recompute per-cell path costs from biome + seasonal multiplier. */
     public updateTerrainCosts(
@@ -167,7 +185,7 @@ export class Pathfinder {
                 this.costs[this.idx(gx, gy)] = Math.min(255, Math.max(1, Math.round(raw)));
             }
         }
-        this.flowFieldCache.clear();
+        this.invalidateFlowFields();
     }
 
     // ─── Grid Indexing ────────────────────────────────────────────────────
@@ -197,15 +215,18 @@ export class Pathfinder {
         const maxX = Math.min(this.gridCols - 1, this.gridX(x + halfW));
         const minY = Math.max(0, this.gridY(y - halfH));
         const maxY = Math.min(this.gridRows - 1, this.gridY(y + halfH));
+        const nextValue = blocked ? 1 : 0;
+        let changed = false;
 
         for (let gx = minX; gx <= maxX; gx++) {
             for (let gy = minY; gy <= maxY; gy++) {
                 const i = this.idx(gx, gy);
-                this.blocked[i] = blocked ? 1 : 0;
+                if (this.blocked[i] === nextValue) continue;
+                this.blocked[i] = nextValue;
+                changed = true;
             }
         }
-        // Invalidate flow field cache when grid changes
-        this.flowFieldCache.clear();
+        if (changed) this.invalidateFlowFields();
     }
     /** True if building or water blocks this world position. */
     public isBlocked(x: number, y: number): boolean {
@@ -225,7 +246,7 @@ export class Pathfinder {
                 this.waterBlocked[i] = getHeight(wx, wy) < waterLevel ? 1 : 0;
             }
         }
-        this.flowFieldCache.clear();
+        this.invalidateFlowFields();
     }
 
     // ─── JPS Pathfinding (Jump Point Search) ──────────────────────────────
@@ -496,7 +517,7 @@ export class Pathfinder {
      * All units moving to the same destination share one flow field.
      * Returns a lookup function that gives direction vectors.
      */
-    public generateFlowField(targetX: number, targetY: number): { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; targetX: number; targetY: number } {
+    public generateFlowField(targetX: number, targetY: number): FlowField {
         const tgx = this.gridX(targetX);
         const tgy = this.gridY(targetY);
         const key = `${tgx},${tgy}`;
@@ -562,7 +583,7 @@ export class Pathfinder {
         }
 
         this.flowFieldsGenerated++;
-        const result = { dirX, dirY, cols: this.gridCols, rows: this.gridRows, targetX, targetY, version: this.gridVersion };
+        const result: FlowField = { dirX, dirY, cols: this.gridCols, rows: this.gridRows, targetX, targetY, version: this.gridVersion };
         
         // Cache (invalidate when blocks change)
         if (this.flowFieldCache.size > 10) {
@@ -583,9 +604,18 @@ export class Pathfinder {
     /**
      * Get flow direction for a specific world position.
      */
-    public getFlowDirection(flowField: { dirX: Float64Array; dirY: Float64Array; cols: number; rows: number; version?: number }, x: number, y: number): { x: number; y: number } | null {
-        // Stale flow field (grid changed since it was built) — unit must re-acquire
-        if (flowField.version !== undefined && flowField.version !== this.gridVersion) return null;
+    public getFlowDirection(flowField: FlowFieldRef, x: number, y: number): { x: number; y: number } | null {
+        if (flowField.version !== undefined && flowField.version !== this.gridVersion) {
+            if (flowField.targetX === undefined || flowField.targetY === undefined) return null;
+            const refreshed = this.generateFlowField(flowField.targetX, flowField.targetY);
+            flowField.dirX = refreshed.dirX;
+            flowField.dirY = refreshed.dirY;
+            flowField.cols = refreshed.cols;
+            flowField.rows = refreshed.rows;
+            flowField.targetX = refreshed.targetX;
+            flowField.targetY = refreshed.targetY;
+            flowField.version = refreshed.version;
+        }
         const gx = this.gridX(x);
         const gy = this.gridY(y);
         if (!this.isValid(gx, gy)) return null;
