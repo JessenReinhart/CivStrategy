@@ -30,6 +30,7 @@ import type { MainScene } from '../MainScene';
 
 const FARM = 'Farm';
 const LUMBER_CAMP = 'Lumber Camp';
+const TOWN_CENTER = 'Town Center';
 const IDLE = 'idle';
 const MOVING_TO_WORK = 'moving_to_work';
 const MOVING_TO_RALLY = 'moving_to_rally';
@@ -70,6 +71,14 @@ function makeTree(x: number, y: number) {
     };
 }
 
+function makeGoldMine(x: number, y: number, goldRemaining: number) {
+    const mine = makeTree(x, y);
+    mine.setData('isGoldMine', true);
+    mine.setData('isDepleted', false);
+    mine.setData('goldRemaining', goldRemaining);
+    return mine;
+}
+
 function makeVillager(x = 0, y = 0): VillagerData {
     return {
         id: 'villager_test',
@@ -94,6 +103,7 @@ function makeScene(
         pathfinder: { findPath },
         treeSpatialHash: { query: () => trees },
         population: 0,
+        gameTime: 0,
         economySystem: { depositResource },
         proceduralSound: { playResourceGather: vi.fn() },
     } as unknown as MainScene;
@@ -264,5 +274,38 @@ describe('VillagerSystem resource production', () => {
         expect(villager.carryAmount).toBe(0);
         expect(villager.jobBuilding).toBe(camp);
         expect(villager.state).toBe(GATHERING);
+    });
+
+    it('returns a final partial gold load when the source exhausts before carry capacity', () => {
+        const townCenter = makeBuilding(TOWN_CENTER, 0, 0);
+        const mine = makeGoldMine(10, 0, 1);
+        const villager = makeVillager(0, 0);
+        const depositResource = vi.fn();
+        const findPath = vi.fn((_start, end) => [{ x: end.x, y: end.y }]);
+        const system = new VillagerSystem(makeScene(findPath, [mine], depositResource));
+
+        (system as unknown as { villagers: VillagerData[] }).villagers.push(villager);
+        system.assignJob(villager, townCenter as never);
+        expect(villager.state).toBe(GATHERING);
+        expect(villager.carryType).toBe('gold');
+
+        // Mine's final unit is gathered into a partial load. The following tick
+        // observes depletion and must return that already-consumed gold instead
+        // of letting abortJob discard it.
+        system.update(0, 2500);
+        expect(mine.getData('goldRemaining')).toBe(0);
+        expect(mine.getData('isDepleted')).toBe(true);
+        expect(villager.carryAmount).toBe(1);
+        expect(depositResource).not.toHaveBeenCalled();
+
+        system.update(2500, 1);
+
+        expect(depositResource).toHaveBeenCalledTimes(1);
+        expect(depositResource).toHaveBeenCalledWith(0, 'gold', 1);
+        expect(villager.carryAmount).toBe(0);
+        expect(villager.state).toBe(IDLE);
+
+        system.update(2501, 500);
+        expect(depositResource).toHaveBeenCalledTimes(1);
     });
 });
