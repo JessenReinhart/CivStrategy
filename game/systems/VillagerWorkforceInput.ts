@@ -4,6 +4,7 @@ import { EVENTS } from '../../constants';
 import { BuildingDef, UnitType, VillagerData } from '../../types';
 import { MainScene } from '../MainScene';
 import { toCartesian } from '../utils/iso';
+import { getVillagerCarryCommandPolicy } from './villagerCommandPolicy';
 
 const VILLAGER_PICK_RADIUS = 22;
 
@@ -141,6 +142,16 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     emitWorkforceSelection();
   };
 
+  const showPendingCarryFeedback = () => {
+    if (!selectedVillager) return;
+    scene.feedbackSystem.showFloatingText(
+      selectedVillager.x,
+      selectedVillager.y,
+      'Finish current load first',
+      '#facc15',
+    );
+  };
+
   const handleRightPointerDown = (pointer: Phaser.Input.Pointer) => {
     if (!pointer.rightButtonDown() || !selectedVillager) return;
     if (!scene.villagerSystem.getAllVillagers().includes(selectedVillager)) {
@@ -151,6 +162,16 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     const building = findWorkerBuildingAtPointer(pointer);
 
     if (building) {
+      const carryPolicy = getVillagerCarryCommandPolicy(selectedVillager, building);
+      if (carryPolicy === 'keep-current') {
+        scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
+        return;
+      }
+      if (carryPolicy === 'defer') {
+        showPendingCarryFeedback();
+        return;
+      }
+
       const assignedWorker = building.getData('assignedWorker') as VillagerData | undefined;
 
       if (assignedWorker && assignedWorker !== selectedVillager) {
@@ -166,6 +187,11 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       scene.villagerSystem.assignJob(selectedVillager, building);
       scene.proceduralSound.playCommandAck(pointer.worldX, pointer.worldY);
       scene.economySystem.updateStats();
+      return;
+    }
+
+    if (getVillagerCarryCommandPolicy(selectedVillager, null) === 'defer') {
+      showPendingCarryFeedback();
       return;
     }
 
