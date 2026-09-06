@@ -24,7 +24,7 @@ export class InputManager {
     private rightDragGraphics: Phaser.GameObjects.Graphics;
     private rightDragPoints: Phaser.Math.Vector2[] = [];
 
-    private lastClickTime = 0;
+    private lastClickTime = Number.NEGATIVE_INFINITY;
     private lastClickPos = new Phaser.Math.Vector2();
 
     constructor(scene: MainScene) {
