@@ -53,11 +53,11 @@ export class StrongholdWorkforceSystem {
     scene.economySystem.assignJobs = () => this.reconcile();
 
     scene.game.events.on(WORKFORCE_EVENTS.SET_TARGET, this.handleSetTarget, this);
-    scene.game.events.on(WORKFORCE_EVENTS.REQUEST_SNAPSHOT, this.publishSnapshot, this);
+    scene.game.events.on(WORKFORCE_EVENTS.REQUEST_SNAPSHOT, this.handleSnapshotRequest, this);
 
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       scene.game.events.off(WORKFORCE_EVENTS.SET_TARGET, this.handleSetTarget, this);
-      scene.game.events.off(WORKFORCE_EVENTS.REQUEST_SNAPSHOT, this.publishSnapshot, this);
+      scene.game.events.off(WORKFORCE_EVENTS.REQUEST_SNAPSHOT, this.handleSnapshotRequest, this);
       this.targets.clear();
     });
   }
@@ -81,7 +81,7 @@ export class StrongholdWorkforceSystem {
     }
 
     // Then fill enabled vacancies from the shared idle workforce pool.
-    let idle = this.scene.villagerSystem
+    const idle = this.scene.villagerSystem
       .getIdleVillagers(0)
       .filter((villager) => !villager.jobBuilding);
 
@@ -105,12 +105,16 @@ export class StrongholdWorkforceSystem {
     this.publishSnapshot();
   }
 
-  public publishSnapshot(): void {
+  public publishSnapshot(force = false): void {
     const snapshot = this.createSnapshot();
     const key = JSON.stringify(snapshot);
-    if (key === this.lastSnapshotKey) return;
+    if (!force && key === this.lastSnapshotKey) return;
     this.lastSnapshotKey = key;
     this.scene.game.events.emit(WORKFORCE_EVENTS.SNAPSHOT, snapshot);
+  }
+
+  private handleSnapshotRequest(): void {
+    this.publishSnapshot(true);
   }
 
   private handleSetTarget(payload: { buildingId?: string; target?: number }): void {
