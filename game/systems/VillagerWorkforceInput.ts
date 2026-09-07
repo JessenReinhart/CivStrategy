@@ -67,6 +67,18 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     emitWorkforceSelection();
   };
 
+  const selectWorkforceVillager = (villager: VillagerData | null) => {
+    clearWorkforceSelection();
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding();
+    selectedVillager = villager;
+    if (villager) {
+      setSelectionRing(villager, true);
+      scene.proceduralSound.playUIClick();
+    }
+    emitWorkforceSelection();
+  };
+
   const findVillagerAtPointer = (pointer: Phaser.Input.Pointer): VillagerData | null => {
     const world = getPointerWorld(pointer);
     let nearest: VillagerData | null = null;
@@ -174,14 +186,8 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
       return;
     }
 
-    clearWorkforceSelection();
     // Workforce selection and military/building selection are mutually exclusive.
-    scene.inputManager.clearSelection();
-    scene.inputManager.deselectBuilding();
-    selectedVillager = villager;
-    setSelectionRing(villager, true);
-    scene.proceduralSound.playUIClick();
-    emitWorkforceSelection();
+    selectWorkforceVillager(villager);
   };
 
   const showPendingCarryFeedback = () => {
@@ -243,6 +249,11 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.proceduralSound.playCommandAck(world.x, world.y);
   };
 
+  const handleIdleVillagerHotkey = () => {
+    const idleVillager = scene.villagerSystem.getIdleVillagers(0)[0] ?? null;
+    selectWorkforceVillager(idleVillager);
+  };
+
   const keyboard = scene.input.keyboard;
   scene.input.on('pointerdown', handleLeftPointerDown);
   scene.input.on('pointermove', handleLeftPointerMove);
@@ -250,6 +261,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
   scene.input.on('pointerdown', handleRightPointerDown);
   scene.game.events.on('clear-selection', clearWorkforceAndEmit);
   keyboard?.on('keydown-ESC', clearWorkforceAndEmit);
+  keyboard?.on('keydown-TWO', handleIdleVillagerHotkey);
   // Load replaces live villager objects. Capture the player event before React
   // forwards it to Phaser so workforce ownership is released before replacement.
   window.addEventListener('load-game', clearWorkforceAndEmit, { capture: true });
@@ -264,6 +276,7 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
     scene.input.off('pointerdown', handleRightPointerDown);
     scene.game.events.off('clear-selection', clearWorkforceAndEmit);
     keyboard?.off('keydown-ESC', clearWorkforceAndEmit);
+    keyboard?.off('keydown-TWO', handleIdleVillagerHotkey);
     window.removeEventListener('load-game', clearWorkforceAndEmit, { capture: true });
   });
 }
