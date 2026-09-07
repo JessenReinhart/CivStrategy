@@ -128,51 +128,8 @@ async function unitScreenPoint(page, key) {
   }, key);
 }
 
-async function visualScreenPoint(page, kind) {
-  return page.evaluate((targetKind) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const probe = window.__canonicalPlaySessionProbe;
-    const visual = targetKind === 'villager' ? probe.villager.visual : probe.camp.visual;
-    const camera = scene.cameras.main;
-    const topLeft = camera.getWorldPoint(0, 0);
-    let worldX = visual.x;
-    let worldY = visual.y - 8;
-    if (targetKind === 'camp') {
-      const hitArea = visual.input?.hitArea;
-      const localX = typeof hitArea?.centerX === 'number' ? hitArea.centerX : 0;
-      const localY = typeof hitArea?.centerY === 'number' ? hitArea.centerY : -24;
-      const transformed = visual.getWorldTransformMatrix().transformPoint(localX, localY);
-      worldX = transformed.x;
-      worldY = transformed.y;
-    }
-    return { x: (worldX - topLeft.x) * camera.zoom, y: (worldY - topLeft.y) * camera.zoom };
-  }, kind);
-}
-
 async function cartesianScreenPoint(page, target) {
   return screenPointForIso(page, { x: target.x - target.y, y: (target.x + target.y) * 0.5 });
-}
-
-async function pressRightButtonThroughGameFrame(page, canvasBox, point) {
-  const targetX = canvasBox.x + point.x;
-  const targetY = canvasBox.y + point.y;
-  await page.mouse.move(targetX, targetY);
-  const frameBeforeMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, frameBeforeMove, { timeout: POINTER_TIMEOUT_MS });
-  await page.mouse.move(targetX, targetY);
-  await page.waitForFunction(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const camp = window.__canonicalPlaySessionProbe.camp;
-    return scene.input.hitTestPointer(scene.input.activePointer)
-      .some((target) => target.getData?.('building') === camp);
-  }, undefined, { timeout: POINTER_TIMEOUT_MS });
-  const frameBeforeDown = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await page.mouse.down({ button: 'right' });
-  try {
-    await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, frameBeforeDown, { timeout: POINTER_TIMEOUT_MS });
-  } finally {
-    await page.mouse.up({ button: 'right' });
-  }
 }
 
 async function preparePlacement(page, type) {
@@ -270,32 +227,41 @@ try {
   evidence.phase = 'camera-input';
   evidence.camera = await requireCameraInput(page);
 
-  evidence.phase = 'setup-gather';
+  evidence.phase = 'setup-stronghold-workforce';
   evidence.setup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.economySystem.assignJobs = () => {};
     scene.inputManager.clearSelection();
     scene.inputManager.deselectBuilding?.();
-    const villager = scene.villagerSystem.getIdleVillagers(0)[0];
-    if (!villager?.visual) throw new Error('No idle player villager is available.');
+
+    const anchorVillager = scene.villagerSystem.getIdleVillagers(0)[0];
+    if (!anchorVillager?.visual) throw new Error('No idle player villager is available.');
     const trees = scene.trees.getChildren().filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'));
     let nearestTree = null;
     let nearestDistance = Infinity;
     for (const tree of trees) {
-      const distance = Math.hypot(tree.x - villager.x, tree.y - villager.y);
+      const distance = Math.hypot(tree.x - anchorVillager.x, tree.y - anchorVillager.y);
       if (distance < nearestDistance) { nearestTree = tree; nearestDistance = distance; }
     }
     if (!nearestTree || nearestDistance > 280) throw new Error(`No deterministic nearby tree (${nearestDistance.toFixed(1)}px).`);
-    const dx = nearestTree.x - villager.x;
-    const dy = nearestTree.y - villager.y;
+    const dx = nearestTree.x - anchorVillager.x;
+    const dy = nearestTree.y - anchorVillager.y;
     const length = Math.max(1, Math.hypot(dx, dy));
     const camp = scene.entityFactory.spawnBuilding(
       'Lumber Camp',
-      villager.x + (-dy / length) * 64,
-      villager.y + (dx / length) * 64,
+      anchorVillager.x + (-dy / length) * 64,
+      anchorVillager.y + (dx / length) * 64,
       0,
     );
+
+    scene.economySystem.assignJobs();
+    const villager = scene.villagerSystem.getAllVillagers().find(
+      (candidate) => candidate.owner === 0 && candidate.jobBuilding === camp,
+    );
+    if (!villager?.visual || camp.getData('assignedWorker') !== villager) {
+      throw new Error('Lumber Camp did not receive an idle villager through Stronghold workforce slots.');
+    }
+
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
     window.__canonicalPlaySessionProbe = { villager, camp, tree: nearestTree };
@@ -306,34 +272,32 @@ try {
       population: scene.population,
       maxPopulation: scene.maxPopulation,
       villagerId: villager.id,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerMatches: camp.getData('assignedWorker') === villager,
     };
   });
+  if (!evidence.setup.assignedToCamp || !evidence.setup.campAssignedWorkerMatches) {
+    throw new Error(`Stronghold workforce did not establish the lumber job: ${JSON.stringify(evidence.setup)}`);
+  }
+
   await waitForCameraSync(page);
   const canvas = page.locator('canvas').first();
   let box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas was not measurable.');
+  let point;
 
-  evidence.phase = 'select-villager';
-  let point = await visualScreenPoint(page, 'villager');
-  await page.mouse.click(box.x + point.x, box.y + point.y);
-  await page.waitForFunction(() => {
-    const villager = window.__canonicalPlaySessionProbe?.villager;
-    return Boolean(villager?.visual?.getData('workforceSelectionRing')?.active);
-  }, undefined, { timeout: POINTER_TIMEOUT_MS });
-
-  evidence.phase = 'assign-work';
-  await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+  evidence.phase = 'workforce-assignment';
+  evidence.workforceAssignment = await page.evaluate(() => {
     const { villager, camp } = window.__canonicalPlaySessionProbe;
-    scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
+    return {
+      villagerId: villager.id,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerMatches: camp.getData('assignedWorker') === villager,
+    };
   });
-  await waitForCameraSync(page);
-  point = await visualScreenPoint(page, 'camp');
-  await pressRightButtonThroughGameFrame(page, box, point);
-  await page.waitForFunction(() => {
-    const { villager, camp } = window.__canonicalPlaySessionProbe;
-    return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
-  }, undefined, { timeout: POINTER_TIMEOUT_MS });
+  if (!evidence.workforceAssignment.assignedToCamp || !evidence.workforceAssignment.campAssignedWorkerMatches) {
+    throw new Error(`Stronghold workforce assignment was not coherent before gathering: ${JSON.stringify(evidence.workforceAssignment)}`);
+  }
 
   evidence.phase = 'prime-live-gather';
   evidence.gatherStart = await page.evaluate(async () => {
@@ -361,6 +325,7 @@ try {
       assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
     };
   });
+  if (!evidence.gatherStart.assigned) throw new Error('Stronghold worker assignment disappeared before gathering.');
 
   evidence.phase = 'gather-deposit';
   const gatherWallStartedAt = Date.now();
@@ -405,13 +370,11 @@ try {
       assigned: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
     };
   }, { ...evidence.gatherStart, wallStartedAt: gatherWallStartedAt });
-  if (evidence.gather.woodDelta < 20 || evidence.gather.carryAmount !== 0) {
+  if (evidence.gather.woodDelta < 20 || evidence.gather.carryAmount !== 0 || !evidence.gather.assigned) {
     throw new Error(`Canonical live gather did not deposit its full wood load: ${JSON.stringify(evidence.gather)}`);
   }
 
   evidence.phase = 'house-placement';
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(() => !window.__canonicalPlaySessionProbe.villager.visual?.getData('workforceSelectionRing')?.active, undefined, { timeout: POINTER_TIMEOUT_MS });
   evidence.beforeHouse = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return { wood: scene.resources.wood, maxPopulation: scene.maxPopulation };
@@ -679,7 +642,6 @@ try {
   evidence.restored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.gameSpeed = 0;
-    scene.economySystem.assignJobs = () => {};
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
@@ -746,8 +708,8 @@ try {
   evidence.phase = 'post-load-critical-hud';
   evidence.postLoadHud = await requireCriticalHud(page);
 
-  evidence.phase = 'post-load-economy-assignment';
-  await page.evaluate(() => {
+  evidence.phase = 'post-load-workforce';
+  evidence.postLoadWorkforce = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { villager, camp } = window.__canonicalPlaySessionProbe;
     scene.inputManager.clearSelection();
@@ -755,18 +717,17 @@ try {
     scene.gameSpeed = 0;
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
+    return {
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerMatches: camp.getData('assignedWorker') === villager,
+    };
   });
+  if (!evidence.postLoadWorkforce.assignedToCamp || !evidence.postLoadWorkforce.campAssignedWorkerMatches) {
+    throw new Error(`Loaded Stronghold workforce assignment is incoherent: ${JSON.stringify(evidence.postLoadWorkforce)}`);
+  }
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
-  if (!box) throw new Error('Canvas unavailable for post-load economy input.');
-  point = await visualScreenPoint(page, 'villager');
-  await page.mouse.click(box.x + point.x, box.y + point.y);
-  await page.waitForFunction(() => {
-    const { villager, camp } = window.__canonicalPlaySessionProbe;
-    return Boolean(villager.visual?.getData('workforceSelectionRing')?.active)
-      && villager.jobBuilding === camp
-      && camp.getData('assignedWorker') === villager;
-  }, undefined, { timeout: POINTER_TIMEOUT_MS });
+  if (!box) throw new Error('Canvas unavailable for post-load economy continuation.');
 
   evidence.phase = 'post-load-economy-gather';
   evidence.postLoadGatherStart = await page.evaluate(async (gameSpeed) => {
@@ -842,7 +803,6 @@ try {
   }
 
   evidence.phase = 'continue-playing';
-  await page.keyboard.press('Escape');
   await page.evaluate((gameSpeed) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.gameSpeed = gameSpeed || 1;
@@ -987,7 +947,6 @@ try {
   evidence.secondRestored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.gameSpeed = 0;
-    scene.economySystem.assignJobs = () => {};
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
@@ -1071,8 +1030,6 @@ try {
   const minY = box.y + canvasInset;
   const maxY = box.y + box.height - canvasInset;
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-  // A remounted world can clamp the camera against a map edge. Keep the real
-  // Playwright drag inside the canvas so Phaser receives pointerdown/up.
   const dragStart = {
     x: clamp(box.x + point.x - selectionRadius, minX, maxX),
     y: clamp(box.y + point.y - selectionRadius, minY, maxY),
