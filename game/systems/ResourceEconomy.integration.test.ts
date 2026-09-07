@@ -206,6 +206,7 @@ describe('lumber camp real-time production loop', () => {
         (villagerSystem as unknown as { villagers: VillagerData[] }).villagers.push(villager);
         scene.villagerSystem = villagerSystem;
         const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
         scene.economySystem = economy;
 
         economy.assignJobs();
@@ -280,6 +281,7 @@ describe('lumber camp real-time production loop', () => {
         (villagerSystem as unknown as { villagers: VillagerData[] }).villagers.push(villager);
         scene.villagerSystem = villagerSystem;
         const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
         scene.economySystem = economy;
 
         economy.assignJobs();
