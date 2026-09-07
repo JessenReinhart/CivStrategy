@@ -140,7 +140,17 @@ try {
 
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootNewGame(page);
-  await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
+  await page.evaluate(() => {
+    window.__carryReloadOldGame = window.__civStrategyGame;
+    window.dispatchEvent(new Event('load-game'));
+  });
+  await page.waitForFunction(() => (
+    window.__civStrategyGame
+    && window.__civStrategyGame !== window.__carryReloadOldGame
+    && window.__civStrategyGame.scene?.getScene?.('MainScene')?.isReady
+    && window.__civStrategyGame.scene.getScene('MainScene').resources
+    && window.__civStrategyGame.scene.getScene('MainScene').villagerSystem
+  ), undefined, { timeout: 45_000 });
 
   const restored = await page.evaluate(({ carryGold, townCenterType, savedDropsite }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');

@@ -184,6 +184,7 @@ try {
   await waitForScene(page);
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
+  await waitForScene(page);
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.buildings.getChildren().some((building) => (

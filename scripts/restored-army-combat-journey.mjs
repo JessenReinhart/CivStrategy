@@ -120,15 +120,21 @@ try {
   evidence.phase = 'reload';
   await page.reload({ waitUntil: 'domcontentloaded' });
   await bootGame(page);
-  await page.evaluate(() => { window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0; });
+  await page.evaluate(() => {
+    window.__restoredArmyCombatPreLoadGame = window.__civStrategyGame;
+    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0;
+  });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const game = window.__civStrategyGame;
+    if (!game || game === window.__restoredArmyCombatPreLoadGame) return false;
+    const scene = game.scene?.getScene?.('MainScene');
+    if (!scene?.isReady || !scene?.units?.getChildren) return false;
     return scene.units.getChildren().some((unit) => unit.getData('owner') === 0
       && (unit.unitType ?? unit.getData('unitType')) === saved.type
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2);
-  }, evidence.beforeSave, { timeout: 20_000 });
+  }, evidence.beforeSave, { timeout: 45_000 });
 
   evidence.phase = 'restore-player';
   evidence.restored = await page.evaluate((saved) => {

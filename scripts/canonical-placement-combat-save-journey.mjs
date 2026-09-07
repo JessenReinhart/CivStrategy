@@ -343,6 +343,7 @@ try {
   await waitForScene(page);
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
+  await waitForScene(page);
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.units.getChildren().some((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2);

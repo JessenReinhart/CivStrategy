@@ -165,6 +165,7 @@ try {
   await page.evaluate(() => { window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0; });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
+  await waitForScene(page);
 
   evidence.phase = 'restore-house';
   await page.waitForFunction((saved) => {

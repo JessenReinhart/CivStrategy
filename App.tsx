@@ -7,6 +7,7 @@ import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
 import { EVENTS, INITIAL_RESOURCES } from './constants';
+import { loadFromLocalStorage, setPendingLoad } from './game/systems/SaveSystem';
 import { addResearchWindowListener } from './utils/researchWindowListener';
 import { createLoadingCompletionDelay } from './utils/loadingCompletionDelay';
 import { scheduleStressUrlBootstrap } from './utils/stressUrlBootstrap';
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   const [isGameLoading, setIsGameLoading] = useState<boolean>(true);
   const [loadStatus, setLoadStatus] = useState(INITIAL_GAME_LOAD_PROGRESS);
   const [gameUiSession, setGameUiSession] = useState(0);
+  const [phaserSession, setPhaserSession] = useState(0);
   const loadingCompletionDelayRef = useRef(
     createLoadingCompletionDelay(() => setIsGameLoading(false), 500),
   );
@@ -243,9 +245,33 @@ const [selectedCount, setSelectedCount] = useState(0);
       gameInstance.events.emit('save-game');
     };
     const loadGameHandler = () => {
-      gameInstance.events.emit('load-game');
-      // Loading replaces the playable world state; discard transient HUD popovers/menu state too.
+      const save = loadFromLocalStorage();
+      if (!save) return;
+
+      // World-defining settings (seed, preset, map mode/size, factions/rules) are
+      // consumed during MainScene.init()/world bootstrap. Rebuild Phaser from
+      // those saved settings instead of deserializing entities into the current
+      // world's terrain and runtime configuration.
+      loadingCompletionDelayRef.current.cancel();
+      setPendingLoad();
+      setFaction(save.faction);
+      setMapMode(save.mapMode ?? MapMode.FIXED);
+      setMapSize(save.mapSize ?? MapSize.MEDIUM);
+      setFowEnabled(save.fowEnabled ?? true);
+      setPeacefulMode(save.peacefulMode ?? false);
+      setTreatyLength(save.treatyLength ?? 10);
+      setAiDisabled(save.aiDisabled ?? false);
+      setMapSeed(save.mapSeed ?? 0);
+      setMapPreset(save.mapPreset ?? MapPreset.STANDARD);
+      setStressTestConfig(null);
+      setGameInstance(null);
+      setSelectedCount(0);
+      setSelectedCounts({});
+      setSelectedBuildingType(null);
+      setIsGameLoading(true);
+      setLoadStatus(INITIAL_GAME_LOAD_PROGRESS);
       setGameUiSession((session) => session + 1);
+      setPhaserSession((session) => session + 1);
     };
 
     window.addEventListener('set-tax-rate-ui', taxHandler);
@@ -314,6 +340,7 @@ const [selectedCount, setSelectedCount] = useState(0);
         <>
           {isGameLoading && <LoadingScreen status={loadStatus} />}
           <PhaserGame
+            key={phaserSession}
             faction={faction}
             mapMode={mapMode}
             mapSize={mapSize}
