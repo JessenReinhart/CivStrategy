@@ -3,6 +3,7 @@ import { MainMenu } from './components/MainMenu';
 import { PhaserGame } from './components/PhaserGame';
 import { GameUI } from './components/GameUI';
 import { GameTimeIndicator } from './components/GameTimeIndicator';
+import { WorkerManagementPanel } from './components/WorkerManagementPanel';
 import { LoadingScreen } from './components/LoadingScreen';
 import { StressTestOverlay } from './components/StressTestOverlay';
 import { FactionType, GameStats, BuildingType, MapMode, MapSize, MapPreset, UnitType, FormationType, UnitStance, Age, Season, GameResult, VictoryType } from './types';
@@ -374,6 +375,7 @@ const [selectedCount, setSelectedCount] = useState(0);
                 ageProgress={stats.ageProgress}
                 nextAge={stats.nextAge}
               />
+              {gameInstance && <WorkerManagementPanel gameInstance={gameInstance} />}
               <GameTimeIndicator gameInstance={gameInstance} />
             </>
           )}
