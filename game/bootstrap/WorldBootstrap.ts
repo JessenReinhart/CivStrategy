@@ -19,7 +19,7 @@ import { AtmosphericSystem } from '../systems/AtmosphericSystem';
 import { DayNightSystem } from '../systems/DayNightSystem';
 import { LightingEffectsSystem } from '../systems/LightingEffectsSystem';
 import { VillagerSystem } from '../systems/VillagerSystem';
-import { installVillagerWorkforceInput } from '../systems/VillagerWorkforceInput';
+import { StrongholdWorkforceSystem } from '../systems/StrongholdWorkforceSystem';
 import { AnimalSystem } from '../systems/AnimalSystem';
 import { AmbientPopulationSystem } from '../systems/AmbientPopulationSystem';
 import { ProceduralSoundSystem } from '../systems/ProceduralSoundSystem';
@@ -145,7 +145,7 @@ export class WorldBootstrap {
     new LightingEffectsSystem(scene);
     scene.villagerSystem = new VillagerSystem(scene);
     installLegacyVillagerSpawnBridge(scene);
-    installVillagerWorkforceInput(scene);
+    new StrongholdWorkforceSystem(scene);
     scene.animalSystem = new AnimalSystem(scene);
     // Render-only civilian crowd. It self-registers with scene UPDATE/SHUTDOWN
     // and never enters the units group, physics, spatial hash, or pathfinder.
