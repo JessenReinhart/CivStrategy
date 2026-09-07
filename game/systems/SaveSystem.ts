@@ -148,15 +148,16 @@ function serializeUnits(scene: MainScene): SerializedUnit[] {
     });
   }
 
-  // Work/navigation references are runtime-only, but gathered resources are
-  // durable economy state. Persist valid carry and resume it as CARRYING after
-  // load so it can be reconnected to the same dropsite before jobs resume.
+  // Paths and resource targets are runtime-only, but workforce ownership and
+  // already-gathered cargo are durable economy state. Persist the assigned
+  // building locator for ordinary workers as well as carrying villagers so a
+  // load restores the same productive relationship before opportunistic jobs.
   const villagers = scene.villagerSystem?.getAllVillagers() ?? [];
   for (const v of villagers) {
     const carryAmount = Number.isFinite(v.carryAmount) && v.carryAmount > 0 ? v.carryAmount : 0;
     const carryType = carryAmount > 0 && v.carryType ? v.carryType : null;
-    const jobDef = carryType ? v.jobBuilding?.getData?.('def') : undefined;
-    const jobImage = carryType && v.jobBuilding ? v.jobBuilding as Phaser.GameObjects.Image : null;
+    const jobDef = v.jobBuilding?.getData?.('def');
+    const jobImage = v.jobBuilding ? v.jobBuilding as Phaser.GameObjects.Image : null;
     const jobBuilding = jobImage && jobDef?.type
       ? {
         type: jobDef.type as BuildingType,
@@ -334,10 +335,14 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 7. Respawn units (after buildings and AI state)
   const restoredVillagers = respawnUnits(scene, save);
 
-  // 8. Rebuild runtime-only workforce references before ordinary assignment.
-  // Carrying villagers are not idle, so without this pass a paused save can
-  // reload with a permanently vacant worker building until simulation resumes.
-  reconnectCarryingVillagers(scene, restoredVillagers);
+  // Military Phaser projections are normally synchronized during the simulation
+  // frame, but load consumers can observe camera/input state before that frame.
+  scene.squadSystem?.syncPositions();
+
+  // 8. Rebuild durable workforce ownership before ordinary assignment. This
+  // keeps saved worker/building relationships stable while still allowing the
+  // economy to fill genuinely vacant jobs and legacy saves afterward.
+  reconnectVillagerJobs(scene, restoredVillagers);
   scene.economySystem?.assignJobs?.();
 
   // 9. Recompute economy stats
@@ -519,7 +524,7 @@ function respawnUnits(scene: MainScene, save: SaveGame): RestoredVillager[] {
   return restoredVillagers;
 }
 
-function reconnectCarryingVillagers(scene: MainScene, restoredVillagers: RestoredVillager[]): void {
+function reconnectVillagerJobs(scene: MainScene, restoredVillagers: RestoredVillager[]): void {
   const compatibleBuildingType: Record<VillagerCarryType, BuildingType> = {
     wood: BuildingType.LUMBER_CAMP,
     food: BuildingType.FARM,
@@ -528,13 +533,10 @@ function reconnectCarryingVillagers(scene: MainScene, restoredVillagers: Restore
   const buildings = scene.buildings.getChildren() as Phaser.GameObjects.Image[];
 
   for (const { villager, saved } of restoredVillagers) {
-    if (villager.state !== UnitState.CARRYING || !villager.carryType || villager.carryAmount <= 0 || villager.jobBuilding) {
-      continue;
-    }
+    if (villager.jobBuilding) continue;
 
-    const targetType = compatibleBuildingType[villager.carryType as VillagerCarryType];
     const savedJob = saved.jobBuilding;
-    let closest = savedJob
+    const exact = savedJob
       ? buildings.find((building) => {
         const def = building.getData('def');
         return building.getData('owner') === villager.owner
@@ -544,24 +546,41 @@ function reconnectCarryingVillagers(scene: MainScene, restoredVillagers: Restore
           && !building.getData('assignedWorker');
       }) ?? null
       : null;
+
+    if (exact) {
+      exact.setData('assignedWorker', villager);
+      villager.jobBuilding = exact;
+      if (villager.state !== UnitState.CARRYING) {
+        // Work/navigation targets are transient, so resume a saved building job
+        // from its safe dispatch state. The next simulation tick rebuilds the
+        // appropriate lumber/farm/lodge loop from the restored relationship.
+        villager.state = UnitState.WORKING;
+      }
+      continue;
+    }
+
+    if (villager.state !== UnitState.CARRYING || !villager.carryType || villager.carryAmount <= 0) {
+      continue;
+    }
+
+    const targetType = compatibleBuildingType[villager.carryType as VillagerCarryType];
+    let closest: Phaser.GameObjects.Image | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
 
     // Older version-1 saves have no dropsite locator. If the exact saved site
     // no longer exists, fall back to the nearest compatible owned building so
     // durable carry still remains recoverable instead of becoming orphaned.
-    if (!closest) {
-      for (const building of buildings) {
-        const def = building.getData('def');
-        if (building.getData('owner') !== villager.owner || def?.type !== targetType || building.getData('assignedWorker')) {
-          continue;
-        }
-        const dx = building.x - villager.x;
-        const dy = building.y - villager.y;
-        const distance = dx * dx + dy * dy;
-        if (distance < closestDistance) {
-          closestDistance = distance;
-          closest = building;
-        }
+    for (const building of buildings) {
+      const def = building.getData('def');
+      if (building.getData('owner') !== villager.owner || def?.type !== targetType || building.getData('assignedWorker')) {
+        continue;
+      }
+      const dx = building.x - villager.x;
+      const dy = building.y - villager.y;
+      const distance = dx * dx + dy * dy;
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closest = building;
       }
     }
 

@@ -667,8 +667,10 @@ try {
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.units.getChildren().some((unit) => (
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const units = scene?.units?.getChildren?.();
+    if (!units) return false;
+    return units.some((unit) => (
       unit.getData('owner') === 0
       && (unit.unitType ?? unit.getData('unitType')) === saved.type
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
@@ -973,8 +975,10 @@ try {
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    return scene.units.getChildren().some((unit) => (
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const units = scene?.units?.getChildren?.();
+    if (!units) return false;
+    return units.some((unit) => (
       unit.getData('owner') === 0
       && (unit.unitType ?? unit.getData('unitType')) === saved.type
       && Math.hypot(unit.x - saved.x, unit.y - saved.y) <= 2
@@ -1040,7 +1044,6 @@ try {
   }
 
   evidence.phase = 'second-continue-playing';
-  await page.keyboard.press('Escape');
   evidence.secondPostLoadTarget = await page.evaluate((gameSpeed) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__canonicalPlaySessionProbe.player;
@@ -1061,7 +1064,32 @@ try {
   box = await canvas.boundingBox();
   if (!box) throw new Error('Canvas unavailable for second-restored army input.');
   point = await unitScreenPoint(page, 'player');
-  await page.mouse.click(box.x + point.x, box.y + point.y);
+  const selectionRadius = 32;
+  const canvasInset = 6;
+  const minX = box.x + canvasInset;
+  const maxX = box.x + box.width - canvasInset;
+  const minY = box.y + canvasInset;
+  const maxY = box.y + box.height - canvasInset;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  // A remounted world can clamp the camera against a map edge. Keep the real
+  // Playwright drag inside the canvas so Phaser receives pointerdown/up.
+  const dragStart = {
+    x: clamp(box.x + point.x - selectionRadius, minX, maxX),
+    y: clamp(box.y + point.y - selectionRadius, minY, maxY),
+  };
+  const dragEnd = {
+    x: clamp(box.x + point.x + selectionRadius, minX, maxX),
+    y: clamp(box.y + point.y + selectionRadius, minY, maxY),
+  };
+  if (Math.hypot(dragEnd.x - dragStart.x, dragEnd.y - dragStart.y) <= 5) {
+    throw new Error(`Second-restored selection drag collapsed at the canvas edge: ${JSON.stringify({ point, dragStart, dragEnd, box })}`);
+  }
+  await page.mouse.move(dragStart.x, dragStart.y);
+  await page.mouse.down();
+  const frameBeforeDragMove = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 4 });
+  await page.waitForFunction((frame) => window.__civStrategyGame.loop.frame > frame, frameBeforeDragMove, { timeout: POINTER_TIMEOUT_MS });
+  await page.mouse.up();
   await page.waitForFunction(() => (
     window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedUnits.includes(window.__canonicalPlaySessionProbe.player)
   ), undefined, { timeout: 5_000 });
