@@ -15,10 +15,10 @@ const TREE_SEARCH_RADIUS = 300;
 const PATH_ARRIVAL_TOLERANCE = 64;
 const CARRY_PATH_RETRY_MS = 500;
 
-// Wood is the opening construction bottleneck. Keep the shared 2.5s gather
-// cadence, but make each chop worth more and amortize travel over a larger load.
-// Food and gold retain their existing rates and carry capacities.
+// Resource jobs share the same 2.5s gather cadence, but their per-tick output
+// is tuned separately so permanent infrastructure is worth building.
 const WOOD_GATHER_AMOUNT_PER_TICK = 2;
+const FARM_FOOD_GATHER_AMOUNT_PER_TICK = 3;
 const WOOD_CARRY_CAPACITY = 20;
 
 type PathResult = 'moving' | 'arrived' | 'unreachable';
@@ -332,7 +332,11 @@ export class VillagerSystem {
             const cap = villager.carryType === 'wood'
                 ? WOOD_CARRY_CAPACITY
                 : VILLAGER_CARRY_CAPACITY[villager.carryType!] ?? 5;
-            const gatherAmount = villager.carryType === 'wood' ? WOOD_GATHER_AMOUNT_PER_TICK : 1;
+            const gatherAmount = villager.carryType === 'wood'
+                ? WOOD_GATHER_AMOUNT_PER_TICK
+                : villager.carryType === 'food'
+                  ? FARM_FOOD_GATHER_AMOUNT_PER_TICK
+                  : 1;
             villager.carryAmount = Math.min(cap, villager.carryAmount + gatherAmount);
             // Play resource gather sound
             this.scene.proceduralSound.playResourceGather(villager.x, villager.y);
