@@ -7,6 +7,7 @@ import { toCartesian } from '../utils/iso';
 import { getVillagerCarryCommandPolicy } from './villagerCommandPolicy';
 
 const VILLAGER_PICK_RADIUS = 22;
+const VILLAGER_DIRECT_PICK_RADIUS = 8;
 const LEFT_DRAG_THRESHOLD = 5;
 
 type WorkforceBuilding = Phaser.GameObjects.Rectangle & {
@@ -155,11 +156,19 @@ export function installVillagerWorkforceInput(scene: MainScene): void {
 
     const targets = scene.input.hitTestPointer(pointer);
     const hitsMilitaryUnit = targets.some((target) => Boolean(target.getData?.('unit')));
+    const candidate = findVillagerAtPointer(pointer);
+    const world = getPointerWorld(pointer);
+    const directVillagerHit = Boolean(
+      candidate?.visual
+      && Phaser.Math.Distance.Between(world.x, world.y, candidate.visual.x, candidate.visual.y) <= VILLAGER_DIRECT_PICK_RADIUS
+    );
 
     // Civilians use a proximity pick rather than Phaser's interactive unit hit
-    // target. Let a nearby villager win over overlapping building art, matching
-    // the normal RTS expectation that units remain selectable in a dense town.
-    const villager = hitsMilitaryUnit ? null : findVillagerAtPointer(pointer);
+    // target. A military hit normally wins an ambiguous overlap, but a click on
+    // the villager's actual visual center must still select that villager. This
+    // keeps workers controllable in dense post-load formations without making a
+    // loose proximity pick steal intentional military clicks.
+    const villager = hitsMilitaryUnit && !directVillagerHit ? null : candidate;
     if (!villager) {
       clearWorkforceAndEmit();
       return;
