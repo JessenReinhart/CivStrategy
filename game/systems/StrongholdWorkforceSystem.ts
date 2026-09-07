@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 import type { MainScene } from '../MainScene';
-import { UnitState, type VillagerData } from '../../types';
+import { BuildingType, UnitState, type VillagerData } from '../../types';
 
 export const WORKFORCE_EVENTS = {
   SNAPSHOT: 'workforce-snapshot',
@@ -167,12 +167,20 @@ export class StrongholdWorkforceSystem {
   private getWorkBuildings(): WorkBuilding[] {
     return this.scene.buildings.getChildren().filter((candidate) => {
       const def = candidate.getData('def');
-      return candidate.getData('owner') === 0 && (def?.workerNeeds ?? 0) > 0 && candidate.getData('hp') > 0;
+      const isGoldDropsite = def?.type === BuildingType.TOWN_CENTER;
+      return candidate.getData('owner') === 0
+        && ((def?.workerNeeds ?? 0) > 0 || isGoldDropsite)
+        && candidate.getData('hp') > 0;
     }) as WorkBuilding[];
   }
 
   private getCapacity(building: WorkBuilding): number {
-    return Math.max(0, Math.floor(building.getData('def')?.workerNeeds ?? 0));
+    const def = building.getData('def');
+    // Gold gathering is already implemented as a Town Center anchored villager
+    // job. Surface that legacy job as a real workforce slot instead of letting
+    // gold production bypass the management model.
+    if (def?.type === BuildingType.TOWN_CENTER) return 1;
+    return Math.max(0, Math.floor(def?.workerNeeds ?? 0));
   }
 
   private ensureTarget(building: WorkBuilding, capacity: number): number {
@@ -217,7 +225,7 @@ export class StrongholdWorkforceSystem {
 
     for (const candidate of this.scene.buildings.getChildren() as WorkBuilding[]) {
       if (candidate.getData('owner') !== villager.owner) continue;
-      if (candidate.getData('def')?.type !== 'Bonfire') continue;
+      if (candidate.getData('def')?.type !== BuildingType.BONFIRE) continue;
       const distance = Phaser.Math.Distance.Squared(villager.x, villager.y, candidate.x, candidate.y);
       if (distance < bestDistance) {
         bestDistance = distance;
