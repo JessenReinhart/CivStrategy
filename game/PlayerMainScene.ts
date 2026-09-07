@@ -2,7 +2,10 @@ import { UnitType } from '../types';
 import { createGameLoadFailureDetail, dispatchGameLoadProgress } from '../utils/gameLoading';
 import { bootstrapPlayerScene } from './bootstrap/PlayerSceneBootstrap';
 import { MainScene } from './MainScene';
-import { handlePlayerTrainingRequest } from './playerTrainingRequest';
+import {
+  getPlayerTrainingSelectedBuilding,
+  handlePlayerTrainingRequest,
+} from './playerTrainingRequest';
 import { treatyMinutesToMilliseconds } from './treatyDuration';
 
 export class PlayerMainScene extends MainScene {
@@ -49,7 +52,15 @@ export class PlayerMainScene extends MainScene {
           '#ff6b6b',
         );
       },
-      train: () => super.handleUnitSpawnRequest(type),
+      train: () => {
+        const selectedBuilding = this.inputManager.selectedBuilding;
+        this.inputManager.selectedBuilding = getPlayerTrainingSelectedBuilding(selectedBuilding);
+        try {
+          super.handleUnitSpawnRequest(type);
+        } finally {
+          this.inputManager.selectedBuilding = selectedBuilding;
+        }
+      },
     });
   }
 }
