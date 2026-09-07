@@ -181,13 +181,25 @@ try {
   const canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable.');
 
-  evidence.phase = 'select-villager';
-  const villagerPoint = await visualScreenPoint(page, 'villager');
-  await page.mouse.click(canvasBox.x + villagerPoint.x, canvasBox.y + villagerPoint.y);
+  evidence.phase = 'select-villager-hotkey';
+  await page.keyboard.press('2');
   await page.waitForFunction(() => {
     const villager = window.__canonicalGatherBuildProbe?.villager;
     return Boolean(villager?.visual?.getData('workforceSelectionRing')?.active);
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
+  evidence.hotkeySelection = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const villager = window.__canonicalGatherBuildProbe.villager;
+    return {
+      selectedVillagerId: villager.id,
+      workforceRingActive: Boolean(villager.visual?.getData('workforceSelectionRing')?.active),
+      militarySelectionCount: scene.inputManager.selectedUnits.length,
+      selectedBuilding: Boolean(scene.inputManager.selectedBuilding),
+    };
+  });
+  if (!evidence.hotkeySelection.workforceRingActive || evidence.hotkeySelection.militarySelectionCount !== 0 || evidence.hotkeySelection.selectedBuilding) {
+    throw new Error(`Idle-villager hotkey did not produce an exclusive workforce selection: ${JSON.stringify(evidence.hotkeySelection)}`);
+  }
 
   evidence.phase = 'assign-work';
   await page.evaluate(() => {
