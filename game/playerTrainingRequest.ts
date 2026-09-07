@@ -1,8 +1,14 @@
+import { BuildingType } from '../types';
+
 export interface PlayerTrainingRequest {
   population: number;
   maxPopulation: number;
   onPopulationCap: () => void;
   train: () => void;
+}
+
+export interface TrainingBuildingSelection {
+  getData: (key: string) => unknown;
 }
 
 /**
@@ -17,4 +23,17 @@ export function handlePlayerTrainingRequest(request: PlayerTrainingRequest): boo
 
   request.train();
   return true;
+}
+
+export function getPlayerTrainingSelectedBuilding<T extends TrainingBuildingSelection>(
+  selectedBuilding: T | null,
+): T | null {
+  if (!selectedBuilding) return null;
+
+  const definition = selectedBuilding.getData('def') as { type?: BuildingType } | undefined;
+  const owner = selectedBuilding.getData('owner');
+
+  return definition?.type === BuildingType.BARRACKS && owner === 0
+    ? selectedBuilding
+    : null;
 }
