@@ -13,12 +13,14 @@ vi.mock('phaser', () => ({
                 Between: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
             },
         },
+        Scenes: { Events: { SHUTDOWN: 'shutdown' } },
     },
 }));
 
 vi.mock('../MainScene', () => ({ MainScene: class MainScene {} }));
 
 import { InputManager } from './InputManager';
+import { installVillagerWorkforceInput } from './VillagerWorkforceInput';
 
 describe('InputManager player command selection', () => {
     it('lets a single-clicked player unit immediately receive a move command', () => {
@@ -249,5 +251,115 @@ describe('InputManager player command selection', () => {
         expect(commandFollowPath).not.toHaveBeenCalled();
         expect(commandAttack).toHaveBeenCalledWith([selectedUnit], enemyUnit);
         expect(commandMove).not.toHaveBeenCalled();
+    });
+
+    it('lets the idle-villager hotkey select a workforce worker that can immediately receive a job command', () => {
+        const keyboardHandlers = new Map<string, () => void>();
+        const pointerHandlers = new Map<string, Array<(pointer: unknown) => void>>();
+        const eventEmit = vi.fn();
+        const clearSelection = vi.fn();
+        const deselectBuilding = vi.fn();
+        const assignJob = vi.fn();
+        const updateStats = vi.fn();
+        const playUIClick = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectionData = new Map<string, unknown>();
+        const ring = { destroy: vi.fn(), setStrokeStyle: vi.fn() };
+        ring.setStrokeStyle.mockReturnValue(ring);
+        const visual = {
+            active: true,
+            visible: true,
+            x: 120,
+            y: 160,
+            getData: vi.fn((key: string) => selectionData.get(key)),
+            setData: vi.fn((key: string, value: unknown) => selectionData.set(key, value)),
+            addAt: vi.fn(),
+        };
+        const villager = {
+            id: 7,
+            x: 120,
+            y: 160,
+            carryAmount: 0,
+            carryType: null,
+            visual,
+        };
+        const workerBuilding = {
+            active: true,
+            x: 180,
+            y: 180,
+            visual: { active: true, visible: true, x: 180, y: 180 },
+            getData: vi.fn((key: string) => {
+                if (key === 'owner') return 0;
+                if (key === 'def') return { workerNeeds: 1 };
+                if (key === 'assignedWorker') return undefined;
+                return undefined;
+            }),
+        };
+        const buildingVisual = {
+            getData: vi.fn((key: string) => key === 'building' ? workerBuilding : undefined),
+        };
+        const keyboard = {
+            on: vi.fn((event: string, handler: () => void) => keyboardHandlers.set(event, handler)),
+            off: vi.fn(),
+        };
+        const scene = {
+            cameras: { main: { getWorldPoint: vi.fn((x: number, y: number) => ({ x, y })) } },
+            add: { ellipse: vi.fn(() => ring) },
+            inputManager: { clearSelection, deselectBuilding },
+            input: {
+                keyboard,
+                hitTestPointer: vi.fn(() => [buildingVisual]),
+                on: vi.fn((event: string, handler: (pointer: unknown) => void) => {
+                    const handlers = pointerHandlers.get(event) ?? [];
+                    handlers.push(handler);
+                    pointerHandlers.set(event, handlers);
+                }),
+                off: vi.fn(),
+            },
+            villagerSystem: {
+                getIdleVillagers: vi.fn(() => [villager]),
+                getAllVillagers: vi.fn(() => [villager]),
+                getVillagersByOwner: vi.fn(() => [villager]),
+                assignJob,
+                sendToRallyPoint: vi.fn(),
+            },
+            buildings: { getChildren: vi.fn(() => [workerBuilding]) },
+            buildingManager: { isDemolishMode: false, previewBuildingType: null },
+            proceduralSound: { playUIClick, playCommandAck },
+            economySystem: { updateStats },
+            feedbackSystem: { showFloatingText: vi.fn() },
+            game: { events: { emit: eventEmit, on: vi.fn(), off: vi.fn() } },
+            events: { once: vi.fn() },
+        };
+        const originalWindow = globalThis.window;
+        vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() });
+
+        try {
+            installVillagerWorkforceInput(scene as never);
+            keyboardHandlers.get('keydown-TWO')?.();
+
+            expect(clearSelection).toHaveBeenCalledOnce();
+            expect(deselectBuilding).toHaveBeenCalledOnce();
+            expect(selectionData.get('workforceSelectionRing')).toBe(ring);
+            expect(playUIClick).toHaveBeenCalledOnce();
+            expect(eventEmit).toHaveBeenLastCalledWith(EVENTS.SELECTION_CHANGED, {
+                count: 1,
+                counts: { [UnitType.VILLAGER]: 1 },
+            });
+
+            const rightClickPointer = {
+                button: 2,
+                x: 180,
+                y: 180,
+                rightButtonDown: () => true,
+            };
+            for (const handler of pointerHandlers.get('pointerdown') ?? []) handler(rightClickPointer);
+
+            expect(assignJob).toHaveBeenCalledWith(villager, workerBuilding);
+            expect(updateStats).toHaveBeenCalledOnce();
+            expect(playCommandAck).toHaveBeenCalledOnce();
+        } finally {
+            vi.stubGlobal('window', originalWindow);
+        }
     });
 });
