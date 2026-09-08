@@ -128,7 +128,18 @@ async function placeThroughUi(page, canvas, category, type) {
     const baseline = window.__buildTrainBaseline;
     const building = scene.buildings.getChildren().find((b) => !baseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
     window.__buildTrainLast = building;
-    return { wood: scene.resources.wood, food: scene.resources.food, gold: scene.resources.gold, population: scene.population, maxPopulation: scene.maxPopulation, x: building.x, y: building.y };
+    return {
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      x: building.x,
+      y: building.y,
+      constructionComplete: building.getData('constructionComplete'),
+      constructionRemainingMs: typeof building.getData('constructionCompletesAt') === 'number' ? building.getData('constructionCompletesAt') - scene.gameTime : null,
+      visualAlpha: building.visual?.alpha,
+    };
   }, type);
 }
 
@@ -191,7 +202,51 @@ try {
   evidence.phase = 'house-placement';
   evidence.afterHouse = await placeThroughUi(page, canvas, 'Economy', 'House');
   if (evidence.afterHouse.wood !== evidence.baseline.wood - 50) throw new Error('House wood cost was not exactly 50.');
-  if (evidence.afterHouse.maxPopulation !== evidence.baseline.maxPopulation + 8) throw new Error('House did not add exactly 8 population capacity.');
+  if (evidence.afterHouse.maxPopulation !== evidence.baseline.maxPopulation) throw new Error('House granted population capacity before construction completed.');
+  if (evidence.afterHouse.constructionComplete !== false || !(evidence.afterHouse.constructionRemainingMs > 0)) {
+    throw new Error(`House did not enter a valid unfinished state: ${JSON.stringify(evidence.afterHouse)}`);
+  }
+  if (evidence.afterHouse.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
+
+  evidence.phase = 'house-construction-progress';
+  await page.evaluate(() => new Promise((resolve) => {
+    let remainingFrames = 12;
+    const advance = () => {
+      remainingFrames -= 1;
+      if (remainingFrames <= 0) resolve();
+      else requestAnimationFrame(advance);
+    };
+    requestAnimationFrame(advance);
+  }));
+  evidence.inProgressHouse = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__buildTrainLast;
+    return {
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house?.getData('constructionComplete'),
+      constructionRemainingMs: house?.getData('constructionCompletesAt') - scene.gameTime,
+      visualAlpha: house?.visual?.alpha,
+    };
+  });
+  if (evidence.inProgressHouse.maxPopulation !== evidence.baseline.maxPopulation || evidence.inProgressHouse.constructionComplete !== false) {
+    throw new Error(`House economy changed before construction completion: ${JSON.stringify(evidence.inProgressHouse)}`);
+  }
+
+  evidence.phase = 'house-completion';
+  evidence.afterHouseCompletion = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__buildTrainLast;
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
+    return {
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
+    };
+  });
+  if (evidence.afterHouseCompletion.maxPopulation !== evidence.baseline.maxPopulation + 8) throw new Error('Completed House did not add exactly 8 population capacity.');
+  if (evidence.afterHouseCompletion.constructionComplete !== true) throw new Error('House did not complete at the authoritative construction boundary.');
+  if (evidence.afterHouseCompletion.visualAlpha !== 1) throw new Error('Completed House did not return to full opacity.');
   await page.keyboard.press('Escape');
 
   evidence.phase = 'barracks-placement';

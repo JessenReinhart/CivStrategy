@@ -120,7 +120,16 @@ async function placeThroughUi(page, canvas, category, type) {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const building = scene.buildings.getChildren().find((b) => !window.__canonicalPlacementBaseline.has(b) && b.getData('owner') === 0 && b.getData('def')?.type === t);
     window.__canonicalVerticalProbe[t === 'Barracks' ? 'barracks' : 'house'] = building;
-    return { wood: scene.resources.wood, population: scene.population, maxPopulation: scene.maxPopulation };
+    return {
+      wood: scene.resources.wood,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: building.getData('constructionComplete'),
+      constructionRemainingMs: typeof building.getData('constructionCompletesAt') === 'number'
+        ? building.getData('constructionCompletesAt') - scene.gameTime
+        : null,
+      visualAlpha: building.visual?.alpha,
+    };
   }, type);
   await page.keyboard.press('Escape');
   return result;
@@ -165,7 +174,27 @@ try {
   evidence.phase = 'house-placement';
   evidence.afterHouse = await placeThroughUi(page, canvas, 'Economy', 'House');
   if (evidence.afterHouse.wood !== evidence.baseline.wood - 50) throw new Error('House placement charged the wrong wood cost.');
-  if (evidence.afterHouse.maxPopulation !== evidence.baseline.maxPopulation + 8) throw new Error('House placement did not add 8 population capacity.');
+  if (evidence.afterHouse.maxPopulation !== evidence.baseline.maxPopulation) throw new Error('House placement granted population capacity before construction completed.');
+  if (evidence.afterHouse.constructionComplete !== false || !(evidence.afterHouse.constructionRemainingMs > 0)) {
+    throw new Error(`House did not enter a valid unfinished state: ${JSON.stringify(evidence.afterHouse)}`);
+  }
+  if (evidence.afterHouse.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
+
+  evidence.phase = 'house-completion';
+  evidence.houseCompleted = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__canonicalVerticalProbe.house;
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
+    return {
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
+    };
+  });
+  if (evidence.houseCompleted.maxPopulation !== evidence.baseline.maxPopulation + 8) throw new Error('Completed House did not add exactly 8 population capacity.');
+  if (evidence.houseCompleted.constructionComplete !== true) throw new Error('House did not complete at the authoritative construction boundary.');
+  if (evidence.houseCompleted.visualAlpha !== 1) throw new Error('Completed House did not return to full opacity.');
 
   evidence.phase = 'barracks-placement';
   evidence.afterBarracks = await placeThroughUi(page, canvas, 'Military', 'Barracks');

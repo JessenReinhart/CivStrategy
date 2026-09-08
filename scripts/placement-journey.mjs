@@ -224,17 +224,47 @@ try {
       maxPopulation: scene.maxPopulation,
     };
     const houses = verifyPair('House');
-    const houseEconomyAfter = {
+    const houseEntities = buildings().filter((building) => (
+      getOwner(building) === 0
+      && getDef(building)?.type === 'House'
+      && [houses.first, houses.second].some((point) => Math.hypot(building.x - point.x, building.y - point.y) < 1)
+    ));
+    const houseEconomyAfterPlacement = {
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      construction: houseEntities.map((house) => ({
+        complete: house.getData('constructionComplete'),
+        remainingMs: house.getData('constructionCompletesAt') - scene.gameTime,
+        alpha: house.visual?.alpha,
+      })),
     };
     const expectedHouseWoodCost = 50 * 2;
     const expectedHousePopulationBonus = 8 * 2;
-    if (houseEconomyAfter.wood !== houseEconomyBefore.wood - expectedHouseWoodCost) {
-      throw new Error(`House placement wood cost mismatch: ${houseEconomyBefore.wood} -> ${houseEconomyAfter.wood}.`);
+    if (houseEconomyAfterPlacement.wood !== houseEconomyBefore.wood - expectedHouseWoodCost) {
+      throw new Error(`House placement wood cost mismatch: ${houseEconomyBefore.wood} -> ${houseEconomyAfterPlacement.wood}.`);
     }
-    if (houseEconomyAfter.maxPopulation !== houseEconomyBefore.maxPopulation + expectedHousePopulationBonus) {
-      throw new Error(`House placement population-cap mismatch: ${houseEconomyBefore.maxPopulation} -> ${houseEconomyAfter.maxPopulation}.`);
+    if (houseEconomyAfterPlacement.maxPopulation !== houseEconomyBefore.maxPopulation) {
+      throw new Error(`House placement granted population before construction: ${houseEconomyBefore.maxPopulation} -> ${houseEconomyAfterPlacement.maxPopulation}.`);
+    }
+    if (houseEntities.length !== 2 || houseEconomyAfterPlacement.construction.some((state) => state.complete !== false || !(state.remainingMs > 0) || state.alpha !== 0.55)) {
+      throw new Error(`Adjacent Houses did not enter the expected unfinished construction state: ${JSON.stringify(houseEconomyAfterPlacement.construction)}.`);
+    }
+
+    scene.gameTime = Math.max(...houseEntities.map((house) => house.getData('constructionCompletesAt')));
+    manager.update();
+    const houseEconomyAfterCompletion = {
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+      construction: houseEntities.map((house) => ({
+        complete: house.getData('constructionComplete'),
+        alpha: house.visual?.alpha,
+      })),
+    };
+    if (houseEconomyAfterCompletion.maxPopulation !== houseEconomyBefore.maxPopulation + expectedHousePopulationBonus) {
+      throw new Error(`Completed Houses did not grant exactly +${expectedHousePopulationBonus} population capacity: ${houseEconomyBefore.maxPopulation} -> ${houseEconomyAfterCompletion.maxPopulation}.`);
+    }
+    if (houseEconomyAfterCompletion.construction.some((state) => state.complete !== true || state.alpha !== 1)) {
+      throw new Error(`Adjacent Houses did not finish cleanly at the authoritative construction boundary: ${JSON.stringify(houseEconomyAfterCompletion.construction)}.`);
     }
 
     const houseNavigation = verifyPathAroundPair(houses);
@@ -249,7 +279,8 @@ try {
       houses,
       houseEconomy: {
         before: houseEconomyBefore,
-        after: houseEconomyAfter,
+        afterPlacement: houseEconomyAfterPlacement,
+        afterCompletion: houseEconomyAfterCompletion,
         expectedWoodCost: expectedHouseWoodCost,
         expectedPopulationBonus: expectedHousePopulationBonus,
       },

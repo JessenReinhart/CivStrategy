@@ -15,6 +15,10 @@ const SAVE_VERSION = 1;
 type SerializedBuildingWithWaypoint = SerializedBuilding & {
   waypoint?: { x: number; y: number };
 };
+type SerializedBuildingRuntimeState = SerializedBuildingWithWaypoint & {
+  constructionComplete?: boolean;
+  constructionRemainingMs?: number;
+};
 
 type VillagerCarryType = 'wood' | 'food' | 'gold';
 type SerializedVillagerJobBuilding = {
@@ -194,6 +198,16 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
     const waypoint = def.type === BuildingType.BARRACKS
       ? b.getData('waypoint') as { x: number; y: number } | undefined
       : undefined;
+    const constructionComplete = b.getData('constructionComplete');
+    const constructionCompletesAt = b.getData('constructionCompletesAt');
+    const isUnfinishedPlayerHouse = def.type === BuildingType.HOUSE
+      && (b.getData('owner') ?? 0) === 0
+      && constructionComplete === false;
+    const constructionRemainingMs = isUnfinishedPlayerHouse
+      && typeof constructionCompletesAt === 'number'
+      && Number.isFinite(constructionCompletesAt)
+      ? Math.max(0, constructionCompletesAt - scene.gameTime)
+      : undefined;
     buildings.push({
       type: def.type as BuildingType,
       owner: b.getData('owner') ?? 0,
@@ -204,7 +218,9 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
       workers: b.getData('workers') ?? 0,
       garrison: def.type === BuildingType.CASTLE ? (b.getData('garrison') ?? {}) : undefined,
       waypoint: waypoint ? { x: waypoint.x, y: waypoint.y } : undefined,
-    } as SerializedBuildingWithWaypoint);
+      constructionComplete: isUnfinishedPlayerHouse ? false : undefined,
+      constructionRemainingMs,
+    } as SerializedBuildingRuntimeState);
   }
   return buildings;
 }
@@ -324,10 +340,9 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 5. Respawn buildings (before units, so pathfinder grid is correct)
   respawnBuildings(scene, save);
 
-  // Normal building spawn intentionally applies live construction bonuses.
-  // During load, keep those side effects for derived state (for example max
-  // population), but restore the authoritative serialized happiness afterward
-  // so repeated save/load cycles do not compound building happiness bonuses.
+  // Completed building spawns rebuild derived bonuses. Unfinished player Houses
+  // are immediately returned to their saved construction state by respawnBuildings,
+  // so their population payoff remains withheld across the round trip.
   scene.happiness = save.happiness;
 
   // 6. Restore AI state (after buildings are respawned so AI building array repopulates)
@@ -489,9 +504,13 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     if (b.type === BuildingType.CASTLE && b.garrison !== undefined) {
       building.setData('garrison', b.garrison);
     }
-    const waypoint = (b as SerializedBuildingWithWaypoint).waypoint;
+    const runtimeState = b as SerializedBuildingRuntimeState;
+    const waypoint = runtimeState.waypoint;
     if (b.type === BuildingType.BARRACKS && waypoint) {
       building.setData('waypoint', { x: waypoint.x, y: waypoint.y });
+    }
+    if (b.type === BuildingType.HOUSE && b.owner === 0 && runtimeState.constructionComplete === false) {
+      scene.buildingManager.beginPlayerHouseConstruction(building, runtimeState.constructionRemainingMs);
     }
     // assignedWorker is a runtime object reference and is rebuilt after villagers respawn.
   }

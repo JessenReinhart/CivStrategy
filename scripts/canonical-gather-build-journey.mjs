@@ -327,22 +327,24 @@ try {
         && building.getData('owner') === 0
         && building.getData('def')?.type === 'House',
     );
-    if (!house) throw new Error('Placed House disappeared before stabilization started.');
+    if (!house) throw new Error('Placed House disappeared before construction started.');
     window.__canonicalGatherBuildProbe.house = house;
     return {
       frame: window.__civStrategyGame.loop.frame,
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      constructionRemainingMs: house.getData('constructionCompletesAt') - scene.gameTime,
     };
   });
 
-  evidence.phase = 'stabilize-house';
+  evidence.phase = 'construction-progress';
   await page.waitForFunction(
     (startFrame) => window.__civStrategyGame.loop.frame >= startFrame + 12,
     evidence.afterHouse.frame,
     { timeout: JOURNEY_TIMEOUT_MS },
   );
-  evidence.stableHouse = await page.evaluate(() => {
+  evidence.inProgressHouse = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const house = window.__canonicalGatherBuildProbe.house;
     return {
@@ -352,29 +354,73 @@ try {
       type: house?.getData('def')?.type,
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      constructionComplete: house?.getData('constructionComplete'),
+      constructionRemainingMs: house?.getData('constructionCompletesAt') - scene.gameTime,
+    };
+  });
+
+  if (evidence.afterHouse.wood !== evidence.beforeHouse.wood - 50) {
+    throw new Error('House did not deduct exactly 50 wood from the post-gather economy state.');
+  }
+  if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation) {
+    throw new Error('House granted population before construction completed.');
+  }
+  if (evidence.afterHouse.constructionComplete !== false || !(evidence.afterHouse.constructionRemainingMs > 0)) {
+    throw new Error(`House did not enter a valid construction state: ${JSON.stringify(evidence.afterHouse)}`);
+  }
+  if (
+    !evidence.inProgressHouse.active
+    || !evidence.inProgressHouse.inScene
+    || evidence.inProgressHouse.owner !== 0
+    || evidence.inProgressHouse.type !== 'House'
+    || evidence.inProgressHouse.constructionComplete !== false
+  ) {
+    throw new Error(`Placed House did not remain coherently under construction after real game frames: ${JSON.stringify(evidence.inProgressHouse)}`);
+  }
+  if (
+    evidence.inProgressHouse.wood !== evidence.afterHouse.wood
+    || evidence.inProgressHouse.maxPopulation !== evidence.beforeHouse.maxPopulation
+  ) {
+    throw new Error(`House economy changed before construction completion: ${JSON.stringify(evidence.inProgressHouse)}`);
+  }
+
+  evidence.phase = 'construction-completion';
+  evidence.completedHouse = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__canonicalGatherBuildProbe.house;
+    if (!house) throw new Error('Placed House disappeared before construction completion.');
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
+    return {
+      active: Boolean(house.active),
+      inScene: scene.buildings.getChildren().includes(house),
+      owner: house.getData('owner'),
+      type: house.getData('def')?.type,
+      wood: scene.resources.wood,
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
     };
   });
 
   evidence.phase = 'assert';
-  if (evidence.afterHouse.wood !== evidence.beforeHouse.wood - 50) {
-    throw new Error('House did not deduct exactly 50 wood from the post-gather economy state.');
-  }
-  if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) {
-    throw new Error('House did not add 8 population capacity after the gather-to-build transition.');
-  }
   if (
-    !evidence.stableHouse.active
-    || !evidence.stableHouse.inScene
-    || evidence.stableHouse.owner !== 0
-    || evidence.stableHouse.type !== 'House'
+    !evidence.completedHouse.active
+    || !evidence.completedHouse.inScene
+    || evidence.completedHouse.owner !== 0
+    || evidence.completedHouse.type !== 'House'
+    || evidence.completedHouse.constructionComplete !== true
   ) {
-    throw new Error(`Placed House did not remain stable after real game frames: ${JSON.stringify(evidence.stableHouse)}`);
+    throw new Error(`House did not complete coherently: ${JSON.stringify(evidence.completedHouse)}`);
   }
-  if (
-    evidence.stableHouse.wood !== evidence.afterHouse.wood
-    || evidence.stableHouse.maxPopulation !== evidence.afterHouse.maxPopulation
-  ) {
-    throw new Error(`House economy effect did not remain stable after placement: ${JSON.stringify(evidence.stableHouse)}`);
+  if (evidence.completedHouse.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) {
+    throw new Error('Completed House did not add exactly 8 population capacity after the gather-to-build transition.');
+  }
+  if (evidence.completedHouse.wood !== evidence.afterHouse.wood) {
+    throw new Error(`House completion unexpectedly changed wood economy: ${JSON.stringify(evidence.completedHouse)}`);
+  }
+  if (evidence.completedHouse.visualAlpha !== 1) {
+    throw new Error('Completed House did not return to full visual opacity.');
   }
   if (evidence.browserErrors.length) {
     throw new Error(`Browser page errors:\n${evidence.browserErrors.join('\n')}`);
