@@ -96,12 +96,16 @@ try {
     }
     if (!center) throw new Error('Could not find a valid House placement inside player territory.');
 
-    // The player points at the building center. Runtime snapping preserves the
-    // footprint-origin lattice internally instead of requiring a half-footprint cursor offset.
     const input = toIso(center.x, center.y);
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(input.x, input.y);
     window.__playerPlacementBaselineBuildings = new Set(buildings);
+    window.__houseCompletionCalls = [];
+    const originalNotifyBuildingComplete = scene.feedbackSystem.notifyBuildingComplete.bind(scene.feedbackSystem);
+    scene.feedbackSystem.notifyBuildingComplete = (name) => {
+      window.__houseCompletionCalls.push(name);
+      return originalNotifyBuildingComplete(name);
+    };
 
     return {
       input,
@@ -109,6 +113,7 @@ try {
       before: {
         wood: scene.resources.wood,
         maxPopulation: scene.maxPopulation,
+        happiness: scene.happiness,
         buildingCount: buildings.length,
       },
     };
@@ -147,7 +152,7 @@ try {
     ));
   }, undefined, { timeout: 5_000 });
 
-  const after = await page.evaluate((expectedCenter) => {
+  const afterPlacement = await page.evaluate((expectedCenter) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const baseline = window.__playerPlacementBaselineBuildings;
     const built = scene.buildings.getChildren().find((building) => (
@@ -157,18 +162,107 @@ try {
     return {
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      happiness: scene.happiness,
       buildingCount: scene.buildings.getChildren().length,
       built: { x: built.x, y: built.y },
       centerDelta: Math.hypot(built.x - expectedCenter.x, built.y - expectedCenter.y),
       previewType: scene.buildingManager.previewBuildingType,
+      constructionComplete: built.getData('constructionComplete'),
+      constructionRemainingMs: built.getData('constructionCompletesAt') - scene.gameTime,
+      visualAlpha: built.visual?.alpha,
+      completionCalls: [...window.__houseCompletionCalls],
     };
   }, setup.center);
 
-  if (after.wood !== setup.before.wood - 50) throw new Error('Real House placement charged the wrong wood cost.');
-  if (after.maxPopulation !== setup.before.maxPopulation + 8) throw new Error('Real House placement changed population cap incorrectly.');
-  if (after.buildingCount !== setup.before.buildingCount + 1) throw new Error('Real House placement did not create exactly one building.');
-  if (after.centerDelta > 0.01) throw new Error(`Real House placement landed ${after.centerDelta}px away from the cursor-aligned center.`);
-  if (after.previewType !== 'House') throw new Error('Placement mode did not remain coherent after a successful House placement.');
+  if (afterPlacement.wood !== setup.before.wood - 50) throw new Error('Real House placement charged the wrong wood cost.');
+  if (afterPlacement.maxPopulation !== setup.before.maxPopulation) throw new Error('House granted population before construction completed.');
+  if (afterPlacement.buildingCount !== setup.before.buildingCount + 1) throw new Error('Real House placement did not create exactly one building.');
+  if (afterPlacement.centerDelta > 0.01) throw new Error(`Real House placement landed ${afterPlacement.centerDelta}px away from the cursor-aligned center.`);
+  if (afterPlacement.previewType !== 'House') throw new Error('Placement mode did not remain coherent after a successful House placement.');
+  if (afterPlacement.constructionComplete !== false) throw new Error('Player-placed House did not enter construction state.');
+  if (!(afterPlacement.constructionRemainingMs > 0 && afterPlacement.constructionRemainingMs <= 5000)) throw new Error('Player-placed House has an invalid construction deadline.');
+  if (!(afterPlacement.visualAlpha < 1)) throw new Error('Under-construction House is not visually distinguishable from a completed House.');
+  if (afterPlacement.completionCalls.length !== 0) throw new Error('Building-complete feedback fired at placement instead of completion.');
+
+  evidence.phase = 'construction-save-reload';
+  const roundTrip = await page.evaluate(async (expectedCenter) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { serializeGame, deserializeGame } = await import('/game/systems/SaveSystem.ts');
+    const save = serializeGame(scene);
+    const savedHouse = save.buildings.find((building) => (
+      building.owner === 0
+      && building.type === 'House'
+      && Math.hypot(building.x - expectedCenter.x, building.y - expectedCenter.y) <= 0.01
+    ));
+    if (!savedHouse) throw new Error('Save payload did not contain the in-progress House.');
+
+    const beforeReloadPopulation = scene.maxPopulation;
+    deserializeGame(scene, save);
+    const restored = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'House'
+      && Math.hypot(building.x - expectedCenter.x, building.y - expectedCenter.y) <= 0.01
+    ));
+    if (!restored) throw new Error('Reload did not restore the in-progress House.');
+
+    return {
+      savedConstructionComplete: savedHouse.constructionComplete,
+      savedRemainingMs: savedHouse.constructionRemainingMs,
+      beforeReloadPopulation,
+      afterReloadPopulation: scene.maxPopulation,
+      restoredConstructionComplete: restored.getData('constructionComplete'),
+      restoredRemainingMs: restored.getData('constructionCompletesAt') - scene.gameTime,
+      restoredVisualAlpha: restored.visual?.alpha,
+      completionCalls: [...window.__houseCompletionCalls],
+    };
+  }, setup.center);
+
+  if (roundTrip.savedConstructionComplete !== false) throw new Error('Save payload marked the unfinished House complete.');
+  if (!(roundTrip.savedRemainingMs > 0)) throw new Error('Save payload lost unfinished House progress.');
+  if (roundTrip.afterReloadPopulation !== roundTrip.beforeReloadPopulation) throw new Error('Reload granted population for an unfinished House.');
+  if (roundTrip.restoredConstructionComplete !== false) throw new Error('Reload converted the unfinished House into a completed House.');
+  if (!(roundTrip.restoredRemainingMs > 0)) throw new Error('Reload did not preserve remaining House construction time.');
+  if (!(roundTrip.restoredVisualAlpha < 1)) throw new Error('Reload lost the House construction visual state.');
+  if (roundTrip.completionCalls.length !== 0) throw new Error('Save/reload emitted building-complete feedback for an unfinished House.');
+
+  evidence.phase = 'construction-completion';
+  const afterCompletion = await page.evaluate((expectedCenter) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'House'
+      && Math.hypot(building.x - expectedCenter.x, building.y - expectedCenter.y) <= 0.01
+    ));
+    if (!house) throw new Error('Restored House disappeared before construction completion.');
+
+    const completesAt = house.getData('constructionCompletesAt');
+    scene.gameTime = completesAt;
+    scene.buildingManager.update();
+    const once = {
+      maxPopulation: scene.maxPopulation,
+      happiness: scene.happiness,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
+      completionCalls: [...window.__houseCompletionCalls],
+    };
+    scene.buildingManager.update();
+    return {
+      once,
+      twice: {
+        maxPopulation: scene.maxPopulation,
+        happiness: scene.happiness,
+        completionCalls: [...window.__houseCompletionCalls],
+      },
+    };
+  }, setup.center);
+
+  if (afterCompletion.once.constructionComplete !== true) throw new Error('House did not complete when authoritative game time reached its deadline.');
+  if (afterCompletion.once.maxPopulation !== setup.before.maxPopulation + 8) throw new Error('Completed House did not grant exactly +8 population cap.');
+  if (afterCompletion.once.visualAlpha !== 1) throw new Error('Completed House did not return to full visual opacity.');
+  if (afterCompletion.once.completionCalls.filter((name) => name === 'House').length !== 1) throw new Error('House completion payoff did not fire exactly once.');
+  if (afterCompletion.twice.maxPopulation !== afterCompletion.once.maxPopulation) throw new Error('Repeated construction update duplicated the House population bonus.');
+  if (afterCompletion.twice.happiness !== afterCompletion.once.happiness) throw new Error('Repeated construction update duplicated the House happiness bonus.');
+  if (afterCompletion.twice.completionCalls.filter((name) => name === 'House').length !== 1) throw new Error('Repeated construction update duplicated completion feedback.');
 
   await page.keyboard.press('Escape');
   await page.waitForFunction(() => {
@@ -178,7 +272,9 @@ try {
 
   evidence.phase = 'complete';
   evidence.setup = setup;
-  evidence.after = after;
+  evidence.afterPlacement = afterPlacement;
+  evidence.roundTrip = roundTrip;
+  evidence.afterCompletion = afterCompletion;
   if (evidence.browserErrors.length) throw new Error(`Browser page errors:\n${evidence.browserErrors.join('\n')}`);
 
   await page.screenshot({ path: `${ARTIFACT_DIR}/player-building-placement.png`, fullPage: true });

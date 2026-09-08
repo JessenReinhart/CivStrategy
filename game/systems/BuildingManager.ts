@@ -6,6 +6,7 @@ import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRA
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
 export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
+export const PLAYER_HOUSE_CONSTRUCTION_MS = 5000;
 
 export class BuildingManager {
     private scene: MainScene;
@@ -34,10 +35,68 @@ export class BuildingManager {
     }
 
     public update() {
+        this.updatePlayerHouseConstruction();
         if (this.isTerritoryDirty) {
             this.drawTerritory();
             this.isTerritoryDirty = false;
         }
+    }
+
+    /**
+     * Player-placed Houses are the first bounded construction slice. EntityFactory
+     * still owns generic building creation, so suppress its immediate gameplay
+     * payoff here until authoritative game time reaches the completion boundary.
+     */
+    public beginPlayerHouseConstruction(
+        building: Phaser.GameObjects.GameObject,
+        remainingMs: number = PLAYER_HOUSE_CONSTRUCTION_MS,
+    ): void {
+        const def = building.getData('def') as BuildingDef | undefined;
+        if (!def || def.type !== BuildingType.HOUSE || building.getData('owner') !== 0) return;
+
+        const duration = Number.isFinite(remainingMs) ? Math.max(0, remainingMs) : PLAYER_HOUSE_CONSTRUCTION_MS;
+        building.setData('constructionComplete', false);
+        building.setData('constructionCompletesAt', this.scene.gameTime + duration);
+
+        // spawnBuilding applies finished-building bonuses. An under-construction
+        // House must not affect authoritative economy/population until completion.
+        if (def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+        if (def.happinessBonus) this.scene.happiness -= def.happinessBonus;
+
+        const visual = (building as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+        visual?.setAlpha(0.55);
+
+        if (duration === 0) this.completePlayerHouseConstruction(building);
+    }
+
+    private updatePlayerHouseConstruction(): void {
+        for (const building of this.scene.buildings.getChildren()) {
+            if (building.getData('constructionComplete') !== false) continue;
+            const def = building.getData('def') as BuildingDef | undefined;
+            if (!def || def.type !== BuildingType.HOUSE || building.getData('owner') !== 0) continue;
+
+            const completesAt = building.getData('constructionCompletesAt');
+            if (typeof completesAt === 'number' && Number.isFinite(completesAt) && this.scene.gameTime >= completesAt) {
+                this.completePlayerHouseConstruction(building);
+            }
+        }
+    }
+
+    private completePlayerHouseConstruction(building: Phaser.GameObjects.GameObject): void {
+        if (building.getData('constructionComplete') !== false) return;
+        const def = building.getData('def') as BuildingDef | undefined;
+        if (!def || def.type !== BuildingType.HOUSE || building.getData('owner') !== 0) return;
+
+        building.setData('constructionComplete', true);
+        building.setData('constructionCompletesAt', this.scene.gameTime);
+        if (def.populationBonus) this.scene.maxPopulation += def.populationBonus;
+        if (def.happinessBonus) this.scene.happiness += def.happinessBonus;
+
+        const visual = (building as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+        visual?.setAlpha(1);
+
+        this.scene.feedbackSystem.notifyBuildingComplete(def.name);
+        this.scene.economySystem.updateStats();
     }
 
     public markTerritoryDirty() {
@@ -271,10 +330,14 @@ export class BuildingManager {
             this.scene.resources.food -= def.cost.food;
             this.scene.resources.gold -= def.cost.gold;
             // Actually spawn the building sprite into the world
-            this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
+            const building = this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
+            const isPlayerHouse = this.previewBuildingType === BuildingType.HOUSE;
+            if (isPlayerHouse) {
+                this.beginPlayerHouseConstruction(building);
+            }
 
             this.markTerritoryDirty();
-            this.scene.feedbackSystem.notifyBuildingComplete(def.name);
+            if (!isPlayerHouse) this.scene.feedbackSystem.notifyBuildingComplete(def.name);
             this.scene.economySystem.updateStats();
         } else {
             this.scene.feedbackSystem.showFloatingText(cx, cy, validity.reason || "Unable to build", "#ff0000");
@@ -420,6 +483,7 @@ export class BuildingManager {
         const logic = b as Phaser.GameObjects.Rectangle;
         const worker = b.getData('assignedWorker');
         const wasSelected = this.scene.inputManager.selectedBuilding === b;
+        const hadBuildingBenefits = b.getData('constructionComplete') !== false;
 
         if (wasSelected) {
             this.scene.inputManager.deselectBuilding();
@@ -450,8 +514,8 @@ export class BuildingManager {
         if (visual) visual.destroy();
 
         if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
-        if (def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
-        if (def.happinessBonus) this.scene.happiness -= def.happinessBonus;
+        if (hadBuildingBenefits && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+        if (hadBuildingBenefits && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
 
         this.markTerritoryDirty();
         this.scene.economySystem.updateStats();
