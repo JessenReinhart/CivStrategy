@@ -141,6 +141,11 @@ async function placeThroughUi(page, canvas, category, type) {
       y: building.y,
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      constructionComplete: building.getData('constructionComplete'),
+      constructionRemainingMs: typeof building.getData('constructionCompletesAt') === 'number'
+        ? building.getData('constructionCompletesAt') - scene.gameTime
+        : null,
+      visualAlpha: building.visual?.alpha,
     };
   }, type);
 }
@@ -232,8 +237,39 @@ try {
 
   evidence.phase = 'house-placement';
   evidence.house = await placeThroughUi(page, canvas, 'Economy', 'House');
-  if (evidence.house.maxPopulation !== evidence.baseline.maxPopulation + 8) {
-    throw new Error('Real House placement did not increase population capacity by 8.');
+  if (evidence.house.wood !== evidence.baseline.wood - 50) {
+    throw new Error('Real House placement did not deduct exactly 50 wood.');
+  }
+  if (evidence.house.maxPopulation !== evidence.baseline.maxPopulation) {
+    throw new Error('Real House placement granted population capacity before construction completed.');
+  }
+  if (evidence.house.constructionComplete !== false || !(evidence.house.constructionRemainingMs > 0)) {
+    throw new Error(`Real House did not enter a valid unfinished state: ${JSON.stringify(evidence.house)}`);
+  }
+  if (evidence.house.visualAlpha !== 0.55) {
+    throw new Error('Unfinished real House did not use the construction visual state.');
+  }
+
+  evidence.phase = 'house-completion';
+  evidence.houseCompleted = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__placementSaveBuilding;
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
+    return {
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
+    };
+  });
+  if (evidence.houseCompleted.maxPopulation !== evidence.baseline.maxPopulation + 8) {
+    throw new Error('Completed real House did not increase population capacity by exactly 8.');
+  }
+  if (evidence.houseCompleted.constructionComplete !== true) {
+    throw new Error('Real House did not complete at the authoritative construction boundary.');
+  }
+  if (evidence.houseCompleted.visualAlpha !== 1) {
+    throw new Error('Completed real House did not return to full opacity.');
   }
   await page.keyboard.press('Escape');
 
