@@ -438,43 +438,88 @@ try {
   }, undefined, { timeout: 12_000 });
 
   evidence.phase = 'combat';
-  evidence.combatSetup = await page.evaluate(() => {
+  evidence.combatSetup = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
+    const { toIsoElev } = await import('/utils/coords');
     scene.peacefulMode = true;
     window.__economyCombatSpeed = scene.gameSpeed;
     scene.gameSpeed = 0;
-    let spawn = null;
-    for (const [dx, dy] of [[36, 0], [-36, 0], [0, 36], [0, -36]]) {
+    const camera = scene.cameras.main;
+    const topLeft = camera.getWorldPoint(0, 0);
+    let enemy = null;
+    let targetScreen = null;
+    for (const [dx, dy] of [[36, 0], [-36, 0], [0, 36], [0, -36], [48, 0], [-48, 0], [0, 48], [0, -48]]) {
       const x = player.x + dx;
       const y = player.y + dy;
-      if (!scene.pathfinder.isBlocked(x, y)) {
-        spawn = { x, y };
-        break;
-      }
+      if (scene.pathfinder.isBlocked(x, y)) continue;
+      const projected = toIsoElev(x, y, scene.terrainSystem.getHeightAt(x, y));
+      const screen = {
+        x: (projected.x - topLeft.x) * camera.zoom,
+        y: (projected.y - 10 - topLeft.y) * camera.zoom,
+      };
+      if (screen.x < 120 || screen.x > 1320 || screen.y < 120 || screen.y > 780) continue;
+      enemy = scene.entityFactory.spawnUnit('Pikesman', x, y, 1);
+      targetScreen = screen;
+      break;
     }
-    if (!spawn) throw new Error('No in-range enemy position available.');
-    const enemy = scene.entityFactory.spawnUnit('Pikesman', spawn.x, spawn.y, 1);
-    if (!enemy) throw new Error('Could not spawn deterministic combat enemy.');
+    if (!enemy || !targetScreen) throw new Error('No reachable on-screen enemy position available.');
     enemy.setData('hp', 10);
     enemy.setData('stance', 'Hold');
     enemy.setData('anchor', { x: enemy.x, y: enemy.y });
     player.lastAttackTime = scene.gameTime;
     window.__economyProgressionProbe.enemy = enemy;
-    scene.cameras.main.centerOn((player.visual.x + enemy.visual.x) * 0.5, (player.visual.y + enemy.visual.y) * 0.5);
-    return { playerHp: player.getData('hp'), enemyHp: enemy.getData('hp') };
+    window.__economyProgressionProbe.enemyX = enemy.x;
+    window.__economyProgressionProbe.enemyY = enemy.y;
+    return {
+      playerHp: player.getData('hp'),
+      enemyHp: enemy.getData('hp'),
+      pausedAtGameTime: scene.gameTime,
+      targetScreen,
+    };
   });
   await waitForCameraSync(page);
   box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for combat.');
-  playerPoint = await unitScreenPoint(page, 'player');
-  await page.mouse.click(box.x + playerPoint.x, box.y + playerPoint.y, { button: 'left' });
-  const enemyPoint = await unitScreenPoint(page, 'enemy');
-  await rightClickThroughFrame(page, box.x + enemyPoint.x, box.y + enemyPoint.y);
   await page.waitForFunction(() => {
-    const { player, enemy } = window.__economyProgressionProbe;
-    return player.target === enemy && player.getData('explicitTarget') === true;
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const probe = window.__economyProgressionProbe;
+    return Boolean(probe.enemy?.visual) && scene.inputManager.selectedUnits.includes(probe.player);
   }, undefined, { timeout: 5_000 });
+  await page.mouse.move(box.x + evidence.combatSetup.targetScreen.x, box.y + evidence.combatSetup.targetScreen.y);
+  const targetHit = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const enemy = window.__economyProgressionProbe.enemy;
+    return scene.input.hitTestPointer(scene.input.activePointer).some((obj) => obj.getData?.('unit') === enemy);
+  });
+  if (!targetHit) throw new Error(`On-screen combat target was not hit-testable at ${JSON.stringify(evidence.combatSetup.targetScreen)}.`);
+  await page.mouse.click(
+    box.x + evidence.combatSetup.targetScreen.x,
+    box.y + evidence.combatSetup.targetScreen.y,
+    { button: 'right' },
+  );
+  evidence.attackCommand = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { player, enemy } = window.__economyProgressionProbe;
+    return {
+      targetsEnemy: player.target === enemy,
+      explicitTarget: player.getData('explicitTarget') === true,
+      selected: scene.inputManager.selectedUnits.includes(player),
+      gameSpeed: scene.gameSpeed,
+      gameTime: scene.gameTime,
+      targetHp: enemy.active ? enemy.getData('hp') : null,
+    };
+  });
+  if (!evidence.attackCommand.targetsEnemy || !evidence.attackCommand.explicitTarget) {
+    throw new Error(`Attack command was not accepted: ${JSON.stringify(evidence.attackCommand)}`);
+  }
+  if (
+    evidence.attackCommand.gameSpeed !== 0
+    || evidence.attackCommand.gameTime !== evidence.combatSetup.pausedAtGameTime
+    || evidence.attackCommand.targetHp !== 10
+  ) {
+    throw new Error('Simulation advanced while capturing the attack command.');
+  }
   await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const player = window.__economyProgressionProbe.player;
@@ -484,9 +529,12 @@ try {
   });
   await page.waitForFunction(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { player, enemy } = window.__economyProgressionProbe;
-    return !enemy.active && !scene.units.getChildren().includes(enemy) && player.active;
-  }, undefined, { timeout: 12_000 });
+    const { player, enemy, enemyX, enemyY } = window.__economyProgressionProbe;
+    return !enemy.active
+      && !scene.units.getChildren().includes(enemy)
+      && !scene.unitSpatialHash.query(enemyX, enemyY, 96).includes(enemy)
+      && player.active;
+  }, undefined, { timeout: 15_000 });
 
   evidence.phase = 'save';
   evidence.beforeSave = await page.evaluate(() => {
