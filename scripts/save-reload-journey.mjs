@@ -73,37 +73,22 @@ async function waitForCameraSync(page) {
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
 }
 
-async function selectStartingVillager(page) {
-  await page.evaluate(() => {
+async function captureWorkforceBeforeLiveReload(page, lumberCampPosition) {
+  await page.evaluate((position) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const villager = scene.villagerSystem.getVillagersByOwner(0).find((candidate) => candidate.visual?.active);
-    if (!villager?.visual) throw new Error('No selectable villager available before load.');
-    scene.cameras.main.setZoom(1.5);
-    scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
-    window.__saveReloadSelectedVillager = villager;
-  });
-  await waitForCameraSync(page);
-
-  const point = await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const villager = window.__saveReloadSelectedVillager;
-    if (!villager?.visual?.active) throw new Error('Starting Villager visual became unavailable before click.');
-    const camera = scene.cameras.main;
-    const topLeft = camera.getWorldPoint(0, 0);
-    return {
-      x: (villager.visual.x - topLeft.x) * camera.zoom,
-      y: (villager.visual.y - 8 - topLeft.y) * camera.zoom,
-    };
-  });
-
-  const canvas = page.locator('canvas').first();
-  const box = await canvas.boundingBox();
-  if (!box) throw new Error('Game canvas was not measurable before load.');
-  await page.mouse.click(box.x + point.x, box.y + point.y, { button: 'left' });
-  await page.waitForFunction(() => {
-    const villager = window.__saveReloadSelectedVillager;
-    return Boolean(villager?.visual?.getData?.('workforceSelectionRing')?.active);
-  }, undefined, { timeout: 5_000 });
+    const lumberCamp = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    const assignedWorker = lumberCamp?.getData('assignedWorker');
+    if (!lumberCamp?.active || !assignedWorker?.visual?.active || assignedWorker.jobBuilding !== lumberCamp) {
+      throw new Error('Restored Lumber Camp workforce assignment was unavailable before live reload.');
+    }
+    window.__saveReloadOldLumberCamp = lumberCamp;
+    window.__saveReloadOldWorker = assignedWorker;
+  }, lumberCampPosition);
 }
 
 async function trainPikesmanFromRestoredBarracks(page, barracksPosition) {
@@ -365,20 +350,33 @@ try {
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
 
-  // Retain the existing live-reload selection invariant too: select a restored
-  // Villager, then load again inside the same seeded scene and verify stale
-  // Phaser selection references are released.
-  await selectStartingVillager(page);
+  // Exercise live reload against the current Stronghold-style workforce model.
+  // The old entity references must be released and the restored Lumber Camp must
+  // receive a fresh authoritative worker assignment after the scene is rebuilt.
+  await captureWorkforceBeforeLiveReload(page, beforeSave.lumberCamp);
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
-  await page.waitForFunction(() => {
+  await page.waitForFunction((position) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    const oldVillager = window.__saveReloadSelectedVillager;
-    const oldRing = oldVillager?.visual?.active ? oldVillager.visual.getData?.('workforceSelectionRing') : null;
-    const currentRing = scene?.villagerSystem?.getVillagersByOwner?.(0)?.some((villager) => (
-      Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
+    const oldLumberCamp = window.__saveReloadOldLumberCamp;
+    const oldWorker = window.__saveReloadOldWorker;
+    const currentLumberCamp = scene?.buildings?.getChildren?.().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
     ));
-    return scene?.isReady && !oldRing?.active && currentRing === false;
-  }, undefined, { timeout: 5_000 });
+    const currentWorker = currentLumberCamp?.getData?.('assignedWorker');
+    return Boolean(
+      scene?.isReady
+      && oldLumberCamp?.active === false
+      && (!oldWorker?.visual || oldWorker.visual.active === false)
+      && currentLumberCamp
+      && currentLumberCamp !== oldLumberCamp
+      && currentWorker
+      && currentWorker !== oldWorker
+      && currentWorker.jobBuilding === currentLumberCamp
+    );
+  }, beforeSave.lumberCamp, { timeout: 5_000 });
 
   const afterLoad = await page.evaluate(async ({ markerWood, previousGameTime, housePosition, barracksPosition, lumberCampPosition, goldMines }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -429,14 +427,17 @@ try {
     const loadedMaxPopulation = scene.maxPopulation;
     const loadedGameTime = scene.gameTime;
     const rallyWaypoint = barracks.getData('waypoint');
-    const workforceSelectionCleared = !scene.villagerSystem.getVillagersByOwner(0).some((villager) => (
-      Boolean(villager.visual?.getData?.('workforceSelectionRing')?.active)
-    ));
+    const assignedWorker = lumberCamp.getData('assignedWorker');
+    const workforceAssignmentRebuilt = Boolean(
+      assignedWorker
+      && assignedWorker.jobBuilding === lumberCamp
+      && assignedWorker !== window.__saveReloadOldWorker
+      && lumberCamp !== window.__saveReloadOldLumberCamp
+    );
     if (loadedWood !== markerWood) throw new Error('Saved resources were not restored at the load boundary.');
     if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
-    if (!workforceSelectionCleared) throw new Error('Workforce selection survived entity replacement during load.');
+    if (!workforceAssignmentRebuilt) throw new Error('Lumber Camp workforce assignment did not rebuild with fresh entities during load.');
 
-    const assignedWorker = lumberCamp.getData('assignedWorker');
     if (!assignedWorker || assignedWorker.jobBuilding !== lumberCamp) {
       throw new Error('Restored Lumber Camp did not reconnect to a Villager through normal post-load job assignment.');
     }
@@ -472,7 +473,7 @@ try {
       loadedGameTime,
       resumedGameTime,
       simulatedMs,
-      workforceSelectionCleared,
+      workforceAssignmentRebuilt,
     };
   }, {
     markerWood: MARKER_WOOD,

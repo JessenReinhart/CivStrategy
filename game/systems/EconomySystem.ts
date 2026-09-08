@@ -57,6 +57,11 @@ export class EconomySystem {
                 const label = type.charAt(0).toUpperCase() + type.slice(1);
                 this.scene.feedbackSystem.showFloatingResource(tcs[0].x, tcs[0].y, finalAmount, label);
             }
+
+            // Resource deposits happen between the one-second economy ticks.
+            // Publish the new authoritative balance immediately so HUD counters
+            // and build affordability cannot lag behind what the player owns.
+            this.updateStats();
         }
     }
 

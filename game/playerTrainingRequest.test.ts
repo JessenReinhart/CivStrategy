@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handlePlayerTrainingRequest } from './playerTrainingRequest';
+import { BuildingType } from '../types';
+import {
+  getPlayerTrainingSelectedBuilding,
+  handlePlayerTrainingRequest,
+} from './playerTrainingRequest';
 
 describe('player training request population gate', () => {
   it('blocks training at the population cap before the training handler can run', () => {
@@ -46,5 +50,33 @@ describe('player training request population gate', () => {
 
     expect(accepted).toBe(false);
     expect(train).not.toHaveBeenCalled();
+  });
+});
+
+describe('player training building selection', () => {
+  const building = (type: BuildingType, owner: number) => ({
+    getData: (key: string) => {
+      if (key === 'def') return { type };
+      if (key === 'owner') return owner;
+      return undefined;
+    },
+  });
+
+  it('keeps a selected player Barracks as the preferred training source', () => {
+    const playerBarracks = building(BuildingType.BARRACKS, 0);
+
+    expect(getPlayerTrainingSelectedBuilding(playerBarracks)).toBe(playerBarracks);
+  });
+
+  it('rejects a selected enemy Barracks so training can fall back to a player Barracks', () => {
+    const enemyBarracks = building(BuildingType.BARRACKS, 1);
+
+    expect(getPlayerTrainingSelectedBuilding(enemyBarracks)).toBeNull();
+  });
+
+  it('rejects selected non-Barracks buildings from the training fast path', () => {
+    const playerHouse = building(BuildingType.HOUSE, 0);
+
+    expect(getPlayerTrainingSelectedBuilding(playerHouse)).toBeNull();
   });
 });

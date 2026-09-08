@@ -184,10 +184,9 @@ try {
   telemetry.gather = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.economySystem.assignJobs = () => {};
 
-    const villager = scene.villagerSystem.getIdleVillagers(0)[0];
-    if (!villager?.visual) throw new Error('No idle player villager is available for canonical gathering.');
+    const anchorVillager = scene.villagerSystem.getIdleVillagers(0)[0];
+    if (!anchorVillager?.visual) throw new Error('No idle player villager is available for canonical gathering.');
 
     const trees = scene.trees.getChildren().filter((tree) => (
       tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped')
@@ -195,7 +194,7 @@ try {
     let nearestTree = null;
     let nearestDistance = Infinity;
     for (const tree of trees) {
-      const distance = Math.hypot(tree.x - villager.x, tree.y - villager.y);
+      const distance = Math.hypot(tree.x - anchorVillager.x, tree.y - anchorVillager.y);
       if (distance < nearestDistance) {
         nearestTree = tree;
         nearestDistance = distance;
@@ -205,13 +204,21 @@ try {
       throw new Error(`No live tree is close enough for canonical gathering (${nearestDistance.toFixed(1)}px).`);
     }
 
-    const dx = nearestTree.x - villager.x;
-    const dy = nearestTree.y - villager.y;
+    const dx = nearestTree.x - anchorVillager.x;
+    const dy = nearestTree.y - anchorVillager.y;
     const length = Math.max(1, Math.hypot(dx, dy));
-    const campX = villager.x + (-dy / length) * 64;
-    const campY = villager.y + (dx / length) * 64;
+    const campX = anchorVillager.x + (-dy / length) * 64;
+    const campY = anchorVillager.y + (dx / length) * 64;
     const camp = scene.entityFactory.spawnBuilding('Lumber Camp', campX, campY, 0);
     if (!camp?.visual) throw new Error('Could not create the Lumber Camp used for canonical gathering.');
+
+    scene.economySystem.assignJobs();
+    const villager = scene.villagerSystem.getAllVillagers().find(
+      (candidate) => candidate.owner === 0 && candidate.jobBuilding === camp,
+    );
+    if (!villager?.visual || camp.getData('assignedWorker') !== villager) {
+      throw new Error('Lumber Camp did not receive an idle villager through workforce slots.');
+    }
 
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
@@ -222,38 +229,20 @@ try {
       initialPopulation: scene.population,
       villagerId: villager.id,
       treeDistance: nearestDistance,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
     };
   });
 
-  await waitForCameraSync(page);
+  if (!telemetry.gather.assignedToCamp
+      || telemetry.gather.campAssignedWorkerId !== telemetry.gather.villagerId) {
+    throw new Error(`Stronghold workforce assignment failed: ${JSON.stringify(telemetry.gather)}`);
+  }
+
   const canvas = page.locator('canvas').first();
   let canvasBox = await canvas.boundingBox();
   if (!canvasBox) throw new Error('Game canvas was not measurable.');
-
-  telemetry.phase = 'select-villager';
-  let point = await unitScreenPoint(page, 'villager');
-  await page.mouse.click(canvasBox.x + point.x, canvasBox.y + point.y, { button: 'left' });
-  await page.waitForFunction(() => {
-    const villager = window.__canonicalSessionProbe?.villager;
-    const ring = villager?.visual?.getData('workforceSelectionRing');
-    return Boolean(ring?.active);
-  }, undefined, { timeout: INPUT_TIMEOUT_MS });
-
-  telemetry.phase = 'assign-gathering';
-  await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { villager, camp } = window.__canonicalSessionProbe;
-    scene.cameras.main.centerOn(
-      (villager.visual.x + camp.visual.x) * 0.5,
-      (villager.visual.y + camp.visual.y) * 0.5,
-    );
-  });
-  await waitForCameraSync(page);
-  await rightClickBuildingThroughFrame(page, canvasBox, 'camp');
-  await page.waitForFunction(() => {
-    const { villager, camp } = window.__canonicalSessionProbe;
-    return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
-  }, undefined, { timeout: INPUT_TIMEOUT_MS });
+  let point;
 
   telemetry.phase = 'gather-deposit';
   telemetry.gather.simulation = await page.evaluate((initialWood) => {
@@ -272,7 +261,7 @@ try {
   }, telemetry.gather.initialWood);
 
   if (!telemetry.gather.simulation.assigned || telemetry.gather.simulation.depositedWood <= 0) {
-    throw new Error('Canonical villager assignment did not complete a wood gather/carry/deposit cycle.');
+    throw new Error('Canonical workforce assignment did not complete a wood gather/carry/deposit cycle.');
   }
 
   telemetry.phase = 'player-preparation';

@@ -220,6 +220,24 @@ describe('EconomySystem population growth', () => {
 });
 
 describe('EconomySystem resource ownership', () => {
+    it('publishes player deposits immediately so affordability follows the authoritative balance', () => {
+        const scene = {
+            resources: { wood: 42, food: 100, gold: 100 },
+            researchManager: undefined,
+            faction: 'Romans',
+            enemyFaction: 'Gauls',
+            buildings: { getChildren: () => [] },
+            feedbackSystem: { showFloatingResource: vi.fn() },
+        } as unknown as MainScene;
+        const economy = new EconomySystem(scene);
+        const updateStats = vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+
+        economy.depositResource(0, 'wood', 8);
+
+        expect(scene.resources.wood).toBe(50);
+        expect(updateStats).toHaveBeenCalledTimes(1);
+    });
+
     it('credits AI carry deposits to the AI pool, never the player pool', () => {
         const scene = {
             resources: { wood: 100, food: 100, gold: 100 },
@@ -229,10 +247,12 @@ describe('EconomySystem resource ownership', () => {
             enemyFaction: 'Gauls',
         } as unknown as MainScene;
         const economy = new EconomySystem(scene);
+        const updateStats = vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
 
         economy.depositResource(1, 'wood', 8);
 
         expect(scene.resources.wood).toBe(100);
         expect(scene.enemyAI.resources.wood).toBe(58);
+        expect(updateStats).not.toHaveBeenCalled();
     });
 });

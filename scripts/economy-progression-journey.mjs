@@ -204,15 +204,14 @@ try {
   evidence.gatherSetup = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.economySystem.assignJobs = () => {};
     const previousGameSpeed = scene.gameSpeed;
     scene.gameSpeed = 0;
     const startingResources = { ...scene.resources };
-    const villager = scene.villagerSystem.getIdleVillagers(0)[0];
-    if (!villager?.visual) throw new Error('No idle player villager available.');
+    const seedVillager = scene.villagerSystem.getIdleVillagers(0)[0];
+    if (!seedVillager?.visual) throw new Error('No idle player villager available.');
     const trees = scene.trees.getChildren()
       .filter((tree) => tree.active && !tree.getData('isGoldMine') && !tree.getData('isChopped'))
-      .sort((a, b) => Math.hypot(a.x - villager.x, a.y - villager.y) - Math.hypot(b.x - villager.x, b.y - villager.y))
+      .sort((a, b) => Math.hypot(a.x - seedVillager.x, a.y - seedVillager.y) - Math.hypot(b.x - seedVillager.x, b.y - seedVillager.y))
       .slice(0, 12);
     if (trees.length === 0) throw new Error('No live tree available.');
 
@@ -248,8 +247,19 @@ try {
     manager.cancelBuildMode();
     if (!camp || !sourceTree) throw new Error('No valid fresh-game Lumber Camp placement found near live wood.');
     const afterCamp = { ...scene.resources };
-    scene.gameSpeed = previousGameSpeed;
 
+    // Stronghold-style workforce: the building owns the worker slot and an idle
+    // villager is reconciled into it. The retired direct villager selection/RMB
+    // command is not part of current player control.
+    scene.economySystem.assignJobs();
+    const villager = scene.villagerSystem.getAllVillagers().find(
+      (candidate) => candidate.owner === 0 && candidate.jobBuilding === camp,
+    );
+    if (!villager?.visual || camp.getData('assignedWorker') !== villager) {
+      throw new Error('Fresh Lumber Camp did not receive an idle villager through workforce slots.');
+    }
+
+    scene.gameSpeed = previousGameSpeed;
     scene.cameras.main.setZoom(1.5);
     scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
     scene.inputManager.clearSelection();
@@ -260,6 +270,8 @@ try {
       campCostWood: startingResources.wood - afterCamp.wood,
       wood: afterCamp.wood,
       villagerId: villager.id,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerMatches: camp.getData('assignedWorker') === villager,
       campX: camp.x,
       campY: camp.y,
       treeDistance: Math.hypot(camp.x - sourceTree.x, camp.y - sourceTree.y),
@@ -267,6 +279,9 @@ try {
   });
   if (evidence.gatherSetup.campCostWood !== 25) {
     throw new Error(`Fresh-game Lumber Camp did not cost exactly 25 wood: ${JSON.stringify(evidence.gatherSetup)}`);
+  }
+  if (!evidence.gatherSetup.assignedToCamp || !evidence.gatherSetup.campAssignedWorkerMatches) {
+    throw new Error(`Fresh-game Lumber Camp workforce assignment failed: ${JSON.stringify(evidence.gatherSetup)}`);
   }
   if (evidence.gatherSetup.afterCamp.food !== evidence.gatherSetup.startingResources.food
     || evidence.gatherSetup.afterCamp.gold !== evidence.gatherSetup.startingResources.gold) {
@@ -282,23 +297,24 @@ try {
   let box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable.');
 
-  evidence.phase = 'select-villager';
+  evidence.phase = 'workforce-assignment';
   const villagerPoint = await screenPoint(page, 'villager');
-  await page.mouse.click(box.x + villagerPoint.x, box.y + villagerPoint.y, { button: 'left' });
-  await page.waitForFunction(() => Boolean(window.__economyProgressionProbe.villager.visual?.getData('workforceSelectionRing')?.active), undefined, { timeout: 30_000 });
-
-  evidence.phase = 'assign-work';
-  await page.evaluate(() => {
-    const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { villager, camp } = window.__economyProgressionProbe;
-    scene.cameras.main.centerOn((villager.visual.x + camp.visual.x) * 0.5, (villager.visual.y + camp.visual.y) * 0.5);
-  });
-  await waitForCameraSync(page);
-  const campPoint = await screenPoint(page, 'camp');
-  await rightClickThroughFrame(page, box.x + campPoint.x, box.y + campPoint.y, 'camp');
+  if (!Number.isFinite(villagerPoint.x) || !Number.isFinite(villagerPoint.y)) {
+    throw new Error(`Assigned workforce villager was not projectable in the running game: ${JSON.stringify(villagerPoint)}`);
+  }
   await page.waitForFunction(() => {
     const { villager, camp } = window.__economyProgressionProbe;
     return villager.jobBuilding === camp && camp.getData('assignedWorker') === villager;
+  }, undefined, { timeout: 30_000 });
+
+  // Let the live scene establish a resource target/path before accelerating the
+  // subsystem clock. This keeps the acceptance coupled to real workforce and
+  // pathfinding state instead of fast-forwarding an uninitialized worker.
+  await page.waitForFunction(() => {
+    const { villager, camp } = window.__economyProgressionProbe;
+    return villager.jobBuilding === camp
+      && camp.getData('assignedWorker') === villager
+      && (Boolean(villager.targetResource) || (villager.path?.length ?? 0) > 1 || villager.state === 'gathering');
   }, undefined, { timeout: 30_000 });
 
   evidence.phase = 'gather-deposit';
@@ -309,9 +325,16 @@ try {
       scene.villagerSystem.update(scene.gameTime + simulatedMs, 100);
       simulatedMs += 100;
     }
-    return { simulatedMs, initialWood, finalWood: scene.resources.wood };
+    const { villager, camp } = window.__economyProgressionProbe;
+    return {
+      simulatedMs,
+      initialWood,
+      finalWood: scene.resources.wood,
+      assignedToCamp: villager.jobBuilding === camp && camp.getData('assignedWorker') === villager,
+    };
   }, evidence.gatherSetup.wood);
-  if (evidence.gather.finalWood <= evidence.gather.initialWood) throw new Error('Assigned villager did not deposit any wood.');
+  if (evidence.gather.finalWood <= evidence.gather.initialWood) throw new Error(`Workforce-assigned villager did not deposit any wood: ${JSON.stringify(evidence.gather)}`);
+  if (!evidence.gather.assignedToCamp) throw new Error('Lumber workforce assignment disappeared during gathering.');
 
   evidence.phase = 'return-to-build-ui';
   await page.keyboard.press('Escape');
