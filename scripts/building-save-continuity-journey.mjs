@@ -132,7 +132,7 @@ try {
   const placementPoint = await screenPointForIso(page, setup.iso);
   await page.mouse.click(box.x + placementPoint.x, box.y + placementPoint.y);
 
-  evidence.phase = 'house-placed';
+  evidence.phase = 'house-under-construction';
   evidence.beforeSave = await page.evaluate(({ initialWood, initialCap }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const baseline = window.__buildingSaveBaseline;
@@ -145,12 +145,19 @@ try {
       hp: house.getData('hp'),
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      constructionRemainingMs: house.getData('constructionCompletesAt') - scene.gameTime,
+      visualAlpha: house.visual?.alpha,
       expectedWood: initialWood - 50,
-      expectedCap: initialCap + 8,
+      initialCap,
     };
   }, { initialWood: setup.wood, initialCap: setup.maxPopulation });
   if (evidence.beforeSave.wood !== evidence.beforeSave.expectedWood) throw new Error('House did not deduct exactly 50 wood.');
-  if (evidence.beforeSave.maxPopulation !== evidence.beforeSave.expectedCap) throw new Error('House did not add exactly 8 housing capacity.');
+  if (evidence.beforeSave.maxPopulation !== evidence.beforeSave.initialCap) throw new Error('House granted housing before construction completed.');
+  if (evidence.beforeSave.constructionComplete !== false || !(evidence.beforeSave.constructionRemainingMs > 0)) {
+    throw new Error(`House did not enter a valid unfinished state: ${JSON.stringify(evidence.beforeSave)}`);
+  }
+  if (evidence.beforeSave.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
 
   await page.keyboard.press('Escape');
   await openGameMenu(page);
@@ -167,7 +174,7 @@ try {
   await page.getByRole('button', { name: /Load game/i }).click();
   await waitForScene(page);
 
-  evidence.phase = 'restore-house';
+  evidence.phase = 'restore-unfinished-house';
   await page.waitForFunction((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     return scene.buildings.getChildren().some((b) => b.active && b.getData('owner') === 0 && b.getData('def')?.type === 'House' && Math.hypot(b.x - saved.x, b.y - saved.y) <= 2);
@@ -186,13 +193,41 @@ try {
       hp: house.getData('hp'),
       wood: scene.resources.wood,
       maxPopulation: scene.maxPopulation,
+      constructionComplete: house.getData('constructionComplete'),
+      constructionRemainingMs: house.getData('constructionCompletesAt') - scene.gameTime,
+      visualAlpha: house.visual?.alpha,
       positionDelta: Math.hypot(house.x - saved.x, house.y - saved.y),
     };
   }, evidence.beforeSave);
   if (evidence.restored.positionDelta > 2) throw new Error('Saved House position changed across reload.');
-  for (const key of ['hp', 'wood', 'maxPopulation']) {
-    if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across House save/load.`);
+  if (evidence.restored.hp !== evidence.beforeSave.hp || evidence.restored.wood !== evidence.beforeSave.wood) {
+    throw new Error(`House durable state changed across save/load: ${JSON.stringify(evidence.restored)}`);
   }
+  if (evidence.restored.maxPopulation !== evidence.beforeSave.initialCap) throw new Error('Reload granted housing before construction completed.');
+  if (evidence.restored.constructionComplete !== false || !(evidence.restored.constructionRemainingMs > 0)) {
+    throw new Error(`Reload did not preserve unfinished construction: ${JSON.stringify(evidence.restored)}`);
+  }
+  if (evidence.restored.constructionRemainingMs > evidence.beforeSave.constructionRemainingMs + 1) {
+    throw new Error('Reload increased remaining construction time.');
+  }
+  if (evidence.restored.visualAlpha !== 0.55) throw new Error('Reloaded unfinished House lost its construction visual state.');
+
+  evidence.phase = 'complete-restored-house';
+  evidence.completed = await page.evaluate((initialCap) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__buildingSaveProbe;
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
+    return {
+      maxPopulation: scene.maxPopulation,
+      expectedCap: initialCap + 8,
+      constructionComplete: house.getData('constructionComplete'),
+      visualAlpha: house.visual?.alpha,
+    };
+  }, evidence.beforeSave.initialCap);
+  if (evidence.completed.constructionComplete !== true) throw new Error('Reloaded House did not complete at the restored construction boundary.');
+  if (evidence.completed.maxPopulation !== evidence.completed.expectedCap) throw new Error('Reloaded House did not grant exactly +8 housing on completion.');
+  if (evidence.completed.visualAlpha !== 1) throw new Error('Completed reloaded House did not return to full opacity.');
 
   evidence.phase = 'select-restored-house';
   await waitForCameraSync(page);
@@ -201,7 +236,7 @@ try {
   const restoredPoint = await buildingScreenPoint(page);
   await page.mouse.click(restoredBox.x + restoredPoint.x, restoredBox.y + restoredPoint.y);
   await page.waitForFunction(() => window.__civStrategyGame.scene.getScene('MainScene').inputManager.selectedBuilding === window.__buildingSaveProbe, undefined, { timeout: 5_000 });
-  evidence.restored.selectable = true;
+  evidence.completed.selectable = true;
 
   if (evidence.browserErrors.length) throw new Error(`Browser errors observed: ${evidence.browserErrors.join(' | ')}`);
   evidence.phase = 'complete';
