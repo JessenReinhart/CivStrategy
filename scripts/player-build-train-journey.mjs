@@ -208,15 +208,33 @@ try {
   }
   if (evidence.afterHouse.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
 
-  evidence.phase = 'house-completion';
-  await page.waitForFunction((initialCap) => {
+  evidence.phase = 'house-construction-progress';
+  const constructionStartFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
+  await page.waitForFunction(
+    (startFrame) => window.__civStrategyGame.loop.frame >= startFrame + 12,
+    constructionStartFrame,
+    { timeout: 10_000 },
+  );
+  evidence.inProgressHouse = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const house = window.__buildTrainLast;
-    return house?.getData('constructionComplete') === true && scene.maxPopulation === initialCap + 8;
-  }, evidence.baseline.maxPopulation, { timeout: 10_000 });
+    return {
+      maxPopulation: scene.maxPopulation,
+      constructionComplete: house?.getData('constructionComplete'),
+      constructionRemainingMs: house?.getData('constructionCompletesAt') - scene.gameTime,
+      visualAlpha: house?.visual?.alpha,
+    };
+  });
+  if (evidence.inProgressHouse.maxPopulation !== evidence.baseline.maxPopulation || evidence.inProgressHouse.constructionComplete !== false) {
+    throw new Error(`House economy changed before construction completion: ${JSON.stringify(evidence.inProgressHouse)}`);
+  }
+
+  evidence.phase = 'house-completion';
   evidence.afterHouseCompletion = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const house = window.__buildTrainLast;
+    scene.gameTime = house.getData('constructionCompletesAt');
+    scene.buildingManager.update();
     return {
       maxPopulation: scene.maxPopulation,
       constructionComplete: house.getData('constructionComplete'),
@@ -224,6 +242,7 @@ try {
     };
   });
   if (evidence.afterHouseCompletion.maxPopulation !== evidence.baseline.maxPopulation + 8) throw new Error('Completed House did not add exactly 8 population capacity.');
+  if (evidence.afterHouseCompletion.constructionComplete !== true) throw new Error('House did not complete at the authoritative construction boundary.');
   if (evidence.afterHouseCompletion.visualAlpha !== 1) throw new Error('Completed House did not return to full opacity.');
   await page.keyboard.press('Escape');
 
