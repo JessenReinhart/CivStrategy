@@ -73,7 +73,7 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
   };
 
   return (
-    <div className="pointer-events-none fixed right-4 top-24 z-[80] flex flex-col items-end gap-2 font-sans text-stone-100">
+    <div className="pointer-events-none fixed bottom-6 right-4 z-[80] flex flex-col-reverse items-end gap-2 font-sans text-stone-100">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -97,7 +97,7 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
       </button>
 
       {open && (
-        <section className="pointer-events-auto w-[360px] overflow-hidden rounded-md border border-stone-500/40 bg-[#171512]/95 shadow-2xl backdrop-blur-xl">
+        <section className="pointer-events-auto w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-stone-500/40 bg-[#171512]/95 shadow-2xl backdrop-blur-xl">
           <header className="flex items-center gap-3 border-b border-stone-700/70 bg-stone-950/70 px-4 py-3">
             <BriefcaseBusiness size={18} className="text-amber-300" />
             <div className="min-w-0 flex-1">
@@ -141,7 +141,7 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
                 </div>
               </div>
 
-              <div className="max-h-[420px] overflow-y-auto p-2">
+              <div className="max-h-[min(420px,calc(100vh-16rem))] overflow-y-auto p-2">
                 {snapshot.buildings.length === 0 ? (
                   <div className="px-4 py-8 text-center text-xs text-stone-500">
                     Build a workplace to create worker slots.
