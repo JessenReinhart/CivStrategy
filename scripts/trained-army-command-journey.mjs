@@ -220,6 +220,44 @@ try {
     };
   });
 
+  evidence.phase = 'population-cap-training';
+  evidence.atPopulationCap = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    window.__trainedArmyOriginalMaxPopulation = scene.maxPopulation;
+    scene.maxPopulation = scene.population;
+    scene.economySystem.updateStats();
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      military: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  await page.getByRole('button', { name: /Pikesman/i }).click();
+  await sleep(250);
+  evidence.afterCappedTrainingAttempt = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return {
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+      population: scene.population,
+      maxPopulation: scene.maxPopulation,
+      military: scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length,
+    };
+  });
+  for (const key of ['food', 'gold', 'population', 'military']) {
+    if (evidence.afterCappedTrainingAttempt[key] !== evidence.atPopulationCap[key]) {
+      throw new Error(`Population-capped UI training changed ${key}: ${JSON.stringify({ before: evidence.atPopulationCap, after: evidence.afterCappedTrainingAttempt })}`);
+    }
+  }
+  await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.maxPopulation = window.__trainedArmyOriginalMaxPopulation;
+    scene.economySystem.updateStats();
+  });
+
+  evidence.phase = 'train-army';
   for (let index = 1; index <= TRAINED_COUNT; index += 1) {
     await page.getByRole('button', { name: /Pikesman/i }).click();
     await page.waitForFunction(({ before, expectedAdded }) => {
