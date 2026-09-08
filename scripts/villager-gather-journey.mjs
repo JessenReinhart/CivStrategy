@@ -173,10 +173,9 @@ try {
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for working-villager selection.');
 
-  // The worker is already walking to its job, so a one-shot screen coordinate can
-  // become stale between the browser probe and the pointer event on fast CI clocks.
-  // Keep issuing real canvas clicks at the worker's current rendered position until
-  // the normal InputManager hit test selects it, just as a player tracks a moving unit.
+  // Civilian workforce selection intentionally lives outside InputManager's military
+  // selectedUnits collection. Follow the moving worker with real canvas clicks and
+  // accept only the same visible selection ring that the workforce input path creates.
   let selectedWorkingVillager = false;
   for (let attempt = 0; attempt < 12 && !selectedWorkingVillager; attempt++) {
     const villagerPoint = await page.evaluate(() => {
@@ -193,25 +192,28 @@ try {
     selectedWorkingVillager = await page.evaluate(() => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const { villager } = window.__villagerGatherProbe;
-      return scene.inputManager.selectedUnits.includes(villager);
+      const ring = villager.visual?.getData('workforceSelectionRing');
+      return Boolean(ring?.active && ring.visible && scene.inputManager.selectedUnits.length === 0);
     });
     if (!selectedWorkingVillager) await sleep(40);
   }
   if (!selectedWorkingVillager) {
-    throw new Error('Real canvas clicks could not select the moving working villager.');
+    throw new Error('Real canvas clicks could not select the moving working villager through workforce input.');
   }
 
   telemetry.selection = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { villager, camp } = window.__villagerGatherProbe;
+    const ring = villager.visual?.getData('workforceSelectionRing');
     return {
-      villagerSelected: scene.inputManager.selectedUnits.includes(villager),
-      selectedCount: scene.inputManager.selectedUnits.length,
+      workforceRingVisible: Boolean(ring?.active && ring.visible),
+      militarySelectedCount: scene.inputManager.selectedUnits.length,
       assignedToCamp: villager.jobBuilding === camp,
       campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
     };
   });
-  if (!telemetry.selection.villagerSelected
+  if (!telemetry.selection.workforceRingVisible
+      || telemetry.selection.militarySelectedCount !== 0
       || !telemetry.selection.assignedToCamp
       || telemetry.selection.campAssignedWorkerId !== telemetry.setup.villagerId) {
     throw new Error(`Real villager selection broke workforce continuity: ${JSON.stringify(telemetry.selection)}`);
