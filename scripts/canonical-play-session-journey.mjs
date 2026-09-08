@@ -381,7 +381,33 @@ try {
   });
   evidence.afterHouse = await placeThroughUi(page, canvas, 'Economy', 'House');
   if (evidence.afterHouse.wood !== evidence.beforeHouse.wood - 50) throw new Error('House did not deduct exactly 50 wood from the post-gather economy state.');
-  if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) throw new Error('House did not add 8 population capacity.');
+  if (evidence.afterHouse.maxPopulation !== evidence.beforeHouse.maxPopulation) throw new Error('House granted population before construction completed.');
+
+  evidence.phase = 'house-construction-completion';
+  evidence.houseConstruction = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = window.__canonicalPlaySessionProbe.house;
+    if (!house?.active || house.getData('constructionComplete') !== false) {
+      throw new Error('Placed House did not enter an unfinished construction state.');
+    }
+    const completesAt = house.getData('constructionCompletesAt');
+    if (typeof completesAt !== 'number' || !Number.isFinite(completesAt) || completesAt <= scene.gameTime) {
+      throw new Error(`House construction deadline is invalid: ${String(completesAt)}`);
+    }
+    const previousGameSpeed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    scene.gameTime = completesAt;
+    scene.buildingManager.update();
+    const result = {
+      constructionComplete: house.getData('constructionComplete'),
+      maxPopulation: scene.maxPopulation,
+      expectedMaxPopulation: window.__canonicalPlaySessionProbe ? undefined : undefined,
+    };
+    scene.gameSpeed = previousGameSpeed;
+    return result;
+  });
+  if (evidence.houseConstruction.constructionComplete !== true) throw new Error('House did not complete at the authoritative construction boundary.');
+  if (evidence.houseConstruction.maxPopulation !== evidence.beforeHouse.maxPopulation + 8) throw new Error('Completed House did not add exactly 8 population capacity.');
 
   evidence.phase = 'prepare-military';
   evidence.preMilitary = await page.evaluate(() => {
