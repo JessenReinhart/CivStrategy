@@ -126,14 +126,15 @@ async function unitScreenPoint(page, probeKey) {
 }
 
 async function cartesianScreenPoint(page, point) {
-  return page.evaluate((cart) => {
+  return page.evaluate(async (cart) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const camera = scene.cameras.main;
     const topLeft = camera.getWorldPoint(0, 0);
-    const iso = { x: cart.x - cart.y, y: (cart.x + cart.y) * 0.5 };
+    const { toIsoElev } = await import('/utils/coords');
+    const projected = toIsoElev(cart.x, cart.y, scene.terrainSystem.getHeightAt(cart.x, cart.y));
     return {
-      x: (iso.x - topLeft.x) * camera.zoom,
-      y: (iso.y - topLeft.y) * camera.zoom,
+      x: (projected.x - topLeft.x) * camera.zoom,
+      y: (projected.y - topLeft.y) * camera.zoom,
     };
   }, point);
 }
