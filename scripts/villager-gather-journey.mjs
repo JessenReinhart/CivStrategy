@@ -36,6 +36,13 @@ async function stopServer() {
   if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
 }
 
+async function waitForCameraSync(page) {
+  await page.evaluate(() => new Promise((resolve) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.events.once('postupdate', resolve);
+  }));
+}
+
 await mkdir(ARTIFACT_DIR, { recursive: true });
 let browser;
 let page;
@@ -139,6 +146,11 @@ try {
       throw new Error('Lumber Camp did not receive an idle villager through workforce slots.');
     }
 
+    scene.inputManager.clearSelection();
+    scene.inputManager.deselectBuilding?.();
+    scene.cameras.main.setZoom(1.5);
+    scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
+
     window.__villagerGatherProbe = { villager, camp, tree: nearestTree };
     return {
       initialWood: scene.resources.wood,
@@ -154,6 +166,56 @@ try {
     throw new Error(`Stronghold workforce assignment failed: ${JSON.stringify(telemetry.setup)}`);
   }
   telemetry.afterAssignment = await readProbe();
+
+  telemetry.phase = 'player-select-working-villager';
+  await waitForCameraSync(page);
+  const canvas = page.locator('canvas').first();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('Game canvas unavailable for working-villager selection.');
+
+  // The worker is already walking to its job, so a one-shot screen coordinate can
+  // become stale between the browser probe and the pointer event on fast CI clocks.
+  // Keep issuing real canvas clicks at the worker's current rendered position until
+  // the normal InputManager hit test selects it, just as a player tracks a moving unit.
+  let selectedWorkingVillager = false;
+  for (let attempt = 0; attempt < 12 && !selectedWorkingVillager; attempt++) {
+    const villagerPoint = await page.evaluate(() => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager } = window.__villagerGatherProbe;
+      const camera = scene.cameras.main;
+      const topLeft = camera.getWorldPoint(0, 0);
+      return {
+        x: (villager.visual.x - topLeft.x) * camera.zoom,
+        y: (villager.visual.y - 10 - topLeft.y) * camera.zoom,
+      };
+    });
+    await page.mouse.click(box.x + villagerPoint.x, box.y + villagerPoint.y);
+    selectedWorkingVillager = await page.evaluate(() => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const { villager } = window.__villagerGatherProbe;
+      return scene.inputManager.selectedUnits.includes(villager);
+    });
+    if (!selectedWorkingVillager) await sleep(40);
+  }
+  if (!selectedWorkingVillager) {
+    throw new Error('Real canvas clicks could not select the moving working villager.');
+  }
+
+  telemetry.selection = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__villagerGatherProbe;
+    return {
+      villagerSelected: scene.inputManager.selectedUnits.includes(villager),
+      selectedCount: scene.inputManager.selectedUnits.length,
+      assignedToCamp: villager.jobBuilding === camp,
+      campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
+    };
+  });
+  if (!telemetry.selection.villagerSelected
+      || !telemetry.selection.assignedToCamp
+      || telemetry.selection.campAssignedWorkerId !== telemetry.setup.villagerId) {
+    throw new Error(`Real villager selection broke workforce continuity: ${JSON.stringify(telemetry.selection)}`);
+  }
 
   telemetry.phase = 'reject-unreachable-rally';
   telemetry.rejectedRally = await page.evaluate(() => {
