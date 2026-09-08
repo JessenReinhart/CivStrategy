@@ -318,9 +318,28 @@ try {
     }
 
     const maxPopulationBefore = scene.maxPopulation;
-    build('House');
-    if (scene.maxPopulation <= maxPopulationBefore) {
-      throw new Error('House did not increase population capacity before training.');
+    const house = build('House');
+    if (scene.maxPopulation !== maxPopulationBefore) {
+      throw new Error('House granted population capacity before construction completed.');
+    }
+    if (house.getData('constructionComplete') !== false
+        || typeof house.getData('constructionCompletesAt') !== 'number'
+        || !(house.getData('constructionCompletesAt') > scene.gameTime)) {
+      throw new Error('House did not enter a valid unfinished construction state before training.');
+    }
+    if (house.visual?.alpha !== 0.55) {
+      throw new Error('Unfinished House did not use the construction visual state before training.');
+    }
+    scene.gameTime = house.getData('constructionCompletesAt');
+    manager.update();
+    if (house.getData('constructionComplete') !== true) {
+      throw new Error('House did not complete at the authoritative construction boundary before training.');
+    }
+    if (scene.maxPopulation !== maxPopulationBefore + 8) {
+      throw new Error('Completed House did not add exactly 8 population capacity before training.');
+    }
+    if (house.visual?.alpha !== 1) {
+      throw new Error('Completed House did not return to full opacity before training.');
     }
     const barracks = build('Barracks');
     window.__canonicalSessionProbe.barracks = barracks;
