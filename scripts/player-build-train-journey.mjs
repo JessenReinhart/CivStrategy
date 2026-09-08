@@ -209,12 +209,15 @@ try {
   if (evidence.afterHouse.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
 
   evidence.phase = 'house-construction-progress';
-  const constructionStartFrame = await page.evaluate(() => window.__civStrategyGame.loop.frame);
-  await page.waitForFunction(
-    (startFrame) => window.__civStrategyGame.loop.frame >= startFrame + 12,
-    constructionStartFrame,
-    { timeout: 10_000 },
-  );
+  await page.evaluate(() => new Promise((resolve) => {
+    let remainingFrames = 12;
+    const advance = () => {
+      remainingFrames -= 1;
+      if (remainingFrames <= 0) resolve();
+      else requestAnimationFrame(advance);
+    };
+    requestAnimationFrame(advance);
+  }));
   evidence.inProgressHouse = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const house = window.__buildTrainLast;
