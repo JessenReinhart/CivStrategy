@@ -6,7 +6,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const PORT = 4178;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const ARTIFACT_DIR = 'artifacts';
-const JOURNEY_TIMEOUT_MS = 30_000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const server = spawn(process.execPath, [
@@ -129,8 +128,8 @@ try {
     );
     camp.setData('__journeyCamp', true);
 
-    // Current gameplay is Stronghold-style: an economic building exposes a
-    // workforce slot and the economy system fills it from idle villagers.
+    // Stronghold-style workplaces request their slots automatically; establish
+    // that normal baseline before proving the player's UI can change it.
     scene.economySystem.assignJobs();
     const villager = scene.villagerSystem.getAllVillagers().find(
       (candidate) => candidate.owner === 0 && candidate.jobBuilding === camp,
@@ -154,6 +153,53 @@ try {
     throw new Error(`Stronghold workforce assignment failed: ${JSON.stringify(telemetry.setup)}`);
   }
   telemetry.afterAssignment = await readProbe();
+
+  telemetry.phase = 'player-close-workforce-slot';
+  await page.getByRole('button', { name: /Workforce/ }).click();
+  await page.getByRole('heading', { name: 'Worker Management' }).waitFor({ state: 'visible' });
+  const lumberRow = page
+    .getByText('Lumber Camp', { exact: true })
+    .locator('xpath=ancestor::div[.//button[@title="Close one worker slot"]][1]');
+  await lumberRow.getByTitle('Close one worker slot').click();
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { camp } = window.__villagerGatherProbe;
+    return !camp.getData('assignedWorker')
+      && !scene.villagerSystem.getAllVillagers().some((candidate) => candidate.jobBuilding === camp);
+  });
+  telemetry.closedSlot = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager, camp } = window.__villagerGatherProbe;
+    return {
+      releasedVillagerId: villager.id,
+      releasedFromCamp: villager.jobBuilding !== camp,
+      campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
+      idleVillagers: scene.villagerSystem.getIdleVillagers(0).length,
+    };
+  });
+  telemetry.closedSlotUi = await lumberRow.innerText();
+
+  telemetry.phase = 'player-reopen-workforce-slot';
+  await lumberRow.getByTitle('Open one worker slot').click();
+  await page.waitForFunction(() => {
+    const { camp } = window.__villagerGatherProbe;
+    return Boolean(camp.getData('assignedWorker'));
+  });
+  telemetry.reopenedSlot = await page.evaluate(() => {
+    const { camp } = window.__villagerGatherProbe;
+    const reassigned = camp.getData('assignedWorker');
+    if (!reassigned?.visual || reassigned.jobBuilding !== camp) {
+      throw new Error('Reopened Lumber Camp slot did not receive a valid villager.');
+    }
+    window.__villagerGatherProbe.villager = reassigned;
+    return {
+      villagerId: reassigned.id,
+      assignedToCamp: reassigned.jobBuilding === camp,
+      campAssignedWorkerId: camp.getData('assignedWorker')?.id ?? null,
+    };
+  });
+  telemetry.reopenedSlotUi = await lumberRow.innerText();
+  telemetry.afterUiReassignment = await readProbe();
 
   telemetry.phase = 'reject-unreachable-rally';
   telemetry.rejectedRally = await page.evaluate(() => {
@@ -209,12 +255,19 @@ try {
   telemetry.phase = 'assert';
   await persistEvidence();
 
-  if (!telemetry.afterAssignment.villager.assignedToCamp
-      || telemetry.afterAssignment.campAssignedWorkerId !== telemetry.setup.villagerId) {
-    throw new Error('Workforce-slot assignment did not remain coherent after setup.');
+  if (!telemetry.closedSlot.releasedFromCamp || telemetry.closedSlot.campAssignedWorkerId !== null) {
+    throw new Error(`Real UI did not release the Lumber Camp worker: ${JSON.stringify(telemetry.closedSlot)}`);
+  }
+  if (!telemetry.reopenedSlot.assignedToCamp
+      || telemetry.reopenedSlot.campAssignedWorkerId !== telemetry.reopenedSlot.villagerId) {
+    throw new Error(`Real UI did not refill the reopened Lumber Camp slot: ${JSON.stringify(telemetry.reopenedSlot)}`);
+  }
+  if (!telemetry.afterUiReassignment.villager.assignedToCamp
+      || telemetry.afterUiReassignment.campAssignedWorkerId !== telemetry.reopenedSlot.villagerId) {
+    throw new Error('Workforce assignment did not remain coherent after the real UI slot change.');
   }
   if (!telemetry.rejectedRally.after.assignedToCamp
-      || telemetry.rejectedRally.after.campAssignedWorkerId !== telemetry.setup.villagerId) {
+      || telemetry.rejectedRally.after.campAssignedWorkerId !== telemetry.reopenedSlot.villagerId) {
     throw new Error('Rejected rally command destroyed the last valid workforce assignment.');
   }
   if (telemetry.rejectedRally.after.state !== telemetry.rejectedRally.before.state
@@ -226,7 +279,7 @@ try {
     throw new Error(`Gather loop did not deposit wood after ${telemetry.simulationAdvance.simulatedMs} ms simulated (${telemetry.woodDeposited}).`);
   }
   if (!telemetry.final.villager.assignedToCamp
-      || telemetry.final.campAssignedWorkerId !== telemetry.setup.villagerId) {
+      || telemetry.final.campAssignedWorkerId !== telemetry.reopenedSlot.villagerId) {
     throw new Error('Gather/deposit cycle lost the Stronghold workforce relationship.');
   }
   if (telemetry.browserErrors.length > 0) {
