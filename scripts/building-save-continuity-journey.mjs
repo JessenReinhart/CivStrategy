@@ -159,6 +159,8 @@ try {
   }
   if (evidence.beforeSave.visualAlpha !== 0.55) throw new Error('Unfinished House did not use the construction visual state.');
 
+  // The setup freeze is a harness-only state. Save at a speed the actual game can persist and restore.
+  await page.evaluate(() => { window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0.5; });
   await page.keyboard.press('Escape');
   await openGameMenu(page);
   await page.getByRole('button', { name: /Save game/i }).click();
