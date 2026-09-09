@@ -185,7 +185,7 @@ try {
       const topLeft = camera.getWorldPoint(0, 0);
       return {
         x: (villager.visual.x - topLeft.x) * camera.zoom,
-        y: (villager.visual.y - 10 - topLeft.y) * camera.zoom,
+        y: (villager.visual.y - topLeft.y) * camera.zoom,
       };
     });
     await page.mouse.click(box.x + villagerPoint.x, box.y + villagerPoint.y);
