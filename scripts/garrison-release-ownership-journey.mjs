@@ -60,6 +60,10 @@ try {
     ));
     if (!tc) throw new Error('Player Town Center missing.');
 
+    const releaseListeners = scene.game.events.listeners('release-garrison');
+    const releaseListenerCount = releaseListeners.length;
+    const releaseListenerSources = releaseListeners.map((listener) => String(listener).slice(0, 600));
+
     const hostileCastle = scene.entityFactory.spawnBuilding(BuildingType.CASTLE, tc.x + 220, tc.y, 1);
     hostileCastle.setData('garrison', { [UnitType.PIKESMAN]: 2 });
     const beforeHostileRelease = scene.units.getChildren().filter((unit) => unit.getData('owner') === 0).length;
@@ -78,6 +82,8 @@ try {
 
     return {
       pikesmanKey: UnitType.PIKESMAN,
+      releaseListenerCount,
+      releaseListenerSources,
       hostileCastleOwner: hostileCastle.getData('owner'),
       playerCastleOwner: playerCastle.getData('owner'),
       beforeHostileRelease,
