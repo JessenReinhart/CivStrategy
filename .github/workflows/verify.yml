@@ -63,7 +63,11 @@ jobs:
         run: node scripts/trained-army-command-journey.mjs
 
       - name: Browser full canonical playable session
-        run: node scripts/canonical-play-session-journey.mjs
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          set -o pipefail
+          node scripts/canonical-play-session-journey.mjs 2>&1 | tee artifacts/canonical-play-session.log
 
       - name: Browser player building save continuity journey
         run: node scripts/building-save-continuity-journey.mjs
