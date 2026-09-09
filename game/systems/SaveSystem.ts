@@ -421,6 +421,11 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.maxPopulation = 8; // Match MainScene.init(); buildings rebuild derived bonuses.
   scene.happiness = save.happiness;
   scene.gameSpeed = save.gameSpeed;
+  // `gameSpeed` scales simulation dt, while Phaser physics uses the inverse
+  // timeScale and tweens use the direct multiplier. Restore all clocks together
+  // so Continue cannot resume with a mixed-speed world.
+  if (scene.physics?.world) scene.physics.world.timeScale = 1 / scene.gameSpeed;
+  if (scene.tweens) scene.tweens.timeScale = scene.gameSpeed;
   scene.taxRate = save.taxRate ?? 0;
   scene.bloomIntensity = save.bloomIntensity ?? 1.0;
   scene.enemyFaction = save.enemyFaction;
