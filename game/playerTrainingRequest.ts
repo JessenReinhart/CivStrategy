@@ -32,8 +32,11 @@ export function getPlayerTrainingSelectedBuilding<T extends TrainingBuildingSele
 
   const definition = selectedBuilding.getData('def') as { type?: BuildingType } | undefined;
   const owner = selectedBuilding.getData('owner');
+  const constructionComplete = selectedBuilding.getData('constructionComplete');
 
-  return definition?.type === BuildingType.BARRACKS && owner === 0
+  return definition?.type === BuildingType.BARRACKS
+    && owner === 0
+    && constructionComplete !== false
     ? selectedBuilding
     : null;
 }
