@@ -1,4 +1,4 @@
-import { UnitType } from '../types';
+import { BuildingType, UnitType } from '../types';
 import { createGameLoadFailureDetail, dispatchGameLoadProgress } from '../utils/gameLoading';
 import { bootstrapPlayerScene } from './bootstrap/PlayerSceneBootstrap';
 import { MainScene } from './MainScene';
@@ -41,6 +41,23 @@ export class PlayerMainScene extends MainScene {
   }
 
   override handleUnitSpawnRequest(type: UnitType): void {
+    const selectedBuilding = getPlayerTrainingSelectedBuilding(this.inputManager.selectedBuilding);
+    const completedBarracks = selectedBuilding ?? this.buildings.getChildren().find((building) => (
+      building.getData('def')?.type === BuildingType.BARRACKS
+      && building.getData('owner') === 0
+      && building.getData('constructionComplete') !== false
+    )) ?? null;
+
+    if (!completedBarracks) {
+      this.feedbackSystem.showFloatingText(
+        this.cameras.main.worldView.centerX,
+        this.cameras.main.worldView.centerY,
+        'Finish a Barracks before training units!',
+        '#ff6b6b',
+      );
+      return;
+    }
+
     handlePlayerTrainingRequest({
       population: this.population,
       maxPopulation: this.maxPopulation,
@@ -53,12 +70,12 @@ export class PlayerMainScene extends MainScene {
         );
       },
       train: () => {
-        const selectedBuilding = this.inputManager.selectedBuilding;
-        this.inputManager.selectedBuilding = getPlayerTrainingSelectedBuilding(selectedBuilding);
+        const previousSelectedBuilding = this.inputManager.selectedBuilding;
+        this.inputManager.selectedBuilding = completedBarracks;
         try {
           super.handleUnitSpawnRequest(type);
         } finally {
-          this.inputManager.selectedBuilding = selectedBuilding;
+          this.inputManager.selectedBuilding = previousSelectedBuilding;
         }
       },
     });
