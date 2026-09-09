@@ -618,11 +618,17 @@ try {
       && probe.player.active;
   }, undefined, { timeout: 15_000 });
 
-  evidence.phase = 'save';
+  evidence.phase = 'save-at-2x';
+  await page.getByRole('button', { name: '2×', exact: true }).click();
+  await page.waitForFunction(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    return scene.gameSpeed === 2
+      && Math.abs(scene.physics.world.timeScale - 0.5) < 0.0001
+      && Math.abs(scene.tweens.timeScale - 2) < 0.0001;
+  }, undefined, { timeout: 5_000 });
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, villager, camp, house, barracks } = window.__canonicalPlaySessionProbe;
-    const gameSpeed = scene.gameSpeed;
     return {
       x: player.x,
       y: player.y,
@@ -633,7 +639,7 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
-      gameSpeed,
+      gameSpeed: scene.gameSpeed,
       worker: { x: villager.x, y: villager.y },
       camp: { x: camp.x, y: camp.y },
       house: { x: house.x, y: house.y, type: house.getData('def')?.type },
@@ -649,9 +655,7 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
-  await page.evaluate(() => {
-    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0;
-  });
+  await page.evaluate(() => window.__civStrategyGame.scene.pause('MainScene'));
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
@@ -666,7 +670,6 @@ try {
   }, evidence.beforeSave, { timeout: 20_000 });
   evidence.restored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    scene.gameSpeed = 0;
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
@@ -711,6 +714,9 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      gameSpeed: scene.gameSpeed,
+      physicsTimeScale: scene.physics.world.timeScale,
+      tweenTimeScale: scene.tweens.timeScale,
       savedWorkerId: savedVillager.id,
       assignedWorkerId: villager.id,
       workerDistance: Math.hypot(savedVillager.x - saved.worker.x, savedVillager.y - saved.worker.y),
@@ -726,9 +732,13 @@ try {
   if (evidence.restored.campDistance > 2) throw new Error('Saved Lumber Camp was not restored at its saved position.');
   if (evidence.restored.houseDistance > 2) throw new Error('Player-built House changed position across reload.');
   if (evidence.restored.barracksDistance > 2) throw new Error('Player-built Barracks changed position across reload.');
+  if (evidence.restored.gameSpeed !== 2 || Math.abs(evidence.restored.physicsTimeScale - 0.5) > 0.0001 || Math.abs(evidence.restored.tweenTimeScale - 2) > 0.0001) {
+    throw new Error(`Cold Continue did not restore coherent 2× clocks: ${JSON.stringify(evidence.restored)}`);
+  }
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across canonical save/load.`);
   }
+  await page.evaluate(() => window.__civStrategyGame.scene.resume('MainScene'));
 
   evidence.phase = 'post-load-critical-hud';
   evidence.postLoadHud = await requireCriticalHud(page);
@@ -922,8 +932,6 @@ try {
     if (!villager?.visual || villager.owner !== 0 || villager.jobBuilding !== camp) {
       throw new Error('Continued Lumber Camp workforce is incoherent before second save.');
     }
-    const gameSpeed = scene.gameSpeed;
-    scene.gameSpeed = 0;
     return {
       x: player.x,
       y: player.y,
@@ -934,7 +942,7 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
-      gameSpeed,
+      gameSpeed: scene.gameSpeed,
       camp: { x: camp.x, y: camp.y },
       house: { x: house.x, y: house.y, type: house.getData('def')?.type },
       barracks: { x: barracks.x, y: barracks.y, type: barracks.getData('def')?.type },
@@ -953,9 +961,7 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
-  await page.evaluate(() => {
-    window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = 0;
-  });
+  await page.evaluate(() => window.__civStrategyGame.scene.pause('MainScene'));
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
@@ -970,7 +976,6 @@ try {
   }, evidence.beforeSecondSave, { timeout: 20_000 });
   evidence.secondRestored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    scene.gameSpeed = 0;
     const player = scene.units.getChildren()
       .filter((unit) => unit.getData('owner') === 0 && (unit.unitType ?? unit.getData('unitType')) === saved.type)
       .sort((a, b) => Math.hypot(a.x - saved.x, a.y - saved.y) - Math.hypot(b.x - saved.x, b.y - saved.y))[0];
@@ -1007,6 +1012,9 @@ try {
       gold: scene.resources.gold,
       population: scene.population,
       maxPopulation: scene.maxPopulation,
+      gameSpeed: scene.gameSpeed,
+      physicsTimeScale: scene.physics.world.timeScale,
+      tweenTimeScale: scene.tweens.timeScale,
       campDistance: Math.hypot(camp.x - saved.camp.x, camp.y - saved.camp.y),
       houseDistance: Math.hypot(house.x - saved.house.x, house.y - saved.house.y),
       barracksDistance: Math.hypot(barracks.x - saved.barracks.x, barracks.y - saved.barracks.y),
@@ -1020,11 +1028,17 @@ try {
   if (evidence.secondRestored.houseDistance > 2) throw new Error('Player-built House changed position across the second save/load cycle.');
   if (evidence.secondRestored.barracksDistance > 2) throw new Error('Player-built Barracks changed position across the second save/load cycle.');
   if (!evidence.secondRestored.workforceCoherent) throw new Error('Lumber Camp workforce relationship was not coherent after the second load.');
+  if (evidence.secondRestored.gameSpeed !== evidence.beforeSecondSave.gameSpeed
+      || Math.abs(evidence.secondRestored.physicsTimeScale - (1 / evidence.beforeSecondSave.gameSpeed)) > 0.0001
+      || Math.abs(evidence.secondRestored.tweenTimeScale - evidence.beforeSecondSave.gameSpeed) > 0.0001) {
+    throw new Error(`Second cold Continue restored mismatched clocks: ${JSON.stringify(evidence.secondRestored)}`);
+  }
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.secondRestored[key] !== evidence.beforeSecondSave[key]) {
       throw new Error(`${key} changed across the second canonical save/load cycle.`);
     }
   }
+  await page.evaluate(() => window.__civStrategyGame.scene.resume('MainScene'));
 
   evidence.phase = 'second-continue-playing';
   evidence.secondPostLoadTarget = await page.evaluate((gameSpeed) => {
