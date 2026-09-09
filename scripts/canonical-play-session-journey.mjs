@@ -623,7 +623,6 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, villager, camp, house, barracks } = window.__canonicalPlaySessionProbe;
     const gameSpeed = scene.gameSpeed;
-    scene.gameSpeed = 0;
     return {
       x: player.x,
       y: player.y,
@@ -906,7 +905,6 @@ try {
         commandPathLength: commandedPath.length,
         pathStep: player.pathStep,
       };
-      scene.gameSpeed = 0;
       if (travelDistance < 24) {
         reject(new Error(`Post-load move completed after only ${travelDistance.toFixed(1)}px of travel.`));
         return;
