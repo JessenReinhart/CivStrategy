@@ -372,7 +372,7 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     const selectedBuilding = scene.inputManager.selectedBuilding as Phaser.GameObjects.Image | null;
     if (!selectedBuilding) return;
     const def = selectedBuilding.getData('def');
-    if (!def || def.type !== BuildingType.CASTLE) return;
+    if (!def || def.type !== BuildingType.CASTLE || selectedBuilding.getData('owner') !== 0) return;
     const garrison: Record<string, number> = selectedBuilding.getData('garrison') || {};
     const total = Object.values(garrison).reduce((sum, count) => sum + count, 0);
     if (total === 0) return;
