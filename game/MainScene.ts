@@ -910,7 +910,7 @@ export class MainScene extends Phaser.Scene {
       const selBuilding = this.inputManager.selectedBuilding as Phaser.GameObjects.Image | null;
       if (!selBuilding) return;
       const def = selBuilding.getData('def');
-      if (!def || def.type !== BuildingType.CASTLE) return;
+      if (!def || def.type !== BuildingType.CASTLE || selBuilding.getData('owner') !== 0) return;
       const garrison: Record<string, number> = selBuilding.getData('garrison') || {};
       const total = Object.values(garrison).reduce((s, n) => s + n, 0);
       if (total === 0) return;
