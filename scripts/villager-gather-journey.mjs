@@ -168,37 +168,54 @@ try {
   telemetry.afterAssignment = await readProbe();
 
   telemetry.phase = 'player-select-working-villager';
+  // Browser protocol latency must not turn a real pointer acceptance check into a
+  // race against a moving sprite. Freeze only the selection probe, exactly as the
+  // existing trained-army browser journey does, then resume the live gather loop.
+  const previousGameSpeed = await page.evaluate(() => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const { villager } = window.__villagerGatherProbe;
+    const speed = scene.gameSpeed;
+    scene.gameSpeed = 0;
+    scene.cameras.main.centerOn(villager.visual.x, villager.visual.y);
+    return speed;
+  });
+  telemetry.selectionProbe = { previousGameSpeed };
   await waitForCameraSync(page);
   const canvas = page.locator('canvas').first();
   const box = await canvas.boundingBox();
   if (!box) throw new Error('Game canvas unavailable for working-villager selection.');
 
   // Civilian workforce selection intentionally lives outside InputManager's military
-  // selectedUnits collection. Follow the moving worker with real canvas clicks and
-  // accept only the same visible selection ring that the workforce input path creates.
+  // selectedUnits collection. Use real canvas clicks and accept only the same visible
+  // selection ring that the workforce input path creates.
   let selectedWorkingVillager = false;
-  for (let attempt = 0; attempt < 12 && !selectedWorkingVillager; attempt++) {
-    const villagerPoint = await page.evaluate(() => {
-      const scene = window.__civStrategyGame.scene.getScene('MainScene');
-      const { villager } = window.__villagerGatherProbe;
-      const camera = scene.cameras.main;
-      const topLeft = camera.getWorldPoint(0, 0);
-      return {
-        x: (villager.visual.x - topLeft.x) * camera.zoom,
-        y: (villager.visual.y - topLeft.y) * camera.zoom,
-      };
-    });
-    await page.mouse.click(box.x + villagerPoint.x, box.y + villagerPoint.y);
-    selectedWorkingVillager = await page.evaluate(() => {
-      const scene = window.__civStrategyGame.scene.getScene('MainScene');
-      const { villager } = window.__villagerGatherProbe;
-      const ring = villager.visual?.getData('workforceSelectionRing');
-      return Boolean(ring?.active && ring.visible && scene.inputManager.selectedUnits.length === 0);
-    });
-    if (!selectedWorkingVillager) await sleep(40);
+  try {
+    for (let attempt = 0; attempt < 4 && !selectedWorkingVillager; attempt++) {
+      const villagerPoint = await page.evaluate(() => {
+        const scene = window.__civStrategyGame.scene.getScene('MainScene');
+        const { villager } = window.__villagerGatherProbe;
+        const camera = scene.cameras.main;
+        const topLeft = camera.getWorldPoint(0, 0);
+        return {
+          x: (villager.visual.x - topLeft.x) * camera.zoom,
+          y: (villager.visual.y - topLeft.y) * camera.zoom,
+        };
+      });
+      await page.mouse.click(box.x + villagerPoint.x, box.y + villagerPoint.y);
+      selectedWorkingVillager = await page.evaluate(() => {
+        const scene = window.__civStrategyGame.scene.getScene('MainScene');
+        const { villager } = window.__villagerGatherProbe;
+        const ring = villager.visual?.getData('workforceSelectionRing');
+        return Boolean(ring?.active && ring.visible && scene.inputManager.selectedUnits.length === 0);
+      });
+    }
+  } finally {
+    await page.evaluate((speed) => {
+      window.__civStrategyGame.scene.getScene('MainScene').gameSpeed = speed;
+    }, previousGameSpeed);
   }
   if (!selectedWorkingVillager) {
-    throw new Error('Real canvas clicks could not select the moving working villager through workforce input.');
+    throw new Error('Real canvas clicks could not select the assigned working villager through workforce input.');
   }
 
   telemetry.selection = await page.evaluate(() => {
