@@ -62,6 +62,9 @@ jobs:
       - name: Browser UI-trained army command journey
         run: node scripts/trained-army-command-journey.mjs
 
+      - name: Browser Castle garrison release ownership journey
+        run: node scripts/garrison-release-ownership-journey.mjs
+
       - name: Browser full canonical playable session
         shell: bash
         run: |
