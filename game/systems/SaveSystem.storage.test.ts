@@ -8,6 +8,7 @@ import {
   clearSave,
   hasSave,
   isPendingLoad,
+  loadFromLocalStorage,
   PENDING_LOAD_KEY,
   SAVE_KEY,
   saveToLocalStorage,
@@ -15,7 +16,39 @@ import {
 } from './SaveSystem';
 
 const storage = new Map<string, string>();
-const save = { version: 1 } as unknown as Parameters<typeof saveToLocalStorage>[0];
+const save = {
+  version: 1,
+  timestamp: 123,
+  faction: 'Romans',
+  enemyFaction: 'Gauls',
+  mapMode: 'Fixed Map',
+  mapSize: 'Medium',
+  fowEnabled: true,
+  peacefulMode: false,
+  treatyLength: 10,
+  aiDisabled: false,
+  mapSeed: 42,
+  mapPreset: 'standard',
+  gameTime: 0,
+  currentAge: 'Village',
+  ageProgress: 0,
+  isAdvancing: false,
+  nextAge: null,
+  currentSeason: 'spring',
+  seasonTimer: 0,
+  resources: { wood: 500, food: 500, gold: 500 },
+  population: 4,
+  happiness: 100,
+  gameSpeed: 1,
+  units: [],
+  buildings: [],
+  research: { completedPlayer: [], activePlayer: null, completedAI: [] },
+  aiState: {},
+  dominanceProgress: 0,
+  playerTerritoryPercent: 0,
+  gameResult: 'ongoing',
+  victoryType: 'none',
+} as unknown as Parameters<typeof saveToLocalStorage>[0];
 
 beforeEach(() => {
   storage.clear();
@@ -32,7 +65,7 @@ describe('SaveSystem storage helpers', () => {
 
     saveToLocalStorage(save);
     expect(hasSave()).toBe(true);
-    expect(JSON.parse(storage.get(SAVE_KEY) ?? '{}')).toEqual({ version: 1 });
+    expect(loadFromLocalStorage()).toMatchObject({ version: 1, mapSeed: 42, faction: 'Romans' });
 
     setPendingLoad();
     expect(storage.get(PENDING_LOAD_KEY)).toBe('true');
@@ -45,6 +78,13 @@ describe('SaveSystem storage helpers', () => {
     clearSave();
     expect(storage.has(SAVE_KEY)).toBe(false);
     expect(storage.has(PENDING_LOAD_KEY)).toBe(false);
+  });
+
+  it('rejects a version-compatible save that is missing required runtime state', () => {
+    storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
+
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
   });
 
   it('propagates failed save writes to the caller', () => {
