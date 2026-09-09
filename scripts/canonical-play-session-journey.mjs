@@ -655,7 +655,9 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
-  await page.evaluate(() => window.__civStrategyGame.scene.pause('MainScene'));
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.pause('MainScene');
+  });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
@@ -738,7 +740,9 @@ try {
   for (const key of ['hp', 'wood', 'food', 'gold', 'population', 'maxPopulation']) {
     if (evidence.restored[key] !== evidence.beforeSave[key]) throw new Error(`${key} changed across canonical save/load.`);
   }
-  await page.evaluate(() => window.__civStrategyGame.scene.resume('MainScene'));
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.resume('MainScene');
+  });
 
   evidence.phase = 'post-load-critical-hud';
   evidence.postLoadHud = await requireCriticalHud(page);
@@ -961,7 +965,9 @@ try {
   await page.getByRole('button', { name: 'Start Game' }).click();
   await page.getByRole('button', { name: 'Commence' }).click();
   await waitForScene(page);
-  await page.evaluate(() => window.__civStrategyGame.scene.pause('MainScene'));
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.pause('MainScene');
+  });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Load game/i }).click();
   await page.waitForFunction((saved) => {
@@ -1038,7 +1044,9 @@ try {
       throw new Error(`${key} changed across the second canonical save/load cycle.`);
     }
   }
-  await page.evaluate(() => window.__civStrategyGame.scene.resume('MainScene'));
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.resume('MainScene');
+  });
 
   evidence.phase = 'second-continue-playing';
   evidence.secondPostLoadTarget = await page.evaluate((gameSpeed) => {
