@@ -626,6 +626,9 @@ try {
       && Math.abs(scene.physics.world.timeScale - 0.5) < 0.0001
       && Math.abs(scene.tweens.timeScale - 2) < 0.0001;
   }, undefined, { timeout: 5_000 });
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.pause('MainScene');
+  });
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, villager, camp, house, barracks } = window.__canonicalPlaySessionProbe;
@@ -929,6 +932,9 @@ try {
   }), POINTER_TIMEOUT_MS);
 
   evidence.phase = 'second-save';
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.pause('MainScene');
+  });
   evidence.beforeSecondSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     const { player, camp, house, barracks } = window.__canonicalPlaySessionProbe;
