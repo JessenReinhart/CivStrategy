@@ -100,6 +100,20 @@ describe('SaveSystem load continuity', () => {
     expect(assignJobs.mock.invocationCallOrder[0]).toBeLessThan(updateStats.mock.invocationCallOrder[0]);
   });
 
+  it('restores saved game speed across simulation, physics, and tween clocks', () => {
+    const physics = { world: { timeScale: 1 / 0.75 } };
+    const tweens = { timeScale: 0.75 };
+    const scene = createScene({ gameSpeed: 0.75, physics, tweens });
+    const save = createSave();
+    save.gameSpeed = 2;
+
+    deserializeGame(scene, save);
+
+    expect(scene.gameSpeed).toBe(2);
+    expect(physics.world.timeScale).toBe(0.5);
+    expect(tweens.timeScale).toBe(2);
+  });
+
   it('round-trips gathered villager carry without exposing it to job reassignment first', () => {
     const sourceVillager = {
       owner: 0,
