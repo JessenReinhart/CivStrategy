@@ -88,7 +88,7 @@ try {
   evidence.beforeSave = await page.evaluate(() => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
-    scene.gameSpeed = 0;
+    scene.gameSpeed = 0.5;
     const townCenter = scene.buildings.getChildren().find((building) => building.getData('owner') === 0 && building.getData('def')?.type === 'Town Center');
     if (!townCenter) throw new Error('Player Town Center missing.');
 
@@ -113,9 +113,18 @@ try {
   });
 
   await waitForCameraSync(page);
+  // Keep the serialized speed player-reachable while freezing unrelated simulation
+  // during the UI-driven save, matching the persistence contract exercised by players.
+  await page.evaluate(() => {
+    window.__civStrategyGame.scene.getScene('MainScene').scene.pause('MainScene');
+  });
   await openGameMenu(page);
   await page.getByRole('button', { name: /Save game/i }).click();
   await page.waitForFunction((key) => Boolean(localStorage.getItem(key)), SAVE_KEY, { timeout: 10_000 });
+  const storedSave = await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), SAVE_KEY);
+  if (storedSave.gameSpeed !== 0.5) {
+    throw new Error(`Restored-army acceptance save did not preserve playable speed: ${storedSave.gameSpeed}.`);
+  }
 
   evidence.phase = 'reload';
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -139,6 +148,7 @@ try {
   evidence.phase = 'restore-player';
   evidence.restored = await page.evaluate((saved) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const restoredSpeed = scene.gameSpeed;
     scene.gameSpeed = 0;
     scene.peacefulMode = true;
     const player = scene.units.getChildren()
@@ -153,10 +163,14 @@ try {
     return {
       positionDelta: Math.hypot(player.x - saved.x, player.y - saved.y),
       hp: player.getData('hp'),
+      gameSpeed: restoredSpeed,
     };
   }, evidence.beforeSave);
   if (evidence.restored.positionDelta > 2 || evidence.restored.hp !== evidence.beforeSave.hp) {
     throw new Error(`Restored Pikesman state changed: ${JSON.stringify(evidence.restored)}`);
+  }
+  if (evidence.restored.gameSpeed !== 0.5) {
+    throw new Error(`Restored army did not preserve playable save speed: ${evidence.restored.gameSpeed}.`);
   }
 
   await waitForCameraSync(page);
