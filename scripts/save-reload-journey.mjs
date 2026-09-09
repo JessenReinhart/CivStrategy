@@ -73,6 +73,68 @@ async function waitForCameraSync(page) {
   }, undefined, { timeout: POINTER_TIMEOUT_MS });
 }
 
+async function getLumberWorkforceRow(page) {
+  const heading = page.getByRole('heading', { name: 'Worker Management' });
+  if (!await heading.isVisible().catch(() => false)) {
+    await page.getByRole('button', { name: /Workforce/ }).click();
+  }
+  await heading.waitFor({ state: 'visible' });
+  return page
+    .getByText('Lumber Camp', { exact: true })
+    .locator('xpath=ancestor::div[.//button[@title="Close one worker slot"] or .//button[@title="Open one worker slot"]][1]');
+}
+
+async function closeLumberWorkforceSlot(page, lumberCampPosition) {
+  const row = await getLumberWorkforceRow(page);
+  await row.getByTitle('Close one worker slot').click();
+  await page.waitForFunction((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const lumberCamp = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    return Boolean(lumberCamp)
+      && lumberCamp.getData('workforceTarget') === 0
+      && !lumberCamp.getData('assignedWorker')
+      && !scene.villagerSystem.getAllVillagers().some((villager) => villager.jobBuilding === lumberCamp);
+  }, lumberCampPosition, { timeout: 5_000 });
+  return row.innerText();
+}
+
+async function reopenLumberWorkforceSlot(page, lumberCampPosition) {
+  const row = await getLumberWorkforceRow(page);
+  await row.getByTitle('Open one worker slot').click();
+  await page.waitForFunction((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const lumberCamp = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    const worker = lumberCamp?.getData('assignedWorker');
+    return Boolean(
+      lumberCamp
+      && lumberCamp.getData('workforceTarget') === 1
+      && worker
+      && worker.jobBuilding === lumberCamp,
+    );
+  }, lumberCampPosition, { timeout: 5_000 });
+  const workerId = await page.evaluate((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const lumberCamp = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    return lumberCamp?.getData('assignedWorker')?.id ?? null;
+  }, lumberCampPosition);
+  return { rowText: await row.innerText(), workerId };
+}
+
 async function captureWorkforceBeforeLiveReload(page, lumberCampPosition) {
   await page.evaluate((position) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
@@ -286,7 +348,6 @@ try {
       throw new Error('Pre-save Lumber Camp did not receive a Villager through normal economy assignment.');
     }
 
-    window.dispatchEvent(new Event('save-game'));
     return {
       wood: scene.resources.wood,
       population: scene.population,
@@ -306,6 +367,8 @@ try {
     };
   }, MARKER_WOOD);
 
+  const closedWorkforceUi = await closeLumberWorkforceSlot(page, beforeSave.lumberCamp);
+  await page.evaluate(() => window.dispatchEvent(new Event('save-game')));
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
   if (storedSave.resources?.wood !== MARKER_WOOD) throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
@@ -325,6 +388,9 @@ try {
     && building.x === beforeSave.lumberCamp.x && building.y === beforeSave.lumberCamp.y
   ));
   if (!storedLumberCamp) throw new Error('Stored save did not contain the Lumber Camp economy probe.');
+  if (storedLumberCamp.workforceTarget !== 0) {
+    throw new Error(`Stored save did not preserve the closed Lumber Camp slot target: ${storedLumberCamp.workforceTarget}.`);
+  }
   if (storedBarracks.waypoint?.x !== beforeSave.rallyWaypoint.x || storedBarracks.waypoint?.y !== beforeSave.rallyWaypoint.y) {
     throw new Error('Stored save did not preserve the Barracks rally waypoint.');
   }
@@ -341,7 +407,7 @@ try {
 
   // Exercise the real cold-reload player path first. Continue Game rebuilds the
   // saved seeded world before MainScene applies pending save data, which is the
-  // required environment for persistent finite resource nodes.
+  // required environment for persistent finite resource nodes and workforce targets.
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /Continue/i }).click();
   await waitForMainScene(page);
@@ -350,9 +416,49 @@ try {
     return scene?.isReady && scene?.resources?.wood === markerWood;
   }, MARKER_WOOD, { timeout: 20_000 });
 
+  const coldReloadWorkforce = await page.evaluate((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const lumberCamp = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'Lumber Camp'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    if (!lumberCamp) throw new Error('Saved Lumber Camp is missing after cold reload.');
+    const assignedWorker = lumberCamp.getData('assignedWorker');
+    const assignedVillager = scene.villagerSystem.getAllVillagers().find((villager) => villager.jobBuilding === lumberCamp);
+    return {
+      target: lumberCamp.getData('workforceTarget'),
+      assignedWorkerId: assignedWorker?.id ?? null,
+      assignedVillagerId: assignedVillager?.id ?? null,
+    };
+  }, beforeSave.lumberCamp);
+  if (coldReloadWorkforce.target !== 0
+      || coldReloadWorkforce.assignedWorkerId !== null
+      || coldReloadWorkforce.assignedVillagerId !== null) {
+    throw new Error(`Closed workforce target did not survive cold reload: ${JSON.stringify(coldReloadWorkforce)}.`);
+  }
+
+  const reopenedWorkforce = await reopenLumberWorkforceSlot(page, beforeSave.lumberCamp);
+  await page.evaluate((markerWood) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    scene.resources.wood = markerWood;
+    window.dispatchEvent(new Event('save-game'));
+  }, MARKER_WOOD);
+  await page.waitForFunction(({ saveKey, position }) => {
+    const raw = localStorage.getItem(saveKey);
+    if (!raw) return false;
+    const save = JSON.parse(raw);
+    const lumberCamp = save.buildings?.find((building) => (
+      building.type === 'Lumber Camp' && building.owner === 0
+      && building.x === position.x && building.y === position.y
+    ));
+    return lumberCamp?.workforceTarget === 1;
+  }, { saveKey: SAVE_KEY, position: beforeSave.lumberCamp }, { timeout: 5_000 });
+
   // Exercise live reload against the current Stronghold-style workforce model.
-  // The old entity references must be released and the restored Lumber Camp must
-  // receive a fresh authoritative worker assignment after the scene is rebuilt.
+  // The reopened target is saved above, so the old entity references must be
+  // released and a fresh authoritative worker assignment rebuilt after load.
   await captureWorkforceBeforeLiveReload(page, beforeSave.lumberCamp);
   await page.evaluate(() => window.dispatchEvent(new Event('load-game')));
   await page.waitForFunction((position) => {
@@ -372,6 +478,7 @@ try {
       && (!oldWorker?.visual || oldWorker.visual.active === false)
       && currentLumberCamp
       && currentLumberCamp !== oldLumberCamp
+      && currentLumberCamp.getData('workforceTarget') === 1
       && currentWorker
       && currentWorker !== oldWorker
       && currentWorker.jobBuilding === currentLumberCamp
@@ -429,7 +536,8 @@ try {
     const rallyWaypoint = barracks.getData('waypoint');
     const assignedWorker = lumberCamp.getData('assignedWorker');
     const workforceAssignmentRebuilt = Boolean(
-      assignedWorker
+      lumberCamp.getData('workforceTarget') === 1
+      && assignedWorker
       && assignedWorker.jobBuilding === lumberCamp
       && assignedWorker !== window.__saveReloadOldWorker
       && lumberCamp !== window.__saveReloadOldLumberCamp
@@ -437,7 +545,6 @@ try {
     if (loadedWood !== markerWood) throw new Error('Saved resources were not restored at the load boundary.');
     if (loadedGameTime < previousGameTime) throw new Error('Loaded game time regressed below the saved session time.');
     if (!workforceAssignmentRebuilt) throw new Error('Lumber Camp workforce assignment did not rebuild with fresh entities during load.');
-
     if (!assignedWorker || assignedWorker.jobBuilding !== lumberCamp) {
       throw new Error('Restored Lumber Camp did not reconnect to a Villager through normal post-load job assignment.');
     }
@@ -468,6 +575,7 @@ try {
       lumberCamp: { x: lumberCamp.x, y: lumberCamp.y },
       assignedWorkerId: assignedWorker.id,
       assignedWorkerState: assignedWorker.state,
+      workforceTarget: lumberCamp.getData('workforceTarget'),
       rallyWaypoint,
       restoredGoldMines,
       loadedGameTime,
@@ -495,6 +603,7 @@ try {
   if (afterLoad.house.x !== beforeSave.house.x || afterLoad.house.y !== beforeSave.house.y) throw new Error('Population-cap House position changed across reload.');
   if (afterLoad.barracks.x !== beforeSave.barracks.x || afterLoad.barracks.y !== beforeSave.barracks.y) throw new Error('Barracks position changed across reload.');
   if (afterLoad.lumberCamp.x !== beforeSave.lumberCamp.x || afterLoad.lumberCamp.y !== beforeSave.lumberCamp.y) throw new Error('Lumber Camp position changed across reload.');
+  if (afterLoad.workforceTarget !== 1) throw new Error(`Reopened workforce target changed across live reload: ${afterLoad.workforceTarget}.`);
   if (afterLoad.rallyWaypoint?.x !== beforeSave.rallyWaypoint.x || afterLoad.rallyWaypoint?.y !== beforeSave.rallyWaypoint.y) {
     throw new Error('Barracks rally waypoint changed across reload.');
   }
@@ -513,6 +622,10 @@ try {
   await page.screenshot({ path: `${ARTIFACT_DIR}/save-reload-journey.png`, fullPage: true });
   console.log(JSON.stringify({
     beforeSave,
+    closedWorkforceUi,
+    storedWorkforceTarget: storedLumberCamp.workforceTarget,
+    coldReloadWorkforce,
+    reopenedWorkforce,
     storedRallyWaypoint: storedBarracks.waypoint,
     afterLoad,
     postLoadTraining,
