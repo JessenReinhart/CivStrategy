@@ -128,6 +128,7 @@ export class StrongholdWorkforceSystem {
     const capacity = this.getCapacity(building);
     const target = Phaser.Math.Clamp(Math.round(payload.target as number), 0, capacity);
     this.targets.set(building, target);
+    building.setData('workforceTarget', target);
     this.reconcile();
     this.scene.economySystem.updateStats();
   }
@@ -191,10 +192,17 @@ export class StrongholdWorkforceSystem {
     const existing = this.targets.get(building);
     if (existing !== undefined) return Phaser.Math.Clamp(existing, 0, capacity);
 
+    const restoredTarget = building.getData('workforceTarget');
+    const target = typeof restoredTarget === 'number' && Number.isFinite(restoredTarget)
+      ? Phaser.Math.Clamp(Math.round(restoredTarget), 0, capacity)
+      : capacity;
+
     // Stronghold behavior: newly available workplaces request all of their
-    // worker slots automatically. The player can close slots from the UI.
-    this.targets.set(building, capacity);
-    return capacity;
+    // worker slots automatically. A persisted player target overrides that
+    // default when a saved building is recreated.
+    this.targets.set(building, target);
+    building.setData('workforceTarget', target);
+    return target;
   }
 
   private getWorkersFor(building: WorkBuilding): VillagerData[] {
