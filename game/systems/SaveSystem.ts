@@ -18,6 +18,7 @@ type SerializedBuildingWithWaypoint = SerializedBuilding & {
 type SerializedBuildingRuntimeState = SerializedBuildingWithWaypoint & {
   constructionComplete?: boolean;
   constructionRemainingMs?: number;
+  workforceTarget?: number;
 };
 
 type VillagerCarryType = 'wood' | 'food' | 'gold';
@@ -198,6 +199,7 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
     const waypoint = def.type === BuildingType.BARRACKS
       ? b.getData('waypoint') as { x: number; y: number } | undefined
       : undefined;
+    const workforceTarget = b.getData('workforceTarget');
     const constructionComplete = b.getData('constructionComplete');
     const constructionCompletesAt = b.getData('constructionCompletesAt');
     const isUnfinishedPlayerHouse = def.type === BuildingType.HOUSE
@@ -218,6 +220,9 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
       workers: b.getData('workers') ?? 0,
       garrison: def.type === BuildingType.CASTLE ? (b.getData('garrison') ?? {}) : undefined,
       waypoint: waypoint ? { x: waypoint.x, y: waypoint.y } : undefined,
+      workforceTarget: typeof workforceTarget === 'number' && Number.isFinite(workforceTarget)
+        ? workforceTarget
+        : undefined,
       constructionComplete: isUnfinishedPlayerHouse ? false : undefined,
       constructionRemainingMs,
     } as SerializedBuildingRuntimeState);
@@ -505,6 +510,9 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
       building.setData('garrison', b.garrison);
     }
     const runtimeState = b as SerializedBuildingRuntimeState;
+    if (typeof runtimeState.workforceTarget === 'number' && Number.isFinite(runtimeState.workforceTarget)) {
+      building.setData('workforceTarget', runtimeState.workforceTarget);
+    }
     const waypoint = runtimeState.waypoint;
     if (b.type === BuildingType.BARRACKS && waypoint) {
       building.setData('waypoint', { x: waypoint.x, y: waypoint.y });
