@@ -1,0 +1,37 @@
+name: Apply bounded garrison ownership patch
+
+on:
+  push:
+    branches: [ fix/326-garrison-ownership ]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/326-garrison-ownership
+      - name: Apply ownership guard
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('game/MainScene.ts')
+          text = path.read_text()
+          old = """      const def = selBuilding.getData('def');\n      if (!def || def.type !== BuildingType.CASTLE) return;\n      const garrison: Record<string, number> = selBuilding.getData('garrison') || {};"""
+          new = """      const def = selBuilding.getData('def');\n      if (!def || def.type !== BuildingType.CASTLE || selBuilding.getData('owner') !== 0) return;\n      const garrison: Record<string, number> = selBuilding.getData('garrison') || {};"""
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected one garrison release handler match, found {text.count(old)}')
+          path.write_text(text.replace(old, new))
+          PY
+          rm .github/workflows/patch-326.yml
+      - name: Commit bounded patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add game/MainScene.ts .github/workflows/patch-326.yml
+          git commit -m "fix: enforce Castle garrison ownership"
+          git push origin HEAD:fix/326-garrison-ownership
