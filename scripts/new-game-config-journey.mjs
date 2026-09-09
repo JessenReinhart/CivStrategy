@@ -43,10 +43,21 @@ try {
   const browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(error.message));
 
+  // A parseable current-version object is not necessarily a playable save.
+  // Seed the exact dead-end case before React reads storage, then prove the
+  // landing page fails closed while the ordinary New Game path remains usable.
+  await page.addInitScript(() => {
+    localStorage.setItem('civstrategy-save', JSON.stringify({ version: 1 }));
+  });
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
 
+  const corruptContinue = page.getByRole('button', { name: 'Continue Game', exact: true });
+  await page.getByRole('button', { name: 'Start Game', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+  if (await corruptContinue.count() !== 0) {
+    throw new Error('Structurally invalid current-version save exposed a Continue Game dead end.');
+  }
+
   const startGame = page.getByRole('button', { name: 'Start Game', exact: true });
-  await startGame.waitFor({ state: 'visible', timeout: 10_000 });
   await startGame.click();
 
   await page.getByRole('heading', { name: 'New Game', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
