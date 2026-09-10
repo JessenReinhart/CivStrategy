@@ -541,6 +541,7 @@ export class InputManager {
         const combatTypes = [UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION, UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT, UnitType.VILLAGER];
         return combatTypes.includes(type);
     }
+
     public clearSelection() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.selectedUnits.forEach((u: any) => u.setSelected(false)); // Fix: Cast to Unit type
