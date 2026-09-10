@@ -71,6 +71,44 @@ describe('InputManager player command selection', () => {
         expect(playCommandAck).toHaveBeenCalledOnce();
     });
 
+    it('only lets a player-owned Barracks receive a waypoint command', () => {
+        const playerSetWaypoint = vi.fn();
+        const hostileSetWaypoint = vi.fn();
+        const playerBarracks = {
+            getData: vi.fn((key: string) => {
+                if (key === 'owner') return 0;
+                if (key === 'def') return { type: 'Barracks' };
+                return undefined;
+            }),
+            setWaypoint: playerSetWaypoint,
+        };
+        const hostileBarracks = {
+            getData: vi.fn((key: string) => {
+                if (key === 'owner') return 1;
+                if (key === 'def') return { type: 'Barracks' };
+                return undefined;
+            }),
+            setWaypoint: hostileSetWaypoint,
+        };
+        const scene = {
+            cameras: { main: { getWorldPoint: vi.fn((x: number, y: number) => ({ x, y })) } },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [];
+
+        const rightClick = (manager as unknown as { handleRightClick(pointer: unknown): void }).handleRightClick.bind(manager);
+        const pointer = { worldX: 640, worldY: 360, event: { shiftKey: false } };
+
+        manager.selectedBuilding = playerBarracks as never;
+        rightClick(pointer);
+        expect(playerSetWaypoint).toHaveBeenCalledOnce();
+
+        manager.selectedBuilding = hostileBarracks as never;
+        rightClick(pointer);
+        expect(hostileSetWaypoint).not.toHaveBeenCalled();
+    });
+
     it('prioritizes an enemy under an overlapping friendly unit for a right-click attack', () => {
         const commandMove = vi.fn();
         const commandAttack = vi.fn();
