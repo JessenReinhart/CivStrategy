@@ -10,8 +10,8 @@ export enum FactionType {
 export interface FactionBonus {
   buildingHpMult?: number;    // Building HP multiplier
   wallHpMult?: number;        // Wall HP multiplier
-  meleeAttackMult?: number;   // Melee attack multiplier
-  rangedArmorMult?: number;   // Ranged armor multiplier (0.9 = -10%)
+  meleeAttackMult?: number;   // Melee Attack multiplier
+  rangedArmorMult?: number;   // Ranged Armor multiplier (0.9 = -10%)
   goldPerTick?: number;       // Passive gold income bonus
   gatherRateMult?: number;    // Gather rate multiplier
 }
@@ -130,6 +130,7 @@ export interface GameStats {
   notifications: readonly { id: number; text: string; severity: 'info' | 'warning' | 'danger' | 'success'; timestamp: number; duration: number; personality?: string; senderName?: string }[];
   activeResearch: { techId: TechId; progress: number; duration: number } | null;
   completedTechs: TechId[];
+  selectedBuildingOwner?: number | null;
   selectedBuildingInfo?: { type: BuildingType; hasWorker: boolean; nearbyResources: number; resourceLabel: string; garrisonCount?: number } | null;
   gameResult?: GameResult;
   victoryType?: VictoryType;
