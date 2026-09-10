@@ -644,11 +644,33 @@ function hasFiniteResources(value: unknown): boolean {
     && isFiniteNumber(value.gold);
 }
 
+function isSerializedUnitShape(value: unknown): boolean {
+  return isRecord(value)
+    && Object.values(UnitType).includes(value.type as UnitType)
+    && value.type !== UnitType.ANIMAL
+    && isFiniteNumber(value.owner)
+    && isFiniteNumber(value.x)
+    && isFiniteNumber(value.y)
+    && isFiniteNumber(value.hp)
+    && isFiniteNumber(value.maxHp)
+    && typeof value.state === 'string'
+    && typeof value.stance === 'string';
+}
+
+function isSerializedBuildingShape(value: unknown): boolean {
+  return isRecord(value)
+    && Object.values(BuildingType).includes(value.type as BuildingType)
+    && isFiniteNumber(value.owner)
+    && isFiniteNumber(value.x)
+    && isFiniteNumber(value.y)
+    && isFiniteNumber(value.hp)
+    && isFiniteNumber(value.maxHp);
+}
+
 /**
  * Version equality is not sufficient evidence that arbitrary JSON can safely
- * initialize and restore a playable world. Validate every top-level field that
- * scene startup and deserialization consume unconditionally; subsystem-specific
- * nested entity details remain owned by their existing restore paths.
+ * initialize and restore a playable world. Validate fields consumed before or
+ * during world replacement so malformed storage fails closed before Continue.
  */
 export function isCurrentSaveShape(value: unknown): value is SaveGame {
   if (!isRecord(value) || value.version !== SAVE_VERSION) return false;
@@ -677,7 +699,9 @@ export function isCurrentSaveShape(value: unknown): value is SaveGame {
     && isFiniteNumber(value.gameSpeed)
     && value.gameSpeed > 0
     && Array.isArray(value.units)
+    && value.units.every(isSerializedUnitShape)
     && Array.isArray(value.buildings)
+    && value.buildings.every(isSerializedBuildingShape)
     && isRecord(value.research)
     && Array.isArray(value.research.completedPlayer)
     && Array.isArray(value.research.completedAI)
