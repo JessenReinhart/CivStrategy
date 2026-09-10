@@ -674,6 +674,18 @@ function isBlueprintItemShape(value: unknown): boolean {
     && isFiniteNumber(value.y);
 }
 
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || isFiniteNumber(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string';
+}
+
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean';
+}
+
 function isRestorableAIStateShape(value: unknown): boolean {
   return isRecord(value)
     && typeof value.personality === 'string'
@@ -684,7 +696,20 @@ function isRestorableAIStateShape(value: unknown): boolean {
     && isFiniteNumber(value.baseY)
     && isFiniteNumber(value.buildIndex)
     && Array.isArray(value.selectedBlueprint)
-    && value.selectedBlueprint.every(isBlueprintItemShape);
+    && value.selectedBlueprint.every(isBlueprintItemShape)
+    && isOptionalFiniteNumber(value.nextAttackTime)
+    && isOptionalFiniteNumber(value.lastEconomyTick)
+    && isOptionalFiniteNumber(value.lastBuildTick)
+    && isOptionalFiniteNumber(value.lastRecruitTick)
+    && isOptionalFiniteNumber(value.lastDefenseTick)
+    && isOptionalFiniteNumber(value.lastThreatCheck)
+    && isOptionalFiniteNumber(value.lastAttackTick)
+    && isOptionalFiniteNumber(value.lastTauntTime)
+    && isOptionalBoolean(value.hasSpawnedStartingForest)
+    && isOptionalFiniteNumber(value.personalityBonusBuildings)
+    && isOptionalString(value.aiCurrentAge)
+    && isOptionalFiniteNumber(value.aiAgeProgress)
+    && isOptionalBoolean(value.aiIsAdvancing);
 }
 
 /**

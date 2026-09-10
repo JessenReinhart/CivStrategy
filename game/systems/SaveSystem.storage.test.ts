@@ -16,6 +16,21 @@ import {
 } from './SaveSystem';
 
 const storage = new Map<string, string>();
+const OPTIONAL_AI_RESTORE_FIELDS = [
+  'nextAttackTime',
+  'lastEconomyTick',
+  'lastBuildTick',
+  'lastRecruitTick',
+  'lastDefenseTick',
+  'lastThreatCheck',
+  'lastAttackTick',
+  'lastTauntTime',
+  'hasSpawnedStartingForest',
+  'personalityBonusBuildings',
+  'aiCurrentAge',
+  'aiAgeProgress',
+  'aiIsAdvancing',
+] as const;
 const aiState = {
   personality: 'balanced',
   currentAge: 'Village',
@@ -137,6 +152,16 @@ describe('SaveSystem storage helpers', () => {
     });
   });
 
+  it('accepts legacy version-1 AI state when optional restore fields are absent', () => {
+    const legacyAIState: Record<string, unknown> = { ...aiState };
+    for (const field of OPTIONAL_AI_RESTORE_FIELDS) delete legacyAIState[field];
+
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, aiState: legacyAIState }));
+
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({ aiState: legacyAIState });
+  });
+
   it('rejects a version-compatible save that is missing required runtime state', () => {
     storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
 
@@ -182,6 +207,30 @@ describe('SaveSystem storage helpers', () => {
         resources: { wood: 'broken', food: 500, gold: 500 },
       },
     }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
+  it.each([
+    ['aiCurrentAge', 2],
+    ['aiAgeProgress', 'broken'],
+    ['aiIsAdvancing', 'broken'],
+    ['nextAttackTime', 'broken'],
+    ['lastEconomyTick', 'broken'],
+    ['lastBuildTick', 'broken'],
+    ['lastRecruitTick', 'broken'],
+    ['lastDefenseTick', 'broken'],
+    ['lastThreatCheck', 'broken'],
+    ['lastAttackTick', 'broken'],
+    ['lastTauntTime', 'broken'],
+    ['hasSpawnedStartingForest', 1],
+    ['personalityBonusBuildings', 'broken'],
+  ] as const)('rejects malformed optional AI restore field %s when present', (field, malformed) => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: { ...aiState, [field]: malformed },
+    }));
+
     expect(hasSave()).toBe(false);
     expect(loadFromLocalStorage()).toBeNull();
   });
