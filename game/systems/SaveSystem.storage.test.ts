@@ -16,6 +16,29 @@ import {
 } from './SaveSystem';
 
 const storage = new Map<string, string>();
+const aiState = {
+  personality: 'balanced',
+  currentAge: 'Village',
+  ageProgress: 0,
+  resources: { wood: 500, food: 500, gold: 500 },
+  baseX: 200,
+  baseY: 200,
+  buildIndex: 0,
+  selectedBlueprint: [],
+  nextAttackTime: 0,
+  lastEconomyTick: 0,
+  lastBuildTick: 0,
+  lastRecruitTick: 0,
+  lastDefenseTick: 0,
+  lastThreatCheck: 0,
+  lastAttackTick: 0,
+  lastTauntTime: 0,
+  hasSpawnedStartingForest: false,
+  personalityBonusBuildings: 0,
+  aiCurrentAge: 'Village',
+  aiAgeProgress: 0,
+  aiIsAdvancing: false,
+};
 const save = {
   version: 1,
   timestamp: 123,
@@ -43,7 +66,7 @@ const save = {
   units: [],
   buildings: [],
   research: { completedPlayer: [], activePlayer: null, completedAI: [] },
-  aiState: {},
+  aiState,
   dominanceProgress: 0,
   playerTerritoryPercent: 0,
   gameResult: 'ongoing',
@@ -99,6 +122,21 @@ describe('SaveSystem storage helpers', () => {
     });
   });
 
+  it('accepts ordinary serialized AI state', () => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: {
+        ...aiState,
+        selectedBlueprint: [{ type: 'Barracks', x: 32, y: -16 }],
+      },
+    }));
+
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({
+      aiState: { selectedBlueprint: [{ type: 'Barracks', x: 32, y: -16 }] },
+    });
+  });
+
   it('rejects a version-compatible save that is missing required runtime state', () => {
     storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
 
@@ -114,6 +152,35 @@ describe('SaveSystem storage helpers', () => {
     storage.set(SAVE_KEY, JSON.stringify({
       ...save,
       buildings: [{ type: 'Not A Building', owner: 0, x: 10, y: 10, hp: 100, maxHp: 100 }],
+    }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
+  it('rejects malformed AI state before Continue can replace the live world', () => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: { ...aiState, selectedBlueprint: {} },
+    }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: {
+        ...aiState,
+        selectedBlueprint: [{ type: 'Not A Building', x: 10, y: 10 }],
+      },
+    }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: {
+        ...aiState,
+        resources: { wood: 'broken', food: 500, gold: 500 },
+      },
     }));
     expect(hasSave()).toBe(false);
     expect(loadFromLocalStorage()).toBeNull();

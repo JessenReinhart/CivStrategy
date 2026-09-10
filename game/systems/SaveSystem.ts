@@ -667,6 +667,26 @@ function isSerializedBuildingShape(value: unknown): boolean {
     && isFiniteNumber(value.maxHp);
 }
 
+function isBlueprintItemShape(value: unknown): boolean {
+  return isRecord(value)
+    && Object.values(BuildingType).includes(value.type as BuildingType)
+    && isFiniteNumber(value.x)
+    && isFiniteNumber(value.y);
+}
+
+function isRestorableAIStateShape(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.personality === 'string'
+    && typeof value.currentAge === 'string'
+    && isFiniteNumber(value.ageProgress)
+    && hasFiniteResources(value.resources)
+    && isFiniteNumber(value.baseX)
+    && isFiniteNumber(value.baseY)
+    && isFiniteNumber(value.buildIndex)
+    && Array.isArray(value.selectedBlueprint)
+    && value.selectedBlueprint.every(isBlueprintItemShape);
+}
+
 /**
  * Version equality is not sufficient evidence that arbitrary JSON can safely
  * initialize and restore a playable world. Validate fields consumed before or
@@ -705,7 +725,7 @@ export function isCurrentSaveShape(value: unknown): value is SaveGame {
     && isRecord(value.research)
     && Array.isArray(value.research.completedPlayer)
     && Array.isArray(value.research.completedAI)
-    && isRecord(value.aiState)
+    && isRestorableAIStateShape(value.aiState)
     && isFiniteNumber(value.dominanceProgress)
     && isFiniteNumber(value.playerTerritoryPercent)
     && typeof value.gameResult === 'string'
