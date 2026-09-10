@@ -1,6 +1,8 @@
 import type { ProgressionContext } from './ProgressionContext';
 import { CASTLE_GARRISON_FIRE_INTERVAL, SEASON_DURATION_MS } from '../../constants';
 
+const MAX_ONE_SECOND_WINDOWS_PER_UPDATE = 5;
+
 /**
  * Coordinates the time-based progression pipeline without depending on
  * MainScene: the 1s economy/research/victory/season/world-maintenance window,
@@ -27,8 +29,13 @@ export class ProgressionRuntime {
     this.accumulatedTime += dt;
 
     // ── 1s economy/progression window ───────────────────────────────
-    if (this.accumulatedTime >= 1000) {
+    // A frame can represent multiple elapsed game seconds after a browser or
+    // rendering stall. Catch those windows up now, but cap work per rendered
+    // frame so a long suspended-tab delta cannot create an unbounded spike.
+    let processedWindows = 0;
+    while (this.accumulatedTime >= 1000 && processedWindows < MAX_ONE_SECOND_WINDOWS_PER_UPDATE) {
       this.accumulatedTime -= 1000;
+      processedWindows++;
 
       // Win/lose + dominance (the checks themselves early-return when the
       // game is no longer PLAYING).
