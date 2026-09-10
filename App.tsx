@@ -198,6 +198,14 @@ const [selectedCount, setSelectedCount] = useState(0);
 
     const buildingSelectionHandler = (type: BuildingType | null) => {
       setSelectedBuildingType(type);
+      const mainScene = gameInstance.scene.getScene('MainScene') as Phaser.Scene & {
+        inputManager?: { selectedBuilding: Phaser.GameObjects.GameObject | null };
+      };
+      const selectedBuilding = mainScene.inputManager?.selectedBuilding ?? null;
+      setStats((previous) => ({
+        ...previous,
+        selectedBuildingOwner: selectedBuilding ? (selectedBuilding.getData('owner') as number) : null,
+      }));
     };
 
     const ageAdvancedHandler = (age: Age) => {
