@@ -1162,7 +1162,18 @@ if (spatialHash) {
             const soldiers = unit.getData('soldierStates') || [];
 
             const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
-            const damagePerArrow = dmg / arrowCount;
+            // A volley is one attack split into visual projectiles. Preserve
+            // fractional damage and share flat armor/minimum damage across it.
+            const damageMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).damageMult ?? 1;
+            const defMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
+            const targetOwner = target.getData('owner') as number;
+            const targetFaction = targetOwner === 0 ? this.scene.faction : this.scene.enemyFaction;
+            const rangedArmorMult = FACTION_BONUSES[targetFaction]?.rangedArmorMult ?? 1;
+            const forestMult = this.scene.terrainSystem.isForestAt(target.x, target.y) ? 0.7 : 1;
+            const wallDefMult = this.scene.buildingManager.getWallsNear(target.x, target.y, WALL_PROXIMITY_RADIUS).length > 0
+                ? (1 - WALL_DEFENSE_BONUS) : 1;
+            const damagePerArrow = dmg * damageMult * (1 - defMods.defenseBonus)
+                * rangedArmorMult * forestMult * wallDefMult / arrowCount;
 
             for (let i = 0; i < arrowCount; i++) {
                 const delay = Phaser.Math.Between(0, 300);
@@ -1171,7 +1182,7 @@ if (spatialHash) {
                     x: target.x + Phaser.Math.Between(-spread, spread),
                     y: target.y + Phaser.Math.Between(-spread, spread),
                     scene: target.scene,
-                    takeDamage: (amt: number) => { if (target && target.takeDamage) target.takeDamage(amt); }
+                    takeDamage: (amt: number) => { if (target && target.takeDamage) target.takeDamage(amt, 1 / arrowCount); }
                 };
 
                 const origin = (soldiers.length > 0)
@@ -1184,18 +1195,7 @@ if (spatialHash) {
                     this.scene.time.delayedCall(delay, () => {
                         if (unit.scene && target.scene) {
                             this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
-                            // Apply terrain-based defense bonus for ranged attacks too
-                            const defMods = this.scene.terrainSystem.getCombatModifiers(target.x, target.y, unit.x, unit.y);
-                            const targetOwner = target.getData('owner') as number;
-                            const targetFaction = targetOwner === 0 ? this.scene.faction : this.scene.enemyFaction;
-                            const rangedArmorMult = (FACTION_BONUSES[targetFaction]?.rangedArmorMult ?? 1);
-                            const rangedDmg = Math.round(damagePerArrow * (1 - defMods.defenseBonus) * rangedArmorMult);
-                            // Forest defense bonus — trees block projectiles (Design Pillar 5: terrain matters)
-                            const forestMult = this.scene.terrainSystem.isForestAt(target.x, target.y) ? 0.7 : 1.0;
-                            // Wall defense: units near walls are harder to hit with arrows
-                            const wallDefMult = this.scene.buildingManager.getWallsNear(target.x, target.y, WALL_PROXIMITY_RADIUS).length > 0
-                                ? (1 - WALL_DEFENSE_BONUS) : 1;
-                            this.fireProjectile(origin, targetVaried, rangedDmg * forestMult * wallDefMult);
+                            this.fireProjectile(origin, targetVaried, damagePerArrow);
                         }
                     });
                 }

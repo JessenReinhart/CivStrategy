@@ -198,7 +198,7 @@ export class EntityFactory {
             if (def.happinessBonus) this.scene.happiness += def.happinessBonus;
         }
 
-        (b as any).takeDamage = (amount: number) => this.handleDamage(b, amount, false); // eslint-disable-line @typescript-eslint/no-explicit-any
+        (b as any).takeDamage = (amount: number, attackShare = 1) => this.handleDamage(b, amount, false, attackShare); // eslint-disable-line @typescript-eslint/no-explicit-any
 
         // Waypoint Logic for Barracks
         if (type === BuildingType.BARRACKS) {
@@ -378,7 +378,7 @@ export class EntityFactory {
         };
 
         if (stats.squadSize > 1) this.scene.squadSystem.createSquad(unit, type, owner);
-        (unit as any).takeDamage = (amount: number) => this.handleDamage(unit, amount, true); // eslint-disable-line @typescript-eslint/no-explicit-any
+        (unit as any).takeDamage = (amount: number, attackShare = 1) => this.handleDamage(unit, amount, true, attackShare); // eslint-disable-line @typescript-eslint/no-explicit-any
         return unit;
     }
 
@@ -391,7 +391,7 @@ export class EntityFactory {
         return bar;
     }
 
-    private handleDamage(entity: Phaser.GameObjects.GameObject, amount: number, isUnit: boolean) {
+    private handleDamage(entity: Phaser.GameObjects.GameObject, amount: number, isUnit: boolean, attackShare = 1) {
         let hp = entity.getData('hp');
         const maxHp = entity.getData('maxHp');
 
@@ -401,7 +401,7 @@ export class EntityFactory {
             const defBonus = FORMATION_BONUSES[formation]?.defense || 0;
             // E.g., 0.25 -> amount * 0.75
             // E.g., 0.25 -> amount * 0.75
-            amount = Math.max(1, amount * (1 - defBonus));
+            amount = Math.max(attackShare, amount * (1 - defBonus));
 
             // REACTIVE DEFENSE: If holding ground and attacked, switch to Defensive to fight back
             // unless it's an Animal (which flees/wanders) or Villager (which flees)
@@ -416,7 +416,7 @@ export class EntityFactory {
         const entityOwner = entity.getData('owner') as number;
         const armorAdd = this.scene.researchManager?.getSnapshot(entityOwner).armorAdd ?? 0;
         if (armorAdd > 0) {
-            amount = Math.max(1, amount - armorAdd);
+            amount = Math.max(attackShare, amount - armorAdd * attackShare);
         }
 
         hp -= amount;

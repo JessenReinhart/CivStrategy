@@ -233,7 +233,8 @@ export interface GameUnit extends Phaser.GameObjects.Image {
   pathCreatedAt: number;
   visual?: Phaser.GameObjects.Container;
   lastAttackTime?: number;
-  takeDamage?: (amount: number) => void;
+  // Projectiles can share one attack's flat armor and minimum damage.
+  takeDamage?: (amount: number, attackShare?: number) => void;
   isSelected?: boolean;
   flowTarget?: { x: number; y: number };
   /** Per-unit fluid deformation offset applied by LiquidCombatSystem. */

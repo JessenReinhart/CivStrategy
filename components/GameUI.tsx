@@ -374,6 +374,9 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 <div className="mt-2 text-xs bg-white/5 p-2 rounded text-stone-300 text-center">
                                     Income: <span className="text-amber-400 font-bold">+{0.5 + stats.taxRate}g</span> / pop
                                 </div>
+                                <p className="text-[10px] text-stone-400">
+                                    0% tax restores 1 happiness per second when food is available and housing is at most 80% full.
+                                </p>
                             </div>
                         )}
                     </div>

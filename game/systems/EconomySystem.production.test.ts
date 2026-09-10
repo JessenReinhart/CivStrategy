@@ -104,3 +104,46 @@ describe('EconomySystem resource production regression #29', () => {
         expect(scene.resources.food).toBeGreaterThan(100);
     });
 });
+
+
+describe('happiness recovery after an economy crisis', () => {
+    function makeScene() {
+        return {
+            resources: { wood: 0, food: 1000, gold: 0 },
+            population: 2, maxPopulation: 10, happiness: 30, taxRate: 0,
+            buildings: { getChildren: () => [] },
+            feedbackSystem: { notifyHappinessCritical: vi.fn() },
+            gameTime: 0,
+        } as unknown as MainScene;
+    }
+
+    it('recovers enough happiness to resume population growth after food and housing are restored', () => {
+        const scene = makeScene();
+        const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+        for (let tick = 0; tick < 20; tick++) economy.tickEconomy();
+        expect(scene.happiness).toBe(50);
+        for (let tick = 0; tick < 100; tick++) economy.tickEconomy();
+        expect(scene.happiness).toBe(100);
+    });
+
+    it.each(['food', 'housing', 'tax'] as const)('does not recover while %s pressure remains', (pressure) => {
+        const scene = makeScene();
+        if (pressure === 'food') scene.resources.food = 0;
+        if (pressure === 'housing') scene.maxPopulation = 2;
+        if (pressure === 'tax') scene.taxRate = 2;
+        const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+        economy.tickEconomy();
+        expect(scene.happiness).toBeLessThan(30);
+    });
+
+    it('keeps 20% tax stable without granting the zero-tax recovery bonus', () => {
+        const scene = makeScene();
+        scene.taxRate = 1;
+        const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+        economy.tickEconomy();
+        expect(scene.happiness).toBe(30);
+    });
+});
