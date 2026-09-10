@@ -366,8 +366,12 @@ export class InputManager {
         const pointerWorld = this.getMainPointerWorld(pointer);
 
         if (this.selectedUnits.length === 0) {
-            // Check if a Barracks is selected and no units are selected
-            if (this.selectedBuilding && this.selectedBuilding.getData('def').type === BuildingType.BARRACKS) {
+            // Only a player-owned Barracks may receive a player waypoint command.
+            if (
+                this.selectedBuilding
+                && this.selectedBuilding.getData('owner') === 0
+                && this.selectedBuilding.getData('def').type === BuildingType.BARRACKS
+            ) {
                 const cart = toCartesian(pointerWorld.x, pointerWorld.y);
                 (this.selectedBuilding as any).setWaypoint(cart.x, cart.y); // eslint-disable-line @typescript-eslint/no-explicit-any
             }
@@ -537,7 +541,6 @@ export class InputManager {
         const combatTypes = [UnitType.PIKESMAN, UnitType.ARCHER, UnitType.CAVALRY, UnitType.LEGION, UnitType.SLINGER, UnitType.AXEMAN, UnitType.HOPLITE, UnitType.CHARIOT, UnitType.VILLAGER];
         return combatTypes.includes(type);
     }
-
     public clearSelection() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.selectedUnits.forEach((u: any) => u.setSelected(false)); // Fix: Cast to Unit type
