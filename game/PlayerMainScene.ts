@@ -38,6 +38,16 @@ export class PlayerMainScene extends MainScene {
     // Phaser does not await an async create lifecycle. Keep the simulation
     // dormant while cooperative bootstrap yields to the browser.
     if (!this.isReady) return;
+
+    const selectedBuilding = this.inputManager.selectedBuilding;
+    if (selectedBuilding?.active === false) {
+      // Building destruction invalidates the selection immediately. Keeping a
+      // dead Phaser object selected leaves React advertising actions that no
+      // longer have an authoritative world entity behind them.
+      this.inputManager.selectedBuilding = null;
+      this.game.events.emit(EVENTS.BUILDING_SELECTED, null);
+    }
+
     super.update(time, delta);
   }
 
@@ -60,9 +70,9 @@ export class PlayerMainScene extends MainScene {
           super.handleUnitSpawnRequest(type);
         } finally {
           if (selectedBuilding?.active === false) {
-            // Destroyed Phaser objects can outlive the selection reference. Do not
-            // restore one after training, and notify React so its building panel
-            // cannot keep advertising actions for a building that no longer exists.
+            // Training can race the next scene update after destruction. Keep
+            // this fallback guard so a dead building cannot be restored even
+            // when the request lands before the lifecycle cleanup frame.
             this.inputManager.selectedBuilding = null;
             this.game.events.emit(EVENTS.BUILDING_SELECTED, null);
           } else {
