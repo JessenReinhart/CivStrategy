@@ -113,6 +113,9 @@ jobs:
       - name: Browser restored army combat continuation journey
         run: node scripts/restored-army-combat-journey.mjs
 
+      - name: Browser happiness recovery journey
+        run: node scripts/happiness-recovery-journey.mjs
+
       - name: Browser same-session economy progression journey
         run: node scripts/economy-progression-journey.mjs
 
