@@ -16,6 +16,21 @@ import {
 } from './SaveSystem';
 
 const storage = new Map<string, string>();
+const OPTIONAL_AI_RESTORE_FIELDS = [
+  'nextAttackTime',
+  'lastEconomyTick',
+  'lastBuildTick',
+  'lastRecruitTick',
+  'lastDefenseTick',
+  'lastThreatCheck',
+  'lastAttackTick',
+  'lastTauntTime',
+  'hasSpawnedStartingForest',
+  'personalityBonusBuildings',
+  'aiCurrentAge',
+  'aiAgeProgress',
+  'aiIsAdvancing',
+] as const;
 const aiState = {
   personality: 'balanced',
   currentAge: 'Village',
@@ -138,22 +153,8 @@ describe('SaveSystem storage helpers', () => {
   });
 
   it('accepts legacy version-1 AI state when optional restore fields are absent', () => {
-    const {
-      nextAttackTime: _nextAttackTime,
-      lastEconomyTick: _lastEconomyTick,
-      lastBuildTick: _lastBuildTick,
-      lastRecruitTick: _lastRecruitTick,
-      lastDefenseTick: _lastDefenseTick,
-      lastThreatCheck: _lastThreatCheck,
-      lastAttackTick: _lastAttackTick,
-      lastTauntTime: _lastTauntTime,
-      hasSpawnedStartingForest: _hasSpawnedStartingForest,
-      personalityBonusBuildings: _personalityBonusBuildings,
-      aiCurrentAge: _aiCurrentAge,
-      aiAgeProgress: _aiAgeProgress,
-      aiIsAdvancing: _aiIsAdvancing,
-      ...legacyAIState
-    } = aiState;
+    const legacyAIState: Record<string, unknown> = { ...aiState };
+    for (const field of OPTIONAL_AI_RESTORE_FIELDS) delete legacyAIState[field];
 
     storage.set(SAVE_KEY, JSON.stringify({ ...save, aiState: legacyAIState }));
 
