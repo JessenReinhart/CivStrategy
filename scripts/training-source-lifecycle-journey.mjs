@@ -89,6 +89,12 @@ try {
     staleBarracks.destroy();
     const staleActiveAfterDestroy = staleBarracks.active;
 
+    // Let the actual scene lifecycle observe the destroyed object before any
+    // follow-up player action. Critical building UI must clear on its own.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const selectionClearedBeforeTraining = scene.inputManager.selectedBuilding === null;
+    const selectionEventBeforeTraining = buildingSelectionEvents.at(-1) ?? 'missing';
+
     const unitsBefore = new Set(scene.units.getChildren());
     const foodBefore = scene.resources.food;
     const goldBefore = scene.resources.gold;
@@ -104,6 +110,8 @@ try {
       staleActiveAfterDestroy,
       stalePosition,
       livePosition: { x: liveBarracks.x, y: liveBarracks.y },
+      selectionClearedBeforeTraining,
+      selectionEventBeforeTraining,
       trainedCount: trainedUnits.length,
       trainedPosition: trained ? { x: trained.x, y: trained.y } : null,
       trainedOwner: trained?.getData('owner'),
@@ -124,6 +132,9 @@ try {
 
   if (evidence.staleActiveAfterDestroy !== false) {
     throw new Error(`Destroyed Barracks did not become inactive: ${JSON.stringify(evidence)}`);
+  }
+  if (!evidence.selectionClearedBeforeTraining || evidence.selectionEventBeforeTraining !== null) {
+    throw new Error(`Destroyed Barracks remained selected until another player action: ${JSON.stringify(evidence)}`);
   }
   if (evidence.trainedCount !== 1 || evidence.trainedOwner !== 0) {
     throw new Error(`Expected exactly one player unit from live fallback Barracks: ${JSON.stringify(evidence)}`);
