@@ -137,6 +137,30 @@ describe('SaveSystem storage helpers', () => {
     });
   });
 
+  it('accepts legacy version-1 AI state when optional restore fields are absent', () => {
+    const {
+      nextAttackTime: _nextAttackTime,
+      lastEconomyTick: _lastEconomyTick,
+      lastBuildTick: _lastBuildTick,
+      lastRecruitTick: _lastRecruitTick,
+      lastDefenseTick: _lastDefenseTick,
+      lastThreatCheck: _lastThreatCheck,
+      lastAttackTick: _lastAttackTick,
+      lastTauntTime: _lastTauntTime,
+      hasSpawnedStartingForest: _hasSpawnedStartingForest,
+      personalityBonusBuildings: _personalityBonusBuildings,
+      aiCurrentAge: _aiCurrentAge,
+      aiAgeProgress: _aiAgeProgress,
+      aiIsAdvancing: _aiIsAdvancing,
+      ...legacyAIState
+    } = aiState;
+
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, aiState: legacyAIState }));
+
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({ aiState: legacyAIState });
+  });
+
   it('rejects a version-compatible save that is missing required runtime state', () => {
     storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
 
@@ -182,6 +206,30 @@ describe('SaveSystem storage helpers', () => {
         resources: { wood: 'broken', food: 500, gold: 500 },
       },
     }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
+  it.each([
+    ['aiCurrentAge', 2],
+    ['aiAgeProgress', 'broken'],
+    ['aiIsAdvancing', 'broken'],
+    ['nextAttackTime', 'broken'],
+    ['lastEconomyTick', 'broken'],
+    ['lastBuildTick', 'broken'],
+    ['lastRecruitTick', 'broken'],
+    ['lastDefenseTick', 'broken'],
+    ['lastThreatCheck', 'broken'],
+    ['lastAttackTick', 'broken'],
+    ['lastTauntTime', 'broken'],
+    ['hasSpawnedStartingForest', 1],
+    ['personalityBonusBuildings', 'broken'],
+  ] as const)('rejects malformed optional AI restore field %s when present', (field, malformed) => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: { ...aiState, [field]: malformed },
+    }));
+
     expect(hasSave()).toBe(false);
     expect(loadFromLocalStorage()).toBeNull();
   });
