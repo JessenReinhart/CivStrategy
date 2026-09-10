@@ -54,7 +54,8 @@ describe('player training request population gate', () => {
 });
 
 describe('player training building selection', () => {
-  const building = (type: BuildingType, owner: number) => ({
+  const building = (type: BuildingType, owner: number, active?: boolean) => ({
+    ...(active === undefined ? {} : { active }),
     getData: (key: string) => {
       if (key === 'def') return { type };
       if (key === 'owner') return owner;
@@ -63,19 +64,31 @@ describe('player training building selection', () => {
   });
 
   it('keeps a selected player Barracks as the preferred training source', () => {
+    const playerBarracks = building(BuildingType.BARRACKS, 0, true);
+
+    expect(getPlayerTrainingSelectedBuilding(playerBarracks)).toBe(playerBarracks);
+  });
+
+  it('keeps legacy/test selections without an active flag compatible', () => {
     const playerBarracks = building(BuildingType.BARRACKS, 0);
 
     expect(getPlayerTrainingSelectedBuilding(playerBarracks)).toBe(playerBarracks);
   });
 
+  it('rejects a destroyed player Barracks so stale combat selection cannot remain a training source', () => {
+    const destroyedBarracks = building(BuildingType.BARRACKS, 0, false);
+
+    expect(getPlayerTrainingSelectedBuilding(destroyedBarracks)).toBeNull();
+  });
+
   it('rejects a selected enemy Barracks so training can fall back to a player Barracks', () => {
-    const enemyBarracks = building(BuildingType.BARRACKS, 1);
+    const enemyBarracks = building(BuildingType.BARRACKS, 1, true);
 
     expect(getPlayerTrainingSelectedBuilding(enemyBarracks)).toBeNull();
   });
 
   it('rejects selected non-Barracks buildings from the training fast path', () => {
-    const playerHouse = building(BuildingType.HOUSE, 0);
+    const playerHouse = building(BuildingType.HOUSE, 0, true);
 
     expect(getPlayerTrainingSelectedBuilding(playerHouse)).toBeNull();
   });
