@@ -52,7 +52,10 @@ try {
 
   evidence = await page.evaluate(async () => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
-    const { BuildingType, UnitType } = await import('/types.ts');
+    const [{ BuildingType, UnitType }, { EVENTS }] = await Promise.all([
+      import('/types.ts'),
+      import('/constants.ts'),
+    ]);
     scene.peacefulMode = true;
     scene.maxPopulation = Math.max(scene.maxPopulation, scene.population + 10);
     scene.resources.food = Math.max(scene.resources.food, 500);
@@ -76,7 +79,12 @@ try {
       0,
     );
 
+    const buildingSelectionEvents = [];
+    const selectionListener = (buildingType) => buildingSelectionEvents.push(buildingType);
+    scene.game.events.on(EVENTS.BUILDING_SELECTED, selectionListener);
+
     scene.inputManager.selectedBuilding = staleBarracks;
+    scene.game.events.emit(EVENTS.BUILDING_SELECTED, BuildingType.BARRACKS);
     const stalePosition = { x: staleBarracks.x, y: staleBarracks.y };
     staleBarracks.destroy();
     const staleActiveAfterDestroy = staleBarracks.active;
@@ -87,9 +95,10 @@ try {
 
     scene.handleUnitSpawnRequest(UnitType.PIKESMAN);
 
+    scene.game.events.off(EVENTS.BUILDING_SELECTED, selectionListener);
     const trainedUnits = scene.units.getChildren().filter((unit) => !unitsBefore.has(unit));
     const trained = trainedUnits[0] ?? null;
-    const selectedRestoredToStaleObject = scene.inputManager.selectedBuilding === staleBarracks;
+    const selectedBuildingCleared = scene.inputManager.selectedBuilding === null;
 
     return {
       staleActiveAfterDestroy,
@@ -102,7 +111,8 @@ try {
       foodAfter: scene.resources.food,
       goldBefore,
       goldAfter: scene.resources.gold,
-      selectedRestoredToStaleObject,
+      selectedBuildingCleared,
+      buildingSelectionEvents,
     };
   });
 
@@ -135,8 +145,8 @@ try {
   if (evidence.foodAfter >= evidence.foodBefore || evidence.goldAfter >= evidence.goldBefore) {
     throw new Error(`Successful training did not consume resources: ${JSON.stringify(evidence)}`);
   }
-  if (!evidence.selectedRestoredToStaleObject) {
-    throw new Error(`PlayerMainScene did not restore InputManager selection after bounded training sanitization: ${JSON.stringify(evidence)}`);
+  if (!evidence.selectedBuildingCleared || evidence.buildingSelectionEvents.at(-1) !== null) {
+    throw new Error(`Destroyed Barracks selection was not cleared through the building-selection contract: ${JSON.stringify(evidence)}`);
   }
   if (pageErrors.length > 0) throw new Error(`Browser errors: ${pageErrors.join(' | ')}`);
 
