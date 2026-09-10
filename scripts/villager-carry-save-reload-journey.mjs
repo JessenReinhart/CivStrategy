@@ -71,9 +71,10 @@ try {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.peacefulMode = true;
     scene.resources.gold = markerGold;
-    // Freeze unrelated simulation so the acceptance proves exact-once carry
-    // continuity without another worker racing the resource assertion.
-    scene.gameSpeed = 0;
+    // Keep the serialized speed player-reachable. Pausing the Phaser scene freezes
+    // unrelated simulation without putting a harness-only gameSpeed=0 into the save.
+    scene.gameSpeed = 0.5;
+    scene.scene.pause('MainScene');
 
     const dropsite = scene.buildings.getChildren().find((building) => (
       building.getData?.('owner') === 0
@@ -123,7 +124,7 @@ try {
   if (storedSave.resources?.gold !== MARKER_GOLD) {
     throw new Error(`Stored save gold mismatch: expected ${MARKER_GOLD}, got ${storedSave.resources?.gold}.`);
   }
-  if (storedSave.gameSpeed !== 0) throw new Error(`Carry acceptance save did not preserve paused speed: ${storedSave.gameSpeed}.`);
+  if (storedSave.gameSpeed !== 0.5) throw new Error(`Carry acceptance save did not preserve playable speed: ${storedSave.gameSpeed}.`);
   const storedCarry = storedSave.units?.find((unit) => (
     unit.type === 'Villager'
     && unit.owner === 0
@@ -170,16 +171,20 @@ try {
       throw new Error('Reloaded Town Center does not reserve the restored carrying Villager.');
     }
 
+    const restoredSpeed = scene.gameSpeed;
+    // Freeze after proving the persisted speed so the exact-once settlement below
+    // is driven by the explicit VillagerSystem retry tick, not wall-clock timing.
+    scene.gameSpeed = 0;
     return {
       carryAmount: villager.carryAmount,
       carryType: villager.carryType,
       state: villager.state,
       dropsite: { x: dropsite.x, y: dropsite.y, type: dropsite.getData('def')?.type },
-      gameSpeed: scene.gameSpeed,
+      gameSpeed: restoredSpeed,
     };
   }, { carryGold: CARRY_GOLD, townCenterType: TOWN_CENTER, savedDropsite: beforeSave.dropsite });
 
-  if (restored.gameSpeed !== 0) throw new Error(`Reload did not preserve paused acceptance snapshot: ${restored.gameSpeed}.`);
+  if (restored.gameSpeed !== 0.5) throw new Error(`Reload did not preserve playable acceptance speed: ${restored.gameSpeed}.`);
 
   // CARRYING recovery is cadence-bound. Drive one real retry tick while the
   // outer game remains paused, then assert the durable economy result.
@@ -203,7 +208,7 @@ try {
     if (settledGold !== markerGold + carryGold) {
       throw new Error(`Reloaded carry settled incorrectly: expected ${markerGold + carryGold}, got ${settledGold}.`);
     }
-    if (scene.gameSpeed !== 0) throw new Error(`Carry settlement unexpectedly advanced the paused game: ${scene.gameSpeed}.`);
+    if (scene.gameSpeed !== 0) throw new Error(`Carry settlement unexpectedly advanced the harness freeze: ${scene.gameSpeed}.`);
     return {
       gold: settledGold,
       deposited: settledGold - markerGold,

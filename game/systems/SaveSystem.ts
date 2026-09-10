@@ -629,6 +629,77 @@ function getIsoCenter(scene: MainScene): { x: number; y: number } {
 
 // ─── localStorage ───────────────────────────────────────────────────────
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasFiniteResources(value: unknown): boolean {
+  return isRecord(value)
+    && isFiniteNumber(value.wood)
+    && isFiniteNumber(value.food)
+    && isFiniteNumber(value.gold);
+}
+
+/**
+ * Version equality is not sufficient evidence that arbitrary JSON can safely
+ * initialize and restore a playable world. Validate every top-level field that
+ * scene startup and deserialization consume unconditionally; subsystem-specific
+ * nested entity details remain owned by their existing restore paths.
+ */
+export function isCurrentSaveShape(value: unknown): value is SaveGame {
+  if (!isRecord(value) || value.version !== SAVE_VERSION) return false;
+
+  return isFiniteNumber(value.timestamp)
+    && typeof value.faction === 'string'
+    && typeof value.enemyFaction === 'string'
+    && typeof value.mapMode === 'string'
+    && typeof value.mapSize === 'string'
+    && typeof value.fowEnabled === 'boolean'
+    && typeof value.peacefulMode === 'boolean'
+    && isFiniteNumber(value.treatyLength)
+    && typeof value.aiDisabled === 'boolean'
+    && isFiniteNumber(value.mapSeed)
+    && typeof value.mapPreset === 'string'
+    && isFiniteNumber(value.gameTime)
+    && typeof value.currentAge === 'string'
+    && isFiniteNumber(value.ageProgress)
+    && typeof value.isAdvancing === 'boolean'
+    && (value.nextAge === null || typeof value.nextAge === 'string')
+    && typeof value.currentSeason === 'string'
+    && isFiniteNumber(value.seasonTimer)
+    && hasFiniteResources(value.resources)
+    && isFiniteNumber(value.population)
+    && isFiniteNumber(value.happiness)
+    && isFiniteNumber(value.gameSpeed)
+    && value.gameSpeed > 0
+    && Array.isArray(value.units)
+    && Array.isArray(value.buildings)
+    && isRecord(value.research)
+    && Array.isArray(value.research.completedPlayer)
+    && Array.isArray(value.research.completedAI)
+    && isRecord(value.aiState)
+    && isFiniteNumber(value.dominanceProgress)
+    && isFiniteNumber(value.playerTerritoryPercent)
+    && typeof value.gameResult === 'string'
+    && typeof value.victoryType === 'string';
+}
+
+function parseStoredSave(raw: string): SaveGame | null {
+  const parsed: unknown = JSON.parse(raw);
+  if (isCurrentSaveShape(parsed)) return parsed;
+
+  if (isRecord(parsed) && parsed.version !== SAVE_VERSION) {
+    console.warn('[SaveSystem] Incompatible save version:', parsed.version);
+  } else {
+    console.warn('[SaveSystem] Invalid save structure.');
+  }
+  return null;
+}
+
 export function saveToLocalStorage(save: SaveGame): void {
   localStorage.setItem(SAVE_KEY, JSON.stringify(save));
 }
@@ -637,12 +708,7 @@ export function loadFromLocalStorage(): SaveGame | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
-    const save = JSON.parse(raw) as SaveGame;
-    if (save.version !== SAVE_VERSION) {
-      console.warn('[SaveSystem] Incompatible save version:', save.version);
-      return null;
-    }
-    return save;
+    return parseStoredSave(raw);
   } catch (e) {
     console.error('[SaveSystem] Failed to load:', e);
     return null;
@@ -651,28 +717,23 @@ export function loadFromLocalStorage(): SaveGame | null {
 
 export function hasSave(): boolean {
   try {
-    return localStorage.getItem(SAVE_KEY) !== null;
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? parseStoredSave(raw) !== null : false;
   } catch {
     return false;
   }
 }
 
 export function getSaveMeta(): { timestamp: number; faction: FactionType; mapSeed: number; mapPreset: MapPreset; currentAge: Age } | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const save = JSON.parse(raw) as SaveGame;
-    if (save.version !== SAVE_VERSION) return null;
-    return {
-      timestamp: save.timestamp,
-      faction: save.faction,
-      mapSeed: save.mapSeed,
-      mapPreset: save.mapPreset,
-      currentAge: save.currentAge,
-    };
-  } catch {
-    return null;
-  }
+  const save = loadFromLocalStorage();
+  if (!save) return null;
+  return {
+    timestamp: save.timestamp,
+    faction: save.faction,
+    mapSeed: save.mapSeed,
+    mapPreset: save.mapPreset,
+    currentAge: save.currentAge,
+  };
 }
 
 export function clearSave(): void {
