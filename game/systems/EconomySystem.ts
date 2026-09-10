@@ -400,6 +400,12 @@ export class EconomySystem {
         const taxImpact = [0, 0, -1, -3, -6, -10];
         happinessChange += (taxImpact[this.scene.taxRate] || 0);
 
+        // A fed, uncrowded village can recover from a crisis by forgoing taxes.
+        // Keep the existing penalties intact while any pressure remains.
+        if (happinessChange === 0 && !isStarving && this.scene.taxRate === 0) {
+            happinessChange = 1;
+        }
+
         // Civil Service: -30% happiness decay (applies to negative changes only)
         const decayMult = this.scene.researchManager?.getSnapshot(0).happinessDecayMult ?? 1;
         if (happinessChange < 0) happinessChange = Math.round(happinessChange * decayMult);
