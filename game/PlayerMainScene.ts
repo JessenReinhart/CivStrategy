@@ -1,3 +1,4 @@
+import { EVENTS } from '../constants';
 import { UnitType } from '../types';
 import { createGameLoadFailureDetail, dispatchGameLoadProgress } from '../utils/gameLoading';
 import { bootstrapPlayerScene } from './bootstrap/PlayerSceneBootstrap';
@@ -58,7 +59,15 @@ export class PlayerMainScene extends MainScene {
         try {
           super.handleUnitSpawnRequest(type);
         } finally {
-          this.inputManager.selectedBuilding = selectedBuilding;
+          if (selectedBuilding?.active === false) {
+            // Destroyed Phaser objects can outlive the selection reference. Do not
+            // restore one after training, and notify React so its building panel
+            // cannot keep advertising actions for a building that no longer exists.
+            this.inputManager.selectedBuilding = null;
+            this.game.events.emit(EVENTS.BUILDING_SELECTED, null);
+          } else {
+            this.inputManager.selectedBuilding = selectedBuilding;
+          }
         }
       },
     });
