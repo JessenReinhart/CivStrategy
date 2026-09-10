@@ -80,9 +80,41 @@ describe('SaveSystem storage helpers', () => {
     expect(storage.has(PENDING_LOAD_KEY)).toBe(false);
   });
 
+  it('accepts ordinary serialized unit and building records', () => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      units: [{
+        type: 'Villager', owner: 0, x: 12, y: 14, hp: 100, maxHp: 100,
+        state: 'idle', stance: 'Hold',
+      }],
+      buildings: [{
+        type: 'House', owner: 0, x: 20, y: 24, hp: 250, maxHp: 250, workers: 0,
+      }],
+    }));
+
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({
+      units: [{ type: 'Villager', owner: 0 }],
+      buildings: [{ type: 'House', owner: 0 }],
+    });
+  });
+
   it('rejects a version-compatible save that is missing required runtime state', () => {
     storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
 
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
+  it('rejects malformed entity records before Continue can expose them', () => {
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, units: [null] }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      buildings: [{ type: 'Not A Building', owner: 0, x: 10, y: 10, hp: 100, maxHp: 100 }],
+    }));
     expect(hasSave()).toBe(false);
     expect(loadFromLocalStorage()).toBeNull();
   });
