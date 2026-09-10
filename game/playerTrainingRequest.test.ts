@@ -54,7 +54,8 @@ describe('player training request population gate', () => {
 });
 
 describe('player training building selection', () => {
-  const building = (type: BuildingType, owner: number) => ({
+  const building = (type: BuildingType, owner: number, active = true) => ({
+    active,
     getData: (key: string) => {
       if (key === 'def') return { type };
       if (key === 'owner') return owner;
@@ -62,10 +63,16 @@ describe('player training building selection', () => {
     },
   });
 
-  it('keeps a selected player Barracks as the preferred training source', () => {
+  it('keeps an active selected player Barracks as the preferred training source', () => {
     const playerBarracks = building(BuildingType.BARRACKS, 0);
 
     expect(getPlayerTrainingSelectedBuilding(playerBarracks)).toBe(playerBarracks);
+  });
+
+  it('rejects an inactive selected player Barracks so training falls back to a live source', () => {
+    const destroyedPlayerBarracks = building(BuildingType.BARRACKS, 0, false);
+
+    expect(getPlayerTrainingSelectedBuilding(destroyedPlayerBarracks)).toBeNull();
   });
 
   it('rejects a selected enemy Barracks so training can fall back to a player Barracks', () => {
