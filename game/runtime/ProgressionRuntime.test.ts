@@ -388,7 +388,7 @@ describe('createMainSceneProgressionBridge', () => {
 
     // First window at now=1000 — garrison should not fire (1000 < CASTLE_GARRISON_FIRE_INTERVAL)
     host.update(1000, 1000);
-    let scene = mockScene as unknown as { fireGarrison: ReturnType<typeof vi.fn> };
+    const scene = mockScene as unknown as { fireGarrison: ReturnType<typeof vi.fn> };
     expect(scene.fireGarrison).not.toHaveBeenCalled();
 
     // Second window at now=4000 — garrison fires (4000 >= 3000)
