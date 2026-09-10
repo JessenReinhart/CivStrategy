@@ -120,6 +120,31 @@ describe('ProgressionRuntime', () => {
     expect(services.events).toContain('seasonSetElapsed');
   });
 
+  it('catches up each elapsed 1s window after a recoverable multi-second stall', () => {
+    const services = createServices();
+    const runtime = new ProgressionRuntime();
+
+    runtime.update(createContext(services, 3000, 3000));
+
+    expect(services.events.filter((event) => event === 'victoryCheck')).toHaveLength(3);
+    expect(services.events.filter((event) => event === 'economyTick')).toHaveLength(3);
+    expect(services.events.filter((event) => event === 'researchTick')).toHaveLength(3);
+    expect(services.events.filter((event) => event === 'assignJobs')).toHaveLength(3);
+    expect(services.season.elapsed).toBe(3000);
+  });
+
+  it('bounds catch-up work per frame and preserves the remaining backlog', () => {
+    const services = createServices();
+    const runtime = new ProgressionRuntime();
+
+    runtime.update(createContext(services, 7000, 7000));
+    expect(services.events.filter((event) => event === 'economyTick')).toHaveLength(5);
+
+    runtime.update(createContext(services, 7016, 16));
+    expect(services.events.filter((event) => event === 'economyTick')).toHaveLength(7);
+    expect(services.season.elapsed).toBe(7000);
+  });
+
   it('preserves 1s window ordering', () => {
     const services = createServices();
     const runtime = new ProgressionRuntime();
@@ -368,7 +393,6 @@ describe('createMainSceneProgressionBridge', () => {
 
     // Second window at now=4000 — garrison fires (4000 >= 3000)
     host.update(4000, 1000);
-    scene = mockScene as unknown as { fireGarrison: ReturnType<typeof vi.fn> };
     expect(scene.fireGarrison).toHaveBeenCalledTimes(1);
   });
 
