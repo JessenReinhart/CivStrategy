@@ -174,6 +174,16 @@ describe('SaveSystem storage helpers', () => {
     }));
     expect(hasSave()).toBe(false);
     expect(loadFromLocalStorage()).toBeNull();
+
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      aiState: {
+        ...aiState,
+        resources: { wood: 'broken', food: 500, gold: 500 },
+      },
+    }));
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
   });
 
   it('propagates failed save writes to the caller', () => {
