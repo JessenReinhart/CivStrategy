@@ -170,6 +170,7 @@ export const GameUI: React.FC<GameUIProps> = ({
     }, [selectedCount, selectedBuildingType, activeCategory]);
 
     const hasSelection = selectedCount > 0 || selectedBuildingType !== null;
+    const isPlayerBuildingSelected = selectedBuildingType !== null && stats.selectedBuildingOwner === 0;
 
     // Format Time
     const formatTime = (ms: number) => {
@@ -487,6 +488,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         <p className="text-xs text-stone-400 italic leading-tight mt-1">
                                             {BUILDINGS[selectedBuildingType].description}
                                         </p>
+                                        {stats.selectedBuildingOwner !== null && stats.selectedBuildingOwner !== undefined && stats.selectedBuildingOwner !== 0 && (
+                                            <span className="text-[10px] font-bold text-red-300 bg-red-950/40 border border-red-500/20 px-1.5 py-0.5 rounded w-fit mt-1.5">
+                                                Enemy structure · inspection only
+                                            </span>
+                                        )}
                                         {stats.selectedBuildingInfo && (
                                             <div className="flex items-center gap-2 mt-1.5">
                                                 {stats.selectedBuildingInfo.hasWorker ? (
@@ -552,12 +558,12 @@ export const GameUI: React.FC<GameUIProps> = ({
                             {/* Actions Section */}
                             <div className="flex items-center gap-2 px-2 border-l border-white/10">
                                 {/* Building Actions */}
-                                {selectedBuildingType === BuildingType.LUMBER_CAMP && (
+                                {isPlayerBuildingSelected && selectedBuildingType === BuildingType.LUMBER_CAMP && (
                                     <ActionButton onClick={onRegrowForest} icon={<Sprout size={18} />} label="Regrow" color="text-emerald-400" />
                                 )}
 
                                 {/* Barracks Actions */}
-                                {selectedBuildingType === BuildingType.BARRACKS && (
+                                {isPlayerBuildingSelected && selectedBuildingType === BuildingType.BARRACKS && (
                                     <div className="flex gap-1 border-r border-white/10 pr-2 mr-2">
                                         <TrainButton
                                             label="Pikesman"
@@ -628,8 +634,8 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     </div>
                                 )}
 
-                                {/* Demolish Action (Only for buildings) */}
-                                {selectedBuildingType && (
+                                {/* Demolish Action (Only for player buildings) */}
+                                {isPlayerBuildingSelected && selectedBuildingType && (
                                     <ActionButton onClick={onDemolishSelected} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
                                 )}
 
@@ -677,12 +683,12 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         </div>
                                     </div>
                                 )}
-                                {selectedBuildingType === BuildingType.BARRACKS && (
+                                {isPlayerBuildingSelected && selectedBuildingType === BuildingType.BARRACKS && (
                                     <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
                                         Right Click map to set waypoint
                                     </div>
                                 )}
-                                {selectedBuildingType === BuildingType.CASTLE && (
+                                {isPlayerBuildingSelected && selectedBuildingType === BuildingType.CASTLE && (
                                     <div className="flex flex-col gap-1.5 items-end">
                                         <div className="flex items-center gap-2">
                                             <span className="text-[10px] font-bold text-amber-400 bg-amber-900/30 px-2 py-1 rounded">

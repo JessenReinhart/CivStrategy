@@ -454,6 +454,7 @@ export class EconomySystem {
 
     public updateStats() {
         const remainingTreaty = Math.max(0, this.scene.treatyLength - this.scene.gameTime);
+        const selB = this.scene.inputManager?.selectedBuilding as Phaser.GameObjects.Image | null;
 
         const stats: GameStats = {
             population: this.scene.population,
@@ -480,6 +481,7 @@ export class EconomySystem {
                 return { techId: active.techId, progress: 1 - active.remainingMs / active.totalMs, duration: active.totalMs };
             })(),
             completedTechs: [...(this.scene.researchManager?.getSnapshot(0).completed ?? [])],
+            selectedBuildingOwner: selB ? (selB.getData('owner') as number) : null,
             gameResult: this.scene.gameResult,
             dominanceProgress: this.scene.dominanceProgress,
             playerTerritoryPercent: this.scene.playerTerritoryPercent,
@@ -488,7 +490,6 @@ export class EconomySystem {
         };
 
         // Selected building info for UI display
-        const selB = this.scene.inputManager?.selectedBuilding as Phaser.GameObjects.Image | null;
         if (selB && selB.getData('owner') === 0) {
             const def = selB.getData('def') as BuildingDef;
             if (def.effectRadius) {
