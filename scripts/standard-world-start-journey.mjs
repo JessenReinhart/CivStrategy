@@ -120,15 +120,51 @@ function assertCoherentSpeed(speed, expected, label) {
   }
 }
 
+async function readSpeedInputDiagnostic(page) {
+  return page.evaluate(() => {
+    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+    const active = document.activeElement;
+    return {
+      activeElement: active?.tagName ?? null,
+      activeInputType: active instanceof HTMLInputElement ? active.type : null,
+      sceneActive: scene?.scene?.isActive?.() ?? null,
+      gameSpeed: scene?.gameSpeed,
+      physicsTimeScale: scene?.physics?.world?.timeScale,
+      tweenTimeScale: scene?.tweens?.timeScale,
+      keyEvents: window.__standardWorldSpeedKeyEvents ?? [],
+    };
+  });
+}
+
 async function requireSpeedInput(page) {
   const initial = await readRuntimeSpeed(page);
   assertCoherentSpeed(initial, 1, 'Fresh game');
 
+  await page.evaluate(() => {
+    window.__standardWorldSpeedKeyEvents = [];
+    window.addEventListener('keydown', (event) => {
+      window.__standardWorldSpeedKeyEvents.push({
+        key: event.key,
+        code: event.code,
+        target: event.target instanceof Element ? event.target.tagName : null,
+        defaultPrevented: event.defaultPrevented,
+      });
+    }, { capture: true, once: true });
+  });
+
   await page.keyboard.press('=');
-  await page.waitForFunction(() => {
-    const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return scene?.gameSpeed === 2 && scene?.tweens?.timeScale === 2;
-  }, undefined, { timeout: 5_000 });
+  try {
+    await page.waitForFunction(() => {
+      const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
+      return scene?.gameSpeed === 2 && scene?.tweens?.timeScale === 2;
+    }, undefined, { timeout: 5_000 });
+  } catch (error) {
+    const diagnostic = await readSpeedInputDiagnostic(page);
+    throw new Error(
+      `Speed-up input did not reach coherent 2x runtime state. Diagnostic: ${JSON.stringify(diagnostic)}`,
+      { cause: error },
+    );
+  }
   const accelerated = await readRuntimeSpeed(page);
   assertCoherentSpeed(accelerated, 2, 'Speed-up control');
 

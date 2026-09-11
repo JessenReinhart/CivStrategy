@@ -470,6 +470,7 @@ export class EconomySystem {
             resources: { ...this.scene.resources },
             rates: this.lastRates,
             taxRate: this.scene.taxRate,
+            gameSpeed: this.scene.gameSpeed,
             mapMode: this.scene.mapMode,
             peacefulMode: this.scene.peacefulMode,
             treatyTimeRemaining: remainingTreaty,
