@@ -121,7 +121,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
     // Keyboard shortcuts for game speed
     useEffect(() => {
-        const SPEED_OPTIONS = [0.5, 0.75, 1, 1.5, 2, 2.5, 3];
+        const SPEED_OPTIONS = [0.5, 0.75, 1, 2, 3];
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === '=' || e.key === '+') {
