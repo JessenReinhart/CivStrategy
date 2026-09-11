@@ -57,7 +57,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     // Speed shortcuts belong to the running-game bridge rather than HUD mount timing.
     // The HUD appears after loading, but its passive effects may not have installed a
     // key listener yet; keeping this bridge live for the Phaser session makes input
-    // available as soon as the simulation is ready and republishes authoritative stats.
+    // available as soon as the simulation is ready.
     const speedOptions = [0.5, 0.75, 1, 2, 3] as const;
     const handleSpeedKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
@@ -80,12 +80,13 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       if (nextSpeed === scene.gameSpeed) return;
 
       event.preventDefault();
-      // GameUI retains button ownership and its legacy key listener for now. This
-      // session-level handler is registered first, so stop duplicate stepping while
-      // the authoritative value flows back to the HUD through UPDATE_STATS.
-      event.stopImmediatePropagation();
       game.events.emit(EVENTS.SET_GAME_SPEED, nextSpeed);
-      scene.economySystem?.updateStats();
+
+      // GameUI still observes the same native key event and mirrors the same target
+      // into its local control state. Publish the authoritative snapshot only after
+      // that propagation finishes; publishing synchronously would make the UI see 2x
+      // before handling the original '=' key and incorrectly step again to 3x.
+      queueMicrotask(() => scene.economySystem?.updateStats());
     };
     window.addEventListener('keydown', handleSpeedKeyDown);
 
