@@ -471,8 +471,9 @@ export class EntityFactory {
                 }
                 this.scene.proceduralSound.playDemolition((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.scene.pathfinder.markGrid((entity as any).x, (entity as any).y, def.width, def.height, false); // eslint-disable-line @typescript-eslint/no-explicit-any
-                if (entity.getData('owner') === 0 && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
-                if (entity.getData('owner') === 0 && def.happinessBonus) {
+                const hadBuildingBenefits = entity.getData('constructionComplete') !== false;
+                if (entity.getData('owner') === 0 && hadBuildingBenefits && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
+                if (entity.getData('owner') === 0 && hadBuildingBenefits && def.happinessBonus) {
                     this.scene.happiness = Math.max(0, this.scene.happiness - def.happinessBonus);
                 }
 
