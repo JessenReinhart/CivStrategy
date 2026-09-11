@@ -3,6 +3,7 @@ import React, { useEffect, useRef } from 'react';
 import Phaser from 'phaser';
 import { PlayerMainScene } from '../game/PlayerMainScene';
 import { FactionType, MapMode, MapSize, MapPreset } from '../types';
+import { EVENTS } from '../constants';
 import { attachPhaserGameProbe } from '../utils/phaserGameProbe';
 import { attachPhaserReadyHandler } from '../utils/phaserReadyLifecycle';
 
@@ -53,6 +54,41 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       : () => undefined;
     gameRef.current = game;
 
+    // Speed shortcuts belong to the running-game bridge rather than HUD mount timing.
+    // The HUD appears after loading, but its passive effects may not have installed a
+    // key listener yet; keeping this bridge live for the Phaser session makes input
+    // available as soon as the simulation is ready and republishes authoritative stats.
+    const speedOptions = [0.5, 0.75, 1, 2, 3] as const;
+    const handleSpeedKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+      const direction = event.key === '=' || event.key === '+'
+        ? 1
+        : event.key === '-' || event.key === '_'
+          ? -1
+          : 0;
+      if (direction === 0) return;
+
+      const scene = game.scene.getScene('MainScene') as PlayerMainScene | undefined;
+      if (!scene || !scene.scene.isActive() || typeof scene.gameSpeed !== 'number') return;
+
+      const currentIndex = speedOptions.indexOf(scene.gameSpeed as typeof speedOptions[number]);
+      if (currentIndex < 0) return;
+
+      const nextIndex = Math.max(0, Math.min(speedOptions.length - 1, currentIndex + direction));
+      const nextSpeed = speedOptions[nextIndex];
+      if (nextSpeed === scene.gameSpeed) return;
+
+      event.preventDefault();
+      // GameUI retains button ownership and its legacy key listener for now. This
+      // session-level handler is registered first, so stop duplicate stepping while
+      // the authoritative value flows back to the HUD through UPDATE_STATS.
+      event.stopImmediatePropagation();
+      game.events.emit(EVENTS.SET_GAME_SPEED, nextSpeed);
+      scene.economySystem?.updateStats();
+    };
+    window.addEventListener('keydown', handleSpeedKeyDown);
+
     // Seed the explicit React stress config before MainScene.init() runs. The
     // scene's legacy development URL fallback only executes when this is null.
     const mainScene = new PlayerMainScene();
@@ -80,6 +116,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     });
 
     return () => {
+      window.removeEventListener('keydown', handleSpeedKeyDown);
       removeReadyHandler();
       removeGameProbe();
       game.destroy(true);
