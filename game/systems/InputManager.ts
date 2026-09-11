@@ -147,7 +147,16 @@ export class InputManager {
     }
 
     public update(delta: number) {
+        this.pruneInactiveSelectedUnits();
         this.handleCameraMovement(delta);
+    }
+
+    private pruneInactiveSelectedUnits() {
+        const activeUnits = this.selectedUnits.filter((unit) => unit.active);
+        if (activeUnits.length === this.selectedUnits.length) return;
+
+        this.selectedUnits = activeUnits;
+        this.emitSelectionChanged();
     }
 
     private handleZoom(deltaY: number) {
