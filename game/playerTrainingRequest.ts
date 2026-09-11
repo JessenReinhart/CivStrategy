@@ -8,6 +8,7 @@ export interface PlayerTrainingRequest {
 }
 
 export interface TrainingBuildingSelection {
+  active?: boolean;
   getData: (key: string) => unknown;
 }
 
@@ -25,10 +26,16 @@ export function handlePlayerTrainingRequest(request: PlayerTrainingRequest): boo
   return true;
 }
 
+/**
+ * A selected Barracks is only a valid fast-path source while the Phaser object
+ * is still active. Destroyed buildings can remain referenced by InputManager
+ * after combat or demolition, but training must fall back to a live player
+ * Barracks instead of spawning from that stale object.
+ */
 export function getPlayerTrainingSelectedBuilding<T extends TrainingBuildingSelection>(
   selectedBuilding: T | null,
 ): T | null {
-  if (!selectedBuilding) return null;
+  if (!selectedBuilding || selectedBuilding.active === false) return null;
 
   const definition = selectedBuilding.getData('def') as { type?: BuildingType } | undefined;
   const owner = selectedBuilding.getData('owner');
