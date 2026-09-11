@@ -276,6 +276,38 @@ describe('VillagerSystem resource production', () => {
         expect(villager.state).toBe(GATHERING);
     });
 
+    it('recovers a carried load when its assigned dropsite is destroyed', () => {
+        const camp = makeBuilding(LUMBER_CAMP, 0, 0);
+        const villager = makeVillager(100, 0);
+        const depositResource = vi.fn();
+        const findPath = vi.fn();
+        const system = new VillagerSystem(makeScene(findPath, [], depositResource));
+
+        (system as unknown as { villagers: VillagerData[] }).villagers.push(villager);
+        villager.jobBuilding = camp as never;
+        villager.state = CARRYING as VillagerData['state'];
+        villager.carryType = 'wood';
+        villager.carryAmount = 12;
+        villager.path = [{ x: camp.x, y: camp.y }];
+        villager.pathStep = 0;
+        camp.active = false;
+
+        system.update(0, 16);
+
+        expect(depositResource).toHaveBeenCalledTimes(1);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 12);
+        expect(findPath).not.toHaveBeenCalled();
+        expect(villager.carryAmount).toBe(0);
+        expect(villager.carryType).toBeNull();
+        expect(villager.jobBuilding).toBeUndefined();
+        expect(villager.path).toBeUndefined();
+        expect(villager.state).toBe(IDLE);
+        expect(system.getIdleVillagers(0)).toContain(villager);
+
+        system.update(16, 500);
+        expect(depositResource).toHaveBeenCalledTimes(1);
+    });
+
     it('returns a final partial gold load when the source exhausts before carry capacity', () => {
         const townCenter = makeBuilding(TOWN_CENTER, 0, 0);
         const mine = makeGoldMine(10, 0, 1);
