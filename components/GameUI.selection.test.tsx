@@ -21,7 +21,7 @@ const baseStats: GameStats = {
   resources: { wood: 500, food: 500, gold: 500 },
   rates: { wood: 0, food: 0, gold: 0, foodConsumption: 0 },
   taxRate: 0,
-  gameSpeed: 0.75,
+  gameSpeed: 1,
   mapMode: MapMode.FIXED,
   peacefulMode: false,
   treatyTimeRemaining: 0,
@@ -38,9 +38,9 @@ const baseStats: GameStats = {
   gameResult: GameResult.PLAYING,
 };
 
-const renderSelectedBuilding = (type: BuildingType, owner: number) => renderToStaticMarkup(
+const renderSelectedBuilding = (type: BuildingType, owner: number, gameSpeed = baseStats.gameSpeed) => renderToStaticMarkup(
   <GameUI
-    stats={{ ...baseStats, selectedBuildingOwner: owner }}
+    stats={{ ...baseStats, gameSpeed, selectedBuildingOwner: owner }}
     onBuild={() => undefined}
     onSpawnUnit={() => undefined}
     onToggleDemolish={() => undefined}
@@ -88,8 +88,8 @@ describe('GameUI selected building command ownership', () => {
     expect(hostileCastle).not.toContain('Right Click with units to garrison');
   });
 
-  it('renders the authoritative simulation speed instead of an independent UI default', () => {
-    const html = renderSelectedBuilding(BuildingType.BARRACKS, 0);
+  it('renders a restored authoritative simulation speed instead of an independent UI default', () => {
+    const html = renderSelectedBuilding(BuildingType.BARRACKS, 0, 0.75);
 
     expect(html).toContain('Set speed 0.75×');
     expect(html).toContain('0.75x');
