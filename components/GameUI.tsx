@@ -50,13 +50,17 @@ export const GameUI: React.FC<GameUIProps> = ({
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
-    const [gameSpeed, setGameSpeed] = useState(1);
+    const [gameSpeed, setGameSpeed] = useState(stats.gameSpeed);
     const [showTax, setShowTax] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [showResearch, setShowResearch] = useState(false);
     const [showTreeView, setShowTreeView] = useState(true);
     const [ageCelebration, setAgeCelebration] = useState<string | null>(null);
     const prevAgeRef = useRef(stats.currentAge);
+
+    useEffect(() => {
+        setGameSpeed(stats.gameSpeed);
+    }, [stats.gameSpeed]);
 
     // Detect age advancement and show celebration banner
     useEffect(() => {
@@ -117,7 +121,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
     // Keyboard shortcuts for game speed
     useEffect(() => {
-        const SPEED_OPTIONS = [1, 2, 3];
+        const SPEED_OPTIONS = [0.5, 0.75, 1, 1.5, 2, 2.5, 3];
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
             if (e.key === '=' || e.key === '+') {
@@ -312,6 +316,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         </button>
                         {[
                             { speed: 0.5, icon: '▸', label: '0.5×' },
+                            { speed: 0.75, icon: '▸', label: '0.75×' },
                             { speed: 1, icon: '▶', label: '1×' },
                             { speed: 2, icon: '▶▶', label: '2×' },
                             { speed: 3, icon: '▶▶▶', label: '3×' },
@@ -338,7 +343,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <Plus size={14} />
                         </button>
                         <span className="ml-1 text-amber-400 font-mono text-[10px] font-bold tabular-nums">
-                            {gameSpeed.toFixed(1)}x
+                            {gameSpeed.toFixed(gameSpeed === 0.75 ? 2 : 1)}x
                         </span>
                     </div>
 

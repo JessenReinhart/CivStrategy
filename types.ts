@@ -117,6 +117,7 @@ export interface GameStats {
   resources: Resources;
   rates: ResourceRates;
   taxRate: number;
+  gameSpeed: number;
   mapMode: MapMode;
   peacefulMode: boolean;
   treatyTimeRemaining: number; // (ms)
