@@ -743,6 +743,8 @@ export function isCurrentSaveShape(value: unknown): value is SaveGame {
     && isFiniteNumber(value.happiness)
     && isFiniteNumber(value.gameSpeed)
     && value.gameSpeed > 0
+    && isOptionalFiniteNumber(value.taxRate)
+    && isOptionalFiniteNumber(value.bloomIntensity)
     && Array.isArray(value.units)
     && value.units.every(isSerializedUnitShape)
     && Array.isArray(value.buildings)

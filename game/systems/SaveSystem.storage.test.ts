@@ -162,6 +162,28 @@ describe('SaveSystem storage helpers', () => {
     expect(loadFromLocalStorage()).toMatchObject({ aiState: legacyAIState });
   });
 
+  it('accepts finite optional runtime scalars while legacy saves may omit them', () => {
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, taxRate: 0.25, bloomIntensity: 0.8 }));
+
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({ taxRate: 0.25, bloomIntensity: 0.8 });
+
+    storage.set(SAVE_KEY, JSON.stringify(save));
+    expect(hasSave()).toBe(true);
+  });
+
+  it.each([
+    ['taxRate', 'broken'],
+    ['taxRate', null],
+    ['bloomIntensity', 'broken'],
+    ['bloomIntensity', null],
+  ] as const)('rejects malformed optional runtime scalar %s before Continue', (field, malformed) => {
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, [field]: malformed }));
+
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
   it('rejects a version-compatible save that is missing required runtime state', () => {
     storage.set(SAVE_KEY, JSON.stringify({ version: 1 }));
 
