@@ -288,7 +288,7 @@ describe('VillagerSystem resource production', () => {
         villager.state = CARRYING as VillagerData['state'];
         villager.carryType = 'wood';
         villager.carryAmount = 12;
-        villager.path = [{ x: camp.x, y: camp.y }];
+        villager.path = [{ x: camp.x, y: camp.y }] as never;
         villager.pathStep = 0;
         camp.active = false;
 
