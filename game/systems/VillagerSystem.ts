@@ -115,6 +115,11 @@ export class VillagerSystem {
     }
 
     private updateVillagerLogic(villager: VillagerData, delta: number): void {
+        if (villager.state === UnitState.CARRYING && villager.jobBuilding && !villager.jobBuilding.active) {
+            this.recoverCarryFromDestroyedDropsite(villager);
+            return;
+        }
+
         // ── PATH FOLLOWING ──
         if (villager.path && villager.path.length > 0) {
             if (villager.pathStep !== undefined && villager.pathStep >= villager.path.length) {
@@ -387,12 +392,28 @@ export class VillagerSystem {
         this.resumeCarryToDropsite(villager);
     }
 
+    private recoverCarryFromDestroyedDropsite(villager: VillagerData): void {
+        // A destroyed dropsite can never recover like a temporarily blocked route.
+        // Preserve already-gathered resources, drop the stale assignment, and make
+        // the worker reusable instead of retrying a dead destination forever.
+        villager.jobBuilding = undefined;
+        villager.path = undefined;
+        villager.pathStep = 0;
+        villager.targetResource = undefined;
+        this.depositCarry(villager);
+    }
+
     private resumeCarryToDropsite(villager: VillagerData): void {
         const bld = villager.jobBuilding;
         if (!bld) {
             // Preserve the existing fallback for orphaned carry state. Normal
             // gather loops keep their assignment, while save/load reconnects it.
             this.depositCarry(villager);
+            return;
+        }
+
+        if (!bld.active) {
+            this.recoverCarryFromDestroyedDropsite(villager);
             return;
         }
 
