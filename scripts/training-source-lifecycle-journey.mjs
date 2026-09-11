@@ -93,7 +93,9 @@ try {
     // follow-up player action. Critical building UI must clear on its own.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const selectionClearedBeforeTraining = scene.inputManager.selectedBuilding === null;
-    const selectionEventBeforeTraining = buildingSelectionEvents.at(-1) ?? 'missing';
+    const selectionEventBeforeTraining = buildingSelectionEvents.length > 0
+      ? buildingSelectionEvents.at(-1)
+      : 'missing';
 
     const unitsBefore = new Set(scene.units.getChildren());
     const foodBefore = scene.resources.food;
