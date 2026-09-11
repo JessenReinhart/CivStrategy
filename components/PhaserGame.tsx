@@ -55,9 +55,8 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     gameRef.current = game;
 
     // Speed shortcuts belong to the running-game bridge rather than HUD mount timing.
-    // The HUD appears after loading, but its passive effects may not have installed a
-    // key listener yet; keeping this bridge live for the Phaser session makes input
-    // available as soon as the simulation is ready.
+    // Capture them before HUD-level key listeners so exactly one owner advances the
+    // authoritative simulation speed for each physical key press.
     const speedOptions = [0.5, 0.75, 1, 2, 3] as const;
     const handleSpeedKeyDown = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
@@ -80,15 +79,13 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       if (nextSpeed === scene.gameSpeed) return;
 
       event.preventDefault();
+      // Keep capture-phase diagnostics observable, but prevent the event from reaching
+      // the legacy HUD bubble listener and double-stepping 1x -> 2x -> 3x.
+      event.stopPropagation();
       game.events.emit(EVENTS.SET_GAME_SPEED, nextSpeed);
-
-      // GameUI still observes the same native key event and mirrors the same target
-      // into its local control state. Publish the authoritative snapshot only after
-      // that propagation finishes; publishing synchronously would make the UI see 2x
-      // before handling the original '=' key and incorrectly step again to 3x.
-      queueMicrotask(() => scene.economySystem?.updateStats());
+      scene.economySystem?.updateStats();
     };
-    window.addEventListener('keydown', handleSpeedKeyDown);
+    window.addEventListener('keydown', handleSpeedKeyDown, true);
 
     // Seed the explicit React stress config before MainScene.init() runs. The
     // scene's legacy development URL fallback only executes when this is null.
@@ -117,7 +114,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
     });
 
     return () => {
-      window.removeEventListener('keydown', handleSpeedKeyDown);
+      window.removeEventListener('keydown', handleSpeedKeyDown, true);
       removeReadyHandler();
       removeGameProbe();
       game.destroy(true);
