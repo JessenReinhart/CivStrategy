@@ -123,8 +123,8 @@ describe('GameUI selected building command ownership', () => {
     const html = renderNotifications();
 
     expect(html).toContain('Recent events');
-    expect(html).toContain('ECONOMY');
-    expect(html).toContain('MILITARY');
+    expect(html).toContain('Economy');
+    expect(html).toContain('Military');
     expect(html).toContain('Dismiss notification: Enemy forces are approaching!');
     expect(html.indexOf('Enemy forces are approaching!')).toBeLessThan(html.indexOf('Food stockpile is running low'));
     expect(html).toContain('hud-notification-card');
