@@ -39,6 +39,11 @@
         box-shadow: 0 18px 48px rgba(0, 0, 0, .28), inset 0 1px rgba(255,255,255,.04);
         backdrop-filter: blur(16px) saturate(115%);
       }
+      .hud-resource-ribbon {
+        background: linear-gradient(180deg, rgba(23, 20, 16, .94), rgba(11, 10, 9, .92));
+        border: 1px solid rgba(212, 175, 55, .25);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, .45), inset 0 1px rgba(255, 255, 255, .08);
+      }
       .hud-kicker {
         color: var(--hud-muted);
         font-size: 9px;
@@ -48,43 +53,99 @@
       }
       .hud-rule { background: var(--hud-line); }
 
-      /*
-       * HUD collision lanes.
-       * GameUI currently owns several independent absolute overlays. Keep the
-       * transient event rail beside the system-controls lane rather than under
-       * it, and keep popovers from growing through neighboring HUD elements.
-       */
-      body .absolute.top-20.right-4:has(> .hud-kicker) {
-        top: 6rem !important;
-        right: 23rem !important;
+      /* Reserve the clock's 208px lane, then align the three primary HUD groups
+         on one shared baseline. This prevents independent absolute offsets from
+         drifting into each other as the HUD grows. */
+      .hud-top-row {
+        position: absolute;
+        top: 1.5rem;
+        left: 15.5rem;
+        right: 1.5rem;
+        z-index: 30;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .75rem;
+        pointer-events: none;
+      }
+      .hud-resource-panel,
+      .hud-status-rail,
+      .hud-controls-rail {
+        flex: 0 0 auto;
+      }
+      .hud-dominance {
+        position: absolute;
+        top: 4rem;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      /* On narrower desktop widths, keep resources and controls on the main
+         lane and drop status/dominance into a deliberate second lane. */
+      @media (max-width: 1500px) {
+        .hud-status-rail {
+          position: absolute;
+          top: 4rem;
+          left: 0;
+        }
+        .hud-dominance {
+          top: 7.75rem;
+          left: 0;
+          transform: none;
+        }
       }
 
       /* Tax opens to the left of the system-controls cluster. */
-      body .absolute.top-6.right-6 .relative > .absolute.top-12.right-0.w-64 {
+      .hud-controls-rail .relative > .absolute.top-12.right-0.w-64 {
         top: 0 !important;
         right: calc(100% + .75rem) !important;
       }
 
       /* The menu is an overlay, not another item that lengthens the right rail. */
-      body .absolute.top-6.right-6 > .hud-surface.w-56 {
+      .hud-controls-rail > .hud-surface.w-56 {
         position: absolute !important;
         top: 4rem !important;
         right: 0 !important;
       }
 
-      /* Diplomacy is already represented in the resource bar. Remove the
-         duplicate large widget from the contested top-right rail. */
-      body .absolute.top-6.right-6 > .flex.items-center.gap-3.px-4.py-2.rounded-full {
+      /* Diplomacy is already represented in the status rail. Remove the
+         duplicate large widget from the top-right controls lane. */
+      .hud-controls-rail > .flex.items-center.gap-3.px-4.py-2.rounded-full {
         display: none !important;
       }
 
-      @media (max-width: 760px) {
-        body .absolute.top-20.right-4:has(> .hud-kicker) {
-          top: 7.5rem !important;
-          left: 1rem !important;
-          right: auto !important;
-          width: min(18rem, calc(100vw - 2rem)) !important;
-        }
+      .hud-notification-stack {
+        padding-bottom: 2rem;
+        -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 82%, transparent 100%);
+        mask-image: linear-gradient(to bottom, #000 0%, #000 82%, transparent 100%);
+      }
+      .hud-notification-card {
+        position: relative;
+        overflow: hidden;
+        border-radius: .85rem;
+        background: linear-gradient(90deg,
+          rgba(10,10,10,0) 0%,
+          rgba(14,14,14,.82) 5%,
+          rgba(14,14,14,.88) 78%,
+          rgba(14,14,14,0) 100%);
+        box-shadow: inset 0 1px rgba(255,255,255,.055), inset 0 -1px rgba(255,255,255,.035);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        animation: hud-notification-enter 180ms ease-out both;
+      }
+      .hud-notification-card::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,.022), transparent);
+      }
+      @keyframes hud-notification-enter {
+        from { opacity: 0; transform: translateX(10px); }
+        to { transform: translateX(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .hud-notification-card { animation: none; }
       }
 
       /* Disable selection on game container to prevent UI text selection while dragging */

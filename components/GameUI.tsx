@@ -29,6 +29,7 @@ interface GameUIProps {
     nextAge: Age | null;
     onAdvanceAge: () => void;
     onReleaseGarrison?: () => void;
+    onDismissNotification?: (id: number) => void;
 }
 
 const getDamageTag = (type: UnitType): { label: string; color: string } | null => {
@@ -43,10 +44,60 @@ const getDamageTag = (type: UnitType): { label: string; color: string } | null =
     };
     return { label: `${dmgType} ${value}`, color: colors[dmgType] || 'bg-stone-800 text-stone-400' };
 };
+const RESOURCE_TONE: Record<'emerald' | 'amber' | 'gold' | 'blue', string> = {
+    emerald: 'text-emerald-300',
+    amber: 'text-yellow-300',
+    gold: 'text-amber-300',
+    blue: 'text-sky-300',
+};
+
+type GameNotification = GameStats['notifications'][number];
+
+const notificationPresentation = (notification: GameNotification): { category: string; icon: React.ReactNode } => {
+    const text = notification.text.toLowerCase();
+
+    if (notification.personality || notification.senderName) {
+        return { category: notification.senderName ?? 'Diplomacy', icon: <Sword size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('research') || text.includes('technology') || text.includes('tech ')) {
+        return { category: 'Research', icon: <BookOpen size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('treaty') || text.includes('peace') || text.includes('diplom')) {
+        return { category: 'Diplomacy', icon: <Handshake size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('villager') || text.includes('population') || text.includes('happiness') || text.includes('peasant')) {
+        return { category: 'Population', icon: <User size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('enemy') || text.includes('attack') || text.includes('destroyed') || text.includes('lost')) {
+        return { category: 'Military', icon: <Sword size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('built') || text.includes('building') || text.includes('construction')) {
+        return { category: 'Construction', icon: <Hammer size={19} strokeWidth={1.7} /> };
+    }
+    if (
+        text.includes('food') || text.includes('wood') || text.includes('gold')
+        || text.includes('resource') || text.includes('tax') || text.includes('depleted')
+    ) {
+        return { category: 'Economy', icon: <Wheat size={19} strokeWidth={1.7} /> };
+    }
+
+    return { category: 'Event', icon: <Circle size={18} strokeWidth={1.7} /> };
+};
+
+const formatNotificationAge = (timestamp: number): string => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (elapsedSeconds < 5) return 'now';
+    if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+};
+
 
 export const GameUI: React.FC<GameUIProps> = ({
     stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection,
-    onAdvanceAge, onReleaseGarrison
+    onAdvanceAge, onReleaseGarrison, onDismissNotification
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
@@ -185,109 +236,97 @@ export const GameUI: React.FC<GameUIProps> = ({
     };
 
     const netFood = stats.rates.food - stats.rates.foodConsumption;
-    const netFoodSign = netFood >= 0 ? '+' : '';
-    const netFoodColor = netFood >= 0 ? 'text-emerald-400' : 'text-red-400';
 
     return (
+
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
 
-            {/* --- TOP BAR: RESOURCES --- */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto max-w-[calc(100vw-2rem)]">
-                <div className="hud-surface flex items-center gap-5 px-5 py-2.5 rounded-xl text-stone-100 transition-colors hover:border-amber-500/30">
-                    <ResourceItem
-                        icon={<Pickaxe size={16} className="text-emerald-400" />}
-                        value={stats.resources.wood}
-                        sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Wheat size={16} className="text-yellow-400" />}
-                        value={
-                            <span className="flex items-baseline gap-1">
-                                {stats.resources.food}
-                                <span className={`text-[10px] ${netFoodColor} font-bold opacity-80`}>
-                                    {`(${netFoodSign}${netFood})`}
-                                </span>
-                            </span>
-                        }
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Coins size={16} className="text-amber-400" />}
-                        value={stats.resources.gold}
-                        sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<User size={16} className="text-blue-300" />}
-                        value={`${stats.population}/${stats.maxPopulation}`}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors" onClick={onAdvanceAge} title="Advance Age">
-                      <Zap size={16} className={
-                        stats.nextAge ? 'text-amber-400 animate-pulse' :
-                        stats.currentAge === Age.CITY_STATE ? 'text-amber-400' :
-                        stats.currentAge === Age.TOWN ? 'text-yellow-400' :
-                        'text-stone-400'
-                      } />
-                      <div className="flex flex-col leading-tight">
-                        <span className="text-[10px] font-bold text-stone-200 uppercase tracking-wide">{stats.currentAge}</span>
-                        {stats.nextAge && stats.ageProgress > 0 && (
-                          <div className="w-12 h-1 bg-stone-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-amber-500 rounded-full transition-all" style={{width: (stats.ageProgress * 100) + '%'}} />
-                          </div>
-                        )}
-                        {!stats.nextAge && stats.currentAge === Age.CITY_STATE && (
-                          <span className="text-[8px] text-amber-400 font-bold">MAX</span>
-                        )}
-                        {!stats.nextAge && stats.currentAge !== Age.CITY_STATE && (
-                          <span className="text-[8px] text-stone-500">Click TC to advance</span>
-                        )}
-                      </div>
+            <div className="hud-top-row">
+            {/* --- TOP LEFT: RESOURCE STRIP --- */}
+            <div className="hud-resource-panel pointer-events-auto">
+                <div className="hud-surface hud-resource-ribbon flex items-stretch rounded-xl text-stone-100 overflow-hidden">
+                    <div className="flex items-stretch divide-x divide-white/10">
+                        <ResourceItem
+                            icon={<Pickaxe size={17} />}
+                            label="Wood"
+                            value={stats.resources.wood}
+                            rate={stats.rates.wood}
+                            tone="emerald"
+                        />
+                        <ResourceItem
+                            icon={<Wheat size={17} />}
+                            label="Food"
+                            value={stats.resources.food}
+                            rate={netFood}
+                            tone="amber"
+                            warning={netFood < 0 ? 'Declining' : undefined}
+                        />
+                        <ResourceItem
+                            icon={<Coins size={17} />}
+                            label="Gold"
+                            value={stats.resources.gold}
+                            rate={stats.rates.gold}
+                            tone="gold"
+                        />
+                        <ResourceItem
+                            icon={<User size={17} />}
+                            label="Population"
+                            value={`${stats.population}/${stats.maxPopulation}`}
+                            tone="blue"
+                            warning={stats.population >= stats.maxPopulation ? 'At capacity' : undefined}
+                            meter={stats.maxPopulation > 0 ? stats.population / stats.maxPopulation : 0}
+                        />
                     </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex flex-col items-center min-w-[60px]">
-                        <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
-                            <Smile size={16} />
-                            <span>{stats.happiness}%</span>
-                        </div>
-                        {stats.happiness < 50 && (
-                            <span className="text-[10px] text-red-400 animate-pulse font-bold tracking-wider">REVOLT RISK</span>
-                        )}
-                    </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1" title={stats.currentSeason}>
-                        <span className={`text-sm font-bold ${
-                            stats.currentSeason === 'spring' ? 'text-emerald-400' :
-                            stats.currentSeason === 'summer' ? 'text-yellow-400' :
-                            stats.currentSeason === 'autumn' ? 'text-orange-400' :
-                            'text-blue-300'
-                        }`}>
-                            {stats.currentSeason === 'spring' ? '🌱' : stats.currentSeason === 'summer' ? '☀️' : stats.currentSeason === 'autumn' ? '🍂' : '❄️'}
+                </div>
+            </div>
+
+            {/* --- TOP CENTER: STATUS RAIL --- */}
+            <div className="hud-surface hud-status-rail pointer-events-auto flex items-center gap-1 rounded-xl overflow-hidden">
+                <button
+                    type="button"
+                    className="group min-w-[118px] px-3 py-2 text-left hover:bg-amber-400/[.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300/80 transition-colors"
+                    onClick={onAdvanceAge}
+                    title="Advance Age"
+                >
+                    <span className="flex items-center gap-2">
+                        <Zap size={16} className={stats.nextAge ? 'text-amber-300 animate-pulse' : 'text-stone-400 group-hover:text-amber-300'} />
+                        <span>
+                            <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Civilization</span>
+                            <span className="block text-xs font-semibold text-stone-100">{stats.currentAge}</span>
                         </span>
-                        <span className="text-[10px] font-bold text-stone-300 uppercase tracking-wide">{stats.currentSeason}</span>
-                    </div>
-                    {typeof stats.playerTerritoryPercent === 'number' && stats.playerTerritoryPercent > 0 && (
-                        <div className="flex items-center gap-1 px-1" title={`Territory: ${Math.round(stats.playerTerritoryPercent * 100)}%`}>
-                            <span className="text-[10px] font-bold text-cyan-400">🏰 {Math.round(stats.playerTerritoryPercent * 100)}%</span>
-                        </div>
+                    </span>
+                    {stats.nextAge && (
+                        <span className="block mt-1.5 h-1 bg-black/40 rounded-full overflow-hidden" aria-label={`Age progress ${Math.round(stats.ageProgress * 100)}%`}>
+                            <span className="block h-full bg-amber-400 transition-[width]" style={{ width: `${stats.ageProgress * 100}%` }} />
+                        </span>
                     )}
-                     <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-1" title="Diplomacy">
-                        {stats.peacefulMode ? (
-                            <span className="text-[10px] font-bold text-emerald-400">🕊️ Peace</span>
-                        ) : stats.treatyTimeRemaining > 0 ? (
-                            <span className="text-[10px] font-bold text-amber-400">⏱ Treaty {Math.ceil(stats.treatyTimeRemaining / 1000)}s</span>
-                        ) : (
-                            <span className="text-[10px] font-bold text-red-400">⚔️ War</span>
-                        )}
+                </button>
+
+                <div className="hud-rule w-px self-stretch my-2" />
+
+                <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="min-w-[72px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Morale</span>
+                        <span className={`flex items-center gap-1.5 text-sm font-bold tabular-nums ${stats.happiness < 50 ? 'text-red-300' : 'text-emerald-300'}`}>
+                            <Smile size={15} /> {stats.happiness}%
+                        </span>
+                    </div>
+                    <div className="min-w-[62px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Season</span>
+                        <span className="block text-xs font-semibold text-stone-200 capitalize">{stats.currentSeason}</span>
+                    </div>
+                    <div className="min-w-[76px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Diplomacy</span>
+                        <span className={`block text-xs font-semibold ${stats.peacefulMode ? 'text-emerald-300' : stats.treatyTimeRemaining > 0 ? 'text-amber-300' : 'text-red-300'}`}>
+                            {stats.peacefulMode ? 'Peace' : stats.treatyTimeRemaining > 0 ? `Treaty ${Math.ceil(stats.treatyTimeRemaining / 1000)}s` : 'At war'}
+                        </span>
                     </div>
                 </div>
             </div>
 
             {/* --- DOMINANCE PROGRESS BAR --- */}
             {typeof stats.dominanceProgress === 'number' && stats.dominanceProgress > 0 && (
-                <div className="absolute top-[72px] left-1/2 -translate-x-1/2 w-64 pointer-events-none">
+                <div className="hud-dominance w-64 pointer-events-none">
                     <div className="text-xs text-amber-400 text-center mb-1 font-bold tracking-wide">
                         ⚔️ Dominance: {Math.round(stats.dominanceProgress / 1000)}s / {DOMINANCE_HOLD_TIME_MS / 1000}s
                     </div>
@@ -301,7 +340,7 @@ export const GameUI: React.FC<GameUIProps> = ({
             )}
 
             {/* --- TOP RIGHT: SYSTEM CONTROLS --- */}
-            <div className="absolute top-6 right-6 flex flex-col items-end gap-3 pointer-events-auto">
+            <div className="hud-controls-rail flex flex-col items-end gap-3 pointer-events-auto">
                 {/* Main Controls Group */}
                 <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl">
                     {/* Speed Controls */}
@@ -444,6 +483,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                     </div>
                 )}
             </div>
+            </div>
 
             {/* --- BOTTOM LEFT: MAP / RADAR --- */}
             <div className="absolute bottom-6 left-6 pointer-events-auto flex flex-col gap-4">
@@ -511,6 +551,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                 {stats.selectedBuildingInfo.nearbyResources > 0 && (
                                                     <span className="text-[10px] text-stone-300">
                                                         {stats.selectedBuildingInfo.nearbyResources} {stats.selectedBuildingInfo.resourceLabel}
+                                                    </span>
+                                                )}
+                                                {stats.selectedBuildingInfo.production && (
+                                                    <span className="text-[10px] font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-400/20 px-1.5 py-0.5 rounded tabular-nums">
+                                                        +{stats.selectedBuildingInfo.production.perTick} {stats.selectedBuildingInfo.production.resource}/tick
                                                     </span>
                                                 )}
                                             </div>
@@ -1025,30 +1070,57 @@ export const GameUI: React.FC<GameUIProps> = ({
                 )}
             </div>
 
-            {/* Event ledger: compact, readable feedback anchored away from the command dock. */}
+            {/* AAA event feed: neutral surfaces, semantic hierarchy, and soft edge fade. */}
             {stats.notifications && stats.notifications.length > 0 && (
-                <div className="absolute top-20 right-4 flex flex-col gap-1.5 pointer-events-auto w-[min(21rem,calc(100vw-2rem))]">
-                    <div className="hud-kicker px-1">Recent events</div>
-                    {stats.notifications.slice(-4).map((n) => {
-                        const isTaunt = !!n.personality;
-                        const colors = isTaunt
-                            ? 'bg-[#281512]/95 border-orange-400/50 text-orange-100'
-                            : {
-                                info: 'bg-[#171d23]/95 border-sky-400/40 text-sky-100',
-                                warning: 'bg-[#282116]/95 border-amber-400/45 text-amber-100',
-                                danger: 'bg-[#281619]/95 border-red-400/45 text-red-100',
-                                success: 'bg-[#14231d]/95 border-emerald-400/40 text-emerald-100',
-                            }[n.severity];
+                <div
+                    className="hud-notification-stack absolute top-24 right-5 z-20 flex w-[min(29rem,calc(100vw-2.5rem))] flex-col gap-2 pointer-events-auto"
+                    aria-label="Recent events"
+                >
+                    <div className="px-4 pb-0.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-stone-500">
+                        Recent events
+                    </div>
+                    {stats.notifications.slice(-5).reverse().map((notification, index) => {
+                        const presentation = notificationPresentation(notification);
+                        const isTaunt = !!notification.personality;
                         return (
-                            <div key={n.id} className={`${colors} border rounded-md px-3 py-2 backdrop-blur-md shadow-lg text-sm leading-snug`}>
-                                {isTaunt && n.senderName && (
-                                    <div className="text-[10px] text-orange-300/80 font-semibold uppercase tracking-wider mb-0.5">{n.senderName}</div>
-                                )}
-                                <div className={isTaunt ? 'font-medium italic' : 'font-medium'}>{n.text}</div>
-                                <div className="h-px mt-2 rounded bg-white/15 overflow-hidden">
-                                    <div className="h-full bg-[var(--gold-leaf)]/70 shrink-toast-bar" style={{ animationDuration: `${n.duration}ms` }} />
+                            <article
+                                key={notification.id}
+                                className="hud-notification-card group flex min-h-[72px] items-center gap-3 px-4 py-3 text-stone-100"
+                                style={{ opacity: Math.max(0.48, 1 - index * 0.12) }}
+                                data-severity={notification.severity}
+                            >
+                                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/[0.06] bg-black/25 text-stone-300">
+                                    {presentation.icon}
                                 </div>
-                            </div>
+
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1 flex items-center gap-2">
+                                        <span className="truncate text-[9px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+                                            {presentation.category}
+                                        </span>
+                                        {notification.severity === 'danger' && (
+                                            <span className="text-[8px] font-medium uppercase tracking-[0.16em] text-stone-600">Critical</span>
+                                        )}
+                                    </div>
+                                    <div className={`text-[14px] font-medium leading-snug text-stone-100 ${isTaunt ? 'italic' : ''}`}>
+                                        {notification.text}
+                                    </div>
+                                </div>
+
+                                <div className="flex shrink-0 self-start items-center gap-1.5 pt-0.5">
+                                    <time className="whitespace-nowrap text-[10px] tabular-nums text-stone-500">
+                                        {formatNotificationAge(notification.timestamp)}
+                                    </time>
+                                    <button
+                                        type="button"
+                                        onClick={() => onDismissNotification?.(notification.id)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-md text-stone-600 opacity-0 transition-[opacity,color,background-color] group-hover:opacity-100 hover:bg-white/[0.05] hover:text-stone-300 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20"
+                                        aria-label={`Dismiss notification: ${notification.text}`}
+                                    >
+                                        <X size={14} strokeWidth={1.6} />
+                                    </button>
+                                </div>
+                            </article>
                         );
                     })}
                 </div>
@@ -1120,21 +1192,43 @@ export const GameUI: React.FC<GameUIProps> = ({
 
 interface ResourceItemProps {
     icon: React.ReactNode;
+    label: string;
     value: React.ReactNode;
-    sub?: string;
+    rate?: number;
+    tone: 'emerald' | 'amber' | 'gold' | 'blue';
+    meter?: number;
+    warning?: string;
 }
 
-const ResourceItem: React.FC<ResourceItemProps> = ({ icon, value, sub }) => (
-    <div className="flex items-center gap-2">
-        <div className="flex items-center justify-center">
-            {icon}
+const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value, rate, tone, meter, warning }) => {
+    const isNegative = typeof rate === 'number' && rate < 0;
+    return (
+        <div className="min-w-[92px] px-3 py-1.5" aria-live="polite" title={warning ?? label}>
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[.12em] text-stone-400">
+                <span className={RESOURCE_TONE[tone]}>{icon}</span>
+                <span>{label}</span>
+            </div>
+            <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-base font-bold tabular-nums leading-none text-stone-50">{value}</span>
+                {typeof rate === 'number' && (
+                    <span className={`text-[10px] font-bold tabular-nums ${isNegative ? 'text-red-300' : 'text-emerald-300/80'}`}>
+                        {rate >= 0 ? `+${rate}` : rate}
+                    </span>
+                )}
+            </div>
+            {typeof meter === 'number' && (
+                <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-black/40" aria-hidden="true">
+                    <div className="h-full bg-sky-300/90" style={{ width: `${Math.min(1, Math.max(0, meter)) * 100}%` }} />
+                </div>
+            )}
+            {warning && (
+                <div className={`mt-0.5 text-[9px] font-semibold uppercase tracking-[.12em] ${warning === 'At capacity' ? 'text-amber-300/90' : 'text-red-300/90'}`}>
+                    {warning}
+                </div>
+            )}
         </div>
-        <div className="flex items-baseline gap-1">
-            <span className="font-bold text-lg leading-none">{value}</span>
-            {sub && <span className="text-[10px] text-stone-400 font-mono font-bold opacity-80">{sub}</span>}
-        </div>
-    </div>
-);
+    );
+};
 
 interface DockButtonProps {
     isActive: boolean;

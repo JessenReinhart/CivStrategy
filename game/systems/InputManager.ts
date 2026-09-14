@@ -26,6 +26,29 @@ export class InputManager {
 
     private lastClickTime = Number.NEGATIVE_INFINITY;
     private lastClickPos = new Phaser.Math.Vector2();
+    /** AoE-style command mode: press A, then left-click a destination. */
+    private attackMoveArmed = false;
+
+    private setAttackMoveArmed(armed: boolean): void {
+        this.attackMoveArmed = armed;
+        this.scene.input.setDefaultCursor(armed ? 'crosshair' : 'default');
+    }
+
+    private issueAttackMove(pointer: Phaser.Input.Pointer): void {
+        if (this.selectedUnits.length === 0) return;
+        const pointerWorld = this.getMainPointerWorld(pointer);
+        const cart = toCartesian(pointerWorld.x, pointerWorld.y);
+        this.scene.proceduralSound.playCommandAck(pointerWorld.x, pointerWorld.y);
+        this.scene.unitSystem.commandAttackMove(
+            this.selectedUnits,
+            new Phaser.Math.Vector2(cart.x, cart.y),
+            pointer.event.shiftKey,
+        );
+    }
+
+    private cancelAttackMove(): void {
+        if (this.attackMoveArmed) this.setAttackMoveArmed(false);
+    }
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -55,6 +78,13 @@ export class InputManager {
         const kb = this.scene.input.keyboard;
         if (!kb) return;
 
+        // A — arm attack-move. The next LMB places an aggressive move order.
+        kb.on('keydown-A', () => {
+            if (this.selectedUnits.length > 0 && !this.scene.buildingManager.previewBuildingType) {
+                this.setAttackMoveArmed(true);
+            }
+        });
+
         // ESC — Deselect all / cancel build mode
         kb.on('keydown-ESC', () => {
             if (this.scene.buildingManager.isDemolishMode) {
@@ -64,6 +94,8 @@ export class InputManager {
             }
             this.clearSelection();
             this.deselectBuilding();
+            this.cancelAttackMove();
+
         });
 
         // Space — Pause / unpause
@@ -209,6 +241,12 @@ export class InputManager {
 
         if (this.scene.buildingManager.isDemolishMode) {
             this.scene.buildingManager.handleDemolishClick(pointer);
+            return;
+        }
+
+        if (this.attackMoveArmed) {
+            this.issueAttackMove(pointer);
+            this.cancelAttackMove();
             return;
         }
 
@@ -552,6 +590,8 @@ export class InputManager {
     }
 
     public clearSelection() {
+        this.cancelAttackMove();
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.selectedUnits.forEach((u: any) => u.setSelected(false)); // Fix: Cast to Unit type
         this.selectedUnits = [];
@@ -584,5 +624,7 @@ export class InputManager {
             this.selectedBuilding = null;
             this.scene.game.events.emit(EVENTS.BUILDING_SELECTED, null);
         }
+        this.cancelAttackMove();
+
     }
 }

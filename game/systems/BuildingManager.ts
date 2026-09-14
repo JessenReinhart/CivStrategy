@@ -4,9 +4,11 @@ import { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
+import { formatBuildingPlacementFeedback } from './buildingPlacementSnap';
 
 export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
 export const PLAYER_HOUSE_CONSTRUCTION_MS = 5000;
+
 
 export class BuildingManager {
     private scene: MainScene;
@@ -97,6 +99,9 @@ export class BuildingManager {
 
         this.scene.feedbackSystem.notifyBuildingComplete(def.name);
         this.scene.economySystem.updateStats();
+        const pos = building as Phaser.GameObjects.Rectangle;
+        this.scene.feedbackSystem.showFloatingText(pos.x, pos.y, `${def.name} complete`, '#86efac');
+        this.scene.proceduralSound.playPlacement(pos.x, pos.y);
     }
 
     public markTerritoryDirty() {
@@ -174,9 +179,9 @@ export class BuildingManager {
         this.previewBuilding.setPosition(iso.x, iso.y);
         this.previewBuilding.setDepth(Number.MAX_VALUE - 100);
 
-        const isValid = this.checkBuildValidity(cx, cy, this.previewBuildingType);
+        const validity = this.getBuildValidity(cx, cy, this.previewBuildingType);
         const slopeInfo = this.scene.terrainSystem.getSlopeAt(cx, cy);
-        const color = !isValid ? 0xff0000 : (slopeInfo.slope > 0.1 ? 0xffaa00 : 0x00ff00);
+        const color = !validity.valid ? 0xff3b30 : (slopeInfo.slope > 0.1 ? 0xffaa00 : 0x39d353);
 
         const graphics = this.previewBuilding.getAt(0) as Phaser.GameObjects.Graphics;
         graphics.clear();
@@ -236,27 +241,29 @@ export class BuildingManager {
 
         this.scene.entityFactory.drawIsoBuilding(graphics, def, color, 0.5);
 
-        // Farm terrain yield preview
-        if (this.previewBuildingType === BuildingType.FARM && isValid) {
-            const biome = this.scene.terrainSystem.getBiomeLabel(cx, cy);
-            const mult = FARM_TERRAIN_YIELD[biome] ?? 1.0;
-            if (!this.previewText) {
-                this.previewText = this.scene.add.text(0, 0, '', {
-                    fontSize: '14px',
-                    color: '#ffd700',
-                    fontStyle: 'bold',
-                    stroke: '#000',
-                    strokeThickness: 3,
-                }).setOrigin(0.5);
-                this.previewBuilding.add(this.previewText);
-            }
-            this.previewText.setText('×' + mult.toFixed(1));
-            this.previewText.setColor(mult >= 1.0 ? '#55ff55' : mult >= 0.6 ? '#ffdd44' : '#ff4444');
-            this.previewText.setPosition(0, -30);
-            this.previewText.setVisible(true);
-        } else if (this.previewText) {
-            this.previewText.setVisible(false);
+        const farmYield = this.previewBuildingType === BuildingType.FARM && validity.valid
+            ? FARM_TERRAIN_YIELD[this.scene.terrainSystem.getBiomeLabel(cx, cy)] ?? 1.0
+            : undefined;
+        if (!this.previewText) {
+            this.previewText = this.scene.add.text(0, 0, '', {
+                fontSize: '15px',
+                color: '#ffffff',
+                fontStyle: 'bold',
+                backgroundColor: '#111827dd',
+                padding: { x: 8, y: 5 },
+                stroke: '#000000',
+                strokeThickness: 2,
+            }).setOrigin(0.5);
+            this.previewBuilding.add(this.previewText);
         }
+        this.previewText.setText(formatBuildingPlacementFeedback({
+            valid: validity.valid,
+            reason: validity.reason,
+            farmYield,
+        }));
+        this.previewText.setColor(validity.valid ? '#d1fae5' : '#fecaca');
+        this.previewText.setPosition(0, -Math.max(42, def.height * 0.75));
+        this.previewText.setVisible(true);
     }
 
     private updateHighlights(cx: number, cy: number, def: BuildingDef) {
@@ -337,16 +344,17 @@ export class BuildingManager {
             }
 
             this.markTerritoryDirty();
-            if (!isPlayerHouse) this.scene.feedbackSystem.notifyBuildingComplete(def.name);
+            if (!isPlayerHouse) {
+                this.scene.feedbackSystem.notifyBuildingComplete(def.name);
+                this.scene.feedbackSystem.showFloatingText(cx, cy, `${def.name} ready`, '#86efac');
+                this.scene.proceduralSound.playPlacement(cx, cy);
+            }
             this.scene.economySystem.updateStats();
         } else {
             this.scene.feedbackSystem.showFloatingText(cx, cy, validity.reason || "Unable to build", "#ff0000");
         }
     }
 
-    private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
-        return this.getBuildValidity(x, y, type).valid;
-    }
 
     private rectanglesHaveAreaOverlap(a: Phaser.Geom.Rectangle, b: Phaser.Geom.Rectangle): boolean {
         return a.x < b.x + b.width
@@ -372,6 +380,7 @@ export class BuildingManager {
             }
         });
         if (!inTerritory && this.scene.buildings.getLength() > 0) return { valid: false, reason: "Outside Territory" };
+
 
         const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
         let overlaps = false;
@@ -425,6 +434,11 @@ export class BuildingManager {
 
         return { valid: true };
     }
+
+    private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
+        return this.getBuildValidity(x, y, type).valid;
+    }
+
 
     public handleDemolishHover(pointer: Phaser.Input.Pointer) {
         this.scene.buildings.getChildren().forEach((b) => {

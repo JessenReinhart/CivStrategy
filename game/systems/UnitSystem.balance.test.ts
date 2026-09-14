@@ -32,7 +32,8 @@ function volley({ hp = 150, damageMult = 1, armorAdd = 0, stress = false, buildi
         }) },
         time: { delayedCall: (_delay: number, callback: () => void) => callback() },
         proceduralSound: { playBowRelease: vi.fn() },
-        feedbackSystem: { showDamageNumber: vi.fn(), showHitSpark: vi.fn() },
+        feedbackSystem: { showDamageNumber: vi.fn(), showHitSpark: vi.fn(), showHitFlash: vi.fn() },
+
     } as unknown as MainScene;
     const factory = new EntityFactory(scene);
     const targetData = new Map<string, unknown>([

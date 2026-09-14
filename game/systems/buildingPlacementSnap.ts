@@ -35,3 +35,16 @@ export function resolveCursorAlignedPlacement(
         centerY,
     };
 }
+
+export interface BuildingPlacementFeedback {
+    valid: boolean;
+    reason?: string;
+    farmYield?: number;
+}
+
+export function formatBuildingPlacementFeedback(feedback: BuildingPlacementFeedback): string {
+    if (!feedback.valid) return feedback.reason ?? 'Unable to build';
+    if (feedback.farmYield !== undefined) return `Fertility ×${feedback.farmYield.toFixed(1)} · Click to place`;
+    return 'Click to place';
+}
+
