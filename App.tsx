@@ -343,6 +343,17 @@ const [selectedCount, setSelectedCount] = useState(0);
     gameInstance?.events.emit('release-garrison');
   };
 
+  const handleDismissNotification = (id: number) => {
+    const mainScene = gameInstance?.scene.getScene('MainScene') as (Phaser.Scene & {
+      feedbackSystem?: { dismissNotification: (notificationId: number) => void };
+    }) | undefined;
+    mainScene?.feedbackSystem?.dismissNotification(id);
+    setStats((previous) => ({
+      ...previous,
+      notifications: previous.notifications.filter((notification) => notification.id !== id),
+    }));
+  };
+
   return (
     <div className="w-full h-screen overflow-hidden bg-black text-white relative select-none">
       {gameState === 'menu' && <MainMenu onStart={handleStart} />}
@@ -381,6 +392,7 @@ const [selectedCount, setSelectedCount] = useState(0);
                 onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
                 onAdvanceAge={handleAdvanceAge}
                 onReleaseGarrison={handleReleaseGarrison}
+                onDismissNotification={handleDismissNotification}
                 currentAge={stats.currentAge}
                 ageProgress={stats.ageProgress}
                 nextAge={stats.nextAge}
