@@ -57,6 +57,30 @@ const renderSelectedBuilding = (type: BuildingType, owner: number, gameSpeed = b
   />,
 );
 
+const renderNotifications = () => renderToStaticMarkup(
+  <GameUI
+    stats={{
+      ...baseStats,
+      notifications: [
+        { id: 1, text: 'Food stockpile is running low', severity: 'warning', timestamp: Date.now() - 120_000, duration: 300_000 },
+        { id: 2, text: 'Enemy forces are approaching!', severity: 'danger', timestamp: Date.now() - 5_000, duration: 300_000 },
+      ],
+    }}
+    onBuild={() => undefined}
+    onSpawnUnit={() => undefined}
+    onToggleDemolish={() => undefined}
+    onRegrowForest={() => undefined}
+    onQuit={() => undefined}
+    selectedCount={0}
+    selectedBuildingType={null}
+    onDemolishSelected={() => undefined}
+    currentAge={Age.VILLAGE}
+    ageProgress={0}
+    nextAge={null}
+    onAdvanceAge={() => undefined}
+  />,
+);
+
 describe('GameUI selected building command ownership', () => {
   it('keeps production and waypoint controls visible for a player Barracks', () => {
     const html = renderSelectedBuilding(BuildingType.BARRACKS, 0);
@@ -93,5 +117,17 @@ describe('GameUI selected building command ownership', () => {
 
     expect(html).toContain('Set speed 0.75×');
     expect(html).toContain('0.75x');
+  });
+
+  it('renders the neutral AAA notification feed with inferred event categories and newest first', () => {
+    const html = renderNotifications();
+
+    expect(html).toContain('Recent events');
+    expect(html).toContain('ECONOMY');
+    expect(html).toContain('MILITARY');
+    expect(html).toContain('Dismiss notification: Enemy forces are approaching!');
+    expect(html.indexOf('Enemy forces are approaching!')).toBeLessThan(html.indexOf('Food stockpile is running low'));
+    expect(html).toContain('hud-notification-card');
+    expect(html).not.toContain('shrink-toast-bar');
   });
 });
