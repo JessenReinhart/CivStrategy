@@ -29,6 +29,7 @@ interface GameUIProps {
     nextAge: Age | null;
     onAdvanceAge: () => void;
     onReleaseGarrison?: () => void;
+    onDismissNotification?: (id: number) => void;
 }
 
 const getDamageTag = (type: UnitType): { label: string; color: string } | null => {
@@ -50,10 +51,53 @@ const RESOURCE_TONE: Record<'emerald' | 'amber' | 'gold' | 'blue', string> = {
     blue: 'text-sky-300',
 };
 
+type GameNotification = GameStats['notifications'][number];
+
+const notificationPresentation = (notification: GameNotification): { category: string; icon: React.ReactNode } => {
+    const text = notification.text.toLowerCase();
+
+    if (notification.personality || notification.senderName) {
+        return { category: notification.senderName ?? 'Diplomacy', icon: <Sword size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('research') || text.includes('technology') || text.includes('tech ')) {
+        return { category: 'Research', icon: <BookOpen size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('treaty') || text.includes('peace') || text.includes('diplom')) {
+        return { category: 'Diplomacy', icon: <Handshake size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('villager') || text.includes('population') || text.includes('happiness') || text.includes('peasant')) {
+        return { category: 'Population', icon: <User size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('enemy') || text.includes('attack') || text.includes('destroyed') || text.includes('lost')) {
+        return { category: 'Military', icon: <Sword size={19} strokeWidth={1.7} /> };
+    }
+    if (text.includes('built') || text.includes('building') || text.includes('construction')) {
+        return { category: 'Construction', icon: <Hammer size={19} strokeWidth={1.7} /> };
+    }
+    if (
+        text.includes('food') || text.includes('wood') || text.includes('gold')
+        || text.includes('resource') || text.includes('tax') || text.includes('depleted')
+    ) {
+        return { category: 'Economy', icon: <Wheat size={19} strokeWidth={1.7} /> };
+    }
+
+    return { category: 'Event', icon: <Circle size={18} strokeWidth={1.7} /> };
+};
+
+const formatNotificationAge = (timestamp: number): string => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (elapsedSeconds < 5) return 'now';
+    if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+    const minutes = Math.floor(elapsedSeconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+};
+
 
 export const GameUI: React.FC<GameUIProps> = ({
     stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection,
-    onAdvanceAge, onReleaseGarrison
+    onAdvanceAge, onReleaseGarrison, onDismissNotification
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
     const [demolishActive, setDemolishActive] = useState(false);
@@ -1026,30 +1070,57 @@ export const GameUI: React.FC<GameUIProps> = ({
                 )}
             </div>
 
-            {/* Event ledger: compact, readable feedback anchored away from the command dock. */}
+            {/* AAA event feed: neutral surfaces, semantic hierarchy, and soft edge fade. */}
             {stats.notifications && stats.notifications.length > 0 && (
-                <div className="absolute top-24 right-6 z-20 flex flex-col gap-1.5 pointer-events-auto w-[min(21rem,calc(100vw-3rem))]">
-                    <div className="hud-kicker px-1">Recent events</div>
-                    {stats.notifications.slice(-4).map((n) => {
-                        const isTaunt = !!n.personality;
-                        const colors = isTaunt
-                            ? 'bg-[#281512]/95 border-orange-400/50 text-orange-100'
-                            : {
-                                info: 'bg-[#171d23]/95 border-sky-400/40 text-sky-100',
-                                warning: 'bg-[#282116]/95 border-amber-400/45 text-amber-100',
-                                danger: 'bg-[#281619]/95 border-red-400/45 text-red-100',
-                                success: 'bg-[#14231d]/95 border-emerald-400/40 text-emerald-100',
-                            }[n.severity];
+                <div
+                    className="hud-notification-stack absolute top-24 right-5 z-20 flex w-[min(29rem,calc(100vw-2.5rem))] flex-col gap-2 pointer-events-auto"
+                    aria-label="Recent events"
+                >
+                    <div className="px-4 pb-0.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-stone-500">
+                        Recent events
+                    </div>
+                    {stats.notifications.slice(-5).reverse().map((notification, index) => {
+                        const presentation = notificationPresentation(notification);
+                        const isTaunt = !!notification.personality;
                         return (
-                            <div key={n.id} className={`${colors} border rounded-md px-3 py-2 backdrop-blur-md shadow-lg text-sm leading-snug`}>
-                                {isTaunt && n.senderName && (
-                                    <div className="text-[10px] text-orange-300/80 font-semibold uppercase tracking-wider mb-0.5">{n.senderName}</div>
-                                )}
-                                <div className={isTaunt ? 'font-medium italic' : 'font-medium'}>{n.text}</div>
-                                <div className="h-px mt-2 rounded bg-white/15 overflow-hidden">
-                                    <div className="h-full bg-[var(--gold-leaf)]/70 shrink-toast-bar" style={{ animationDuration: `${n.duration}ms` }} />
+                            <article
+                                key={notification.id}
+                                className="hud-notification-card group flex min-h-[72px] items-center gap-3 px-4 py-3 text-stone-100"
+                                style={{ opacity: Math.max(0.48, 1 - index * 0.12) }}
+                                data-severity={notification.severity}
+                            >
+                                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-white/[0.06] bg-black/25 text-stone-300">
+                                    {presentation.icon}
                                 </div>
-                            </div>
+
+                                <div className="min-w-0 flex-1">
+                                    <div className="mb-1 flex items-center gap-2">
+                                        <span className="truncate text-[9px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+                                            {presentation.category}
+                                        </span>
+                                        {notification.severity === 'danger' && (
+                                            <span className="text-[8px] font-medium uppercase tracking-[0.16em] text-stone-600">Critical</span>
+                                        )}
+                                    </div>
+                                    <div className={`text-[14px] font-medium leading-snug text-stone-100 ${isTaunt ? 'italic' : ''}`}>
+                                        {notification.text}
+                                    </div>
+                                </div>
+
+                                <div className="flex shrink-0 self-start items-center gap-1.5 pt-0.5">
+                                    <time className="whitespace-nowrap text-[10px] tabular-nums text-stone-500">
+                                        {formatNotificationAge(notification.timestamp)}
+                                    </time>
+                                    <button
+                                        type="button"
+                                        onClick={() => onDismissNotification?.(notification.id)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-md text-stone-600 opacity-0 transition-[opacity,color,background-color] group-hover:opacity-100 hover:bg-white/[0.05] hover:text-stone-300 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20"
+                                        aria-label={`Dismiss notification: ${notification.text}`}
+                                    >
+                                        <X size={14} strokeWidth={1.6} />
+                                    </button>
+                                </div>
+                            </article>
                         );
                     })}
                 </div>
