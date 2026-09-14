@@ -535,9 +535,20 @@ export class SquadSystem {
         const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
         const gfx = container.getAt(container.length - 1) as Phaser.GameObjects.Graphics;
         gfx.clear();
+        let ringColor = 0xffffff;
+        let ringAlpha = 0.8;
+        const state = unit.state as UnitState;
+        const inContact = state === UnitState.ATTACKING || state === UnitState.CHASING || state === UnitState.ATTACK_MOVE;
+        if (inContact) {
+            ringColor = 0xef4444;
+            ringAlpha = 0.9;
+        } else if (unit.path && unit.pathStep < unit.path.length) {
+            ringColor = 0xf59e0b;
+            ringAlpha = 0.8;
+        }
         if (unit.isSelected) {
             const stats = UNIT_STATS[unit.unitType as UnitType];
-            gfx.lineStyle(2, 0xffffff, 0.8);
+            gfx.lineStyle(2, ringColor, ringAlpha);
             const radius = Math.sqrt(stats.squadSize) * (stats.squadSpacing || 10) * 0.7 * WORLD_CHARACTER_SCALE;
             gfx.strokeEllipse(0, 0, radius * 2.5, radius * 1.5);
         }

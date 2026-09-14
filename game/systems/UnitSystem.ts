@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
-import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
+import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS, ATTACK_MOVE_SCAN_INTERVAL } from '../../constants';
+
 import { toIso, toIsoElev } from '../utils/iso';
 import { releaseToBoundedPool } from '../utils/boundedPool';
 import { SoldierState } from './SquadSystem';
@@ -110,6 +111,29 @@ export class UnitSystem {
         this.pathGraphics = this.scene.add.graphics().setDepth(-4000);
         this.debugGraphics = this.scene.add.graphics().setDepth(100000);
     }
+    private updateSelectionRingColor(unit: GameUnit): void {
+        const visual = unit.visual as Phaser.GameObjects.Container;
+        if (!visual) return;
+        const ring = visual.getData('selectionRing') as Phaser.GameObjects.Ellipse | undefined;
+        const owner = unit.getData('owner') as number;
+        const state = unit.state as UnitState;
+        const inContact = state === UnitState.ATTACKING || state === UnitState.CHASING || state === UnitState.ATTACK_MOVE;
+        const hp = unit.getData('hp') as number;
+        const maxHp = unit.getData('maxHp') as number;
+        const hpBar = visual.getData('hpBar') as Phaser.GameObjects.Container | undefined;
+        if (hpBar) hpBar.setVisible(Boolean(unit.isSelected || hp < maxHp || inContact));
+        if (!ring) return;
+        let color: number;
+        if (inContact) {
+            color = 0xEF4444;
+        } else if (unit.path && unit.pathStep < unit.path.length) {
+            color = 0xF59E0B;
+        } else {
+            color = owner === 0 ? 0x4ADE80 : 0xEF4444;
+        }
+        ring.setFillStyle(color, inContact ? 0.8 : 0.5);
+    }
+
 
     // ─── Main Update ──────────────────────────────────────────────────────
     public update(time: number, _delta: number): void {
@@ -157,6 +181,7 @@ export class UnitSystem {
             for (let i = 0; i < unitCount; i++) {
                 const unit = allUnits[i];
                 if (!unit || !unit.scene) continue;
+                this.updateSelectionRingColor(unit);
                 if (unit.flowTarget) {
                     this.moveAlongFlowField(unit, time);
                 }
@@ -236,6 +261,11 @@ export class UnitSystem {
         if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
             this.handleCombatState(unit, time);
         }
+        // Attack-move scans while advancing, then yields to its combat state immediately.
+        else if (unit.state === UnitState.ATTACK_MOVE) {
+            this.updateAttackMove(unit, time);
+        }
+
         // Path following
         else if (unit.path && unit.path.length > 0) {
             this.moveAlongPath(unit);
@@ -244,6 +274,7 @@ export class UnitSystem {
         else if (unit.state === UnitState.IDLE) {
             this.scanForTargets(unit, time);
         }
+
         // Fallback: stop any residual velocity
         else {
             if (body.velocity.length() > 0) body.setVelocity(0, 0);
@@ -406,9 +437,9 @@ if (spatialHash) {
     }
 
     // ─── Movement Commands ─────────────────────────────────────────────────
-    public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2, queue: boolean = false): void {
-        // For large groups, compute one flow field instead of N individual paths
-        if (units.length >= FLOW_FIELD_THRESHOLD && !queue) {
+    public commandMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2, queue: boolean = false, forceIndividualPaths: boolean = false): void {
+        // Attack-move needs resumable per-unit routes; ordinary mass moves retain flow-field scaling.
+        if (units.length >= FLOW_FIELD_THRESHOLD && !queue && !forceIndividualPaths) {
             this.commandMoveFlowField(units, target);
             return;
         }
@@ -460,7 +491,9 @@ if (spatialHash) {
                     unit.target = null;
                     (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
                     unit.setData('anchor', { x: target.x, y: target.y });
+                    unit.setData('attackMove', false);
                 }
+
             }
 
             // Per-unit path memory cleanup: cap path length for long queues
@@ -481,6 +514,40 @@ if (spatialHash) {
             scaleX: 0, scaleY: 0, alpha: 0,
             duration: 500,
             onComplete: () => circle.destroy()
+        });
+    }
+
+    /**
+     * Issue a classic RTS attack-move: units advance on the normal formation path,
+     * acquire enemies on that route, then resume their remaining route after combat.
+     */
+    public commandAttackMove(units: Phaser.GameObjects.GameObject[], target: Phaser.Math.Vector2, queue: boolean = false): void {
+        this.commandMove(units, target, queue, true);
+
+        for (const unitObj of units) {
+            const unit = unitObj as GameUnit;
+            if (!COMBAT_UNIT_TYPES.includes(unit.unitType) || !unit.path || unit.path.length < 2) continue;
+            unit.setData('attackMovePath', unit.path.map((point) => new Phaser.Math.Vector2(point.x, point.y)));
+            unit.setData('attackMove', true);
+            unit.setData('_lastScan', 0);
+            unit.state = UnitState.ATTACK_MOVE;
+
+        }
+
+        const iso = toIso(target.x, target.y);
+        const marker = this.scene.add.circle(iso.x, iso.y, 9, 0xef4444, 0.15)
+            .setStrokeStyle(2, 0xff6b6b, 0.9)
+            .setScale(1, 0.5)
+            .setDepth(iso.y);
+        const cross = this.scene.add.graphics().setDepth(iso.y + 1);
+        cross.lineStyle(2, 0xff6b6b, 0.9);
+        cross.lineBetween(iso.x - 5, iso.y - 3, iso.x + 5, iso.y + 3);
+        cross.lineBetween(iso.x + 5, iso.y - 3, iso.x - 5, iso.y + 3);
+        this.scene.tweens.add({
+            targets: [marker, cross],
+            alpha: 0,
+            duration: 650,
+            onComplete: () => { marker.destroy(); cross.destroy(); },
         });
     }
 
@@ -773,10 +840,12 @@ if (spatialHash) {
     }
 
     private scanForTargets(unit: GameUnit, _time: number): void {
-        // Throttle: only scan periodically (~every 500ms)
+        // Attack-move deliberately scans twice as often as passive idle acquisition.
+        const interval = unit.state === UnitState.ATTACK_MOVE ? ATTACK_MOVE_SCAN_INTERVAL : SCAN_INTERVAL_COMBAT;
         const lastScan = unit.getData('_lastScan') as number || 0;
-        if (this.scene.time.now - lastScan < SCAN_INTERVAL_COMBAT) return;
+        if (this.scene.time.now - lastScan < interval) return;
         unit.setData('_lastScan', this.scene.time.now);
+
 
         const isCombatUnit = COMBAT_UNIT_TYPES.includes(unit.unitType);
         if (!isCombatUnit) return;
@@ -858,12 +927,15 @@ if (spatialHash) {
 
         if (closest) {
             const range = unit.getData('range') as number || 40;
-            if (stance === UnitStance.HOLD && closestDist > range) {
+            const attackMoving = unit.getData('attackMove') === true;
+            if (stance === UnitStance.HOLD && !attackMoving && closestDist > range) {
                 return;
             }
 
             unit.target = closest;
             unit.setData('explicitTarget', false);
+            unit.setData('attackMoveEngaging', unit.getData('attackMove') === true);
+
             unit.state = UnitState.CHASING;
         }
     }
@@ -874,9 +946,13 @@ if (spatialHash) {
         const body = unit.body as Phaser.Physics.Arcade.Body;
 
         if (!target || !target.scene) {
-            unit.state = UnitState.IDLE;
-            unit.target = null;
-            if (body) body.setVelocity(0, 0);
+            if (unit.getData('attackMove') === true) {
+                this.resumeAttackMove(unit);
+            } else {
+                unit.state = UnitState.IDLE;
+                unit.target = null;
+                if (body) body.setVelocity(0, 0);
+            }
             return;
         }
 
@@ -911,7 +987,9 @@ if (spatialHash) {
         const explicitTarget = unit.getData('explicitTarget') === true;
 
         // Stance constraint checks
-        if (!explicitTarget) {
+        // An attack-move order is aggressive by definition: it overrides stance tether/hold
+        // gates for the duration of the order, exactly like an explicitly clicked target.
+        if (!explicitTarget && unit.getData('attackMove') !== true) {
             if (stance === UnitStance.DEFENSIVE) {
                 const tetherDist = Phaser.Math.Distance.Between(unit.x, unit.y, anchor.x, anchor.y);
                 if (tetherDist > STANCE_TETHER_RADIUS) {
@@ -1054,6 +1132,42 @@ if (spatialHash) {
         }
     }
 
+    /** One tick of ATTACK_MOVE: acquire, fight, or keep advancing along the ordered route. */
+    private updateAttackMove(unit: GameUnit, time: number): void {
+        this.scanForTargets(unit, time);
+        const state = unit.state as UnitState;
+        if (state === UnitState.CHASING || state === UnitState.ATTACKING) {
+            this.handleCombatState(unit, time);
+        } else if (unit.path && unit.path.length > 0) {
+            this.moveAlongPath(unit);
+        } else {
+            unit.setData('attackMove', false);
+            unit.state = UnitState.IDLE;
+        }
+    }
+
+    private resumeAttackMove(unit: GameUnit): void {
+        const route = unit.getData('attackMovePath') as Phaser.Math.Vector2[] | undefined;
+        unit.target = null;
+        unit.setData('explicitTarget', false);
+        unit.setData('attackMoveEngaging', false);
+        if (!route || route.length < 2) {
+            unit.setData('attackMove', false);
+            unit.state = UnitState.IDLE;
+            return;
+        }
+
+        unit.path = route;
+        unit.pathStep = findResumePathStep(route, unit.x, unit.y);
+        if (unit.pathStep >= route.length) {
+            unit.path = null;
+            unit.setData('attackMove', false);
+            unit.state = UnitState.IDLE;
+            return;
+        }
+        unit.state = UnitState.ATTACK_MOVE;
+    }
+
     // ─── Path Following ────────────────────────────────────────────────────
     private moveAlongPath(unit: GameUnit): void {
         if (!unit.path || unit.path.length === 0) return;
@@ -1062,8 +1176,13 @@ if (spatialHash) {
             const body = unit.body as Phaser.Physics.Arcade.Body;
             body.setVelocity(0, 0);
             unit.path = null;
+            if (unit.getData('attackMove') === true) {
+                unit.setData('attackMove', false);
+                unit.state = UnitState.IDLE;
+            }
             return;
         }
+
 
         const nextPoint = unit.path[unit.pathStep];
         const dx = unit.x - nextPoint.x;
@@ -1101,12 +1220,16 @@ if (spatialHash) {
             const action = stalePathAction(age, STALE_PATH_LIFETIME, inCombat);
             if (action === 'clear_repath') {
                 unit.path = null;
-                // force repath on next combat tick
+                // Force repath on next combat tick; attack-move retains its original route.
                 unit.setData('_lastPathRecalc', 0);
             } else if (action === 'clear_idle') {
                 unit.path = null;
+                if (unit.getData('attackMove') === true) {
+                    unit.setData('attackMove', false);
+                }
                 unit.state = UnitState.IDLE;
             }
+
         }
     }
 
@@ -1261,6 +1384,8 @@ if (spatialHash) {
                         const primaryType = Object.entries(profile).reduce((a, b) => (b[1] > (a[1] ?? 0) ? b : a), ['', 0])[0];
                         this.scene.feedbackSystem.showDamageNumber(target.x, target.y, finalDmg, primaryType || undefined);
                         this.scene.feedbackSystem.showHitSpark(target.x, target.y, primaryType || undefined);
+                        this.scene.feedbackSystem.showHitFlash(target.x, target.y);
+
                     }
                     const isRamVsBuilding = unit.unitType === UnitType.RAM && target.getData('def');
                     if (isRamVsBuilding) {
@@ -1592,6 +1717,8 @@ if (spatialHash) {
                 if (target.takeDamage) {
                     target.takeDamage(dmg);
                     this.scene.feedbackSystem.showHitSpark(target.x, target.y, 'Pierce');
+                    if (dmg > 0) this.scene.feedbackSystem.showHitFlash(target.x, target.y);
+
                     if (dmg > 0) this.scene.feedbackSystem.showDamageNumber(target.x, target.y, Math.round(dmg), 'Pierce');
                     this.scene.proceduralSound.playAttackImpact(target.x, target.y, 'Pierce');
                 }

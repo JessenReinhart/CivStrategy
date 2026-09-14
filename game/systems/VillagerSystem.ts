@@ -440,6 +440,7 @@ export class VillagerSystem {
                 villager.owner,
                 villager.carryType,
                 villager.carryAmount,
+                villager.jobBuilding ?? undefined,
             );
         }
 

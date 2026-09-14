@@ -109,6 +109,20 @@ export enum VictoryType {
   DOMINANCE = 'dominance',
 }
 
+export interface BuildingProduction {
+  resource: 'wood' | 'food' | 'gold';
+  perTick: number;
+}
+
+export interface SelectedBuildingInfo {
+  type: BuildingType;
+  hasWorker: boolean;
+  nearbyResources: number;
+  resourceLabel: string;
+  garrisonCount?: number;
+  production?: BuildingProduction;
+}
+
 export interface GameStats {
   population: number;
   maxPopulation: number;
@@ -132,7 +146,7 @@ export interface GameStats {
   activeResearch: { techId: TechId; progress: number; duration: number } | null;
   completedTechs: TechId[];
   selectedBuildingOwner?: number | null;
-  selectedBuildingInfo?: { type: BuildingType; hasWorker: boolean; nearbyResources: number; resourceLabel: string; garrisonCount?: number } | null;
+  selectedBuildingInfo?: SelectedBuildingInfo | null;
   gameResult?: GameResult;
   victoryType?: VictoryType;
   dominanceProgress?: number;
@@ -201,7 +215,10 @@ export enum UnitState {
   MOVING_TO_RALLY = 'moving_to_rally',
   WANDERING = 'wandering',
   CHASING = 'chasing',
-  ATTACKING = 'attacking'
+  ATTACKING = 'attacking',
+  ATTACK_MOVE = 'attack_move',
+
+
 }
 
 /** Per-soldier steering mode within a squad. */

@@ -400,4 +400,39 @@ describe('InputManager player command selection', () => {
             vi.stubGlobal('window', originalWindow);
         }
     });
+    it('attack-move: A then left-click issues an aggressive move order and resets the cursor', () => {
+        const commandAttackMove = vi.fn();
+        const commandMove = vi.fn();
+        const setDefaultCursor = vi.fn();
+        const playCommandAck = vi.fn();
+        const selectedUnit = { unitType: UnitType.PIKESMAN, getData: vi.fn(() => 0) };
+        const scene = {
+            buildingManager: { isDemolishMode: false, previewBuildingType: null },
+            input: { setDefaultCursor },
+            proceduralSound: { playCommandAck },
+            unitSystem: { commandAttackMove, commandMove, commandAttack: vi.fn() },
+            units: { getChildren: vi.fn(() => []) },
+            cameras: { main: { zoom: 1, getWorldPoint: vi.fn((x: number, y: number) => ({ x, y })) } },
+        };
+        const manager = Object.create(InputManager.prototype) as InputManager;
+        Object.defineProperty(manager, 'scene', { value: scene });
+        manager.selectedUnits = [selectedUnit] as never[];
+        manager.selectedBuilding = null;
+
+        const armAttackMove = (manager as unknown as { setAttackMoveArmed(armed: boolean): void }).setAttackMoveArmed.bind(manager);
+        const pointerDown = (manager as unknown as { handlePointerDown(pointer: unknown): void }).handlePointerDown.bind(manager);
+
+        armAttackMove(true);
+        expect(setDefaultCursor).toHaveBeenCalledWith('crosshair');
+
+        pointerDown({ worldX: 200, worldY: 120, rightButtonDown: () => false, event: { shiftKey: false } });
+
+        expect(commandAttackMove).toHaveBeenCalledOnce();
+        expect(commandAttackMove.mock.calls[0][0]).toEqual([selectedUnit]);
+        expect(commandMove).not.toHaveBeenCalled();
+        expect(playCommandAck).toHaveBeenCalledOnce();
+        expect(setDefaultCursor).toHaveBeenLastCalledWith('default');
+        const internal = manager as unknown as { attackMoveArmed: boolean };
+        expect(internal.attackMoveArmed).toBe(false);
+    });
 });

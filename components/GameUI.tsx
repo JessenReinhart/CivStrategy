@@ -43,6 +43,13 @@ const getDamageTag = (type: UnitType): { label: string; color: string } | null =
     };
     return { label: `${dmgType} ${value}`, color: colors[dmgType] || 'bg-stone-800 text-stone-400' };
 };
+const RESOURCE_TONE: Record<'emerald' | 'amber' | 'gold' | 'blue', string> = {
+    emerald: 'text-emerald-300',
+    amber: 'text-yellow-300',
+    gold: 'text-amber-300',
+    blue: 'text-sky-300',
+};
+
 
 export const GameUI: React.FC<GameUIProps> = ({
     stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection,
@@ -185,102 +192,89 @@ export const GameUI: React.FC<GameUIProps> = ({
     };
 
     const netFood = stats.rates.food - stats.rates.foodConsumption;
-    const netFoodSign = netFood >= 0 ? '+' : '';
-    const netFoodColor = netFood >= 0 ? 'text-emerald-400' : 'text-red-400';
 
     return (
+
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
 
-            {/* --- TOP BAR: RESOURCES --- */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-auto max-w-[calc(100vw-2rem)]">
-                <div className="hud-surface flex items-center gap-5 px-5 py-2.5 rounded-xl text-stone-100 transition-colors hover:border-amber-500/30">
-                    <ResourceItem
-                        icon={<Pickaxe size={16} className="text-emerald-400" />}
-                        value={stats.resources.wood}
-                        sub={stats.rates.wood > 0 ? `+${stats.rates.wood}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Wheat size={16} className="text-yellow-400" />}
-                        value={
-                            <span className="flex items-baseline gap-1">
-                                {stats.resources.food}
-                                <span className={`text-[10px] ${netFoodColor} font-bold opacity-80`}>
-                                    {`(${netFoodSign}${netFood})`}
-                                </span>
-                            </span>
-                        }
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<Coins size={16} className="text-amber-400" />}
-                        value={stats.resources.gold}
-                        sub={stats.rates.gold > 0 ? `+${stats.rates.gold}` : undefined}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <ResourceItem
-                        icon={<User size={16} className="text-blue-300" />}
-                        value={`${stats.population}/${stats.maxPopulation}`}
-                    />
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1 cursor-pointer hover:bg-white/5 rounded-lg transition-colors" onClick={onAdvanceAge} title="Advance Age">
-                      <Zap size={16} className={
-                        stats.nextAge ? 'text-amber-400 animate-pulse' :
-                        stats.currentAge === Age.CITY_STATE ? 'text-amber-400' :
-                        stats.currentAge === Age.TOWN ? 'text-yellow-400' :
-                        'text-stone-400'
-                      } />
-                      <div className="flex flex-col leading-tight">
-                        <span className="text-[10px] font-bold text-stone-200 uppercase tracking-wide">{stats.currentAge}</span>
-                        {stats.nextAge && stats.ageProgress > 0 && (
-                          <div className="w-12 h-1 bg-stone-700 rounded-full overflow-hidden">
-                            <div className="h-full bg-amber-500 rounded-full transition-all" style={{width: (stats.ageProgress * 100) + '%'}} />
-                          </div>
-                        )}
-                        {!stats.nextAge && stats.currentAge === Age.CITY_STATE && (
-                          <span className="text-[8px] text-amber-400 font-bold">MAX</span>
-                        )}
-                        {!stats.nextAge && stats.currentAge !== Age.CITY_STATE && (
-                          <span className="text-[8px] text-stone-500">Click TC to advance</span>
-                        )}
-                      </div>
+            {/* --- TOP LEFT: RESOURCE STRIP --- */}
+            <div className="absolute top-4 left-4 pointer-events-auto">
+                <div className="hud-surface hud-resource-ribbon flex items-stretch rounded-xl text-stone-100 overflow-hidden">
+                    <div className="flex items-stretch divide-x divide-white/10">
+                        <ResourceItem
+                            icon={<Pickaxe size={17} />}
+                            label="Wood"
+                            value={stats.resources.wood}
+                            rate={stats.rates.wood}
+                            tone="emerald"
+                        />
+                        <ResourceItem
+                            icon={<Wheat size={17} />}
+                            label="Food"
+                            value={stats.resources.food}
+                            rate={netFood}
+                            tone="amber"
+                            warning={netFood < 0 ? 'Declining' : undefined}
+                        />
+                        <ResourceItem
+                            icon={<Coins size={17} />}
+                            label="Gold"
+                            value={stats.resources.gold}
+                            rate={stats.rates.gold}
+                            tone="gold"
+                        />
+                        <ResourceItem
+                            icon={<User size={17} />}
+                            label="Population"
+                            value={`${stats.population}/${stats.maxPopulation}`}
+                            tone="blue"
+                            warning={stats.population >= stats.maxPopulation ? 'At capacity' : undefined}
+                            meter={stats.maxPopulation > 0 ? stats.population / stats.maxPopulation : 0}
+                        />
                     </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex flex-col items-center min-w-[60px]">
-                        <div className={`flex items-center gap-2 font-bold text-lg ${stats.happiness < 50 ? 'text-red-400' : 'text-green-400'}`}>
-                            <Smile size={16} />
-                            <span>{stats.happiness}%</span>
-                        </div>
-                        {stats.happiness < 50 && (
-                            <span className="text-[10px] text-red-400 animate-pulse font-bold tracking-wider">REVOLT RISK</span>
-                        )}
-                    </div>
-                    <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-2 px-1" title={stats.currentSeason}>
-                        <span className={`text-sm font-bold ${
-                            stats.currentSeason === 'spring' ? 'text-emerald-400' :
-                            stats.currentSeason === 'summer' ? 'text-yellow-400' :
-                            stats.currentSeason === 'autumn' ? 'text-orange-400' :
-                            'text-blue-300'
-                        }`}>
-                            {stats.currentSeason === 'spring' ? '🌱' : stats.currentSeason === 'summer' ? '☀️' : stats.currentSeason === 'autumn' ? '🍂' : '❄️'}
+                </div>
+            </div>
+
+            {/* --- TOP CENTER: STATUS RAIL --- */}
+            <div className="hud-surface absolute top-4 left-1/2 -translate-x-1/2 pointer-events-auto flex items-center gap-1 rounded-xl overflow-hidden">
+                <button
+                    type="button"
+                    className="group min-w-[118px] px-3 py-2 text-left hover:bg-amber-400/[.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300/80 transition-colors"
+                    onClick={onAdvanceAge}
+                    title="Advance Age"
+                >
+                    <span className="flex items-center gap-2">
+                        <Zap size={16} className={stats.nextAge ? 'text-amber-300 animate-pulse' : 'text-stone-400 group-hover:text-amber-300'} />
+                        <span>
+                            <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Civilization</span>
+                            <span className="block text-xs font-semibold text-stone-100">{stats.currentAge}</span>
                         </span>
-                        <span className="text-[10px] font-bold text-stone-300 uppercase tracking-wide">{stats.currentSeason}</span>
-                    </div>
-                    {typeof stats.playerTerritoryPercent === 'number' && stats.playerTerritoryPercent > 0 && (
-                        <div className="flex items-center gap-1 px-1" title={`Territory: ${Math.round(stats.playerTerritoryPercent * 100)}%`}>
-                            <span className="text-[10px] font-bold text-cyan-400">🏰 {Math.round(stats.playerTerritoryPercent * 100)}%</span>
-                        </div>
+                    </span>
+                    {stats.nextAge && (
+                        <span className="block mt-1.5 h-1 bg-black/40 rounded-full overflow-hidden" aria-label={`Age progress ${Math.round(stats.ageProgress * 100)}%`}>
+                            <span className="block h-full bg-amber-400 transition-[width]" style={{ width: `${stats.ageProgress * 100}%` }} />
+                        </span>
                     )}
-                     <div className="hud-rule w-px h-7" />
-                    <div className="flex items-center gap-1" title="Diplomacy">
-                        {stats.peacefulMode ? (
-                            <span className="text-[10px] font-bold text-emerald-400">🕊️ Peace</span>
-                        ) : stats.treatyTimeRemaining > 0 ? (
-                            <span className="text-[10px] font-bold text-amber-400">⏱ Treaty {Math.ceil(stats.treatyTimeRemaining / 1000)}s</span>
-                        ) : (
-                            <span className="text-[10px] font-bold text-red-400">⚔️ War</span>
-                        )}
+                </button>
+
+                <div className="hud-rule w-px self-stretch my-2" />
+
+                <div className="flex items-center gap-3 px-3 py-2">
+                    <div className="min-w-[72px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Morale</span>
+                        <span className={`flex items-center gap-1.5 text-sm font-bold tabular-nums ${stats.happiness < 50 ? 'text-red-300' : 'text-emerald-300'}`}>
+                            <Smile size={15} /> {stats.happiness}%
+                        </span>
+                    </div>
+                    <div className="min-w-[62px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Season</span>
+                        <span className="block text-xs font-semibold text-stone-200 capitalize">{stats.currentSeason}</span>
+                    </div>
+                    <div className="min-w-[76px]">
+                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Diplomacy</span>
+                        <span className={`block text-xs font-semibold ${stats.peacefulMode ? 'text-emerald-300' : stats.treatyTimeRemaining > 0 ? 'text-amber-300' : 'text-red-300'}`}>
+                            {stats.peacefulMode ? 'Peace' : stats.treatyTimeRemaining > 0 ? `Treaty ${Math.ceil(stats.treatyTimeRemaining / 1000)}s` : 'At war'}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -511,6 +505,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                 {stats.selectedBuildingInfo.nearbyResources > 0 && (
                                                     <span className="text-[10px] text-stone-300">
                                                         {stats.selectedBuildingInfo.nearbyResources} {stats.selectedBuildingInfo.resourceLabel}
+                                                    </span>
+                                                )}
+                                                {stats.selectedBuildingInfo.production && (
+                                                    <span className="text-[10px] font-bold text-emerald-300 bg-emerald-950/40 border border-emerald-400/20 px-1.5 py-0.5 rounded tabular-nums">
+                                                        +{stats.selectedBuildingInfo.production.perTick} {stats.selectedBuildingInfo.production.resource}/tick
                                                     </span>
                                                 )}
                                             </div>
@@ -1120,21 +1119,43 @@ export const GameUI: React.FC<GameUIProps> = ({
 
 interface ResourceItemProps {
     icon: React.ReactNode;
+    label: string;
     value: React.ReactNode;
-    sub?: string;
+    rate?: number;
+    tone: 'emerald' | 'amber' | 'gold' | 'blue';
+    meter?: number;
+    warning?: string;
 }
 
-const ResourceItem: React.FC<ResourceItemProps> = ({ icon, value, sub }) => (
-    <div className="flex items-center gap-2">
-        <div className="flex items-center justify-center">
-            {icon}
+const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value, rate, tone, meter, warning }) => {
+    const isNegative = typeof rate === 'number' && rate < 0;
+    return (
+        <div className="min-w-[106px] px-3 py-1.5" aria-live="polite" title={warning ?? label}>
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[.12em] text-stone-400">
+                <span className={RESOURCE_TONE[tone]}>{icon}</span>
+                <span>{label}</span>
+            </div>
+            <div className="mt-0.5 flex items-baseline gap-1.5">
+                <span className="text-base font-bold tabular-nums leading-none text-stone-50">{value}</span>
+                {typeof rate === 'number' && (
+                    <span className={`text-[10px] font-bold tabular-nums ${isNegative ? 'text-red-300' : 'text-emerald-300/80'}`}>
+                        {rate >= 0 ? `+${rate}` : rate}
+                    </span>
+                )}
+            </div>
+            {typeof meter === 'number' && (
+                <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-black/40" aria-hidden="true">
+                    <div className="h-full bg-sky-300/90" style={{ width: `${Math.min(1, Math.max(0, meter)) * 100}%` }} />
+                </div>
+            )}
+            {warning && (
+                <div className={`mt-0.5 text-[9px] font-semibold uppercase tracking-[.12em] ${warning === 'At capacity' ? 'text-amber-300/90' : 'text-red-300/90'}`}>
+                    {warning}
+                </div>
+            )}
         </div>
-        <div className="flex items-baseline gap-1">
-            <span className="font-bold text-lg leading-none">{value}</span>
-            {sub && <span className="text-[10px] text-stone-400 font-mono font-bold opacity-80">{sub}</span>}
-        </div>
-    </div>
-);
+    );
+};
 
 interface DockButtonProps {
     isActive: boolean;

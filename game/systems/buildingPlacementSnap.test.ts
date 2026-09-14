@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { toCartesian, toIso } from '../utils/iso';
-import { resolveCursorAlignedPlacement } from './buildingPlacementSnap';
-
+import { formatBuildingPlacementFeedback, resolveCursorAlignedPlacement } from './buildingPlacementSnap';
 const GRID = 16;
 
 function finalManagerCenter(inputWorldX: number, inputWorldY: number, width: number, height: number) {
@@ -45,3 +44,20 @@ describe('cursor-aligned building placement', () => {
         expect(second.centerY).toBe(first.centerY);
     });
 });
+
+describe('formatBuildingPlacementFeedback', () => {
+    it('shows placement rejection reason directly on the ghost', () => {
+        expect(formatBuildingPlacementFeedback({ valid: false, reason: 'Outside Territory' })).toBe('Outside Territory');
+        expect(formatBuildingPlacementFeedback({ valid: false, reason: 'Terrain too steep' })).toBe('Terrain too steep');
+        expect(formatBuildingPlacementFeedback({ valid: false, reason: 'Space Occupied' })).toBe('Space Occupied');
+    });
+
+    it('shows fertility context for valid farm placement', () => {
+        expect(formatBuildingPlacementFeedback({ valid: true, farmYield: 1.2 })).toBe('Fertility ×1.2 · Click to place');
+    });
+
+    it('shows default click-to-place instruction for other valid buildings', () => {
+        expect(formatBuildingPlacementFeedback({ valid: true })).toBe('Click to place');
+    });
+});
+

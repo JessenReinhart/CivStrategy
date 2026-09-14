@@ -9,6 +9,9 @@ export const MAP_WIDTH = 2048;
 export const MAP_HEIGHT = 2048;
 
 export const STANCE_TETHER_RADIUS = 300; // Max distance to chase from anchor in Defensive stance
+/** Aggressive-move target scan cadence. Kept below ordinary idle acquisition for responsive orders. */
+export const ATTACK_MOVE_SCAN_INTERVAL = 250;
+
 // Stress benchmark: render every Nth unit's DOT bob to cap GPU draw count.
 // All 5k units remain active and moving; only the visual density is reduced.
 export const STRESS_RENDER_INTERVAL = 30; // 30 => 167 visible bobs out of 5k

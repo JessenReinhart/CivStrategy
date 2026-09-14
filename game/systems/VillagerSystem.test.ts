@@ -230,7 +230,7 @@ describe('VillagerSystem resource production', () => {
         }
 
         expect(depositResource).toHaveBeenCalledTimes(1);
-        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20, camp);
         expect(villager.carryAmount).toBe(0);
         expect(villager.state).toBe(GATHERING);
         expect(villager.jobBuilding).toBe(camp);
@@ -270,7 +270,7 @@ describe('VillagerSystem resource production', () => {
         system.update(500, 500);
 
         expect(depositResource).toHaveBeenCalledTimes(1);
-        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 20, camp);
         expect(villager.carryAmount).toBe(0);
         expect(villager.jobBuilding).toBe(camp);
         expect(villager.state).toBe(GATHERING);
@@ -295,7 +295,7 @@ describe('VillagerSystem resource production', () => {
         system.update(0, 16);
 
         expect(depositResource).toHaveBeenCalledTimes(1);
-        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 12);
+        expect(depositResource).toHaveBeenCalledWith(0, 'wood', 12, undefined);
         expect(findPath).not.toHaveBeenCalled();
         expect(villager.carryAmount).toBe(0);
         expect(villager.carryType).toBeNull();
@@ -333,7 +333,7 @@ describe('VillagerSystem resource production', () => {
         system.update(2500, 1);
 
         expect(depositResource).toHaveBeenCalledTimes(1);
-        expect(depositResource).toHaveBeenCalledWith(0, 'gold', 1);
+        expect(depositResource).toHaveBeenCalledWith(0, 'gold', 1, townCenter);
         expect(villager.carryAmount).toBe(0);
         expect(villager.state).toBe(IDLE);
 

@@ -1,11 +1,12 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData, AnimalData } from '../../types';
+import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData, AnimalData, BuildingProduction } from '../../types';
 import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
 const MIN_IDLE_WORKER_RESERVE = 2;
 const FARM_BASE_FOOD_PER_TICK = 5;
+const PRODUCTION_HISTORY_TICKS = 10;
 
 export class EconomySystem {
     private scene: MainScene;
@@ -14,6 +15,19 @@ export class EconomySystem {
     private lastHappinessChange: number = 0;
     private lastHappinessWarning: number = 0;
     private lastEnemyCheck: number = 0;
+    // Per-building production attribution. `history` holds exactly one entry per
+    // economy tick (the last PRODUCTION_HISTORY_TICKS ticks), so `perTick` is a
+    // true per-tick rate that the selected-building panel can expose and a
+    // journey can assert against simulated deposits over the same window.
+    private buildingProduction = new Map<Phaser.GameObjects.GameObject, {
+        resource: 'wood' | 'food' | 'gold';
+        perTick: number;
+        history: number[];
+    }>();
+    private pendingProduction = new Map<Phaser.GameObjects.GameObject, {
+        resource: 'wood' | 'food' | 'gold';
+        amount: number;
+    }>();
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -24,7 +38,12 @@ export class EconomySystem {
      * Deposits carried resources into the owning faction's pool with research
      * and faction multipliers applied.
      */
-    public depositResource(owner: number, type: 'wood' | 'food' | 'gold', amount: number) {
+    public depositResource(
+        owner: number,
+        type: 'wood' | 'food' | 'gold',
+        amount: number,
+        sourceBuilding?: Phaser.GameObjects.GameObject,
+    ) {
         let finalAmount = amount;
 
         // Apply research gather multipliers
@@ -48,14 +67,20 @@ export class EconomySystem {
             this.scene.enemyAI.resources[type] += finalAmount;
         }
 
-        // Show floating text at player's TC
+        // Show floating text at player's TC, not at the dropsite which may be
+        // a distant resource node. The dropsite building itself is attributed
+        // to the per-building production rate.
         if (owner === 0) {
+            const label = type.charAt(0).toUpperCase() + type.slice(1);
             const tcs = this.scene.buildings.getChildren().filter((b) =>
                 b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
             ) as Phaser.GameObjects.Image[];
             if (tcs.length > 0) {
-                const label = type.charAt(0).toUpperCase() + type.slice(1);
                 this.scene.feedbackSystem.showFloatingResource(tcs[0].x, tcs[0].y, finalAmount, label);
+            }
+
+            if (sourceBuilding) {
+                this.queueBuildingProduction(sourceBuilding, type, finalAmount);
             }
 
             // Resource deposits happen between the one-second economy ticks.
@@ -246,9 +271,9 @@ export class EconomySystem {
             if (b.getData('owner') !== 0) return;
 
             const def = b.getData('def') as BuildingDef;
-            const visual = (b as any).visual as Phaser.GameObjects.Container; // eslint-disable-line @typescript-eslint/no-explicit-any
-            const vacantIcon = visual.getData('vacantIcon') as Phaser.GameObjects.Text;
-            const noResIcon = visual.getData('noResIcon') as Phaser.GameObjects.Text;
+            const visual = (b as unknown as { visual?: Phaser.GameObjects.Container }).visual;
+            const vacantIcon = visual?.getData('vacantIcon') as Phaser.GameObjects.Text;
+            const noResIcon = visual?.getData('noResIcon') as Phaser.GameObjects.Text;
 
             let isWorking = true;
 
@@ -267,7 +292,9 @@ export class EconomySystem {
 
             // Town Center: commerce hub generates passive gold
             if (def.type === BuildingType.TOWN_CENTER) {
-                goldGen += Math.floor(2 * efficiency);
+                const townGold = Math.floor(2 * efficiency);
+                goldGen += townGold;
+                this.queueBuildingProduction(b, 'gold', townGold);
                 isWorking = true;
             }
 
@@ -277,7 +304,9 @@ export class EconomySystem {
                 // farm has an immediately visible positive effect before its carry deposit lands.
                 if (def.type === BuildingType.FARM) {
                     const terrainYield = b.getData('terrainYield') as number ?? 1.0;
-                    foodGen += Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * efficiency);
+                    const farmFood = Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * efficiency);
+                    foodGen += farmFood;
+                    this.queueBuildingProduction(b, 'food', farmFood);
                 }
 
                 // Hunter's Lodge: passive food from nearby animals (hunting mechanic preserved)
@@ -299,6 +328,7 @@ export class EconomySystem {
                         let gain = nearest.foodValue || 20;
                         gain = Math.floor(gain * efficiency);
                         foodGen += gain;
+                        this.queueBuildingProduction(b, 'food', gain);
                         if (Math.random() < 0.20) {
                             const victim = nearbyAnimals[Phaser.Math.Between(0, nearbyAnimals.length - 1)];
                             this.scene.animalSystem.destroyAnimal(victim);
@@ -391,6 +421,10 @@ export class EconomySystem {
         };
         this.depositedSinceLastTick = { wood: 0, food: 0, gold: 0 };
 
+        // Collapse this tick's deposits and passive generation into one
+        // history entry per building so perTick is a true per-tick rate.
+        this.flushProductionWindow();
+
         // ─── Happiness ───
         let happinessChange = 0;
         const isStarving = this.scene.resources.food === 0 && foodConsumed > 0;
@@ -456,6 +490,51 @@ export class EconomySystem {
                 }
             }
         }
+    }
+
+    /**
+     * Record a building's contribution for the economy tick currently in flight.
+     * Called both from passive generation inside tickEconomy and from carried
+     * deposits that land between ticks; the window itself only advances in
+     * flushProductionWindow, so a busy camp with twenty deposits per second does
+     * not smear its rate across twenty history slots.
+     */
+    private queueBuildingProduction(building: Phaser.GameObjects.GameObject, resource: 'wood' | 'food' | 'gold', amount: number) {
+        if (amount <= 0) return;
+        const pending = this.pendingProduction.get(building);
+        if (pending) pending.amount += amount;
+        else this.pendingProduction.set(building, { resource, amount });
+    }
+
+    /** Advance every attributed building by exactly one tick, including silent ones. */
+    private flushProductionWindow() {
+        for (const [building, attributed] of this.pendingProduction) {
+            if (!building.active) { this.pendingProduction.delete(building); continue; }
+            const entry = this.buildingProduction.get(building) ?? {
+                resource: attributed.resource,
+                perTick: 0,
+                history: [],
+            };
+            // A building only ever yields one resource; a foreign attribution
+            // means the slot was reused, so restart the window instead of
+            // averaging two different resources together.
+            if (entry.resource !== attributed.resource) {
+                entry.resource = attributed.resource;
+                entry.history = [];
+            }
+            entry.history.push(attributed.amount);
+            if (entry.history.length > PRODUCTION_HISTORY_TICKS) entry.history.shift();
+            entry.perTick = entry.history.reduce((sum, value) => sum + value, 0) / entry.history.length;
+            this.buildingProduction.set(building, entry);
+        }
+        this.pendingProduction.clear();
+    }
+
+
+    public getBuildingProduction(building: Phaser.GameObjects.GameObject | null | undefined): BuildingProduction | undefined {
+        if (!building) return undefined;
+        const value = this.buildingProduction.get(building);
+        return value && value.perTick > 0 ? { resource: value.resource, perTick: value.perTick } : undefined;
     }
 
     public updateStats() {
@@ -528,8 +607,17 @@ export class EconomySystem {
                 const garrisonCount = def.type === BuildingType.CASTLE
                     ? Object.values(selB.getData('garrison') || {} as Record<string, number>).reduce((s: number, n) => s + (n as number), 0)
                     : undefined;
-                stats.selectedBuildingInfo = { type: def.type, hasWorker, nearbyResources, resourceLabel, garrisonCount };
+                const production = this.getBuildingProduction(selB);
+                stats.selectedBuildingInfo = { type: def.type, hasWorker, nearbyResources, resourceLabel, garrisonCount, production };
             }
+        }
+
+        // Reap production records for destroyed buildings to prevent map leaks.
+        for (const building of this.buildingProduction.keys()) {
+            if (!building.active) this.buildingProduction.delete(building);
+        }
+        for (const building of this.pendingProduction.keys()) {
+            if (!building.active) this.pendingProduction.delete(building);
         }
 
         this.scene.game.events.emit(EVENTS.UPDATE_STATS, stats);

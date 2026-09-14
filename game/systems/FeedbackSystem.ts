@@ -167,6 +167,18 @@ export class FeedbackSystem {
             this.scene.tweens.add({ targets: spark, x: iso.x + Phaser.Math.Between(-20, 20), y: iso.y + Phaser.Math.Between(-30, -10), alpha: 0, scale: 0.1, duration: Phaser.Math.Between(200, 400), onComplete: () => this.releaseSpark(spark) });
         }
     }
+    /**
+     * Total War-style contact read: ~120ms white ring that expands and fades, making
+     * every damaging hit tactically legible at game zoom. Pool-backed; no-op at capacity.
+     */
+    showHitFlash(x: number, y: number): void {
+        const ring = this.acquireDeathFlash();
+        if (!ring) return;
+        const iso = toIso(x, y);
+        ring.setFillStyle(0xffffff, 0.85).setPosition(iso.x, iso.y - 20).setScale(0.45).setAlpha(0.85).setDepth(Number.MAX_VALUE - 1);
+        this.scene.tweens.add({ targets: ring, scaleX: 1.6, scaleY: 1.1, alpha: 0, duration: 120, onComplete: () => this.releaseDeathFlash(ring) });
+    }
+
 
     // ── Floating text ────────────────────────────────────────────────────
 
