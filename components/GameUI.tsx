@@ -197,8 +197,9 @@ export const GameUI: React.FC<GameUIProps> = ({
 
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
 
+            <div className="hud-top-row">
             {/* --- TOP LEFT: RESOURCE STRIP --- */}
-            <div className="absolute top-6 left-[248px] z-20 pointer-events-auto">
+            <div className="hud-resource-panel pointer-events-auto">
                 <div className="hud-surface hud-resource-ribbon flex items-stretch rounded-xl text-stone-100 overflow-hidden">
                     <div className="flex items-stretch divide-x divide-white/10">
                         <ResourceItem
@@ -236,7 +237,7 @@ export const GameUI: React.FC<GameUIProps> = ({
             </div>
 
             {/* --- TOP CENTER: STATUS RAIL --- */}
-            <div className="hud-surface absolute top-[88px] left-[248px] z-20 pointer-events-auto flex items-center gap-1 rounded-xl overflow-hidden">
+            <div className="hud-surface hud-status-rail pointer-events-auto flex items-center gap-1 rounded-xl overflow-hidden">
                 <button
                     type="button"
                     className="group min-w-[118px] px-3 py-2 text-left hover:bg-amber-400/[.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300/80 transition-colors"
@@ -281,7 +282,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
             {/* --- DOMINANCE PROGRESS BAR --- */}
             {typeof stats.dominanceProgress === 'number' && stats.dominanceProgress > 0 && (
-                <div className="absolute top-[144px] left-[248px] z-20 w-64 pointer-events-none">
+                <div className="hud-dominance w-64 pointer-events-none">
                     <div className="text-xs text-amber-400 text-center mb-1 font-bold tracking-wide">
                         ⚔️ Dominance: {Math.round(stats.dominanceProgress / 1000)}s / {DOMINANCE_HOLD_TIME_MS / 1000}s
                     </div>
@@ -295,7 +296,7 @@ export const GameUI: React.FC<GameUIProps> = ({
             )}
 
             {/* --- TOP RIGHT: SYSTEM CONTROLS --- */}
-            <div className="absolute top-6 right-6 z-30 flex flex-col items-end gap-3 pointer-events-auto">
+            <div className="hud-controls-rail flex flex-col items-end gap-3 pointer-events-auto">
                 {/* Main Controls Group */}
                 <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl">
                     {/* Speed Controls */}
@@ -437,6 +438,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         )}
                     </div>
                 )}
+            </div>
             </div>
 
             {/* --- BOTTOM LEFT: MAP / RADAR --- */}
