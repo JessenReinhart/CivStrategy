@@ -96,13 +96,13 @@
       }
 
       /* Tax opens to the left of the system-controls cluster. */
-      body .absolute.top-6.right-6 .relative > .absolute.top-12.right-0.w-64 {
+      .hud-controls-rail .relative > .absolute.top-12.right-0.w-64 {
         top: 0 !important;
         right: calc(100% + .75rem) !important;
       }
 
       /* The menu is an overlay, not another item that lengthens the right rail. */
-      body .absolute.top-6.right-6 > .hud-surface.w-56 {
+      .hud-controls-rail > .hud-surface.w-56 {
         position: absolute !important;
         top: 4rem !important;
         right: 0 !important;
@@ -110,7 +110,7 @@
 
       /* Diplomacy is already represented in the status rail. Remove the
          duplicate large widget from the top-right controls lane. */
-      body .absolute.top-6.right-6 > .flex.items-center.gap-3.px-4.py-2.rounded-full {
+      .hud-controls-rail > .flex.items-center.gap-3.px-4.py-2.rounded-full {
         display: none !important;
       }
 
