@@ -53,6 +53,48 @@
       }
       .hud-rule { background: var(--hud-line); }
 
+      /* Reserve the clock's 208px lane, then align the three primary HUD groups
+         on one shared baseline. This prevents independent absolute offsets from
+         drifting into each other as the HUD grows. */
+      .hud-top-row {
+        position: absolute;
+        top: 1.5rem;
+        left: 15.5rem;
+        right: 1.5rem;
+        z-index: 30;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .75rem;
+        pointer-events: none;
+      }
+      .hud-resource-panel,
+      .hud-status-rail,
+      .hud-controls-rail {
+        flex: 0 0 auto;
+      }
+      .hud-dominance {
+        position: absolute;
+        top: 4rem;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      /* On narrower desktop widths, keep resources and controls on the main
+         lane and drop status/dominance into a deliberate second lane. */
+      @media (max-width: 1320px) {
+        .hud-status-rail {
+          position: absolute;
+          top: 4rem;
+          left: 0;
+        }
+        .hud-dominance {
+          top: 7.75rem;
+          left: 0;
+          transform: none;
+        }
+      }
+
       /* Tax opens to the left of the system-controls cluster. */
       body .absolute.top-6.right-6 .relative > .absolute.top-12.right-0.w-64 {
         top: 0 !important;
