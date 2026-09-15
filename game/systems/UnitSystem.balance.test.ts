@@ -85,3 +85,54 @@ describe('ranged volley balance', () => {
             .toBeCloseTo(volley({ damageMult: 1.15, armorAdd: 2 }));
     });
 });
+
+
+describe('ranged projectile origin safety', () => {
+    const makeSystem = () => {
+        const scene = {
+            add: { graphics: () => ({ setDepth() { return this; } }) },
+        } as unknown as MainScene;
+        return new UnitSystem(scene);
+    };
+
+    const makeAttacker = (x: number, y: number) => ({
+        x, y, scene: {},
+        unitType: UnitType.ARCHER,
+        getData: (key: string) => key === 'range' ? UNIT_STATS[UnitType.ARCHER].range : undefined,
+    }) as unknown as GameUnit;
+
+    it('falls back to the authoritative unit position when a cached soldier origin is stale', () => {
+        const system = makeSystem() as unknown as {
+            resolveProjectileOrigin(unit: GameUnit, soldier: { x: number; y: number }): { x: number; y: number };
+        };
+        const attacker = makeAttacker(900, 900);
+
+        expect(system.resolveProjectileOrigin(attacker, { x: 120, y: 120 }))
+            .toEqual({ x: 900, y: 900 });
+    });
+
+    it('keeps a nearby soldier position as the projectile origin', () => {
+        const system = makeSystem() as unknown as {
+            resolveProjectileOrigin(unit: GameUnit, soldier: { x: number; y: number }): { x: number; y: number };
+        };
+        const attacker = makeAttacker(900, 900);
+
+        expect(system.resolveProjectileOrigin(attacker, { x: 925, y: 890 }))
+            .toEqual({ x: 925, y: 890 });
+    });
+
+    it('rejects delayed shots after the target has moved outside attack range', () => {
+        const system = makeSystem() as unknown as {
+            isTargetWithinAttackRange(unit: GameUnit, target: GameUnit): boolean;
+        };
+        const attacker = makeAttacker(0, 0);
+        const target = {
+            x: UNIT_STATS[UnitType.ARCHER].range + 1,
+            y: 0,
+            scene: {},
+            getData: () => undefined,
+        } as unknown as GameUnit;
+
+        expect(system.isTargetWithinAttackRange(attacker, target)).toBe(false);
+    });
+});
