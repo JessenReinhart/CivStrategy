@@ -1234,6 +1234,44 @@ if (spatialHash) {
     }
 
     // ─── Combat Resolution ─────────────────────────────────────────────────
+    /**
+     * Projectile visuals use soldier-level positions, but those are updated by the
+     * render/LOD bucket and can legitimately lag behind an off-screen marching squad.
+     * Never let a stale render coordinate become a gameplay projectile origin.
+     */
+    private resolveProjectileOrigin(unit: GameUnit, soldier?: SoldierState): { x: number; y: number } {
+        if (!soldier || !Number.isFinite(soldier.x) || !Number.isFinite(soldier.y)) {
+            return { x: unit.x, y: unit.y };
+        }
+
+        const stats = UNIT_STATS[unit.unitType];
+        const squadRadius = Math.sqrt(stats?.squadSize ?? 1) * (stats?.squadSpacing ?? 8) * 2;
+        const maxOriginDrift = Math.max(96, squadRadius);
+        const drift = Math.hypot(soldier.x - unit.x, soldier.y - unit.y);
+
+        return drift <= maxOriginDrift
+            ? { x: soldier.x, y: soldier.y }
+            : { x: unit.x, y: unit.y };
+    }
+
+    /** Revalidate attack range at the instant a delayed ranged volley actually launches. */
+    private isTargetWithinAttackRange(unit: GameUnit, target: GameUnit): boolean {
+        if (!unit.scene || !target.scene) return false;
+
+        const range = (unit.getData('range') as number | undefined) ?? 40;
+        const def = target.getData('def') as { width?: number; height?: number } | undefined;
+
+        if (def && Number.isFinite(def.width) && Number.isFinite(def.height)) {
+            const halfW = (def.width as number) / 2;
+            const halfH = (def.height as number) / 2;
+            const closestX = Math.max(target.x - halfW, Math.min(unit.x, target.x + halfW));
+            const closestY = Math.max(target.y - halfH, Math.min(unit.y, target.y + halfH));
+            return Math.hypot(unit.x - closestX, unit.y - closestY) <= range;
+        }
+
+        return Math.hypot(unit.x - target.x, unit.y - target.y) <= range;
+    }
+
     private performAttack(unit: GameUnit, target: GameUnit): void {
         const isStress = !!this.scene.stressTestConfig;
 
@@ -1301,25 +1339,34 @@ if (spatialHash) {
             for (let i = 0; i < arrowCount; i++) {
                 const delay = Phaser.Math.Between(0, 300);
                 const spread = 15;
-                const targetVaried = {
+                const soldierIndex = soldiers.length > 0 ? i % soldiers.length : -1;
+                const makeTarget = () => ({
                     x: target.x + Phaser.Math.Between(-spread, spread),
                     y: target.y + Phaser.Math.Between(-spread, spread),
                     scene: target.scene,
                     takeDamage: (amt: number) => { if (target && target.takeDamage) target.takeDamage(amt, 1 / arrowCount); }
-                };
-
-                const origin = (soldiers.length > 0)
-                    ? soldiers[i % soldiers.length]
-                    : { x: unit.x, y: unit.y };
+                });
 
                 if (isStress) {
-                    this.scheduleProjectile(origin, targetVaried, damagePerArrow, delay);
+                    const origin = this.resolveProjectileOrigin(
+                        unit,
+                        soldierIndex >= 0 ? soldiers[soldierIndex] : undefined,
+                    );
+                    this.scheduleProjectile(origin, makeTarget(), damagePerArrow, delay);
                 } else {
                     this.scene.time.delayedCall(delay, () => {
-                        if (unit.scene && target.scene) {
-                            this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
-                            this.fireProjectile(origin, targetVaried, damagePerArrow);
-                        }
+                        // The attack was in range when queued, but the target can move during
+                        // the per-arrow release delay. Do not create a fresh impossible shot.
+                        if (!this.isTargetWithinAttackRange(unit, target)) return;
+
+                        const liveSoldiers = (unit.getData('soldierStates') as SoldierState[] | undefined) ?? [];
+                        const origin = this.resolveProjectileOrigin(
+                            unit,
+                            soldierIndex >= 0 ? liveSoldiers[soldierIndex] : undefined,
+                        );
+                        const targetVaried = makeTarget();
+                        this.scene.proceduralSound.playBowRelease(origin.x, origin.y);
+                        this.fireProjectile(origin, targetVaried, damagePerArrow);
                     });
                 }
             }
