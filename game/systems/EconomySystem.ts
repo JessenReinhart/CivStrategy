@@ -449,7 +449,7 @@ export class EconomySystem {
         this.lastHappinessChange = happinessChange;
         // ─── Feedback Wiring ───
         const now = Date.now();
-        if (this.scene.happiness < 30 && this.scene.happiness > 0 && now - this.lastHappinessWarning > 30000) {
+        if (this.scene.happiness < 30 && now - this.lastHappinessWarning > 30000) {
             this.scene.feedbackSystem.notifyHappinessCritical();
             this.lastHappinessWarning = now;
         }

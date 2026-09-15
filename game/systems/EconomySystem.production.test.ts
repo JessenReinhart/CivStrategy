@@ -147,3 +147,41 @@ describe('happiness recovery after an economy crisis', () => {
         expect(scene.happiness).toBe(30);
     });
 });
+
+// Regression for #362: the periodic critical-happiness warning was gated by
+// `happiness < 30 && happiness > 0`, so once non-starvation pressure (e.g.
+// severe overcrowding + high tax) bottomed happiness out at exactly 0, the
+// warning stopped firing entirely and the player got no further feedback.
+describe('happiness-critical warning at the floor', () => {
+    function makeCrisisScene() {
+        return {
+            resources: { wood: 0, food: 1000, gold: 0 },
+            population: 20, maxPopulation: 10, happiness: 0, taxRate: 2,
+            buildings: { getChildren: () => [] },
+            feedbackSystem: { notifyHappinessCritical: vi.fn() },
+            gameTime: 0,
+        } as unknown as MainScene;
+    }
+
+    it('still fires the periodic critical warning when happiness is already at 0', () => {
+        const scene = makeCrisisScene();
+        const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+
+        economy.tickEconomy();
+
+        expect(scene.happiness).toBe(0);
+        expect(scene.feedbackSystem.notifyHappinessCritical).toHaveBeenCalledTimes(1);
+    });
+
+    it('still throttles repeated warnings while happiness stays at 0', () => {
+        const scene = makeCrisisScene();
+        const economy = new EconomySystem(scene);
+        vi.spyOn(economy, 'updateStats').mockImplementation(() => {});
+
+        economy.tickEconomy();
+        economy.tickEconomy();
+
+        expect(scene.feedbackSystem.notifyHappinessCritical).toHaveBeenCalledTimes(1);
+    });
+});
