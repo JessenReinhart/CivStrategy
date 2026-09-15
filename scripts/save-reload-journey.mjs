@@ -368,6 +368,27 @@ try {
   }, MARKER_WOOD);
 
   const closedWorkforceUi = await closeLumberWorkforceSlot(page, beforeSave.lumberCamp);
+  const repairBeforeSave = await page.evaluate((position) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'House'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    if (!house) throw new Error('Population-cap House missing before repair save probe.');
+
+    const maxHp = house.getData('maxHp');
+    house.setData('hp', Math.max(1, maxHp * 0.1));
+    scene.buildingManager.requestRepair(house);
+    return {
+      hp: house.getData('hp'),
+      maxHp,
+      repairing: house.getData('repairing') === true,
+    };
+  }, beforeSave.house);
+  if (!repairBeforeSave.repairing) throw new Error('House repair did not start before save.');
+
   await page.evaluate(() => window.dispatchEvent(new Event('save-game')));
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
@@ -378,6 +399,7 @@ try {
     && building.x === beforeSave.house.x && building.y === beforeSave.house.y
   ));
   if (!storedHouse) throw new Error('Stored save did not contain the population-cap House.');
+  if (storedHouse.repairing !== true) throw new Error('Stored save did not preserve active House repair state.');
   const storedBarracks = storedSave.buildings?.find((building) => (
     building.type === 'Barracks' && building.owner === 0
     && building.x === beforeSave.barracks.x && building.y === beforeSave.barracks.y
@@ -405,16 +427,81 @@ try {
     }
   }
 
+  // Make the cold reload deterministic and prove wall-clock time is irrelevant
+  // to repair progress. The loaded simulation is slowed until the probe restores
+  // its original speed after checking the repair baseline.
+  await page.evaluate(({ saveKey }) => {
+    const save = JSON.parse(localStorage.getItem(saveKey));
+    save.timestamp -= 86_400_000;
+    save.gameSpeed = 0.05;
+    localStorage.setItem(saveKey, JSON.stringify(save));
+  }, { saveKey: SAVE_KEY });
+
   // Exercise the real cold-reload player path first. Continue Game rebuilds the
   // saved seeded world before MainScene applies pending save data, which is the
   // required environment for persistent finite resource nodes and workforce targets.
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /Continue/i }).click();
   await waitForMainScene(page);
-  await page.waitForFunction((markerWood) => {
+  await page.waitForFunction((position) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
-    return scene?.isReady && scene?.resources?.wood === markerWood;
-  }, MARKER_WOOD, { timeout: 20_000 });
+    const house = scene?.buildings?.getChildren?.().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'House'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    return Boolean(scene?.isReady && house?.getData('repairing') === true);
+  }, beforeSave.house, { timeout: 20_000 });
+
+  const coldReloadRepair = await page.evaluate(({ position, originalGameSpeed }) => {
+    const scene = window.__civStrategyGame.scene.getScene('MainScene');
+    const house = scene.buildings.getChildren().find((building) => (
+      building.getData('owner') === 0
+      && building.getData('def')?.type === 'House'
+      && building.x === position.x
+      && building.y === position.y
+    ));
+    if (!house) throw new Error('Saved House is missing after cold reload.');
+
+    scene.gameSpeed = 0;
+    const before = {
+      hp: house.getData('hp'),
+      maxHp: house.getData('maxHp'),
+      repairing: house.getData('repairing') === true,
+      repairLastTick: house.getData('repairLastTick'),
+      gameTime: scene.gameTime,
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+    };
+    if (!before.repairing) throw new Error('Active House repair did not resume after cold reload.');
+    if (Math.abs(before.repairLastTick - before.gameTime) > 0.01) {
+      throw new Error(`Reloaded repair baseline drifted from simulation time: tick ${before.repairLastTick}, game ${before.gameTime}.`);
+    }
+
+    scene.gameTime += 1_000;
+    scene.buildingManager.update();
+    const after = {
+      hp: house.getData('hp'),
+      repairing: house.getData('repairing') === true,
+      wood: scene.resources.wood,
+      food: scene.resources.food,
+      gold: scene.resources.gold,
+    };
+
+    scene.gameSpeed = originalGameSpeed;
+    if (scene.physics?.world) scene.physics.world.timeScale = 1 / originalGameSpeed;
+    if (scene.tweens) scene.tweens.timeScale = originalGameSpeed;
+    return { before, after };
+  }, { position: beforeSave.house, originalGameSpeed: storedSave.gameSpeed });
+
+  if (!(coldReloadRepair.after.hp > coldReloadRepair.before.hp)) {
+    throw new Error(`Restored House repair did not advance on the next simulation tick: ${coldReloadRepair.before.hp} -> ${coldReloadRepair.after.hp}.`);
+  }
+  if (!(coldReloadRepair.after.wood < coldReloadRepair.before.wood)) {
+    throw new Error(`Restored House repair did not charge wood on resumed progress: ${coldReloadRepair.before.wood} -> ${coldReloadRepair.after.wood}.`);
+  }
 
   const coldReloadWorkforce = await page.evaluate((position) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
