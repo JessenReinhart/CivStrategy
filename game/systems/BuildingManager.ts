@@ -5,6 +5,7 @@ import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 import { formatBuildingPlacementFeedback } from './buildingPlacementSnap';
+import { computeRepairTick, REPAIR_DURATION_MS } from '../buildingRepair';
 
 export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
 export const PLAYER_HOUSE_CONSTRUCTION_MS = 5000;
@@ -34,10 +35,12 @@ export class BuildingManager {
         this.scene.game.events.on(EVENTS.REGROW_FOREST, this.handleRegrowForest, this);
         this.scene.game.events.on(EVENTS.DEMOLISH_SELECTED, this.handleDemolishSelected, this);
         this.scene.game.events.on(EVENTS.BUILDING_SELECTED, this.handleBuildingSelection, this);
+        this.scene.game.events.on(EVENTS.REQUEST_REPAIR, this.handleRequestRepair, this);
     }
 
     public update() {
         this.updatePlayerHouseConstruction();
+        this.updateRepairs();
         if (this.isTerritoryDirty) {
             this.drawTerritory();
             this.isTerritoryDirty = false;
@@ -578,6 +581,77 @@ export class BuildingManager {
             emitter.destroy();
             fireEmitter.destroy();
         });
+    }
+
+    /**
+     * Manual repair, mirroring classic RTS economics: costs a fraction of the
+     * building's original resource cost proportional to HP restored, spread
+     * over REPAIR_DURATION_MS. Only ever targets the player's own, fully
+     * constructed buildings — repairing mid-construction or enemy buildings
+     * is not a supported action.
+     */
+    private handleRequestRepair() {
+        const selected = this.scene.inputManager.selectedBuilding;
+        if (!selected) return;
+        this.requestRepair(selected);
+    }
+
+    public requestRepair(building: Phaser.GameObjects.GameObject): void {
+        if (building.getData('owner') !== 0) return;
+        if (building.getData('constructionComplete') === false) return;
+        const hp = building.getData('hp') as number;
+        const maxHp = building.getData('maxHp') as number;
+        if (!(hp < maxHp)) return;
+
+        building.setData('repairing', true);
+        building.setData('repairLastTick', this.scene.gameTime);
+    }
+
+    public cancelRepair(building: Phaser.GameObjects.GameObject): void {
+        building.setData('repairing', false);
+    }
+
+    private updateRepairs(): void {
+        for (const building of this.scene.buildings.getChildren()) {
+            if (!building.getData('repairing')) continue;
+
+            const hp = building.getData('hp') as number;
+            const maxHp = building.getData('maxHp') as number;
+            const lastTick = building.getData('repairLastTick') as number;
+            const deltaMs = this.scene.gameTime - lastTick;
+            building.setData('repairLastTick', this.scene.gameTime);
+            if (deltaMs <= 0) continue;
+
+            const def = building.getData('def') as BuildingDef;
+            const result = computeRepairTick({
+                hp, maxHp, cost: def.cost, resources: this.scene.resources,
+                deltaMs, durationMs: REPAIR_DURATION_MS,
+            });
+
+            if (result.hpDelta > 0) {
+                const newHp = Math.min(maxHp, hp + result.hpDelta);
+                building.setData('hp', newHp);
+                this.scene.resources.wood = Math.max(0, this.scene.resources.wood - result.resourceDelta.wood);
+                this.scene.resources.food = Math.max(0, this.scene.resources.food - result.resourceDelta.food);
+                this.scene.resources.gold = Math.max(0, this.scene.resources.gold - result.resourceDelta.gold);
+
+                const visual = (building as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
+                const hpBar = visual?.getData('hpBar') as Phaser.GameObjects.Container | undefined;
+                if (hpBar) {
+                    const fill = hpBar.getByName('barFill') as Phaser.GameObjects.Rectangle;
+                    fill.scaleX = Math.max(0, newHp / maxHp);
+                    fill.fillColor = fill.scaleX < 0.3 ? 0xef4444 : 0x22c55e;
+                    if (newHp >= maxHp) hpBar.setVisible(false);
+                }
+            }
+
+            if (result.complete) {
+                building.setData('repairing', false);
+                building.setData('_healthWarned', false);
+                const def2 = building.getData('def') as BuildingDef;
+                this.scene.feedbackSystem?.notifyBuildingRepaired(def2?.name ?? 'Building');
+            }
+        }
     }
 
     private handleDemolishSelected() {

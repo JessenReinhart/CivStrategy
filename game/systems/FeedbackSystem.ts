@@ -108,6 +108,7 @@ export class FeedbackSystem {
         this.addNotification(isCritical ? '⚠️ Town Center destroyed!' : `⚠️ ${buildingName} destroyed!`, 'danger', isCritical ? 10000 : 6000);
     }
     notifyBuildingComplete(buildingName: string): void { this.addNotification(`${buildingName} built`, 'success', 3000); }
+    notifyBuildingRepaired(buildingName: string): void { this.addNotification(`${buildingName} repaired`, 'success', 3000); }
     notifyUnitKilled(unitName: string, isPlayer: boolean): void { if (isPlayer) this.addNotification(`💀 ${unitName} lost!`, 'danger', 4000); }
     notifyBuildingDamaged(buildingName: string, hpPercent: number): void { this.addNotification(`⚠️ ${buildingName} under attack! (${Math.round(hpPercent * 100)}% HP)`, 'warning', 5000); }
 

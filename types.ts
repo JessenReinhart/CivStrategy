@@ -121,6 +121,9 @@ export interface SelectedBuildingInfo {
   resourceLabel: string;
   garrisonCount?: number;
   production?: BuildingProduction;
+  hp: number;
+  maxHp: number;
+  isRepairing: boolean;
 }
 
 export interface GameStats {
