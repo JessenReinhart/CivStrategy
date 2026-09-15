@@ -435,7 +435,7 @@ export class EntityFactory {
             this.scene.feedbackSystem.showHitSpark((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
         }
         // Building health warning at ≤50% HP (fires once per building)
-        if (!isUnit && hp > 0 && hp / maxHp < 0.5 && !entity.getData('_healthWarned')) {
+        if (!isUnit && hp > 0 && hp / maxHp <= 0.5 && !entity.getData('_healthWarned')) {
             entity.setData('_healthWarned', true);
             const def = entity.getData('def');
             this.scene.feedbackSystem?.notifyBuildingDamaged(def?.name ?? 'Building', hp / maxHp);
