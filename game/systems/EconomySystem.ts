@@ -578,11 +578,18 @@ export class EconomySystem {
         // Selected building info for UI display
         if (selB && selB.getData('owner') === 0) {
             const def = selB.getData('def') as BuildingDef;
+            const hp = (selB.getData('hp') as number | undefined) ?? def.maxHp;
+            const maxHp = (selB.getData('maxHp') as number | undefined) ?? def.maxHp;
+            const isRepairing = !!selB.getData('repairing');
+            let hasWorker = false;
+            let nearbyResources = 0;
+            let resourceLabel = '';
+            let garrisonCount: number | undefined;
+            let production: BuildingProduction | undefined;
+
             if (def.effectRadius) {
                 const worker = selB.getData('assignedWorker') as VillagerData | null;
-                const hasWorker = !!(worker && worker.jobBuilding === selB);
-                let nearbyResources = 0;
-                let resourceLabel = '';
+                hasWorker = !!(worker && worker.jobBuilding === selB);
                 if (def.type === BuildingType.LUMBER_CAMP) {
                     const candidates = this.scene.treeSpatialHash.query(selB.x, selB.y, def.effectRadius);
                     for (const t of candidates) {
@@ -604,12 +611,13 @@ export class EconomySystem {
                     resourceLabel = 'fertile land';
                     nearbyResources = 1; // Farms always produce if worker assigned
                 }
-                const garrisonCount = def.type === BuildingType.CASTLE
+                garrisonCount = def.type === BuildingType.CASTLE
                     ? Object.values(selB.getData('garrison') || {} as Record<string, number>).reduce((s: number, n) => s + (n as number), 0)
                     : undefined;
-                const production = this.getBuildingProduction(selB);
-                stats.selectedBuildingInfo = { type: def.type, hasWorker, nearbyResources, resourceLabel, garrisonCount, production };
+                production = this.getBuildingProduction(selB);
             }
+
+            stats.selectedBuildingInfo = { type: def.type, hasWorker, nearbyResources, resourceLabel, garrisonCount, production, hp, maxHp, isRepairing };
         }
 
         // Reap production records for destroyed buildings to prevent map leaks.

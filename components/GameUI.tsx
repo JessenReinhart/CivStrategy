@@ -9,7 +9,7 @@ import {
     Target, LogOut, Handshake, Clock,
     Menu, FastForward, Flame, Flower,
     X, Shield, Crown, Church,
-    Zap, Crosshair, BookOpen, Check, Plus, Minus, GitBranch, Save, Circle, Activity, Grid, Triangle, Hand
+    Zap, Crosshair, BookOpen, Check, Plus, Minus, GitBranch, Save, Circle, Activity, Grid, Triangle, Hand, Wrench
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -23,6 +23,7 @@ interface GameUIProps {
     selectedCounts?: Record<string, number>;
     selectedBuildingType: BuildingType | null;
     onDemolishSelected: () => void;
+    onRequestRepair?: () => void;
     onFilterSelection?: (type: UnitType) => void;
     currentAge: Age;
     ageProgress: number;
@@ -96,7 +97,7 @@ const formatNotificationAge = (timestamp: number): string => {
 
 
 export const GameUI: React.FC<GameUIProps> = ({
-    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onFilterSelection,
+    stats, onBuild, onSpawnUnit, onToggleDemolish, onRegrowForest, onQuit, selectedCount, selectedCounts, selectedBuildingType, onDemolishSelected, onRequestRepair, onFilterSelection,
     onAdvanceAge, onReleaseGarrison, onDismissNotification
 }) => {
     const [activeCategory, setActiveCategory] = useState<'economy' | 'military' | 'civic' | null>(null);
@@ -685,6 +686,17 @@ export const GameUI: React.FC<GameUIProps> = ({
                                           />
                                         )}
                                     </div>
+                                )}
+
+                                {/* Repair Action (Only for player buildings below full HP) */}
+                                {isPlayerBuildingSelected && selectedBuildingType && onRequestRepair
+                                    && stats.selectedBuildingInfo && stats.selectedBuildingInfo.hp < stats.selectedBuildingInfo.maxHp && (
+                                    <ActionButton
+                                        onClick={onRequestRepair}
+                                        icon={<Wrench size={18} />}
+                                        label={stats.selectedBuildingInfo.isRepairing ? 'Repairing…' : 'Repair'}
+                                        color={stats.selectedBuildingInfo.isRepairing ? 'text-emerald-400' : 'text-sky-400'}
+                                    />
                                 )}
 
                                 {/* Demolish Action (Only for player buildings) */}

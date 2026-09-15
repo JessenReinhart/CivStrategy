@@ -390,6 +390,7 @@ const [selectedCount, setSelectedCount] = useState(0);
                 selectedBuildingType={selectedBuildingType}
                 onFilterSelection={handleFilterSelection}
                 onDemolishSelected={() => gameInstance?.events.emit(EVENTS.DEMOLISH_SELECTED)}
+                onRequestRepair={() => gameInstance?.events.emit(EVENTS.REQUEST_REPAIR)}
                 onAdvanceAge={handleAdvanceAge}
                 onReleaseGarrison={handleReleaseGarrison}
                 onDismissNotification={handleDismissNotification}

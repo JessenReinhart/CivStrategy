@@ -377,6 +377,7 @@ export const EVENTS = {
   NOTIFICATION: 'notification',
   GAME_OVER: 'game-over',
   DOMINANCE_PROGRESS: 'dominance-progress',
+  REQUEST_REPAIR: 'request-repair',
 };
 
 // ─── Age Configuration ─────────────────────────────────────────────────────
