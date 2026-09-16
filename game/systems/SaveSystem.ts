@@ -19,6 +19,7 @@ type SerializedBuildingRuntimeState = SerializedBuildingWithWaypoint & {
   constructionComplete?: boolean;
   constructionRemainingMs?: number;
   workforceTarget?: number;
+  repairing?: boolean;
 };
 
 type VillagerCarryType = 'wood' | 'food' | 'gold';
@@ -225,6 +226,7 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
         : undefined,
       constructionComplete: isUnfinishedPlayerHouse ? false : undefined,
       constructionRemainingMs,
+      repairing: b.getData('repairing') === true ? true : undefined,
     } as SerializedBuildingRuntimeState);
   }
   return buildings;
@@ -525,6 +527,15 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     if (b.type === BuildingType.HOUSE && b.owner === 0 && runtimeState.constructionComplete === false) {
       scene.buildingManager.beginPlayerHouseConstruction(building, runtimeState.constructionRemainingMs);
     }
+    if (runtimeState.repairing === true
+      && b.owner === 0
+      && runtimeState.constructionComplete !== false
+      && b.hp < b.maxHp) {
+      building.setData('repairing', true);
+      // Repair time is simulation time. Resume from the loaded clock so wall-clock
+      // time spent outside the match cannot grant HP or consume resources.
+      building.setData('repairLastTick', scene.gameTime);
+    }
     // assignedWorker is a runtime object reference and is rebuilt after villagers respawn.
   }
 }
@@ -664,7 +675,8 @@ function isSerializedBuildingShape(value: unknown): boolean {
     && isFiniteNumber(value.x)
     && isFiniteNumber(value.y)
     && isFiniteNumber(value.hp)
-    && isFiniteNumber(value.maxHp);
+    && isFiniteNumber(value.maxHp)
+    && isOptionalBoolean(value.repairing);
 }
 
 function isBlueprintItemShape(value: unknown): boolean {
