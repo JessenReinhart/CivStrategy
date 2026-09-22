@@ -29,6 +29,19 @@ const SFX_FILES = [
 
 const BASE_PATH = '/assets/audio/sfx';
 
+function getSfxUrl(key: string): string {
+    const path = `${BASE_PATH}/${key}.mp3`;
+
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        return new URL(path, window.location.origin).href;
+    }
+
+    const origin = typeof process !== 'undefined' && process.env?.APP_ORIGIN
+        ? process.env.APP_ORIGIN
+        : 'http://127.0.0.1:5173';
+    return new URL(path, origin).href;
+}
+
 /**
  * Fetch and decode an MP3 into an AudioBuffer.
  */
@@ -36,9 +49,8 @@ async function fetchAndDecode(
     ctx: AudioContext,
     key: string
 ): Promise<AudioBuffer | null> {
-    const url = `${BASE_PATH}/${key}.mp3`;
     try {
-        const res = await fetch(url);
+        const res = await fetch(getSfxUrl(key));
         if (!res.ok) {
             console.warn(`[SFXAssets] ${key}: HTTP ${res.status}`);
             return null;
