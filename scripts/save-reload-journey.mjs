@@ -46,6 +46,7 @@ async function waitForMainScene(page) {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     return Boolean(
       scene?.isReady
+      && scene?.resourcesRestored === true
       && scene?.resources
       && scene?.inputManager
       && scene?.villagerSystem
