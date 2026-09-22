@@ -84,6 +84,8 @@ export class MainScene extends Phaser.Scene {
 
   // Game State
   public resources: Resources = { ...INITIAL_RESOURCES };
+  public resourcesRestored = false;
+  public resourcesRestoredSnapshot: Resources = { ...INITIAL_RESOURCES };
   public population = 0;
   public maxPopulation = 10;
   public happiness = 100;
@@ -946,16 +948,24 @@ export class MainScene extends Phaser.Scene {
       if (save) {
         // Delay to let terrain/visuals finish settling, then load and mark ready
         this.time.delayedCall(500, () => {
-          deserializeGame(this, save);
-          this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
-          this.isReady = true;
+          this.resourcesRestored = false;
+          void deserializeGame(this, save).then(() => {
+            this.resourcesRestoredSnapshot = { ...this.resources };
+            this.resourcesRestored = true;
+            this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+            this.isReady = true;
+          });
         });
       } else {
         // Save was cleared or corrupt; fall through to normal game
+        this.resourcesRestoredSnapshot = { ...this.resources };
+        this.resourcesRestored = true;
         this.isReady = true;
       }
     } else {
       // Normal game: no pending load, ready immediately after setup
+      this.resourcesRestoredSnapshot = { ...this.resources };
+      this.resourcesRestored = true;
       this.isReady = true;
     }
     // Simulation pipeline adapter — constructed after WorldBootstrap so all
