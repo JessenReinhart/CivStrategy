@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { AnimalData, AnimalSpecies, UnitState } from '../../types';
 import { toIsoElev } from '../utils/iso';
 import { MAP_WIDTH, MAP_HEIGHT, ANIMAL_SPECIES_STATS, SEASON_CONFIG } from '../../constants';
