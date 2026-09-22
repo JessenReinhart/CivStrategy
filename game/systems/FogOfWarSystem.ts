@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UNIT_VISION } from '../../constants';
 import { UnitType, AnimalSpecies } from '../../types';
+import { Noise } from '../utils/Noise';
 
 /** Snapshot of internal FogOfWarSystem profiling for the last update() call. */
 export interface FogProfSnapshot {
@@ -22,6 +23,12 @@ export class FogOfWarSystem {
 
     // Low res for performance
     private readonly RES_SCALE = 0.25;
+
+    // Procedural ink-wash brush. The fixed seed keeps the fog silhouette stable
+    // between redraws while the small rotation drift below gives it subtle motion.
+    private readonly VISION_BRUSH_RADIUS = 96;
+    private readonly fogNoise = new Noise(2718);
+    private fogMotionPhase = 0;
 
     // Cached camera/RT state for drawVision (set each update)
     private _topLeftX = 0;
@@ -54,27 +61,13 @@ export class FogOfWarSystem {
     constructor(scene: MainScene) {
         this.scene = scene;
 
-        // 1. Create Brush (Soft gradient)
-        const radius = 64;
-        const key = 'vision-brush-soft';
+        // 1. Create an organic ink-wash reveal brush instead of a perfectly
+        // circular radial gradient. The reference look relies on an irregular,
+        // hand-painted boundary that still reads clearly as unexplored space.
+        const key = 'vision-brush-ink';
+        this.createInkBrush(key);
 
-        if (!this.scene.textures.exists(key)) {
-            const canvas = this.scene.textures.createCanvas(key, radius * 2, radius * 2);
-            if (canvas) {
-                const ctx = canvas.context;
-
-                const grd = ctx.createRadialGradient(radius, radius, 0, radius, radius, radius);
-                grd.addColorStop(0, 'rgba(0, 0, 0, 1)');
-                grd.addColorStop(0.4, 'rgba(0, 0, 0, 1)');
-                grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
-
-                ctx.fillStyle = grd;
-                ctx.fillRect(0, 0, radius * 2, radius * 2);
-                canvas.refresh();
-            }
-        }
-
-        this.visionBrush = this.scene.make.image({ key: key, add: false });
+        this.visionBrush = this.scene.make.image({ key, add: false });
         this.visionBrush.setOrigin(0.5);
 
         // 2. Initialize Render Texture
@@ -113,7 +106,9 @@ export class FogOfWarSystem {
         // Clear and fill fog (measured separately)
         const clearStart = performance.now();
         this.screenRT.clear();
-        this.screenRT.fill(0x0c1820, 0.72);
+        // A neutral, slightly warm charcoal keeps the fog integrated with the
+        // parchment/earth palette instead of reading like a UI overlay.
+        this.screenRT.fill(0x565952, 0.74);
         const clearFillMs = performance.now() - clearStart;
 
         const cam = this.scene.cameras.main;
@@ -157,8 +152,10 @@ export class FogOfWarSystem {
         this._viewTop = topLeftY - padding;
         this._viewBottom = topLeftY + visibleHeight + padding;
 
-        // Reset erase counter
+        // Reset erase counter and advance the subtle ink-edge motion used by
+        // each brush stamp. This remains deterministic for a given world point.
         let eraseCalls = 0;
+        this.fogMotionPhase = (performance.now() * 0.00008) % (Math.PI * 2);
 
         // Local reference for speed
         const unitVision = UNIT_VISION;
@@ -271,6 +268,66 @@ export class FogOfWarSystem {
         }
     }
 
+    /**
+     * Build the soft, irregular reveal texture used to erase the fog.
+     *
+     * The centre stays readable so vision remains crisp, while the edge is
+     * warped by two scales of Perlin noise to create an ink-wash silhouette.
+     */
+    private createInkBrush(key: string): void {
+        if (this.scene.textures.exists(key)) return;
+
+        const radius = this.VISION_BRUSH_RADIUS;
+        const size = radius * 2;
+        const canvas = this.scene.textures.createCanvas(key, size, size);
+        if (!canvas) return;
+
+        const ctx = canvas.context;
+        const image = ctx.createImageData(size, size);
+        const data = image.data;
+
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const nx = (x - radius) / radius;
+                const ny = (y - radius) / radius;
+                const distance = Math.hypot(nx, ny);
+
+                if (distance > 1.15) continue;
+
+                const coarse = (this.fogNoise.perlin2(nx * 2.8 + 12, ny * 2.8 - 7) + 1) * 0.5;
+                const fine = (this.fogNoise.perlin2(nx * 8.5 - 3, ny * 8.5 + 5) + 1) * 0.5;
+                const warpedDistance = distance + (coarse - 0.5) * 0.18;
+
+                const coreRadius = 0.54;
+                const edgeRadius = 0.84 + fine * 0.22;
+                let alpha = 1;
+
+                if (warpedDistance > coreRadius) {
+                    alpha = 1 - (warpedDistance - coreRadius) / Math.max(0.001, edgeRadius - coreRadius);
+                    alpha = Math.max(0, Math.min(1, alpha));
+                    alpha = alpha * alpha * (3 - 2 * alpha);
+                }
+
+                // A little fine-grain variation keeps the edge from looking like
+                // a smooth computer-generated blur, without making the centre noisy.
+                alpha *= warpedDistance < 0.68 ? 1 : 0.9 + fine * 0.1;
+
+                if (warpedDistance > 1) {
+                    alpha *= Math.max(0, Math.min(1, (1.15 - warpedDistance) / 0.15));
+                }
+
+                const index = (y * size + x) * 4;
+                data[index] = 255;
+                data[index + 1] = 255;
+                data[index + 2] = 255;
+                data[index + 3] = Math.round(alpha * 255);
+            }
+        }
+
+        ctx.putImageData(image, 0, 0);
+        canvas.refresh();
+    }
+
     /** Draw a single vision hole at world (iso) coordinates */
     private drawVision(worldX: number, worldY: number, worldRadius: number) {
         // 1. Calculate World Delta from Camera Top-Left
@@ -286,11 +343,18 @@ export class FogOfWarSystem {
         // Radius in RT Pixels = ScreenRadius * RES_SCALE
         const rtRadius = worldRadius * this._globalScale;
 
-        // Brush texture is 128x128 (Radius 64)
-        const brushScale = rtRadius / 64;
+        // Brush texture is 192x192 (Radius 96)
+        const brushScale = rtRadius / this.VISION_BRUSH_RADIUS;
 
-        // Apply Isometric distortion (2:1 ratio) + extra size for fade
-        this.visionBrush.setScale(brushScale * 2.5, brushScale * 1.25);
+        // Slightly vary the stamp per world point. Combined with the procedural
+        // edge this prevents repeated reveals from looking like identical stamps.
+        const localNoise = (this.fogNoise.perlin2(worldX * 0.003, worldY * 0.003) + 1) * 0.5;
+        const localScale = 0.94 + localNoise * 0.12;
+        const localRotation = (worldX * 0.0017 + worldY * 0.0011 + this.fogMotionPhase) % (Math.PI * 2);
+
+        // Apply isometric distortion (2:1 ratio) + extra size for fade.
+        this.visionBrush.setScale(brushScale * 2.5 * localScale, brushScale * 1.25 * localScale);
+        this.visionBrush.setRotation(localRotation);
         this.visionBrush.setPosition(drawX, drawY);
 
         this.screenRT.erase(this.visionBrush);
