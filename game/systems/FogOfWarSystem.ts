@@ -128,11 +128,6 @@ export class FogOfWarSystem {
         // shroud opaque enough while the texture provides the visible material.
         this.screenRT.fill(0x111411, 0.96);
         this.fogCloudLayer.setSize(this.screenRT.width, this.screenRT.height);
-        this.fogCloudLayer.setTilePosition(
-            this._topLeftX * 0.012 + this.fogMotionPhase * 8,
-            this._topLeftY * 0.012 + this.fogMotionPhase * 5,
-        );
-        this.screenRT.draw(this.fogCloudLayer, 0, 0);
         const clearFillMs = performance.now() - clearStart;
 
         const cam = this.scene.cameras.main;
@@ -180,6 +175,14 @@ export class FogOfWarSystem {
         // each brush stamp. This remains deterministic for a given world point.
         let eraseCalls = 0;
         this.fogMotionPhase = (performance.now() * 0.00008) % (Math.PI * 2);
+
+        // Keep the seamless material aligned to world movement while it drifts
+        // slowly enough to feel like a living fog layer.
+        this.fogCloudLayer.setTilePosition(
+            this._topLeftX * 0.012 + this.fogMotionPhase * 8,
+            this._topLeftY * 0.012 + this.fogMotionPhase * 5,
+        );
+        this.screenRT.draw(this.fogCloudLayer, 0, 0);
 
         // Local reference for speed
         const unitVision = UNIT_VISION;
