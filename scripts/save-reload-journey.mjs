@@ -451,7 +451,12 @@ try {
       && building.x === position.x
       && building.y === position.y
     ));
-    return Boolean(scene?.isReady && house?.getData('repairing') === true);
+    return Boolean(
+      scene?.isReady
+      && scene?.resourcesRestored === true
+      && scene?.resourcesRestoredSnapshot?.wood === MARKER_WOOD
+      && house?.getData('repairing') === true
+    );
   }, beforeSave.house, { timeout: 20_000 });
 
   const coldReloadRepair = await page.evaluate(({ position, originalGameSpeed }) => {
@@ -616,7 +621,7 @@ try {
       return actual;
     });
 
-    const loadedWood = scene.resources.wood;
+    const loadedWood = scene.resourcesRestoredSnapshot?.wood;
     const loadedPopulation = scene.population;
     const loadedMaxPopulation = scene.maxPopulation;
     const loadedGameTime = scene.gameTime;
