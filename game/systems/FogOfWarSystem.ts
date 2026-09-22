@@ -28,9 +28,7 @@ export class FogOfWarSystem {
     // Procedural ink-wash brush. The fixed seed keeps the fog silhouette stable
     // between redraws while the small rotation drift below gives it subtle motion.
     private readonly VISION_BRUSH_RADIUS = 96;
-    private readonly FOG_CLOUD_SIZE = 512;
     private readonly fogNoise = new Noise(2718);
-    private readonly cloudNoise = new Noise(9147);
     private fogMotionPhase = 0;
 
     // Cached camera/RT state for drawVision (set each update)
@@ -73,10 +71,9 @@ export class FogOfWarSystem {
         this.visionBrush = this.scene.make.image({ key, add: false });
         this.visionBrush.setOrigin(0.5);
 
-        // 2. Create the full fog-body texture. The shroud itself is cloudy,
-        // rather than a flat translucent colour, so unexplored space feels
-        // materially different from revealed terrain.
-        this.createFogCloudTexture();
+        // 2. Use the supplied seamless texture as the actual fog material.
+        // The texture is tinted, not flattened, so its cloud/stone-like detail
+        // remains visible across the entire unexplored area.
         this.fogCloudLayer = this.scene.make.tileSprite({
             x: 0,
             y: 0,
@@ -86,7 +83,9 @@ export class FogOfWarSystem {
             add: false,
         });
         this.fogCloudLayer.setOrigin(0, 0);
-        this.fogCloudLayer.setAlpha(0.72);
+        this.fogCloudLayer.setTint(0x5a5c54);
+        this.fogCloudLayer.setAlpha(0.92);
+        this.fogCloudLayer.setTileScale(0.82, 0.82);
 
         // 3. Initialize Render Texture
         this.createRenderTexture();
@@ -125,10 +124,14 @@ export class FogOfWarSystem {
         // Clear and fill fog (measured separately)
         const clearStart = performance.now();
         this.screenRT.clear();
-        // Dense charcoal base. The cloud layer below adds visible tonal
-        // variation on top instead of leaving this as a flat wash.
-        this.screenRT.fill(0x1d211f, 0.90);
+        // Dense charcoal base underneath the supplied texture. This keeps the
+        // shroud opaque enough while the texture provides the visible material.
+        this.screenRT.fill(0x111411, 0.96);
         this.fogCloudLayer.setSize(this.screenRT.width, this.screenRT.height);
+        this.fogCloudLayer.setTilePosition(
+            this._topLeftX * 0.012 + this.fogMotionPhase * 8,
+            this._topLeftY * 0.012 + this.fogMotionPhase * 5,
+        );
         this.screenRT.draw(this.fogCloudLayer, 0, 0);
         const clearFillMs = performance.now() - clearStart;
 
@@ -287,54 +290,6 @@ export class FogOfWarSystem {
         if (this.hasCameraTransformChanged(cam)) {
             this.update();
         }
-    }
-
-    /**
-     * Generate a soft, multi-scale cloud texture for the opaque fog body.
-     * Low-frequency noise creates broad cloud masses while higher frequencies
-     * stop the texture from reading as simple banded gradients.
-     */
-    private createFogCloudTexture(): void {
-        if (this.scene.textures.exists('fog-clouds')) return;
-
-        const size = this.FOG_CLOUD_SIZE;
-        const canvas = this.scene.textures.createCanvas('fog-clouds', size, size);
-        if (!canvas) return;
-
-        const ctx = canvas.context;
-        const image = ctx.createImageData(size, size);
-        const data = image.data;
-
-        const fbm = (x: number, y: number): number => {
-            const a = (this.cloudNoise.perlin2(x, y) + 1) * 0.5;
-            const b = (this.cloudNoise.perlin2(x * 2.1 + 31, y * 2.1 - 17) + 1) * 0.5;
-            const c = (this.cloudNoise.perlin2(x * 5.3 - 9, y * 5.3 + 27) + 1) * 0.5;
-            return a * 0.62 + b * 0.26 + c * 0.12;
-        };
-
-        for (let y = 0; y < size; y++) {
-            for (let x = 0; x < size; x++) {
-                const nx = x / size;
-                const ny = y / size;
-                const broad = fbm(nx * 2.0, ny * 2.0);
-                const wisps = fbm(nx * 5.0 + 13, ny * 5.0 - 8);
-                const density = Math.max(0, Math.min(1, broad * 0.78 + wisps * 0.22));
-
-                // Dark charcoal with enough tonal spread for the cloud structure
-                // to remain visible against the base fog.
-                const value = Math.round(24 + density * 58);
-                const alpha = Math.round(172 + density * 63);
-
-                const index = (y * size + x) * 4;
-                data[index] = value;
-                data[index + 1] = value + 2;
-                data[index + 2] = value;
-                data[index + 3] = alpha;
-            }
-        }
-
-        ctx.putImageData(image, 0, 0);
-        canvas.refresh();
     }
 
     /**
