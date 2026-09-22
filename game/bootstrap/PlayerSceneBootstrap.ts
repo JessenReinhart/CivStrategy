@@ -421,9 +421,13 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     report(0.98, 'Restoring save', 'Applying saved civilization state');
     await new Promise<void>((resolve) => {
       scene.time.delayedCall(500, () => {
-        deserializeGame(scene, pendingSave!);
-        scene.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
-        resolve();
+        scene.resourcesRestored = false;
+        void deserializeGame(scene, pendingSave!).then(() => {
+          scene.resourcesRestoredSnapshot = { ...scene.resources };
+          scene.resourcesRestored = true;
+          scene.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+          resolve();
+        });
       });
     });
   }
