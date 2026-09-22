@@ -12,6 +12,19 @@ export const PENDING_LOAD_KEY = 'civstrategy-pending-load';
 
 const SAVE_VERSION = 1;
 
+let resourcesRestorationPromise: Promise<void> = Promise.resolve();
+
+function waitForNextBrowserFrame(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  }
+  return Promise.resolve();
+}
+
+export function whenResourcesRestored(): Promise<void> {
+  return resourcesRestorationPromise;
+}
+
 type SerializedBuildingWithWaypoint = SerializedBuilding & {
   waypoint?: { x: number; y: number };
 };
@@ -324,7 +337,8 @@ function getMapSizeFromDimensions(width: number, _height: number): MapSize {
 
 // ─── Deserialize ────────────────────────────────────────────────────────
 
-export function deserializeGame(scene: MainScene, save: SaveGame): void {
+export function deserializeGame(scene: MainScene, save: SaveGame): Promise<void> {
+  resourcesRestorationPromise = Promise.resolve();
   // Selection owns live Phaser object references. Release them before replacing
   // the world so post-load commands cannot target entities from the old session.
   scene.inputManager?.clearSelection();
@@ -373,6 +387,8 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 10. Force a full update cycle so everything is consistent
   const center = getIsoCenter(scene);
   scene.cameras.main.centerOn(center.x, center.y);
+
+  return resourcesRestorationPromise;
 }
 
 function destroyAllEntities(scene: MainScene): void {
@@ -419,6 +435,7 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.currentSeason = save.currentSeason;
   (scene as any).seasonTimer = save.seasonTimer;
   scene.resources = { ...save.resources };
+  resourcesRestorationPromise = waitForNextBrowserFrame();
   scene.population = 0; // Will be rebuilt by spawning units
   scene.maxPopulation = 8; // Match MainScene.init(); buildings rebuild derived bonuses.
   scene.happiness = save.happiness;
