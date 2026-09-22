@@ -36,9 +36,8 @@ function getSfxUrl(key: string): string {
         return new URL(path, window.location.origin).href;
     }
 
-    const origin = typeof process !== 'undefined' && process.env?.APP_ORIGIN
-        ? process.env.APP_ORIGIN
-        : 'http://127.0.0.1:5173';
+    const nodeProcess = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+    const origin = nodeProcess?.env?.APP_ORIGIN ?? 'http://127.0.0.1:5173';
     return new URL(path, origin).href;
 }
 
