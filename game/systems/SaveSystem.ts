@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import {
   SaveGame, SerializedUnit, SerializedBuilding, SerializedAIState,
