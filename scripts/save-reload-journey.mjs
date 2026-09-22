@@ -444,7 +444,7 @@ try {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: /Continue/i }).click();
   await waitForMainScene(page);
-  await page.waitForFunction((position) => {
+  await page.waitForFunction(({ position, markerWood }) => {
     const scene = window.__civStrategyGame?.scene?.getScene?.('MainScene');
     const house = scene?.buildings?.getChildren?.().find((building) => (
       building.getData('owner') === 0
@@ -455,10 +455,10 @@ try {
     return Boolean(
       scene?.isReady
       && scene?.resourcesRestored === true
-      && scene?.resourcesRestoredSnapshot?.wood === MARKER_WOOD
+      && scene?.resourcesRestoredSnapshot?.wood === markerWood
       && house?.getData('repairing') === true
     );
-  }, beforeSave.house, { timeout: 20_000 });
+  }, { position: beforeSave.house, markerWood: MARKER_WOOD }, { timeout: 20_000 });
 
   const coldReloadRepair = await page.evaluate(({ position, originalGameSpeed }) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
