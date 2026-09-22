@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { UNIT_VISION } from '../../constants';
 import { UnitType, AnimalSpecies } from '../../types';
 
