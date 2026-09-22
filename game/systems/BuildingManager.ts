@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState } from '../../types';
 import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRAIN_YIELD } from '../../constants';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
