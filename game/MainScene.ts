@@ -1729,8 +1729,17 @@ export class MainScene extends Phaser.Scene {
     const save = loadFromLocalStorage();
     if (!save) return false;
     try {
-      deserializeGame(this, save);
-      this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+      this.resourcesRestored = false;
+      void deserializeGame(this, save)
+        .then(() => {
+          this.resourcesRestoredSnapshot = { ...this.resources };
+          this.resourcesRestored = true;
+          this.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+        })
+        .catch((error: unknown) => {
+          console.error('[MainScene] Load failed:', error);
+          this.feedbackSystem.addNotification('⚠️ Load failed!', 'danger', 3000);
+        });
       return true;
     } catch (e) {
       console.error('[MainScene] Load failed:', e);
