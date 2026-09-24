@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { EVENTS, UNIT_ABILITIES } from '../../constants';
 import { UnitType, BuildingType, GameUnit } from '../../types';
 import { addAbilityWindowListener } from '../../utils/abilityWindowListener';

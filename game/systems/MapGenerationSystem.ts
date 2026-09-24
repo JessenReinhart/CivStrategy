@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { TILE_SIZE, GOLD_MINE_COUNT, MAP_PRESETS } from '../../constants';
 import { MapMode, AnimalSpecies } from '../../types';
 import { LoadingWorkProgress, runBudgetedWork, yieldToBrowser } from '../../utils/gameLoading';

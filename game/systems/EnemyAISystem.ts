@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { BuildingType, UnitType, Resources, UnitState, MapMode, BuildingDef, UnitStance, GameUnit, Age, Season, SerializedAIState, BlueprintItem } from '../../types';
 import { BUILDINGS, AGE_CONFIGS, EVENTS, getNextAge, SEASON_CONFIG, TECH_DEFS, VILLAGER_BUILDING_UPKEEP, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES, AI_TAUNTS, TAUNT_COOLDOWN_MS, AI_PERSONALITY_NAMES } from '../../constants';
 

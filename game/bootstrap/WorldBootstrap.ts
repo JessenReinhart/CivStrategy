@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { MAP_SIZES } from '../../constants';
 import { MapMode, MapSize } from '../../types';
 import { LoadingWorkProgress, yieldToBrowser } from '../../utils/gameLoading';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { Pathfinder } from '../systems/Pathfinder';
 import { EntityFactory } from '../systems/EntityFactory';
 import { SquadSystem } from '../systems/SquadSystem';

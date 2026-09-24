@@ -419,11 +419,17 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
 
   if (pendingSave) {
     report(0.98, 'Restoring save', 'Applying saved civilization state');
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       scene.time.delayedCall(500, () => {
-        deserializeGame(scene, pendingSave!);
-        scene.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
-        resolve();
+        scene.resourcesRestored = false;
+        void deserializeGame(scene, pendingSave!)
+          .then(() => {
+            scene.resourcesRestoredSnapshot = { ...scene.resources };
+            scene.resourcesRestored = true;
+            scene.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
+            resolve();
+          })
+          .catch((error: unknown) => reject(error));
       });
     });
   }
@@ -434,6 +440,10 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     window.removeEventListener('minimap-click-ui', minimapClickHandler);
   });
 
+  if (!scene.resourcesRestored) {
+    scene.resourcesRestoredSnapshot = { ...scene.resources };
+    scene.resourcesRestored = true;
+  }
   scene.isReady = true;
   report(1, 'Realm ready', 'Simulation is ready');
   dispatchGameLoadComplete();

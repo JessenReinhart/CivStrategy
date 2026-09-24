@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { BuildingType, BuildingDef, UnitState, GameStats, ResourceRates, VillagerData, AnimalData, BuildingProduction } from '../../types';
 import { EVENTS, VILLAGER_BUILDING_UPKEEP, POPULATION_FOOD_COST, GOLD_MINE_SEARCH_RADIUS, TRADE_INCOME, CATHEDRAL_TRADE_BONUS_MULTIPLIER, FACTION_BONUSES } from '../../constants';
 
