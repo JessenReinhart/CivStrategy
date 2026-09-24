@@ -390,7 +390,7 @@ try {
   }, beforeSave.house);
   if (!repairBeforeSave.repairing) throw new Error('House repair did not start before save.');
 
-  await page.evaluate(() => window.dispatchEvent(new Event('save-game')));
+  await page.evaluate(() => window.__civStrategyGame?.events?.emit('save-game'));
   await page.waitForFunction((saveKey) => Boolean(localStorage.getItem(saveKey)), SAVE_KEY, { timeout: 10_000 });
   const storedSave = await page.evaluate((saveKey) => JSON.parse(localStorage.getItem(saveKey)), SAVE_KEY);
   if (storedSave.resources?.wood !== MARKER_WOOD) throw new Error(`Stored save did not contain marker wood ${MARKER_WOOD}.`);
@@ -536,7 +536,7 @@ try {
   await page.evaluate((markerWood) => {
     const scene = window.__civStrategyGame.scene.getScene('MainScene');
     scene.resources.wood = markerWood;
-    window.dispatchEvent(new Event('save-game'));
+    window.__civStrategyGame?.events?.emit('save-game');
   }, MARKER_WOOD);
   await page.waitForFunction(({ saveKey, position }) => {
     const raw = localStorage.getItem(saveKey);
