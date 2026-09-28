@@ -28,6 +28,7 @@ export class InputManager {
     private lastClickPos = new Phaser.Math.Vector2();
     /** AoE-style command mode: press A, then left-click a destination. */
     private attackMoveArmed = false;
+    private controlGroups: Map<number, GameUnit[]> = new Map();
 
     private setAttackMoveArmed(armed: boolean): void {
         this.attackMoveArmed = armed;
@@ -85,6 +86,22 @@ export class InputManager {
             }
         });
 
+        // S — Stop selected units: clears orders, sets state IDLE
+        kb.on('keydown-S', () => {
+            if (this.selectedUnits.length > 0) {
+                this.cancelAttackMove();
+                this.scene.unitSystem.commandStop(this.selectedUnits);
+            }
+        });
+
+        // H — Hold position for selected units: hold ground, attack in range without chasing
+        kb.on('keydown-H', () => {
+            if (this.selectedUnits.length > 0) {
+                this.cancelAttackMove();
+                this.scene.unitSystem.commandHoldPosition(this.selectedUnits);
+            }
+        });
+
         // ESC — Deselect all / cancel build mode
         kb.on('keydown-ESC', () => {
             if (this.scene.buildingManager.isDemolishMode) {
@@ -111,8 +128,8 @@ export class InputManager {
             }
         });
 
-        // 1 — Select all player military units in viewport
-        kb.on('keydown-ONE', () => {
+        // F1 — Select all player military units in viewport
+        kb.on('keydown-F1', () => {
             const cam = this.scene.cameras.main;
             const rect = new Phaser.Geom.Rectangle(cam.scrollX, cam.scrollY, cam.width / cam.zoom, cam.height / cam.zoom);
             this.clearSelection();
@@ -131,7 +148,7 @@ export class InputManager {
         });
 
         // 2 — Select all idle villagers
-        kb.on('keydown-TWO', () => {
+        const selectIdleVillagers = () => {
             const idle = this.scene.villagerSystem.getIdleVillagers(0);
             if (idle.length > 0 && idle[0].visual) {
                 const v = idle[0].visual;
@@ -140,6 +157,27 @@ export class InputManager {
             this.scene.game.events.emit(EVENTS.NOTIFICATION, {
                 message: `${idle.length} idle villager${idle.length !== 1 ? 's' : ''}`,
                 type: idle.length > 0 ? 'info' : 'warning',
+            });
+        };
+
+        // RTS Control Groups: 1..9 (Ctrl+1..9 = assign, 1..9 = recall)
+        const digitKeyNames = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'];
+        digitKeyNames.forEach((name, index) => {
+            const slot = index + 1;
+            kb.on(`keydown-${name}`, (event: KeyboardEvent) => {
+                if (event?.ctrlKey) {
+                    this.saveControlGroup(slot);
+                    return;
+                }
+                if (slot === 2) {
+                    if (this.controlGroups.has(2)) {
+                        this.selectControlGroup(2);
+                    } else {
+                        selectIdleVillagers();
+                    }
+                    return;
+                }
+                this.selectControlGroup(slot);
             });
         });
 
@@ -626,5 +664,37 @@ export class InputManager {
         }
         this.cancelAttackMove();
 
+    }
+
+    private saveControlGroup(slot: number): void {
+        const activeUnits = this.selectedUnits.filter((u) => u.active) as GameUnit[];
+        if (activeUnits.length > 0) {
+            this.controlGroups.set(slot, [...activeUnits]);
+        } else {
+            this.controlGroups.delete(slot);
+        }
+    }
+
+    private selectControlGroup(slot: number): void {
+        const group = this.controlGroups.get(slot);
+        if (!group) return;
+
+        const validUnits = group.filter((u) => u.active);
+        if (validUnits.length === 0) {
+            this.controlGroups.delete(slot);
+            return;
+        }
+
+        this.controlGroups.set(slot, validUnits);
+        this.clearSelection();
+        this.deselectBuilding();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        validUnits.forEach((u: any) => {
+            u.setSelected(true);
+            this.selectedUnits.push(u);
+        });
+
+        this.emitSelectionChanged();
     }
 }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GameStats, BuildingType, MapMode, UnitType, FormationType, UnitStance, Age, GameResult, VictoryType, TechId } from '../types';
-import { BUILDINGS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG } from '../constants';
+import { BUILDINGS, AGE_CONFIGS, TECH_DEFS, UNIT_DAMAGE, UNIT_STATS, UNIT_ARMOR, DOMINANCE_HOLD_TIME_MS, UNIT_ABILITIES, ABILITY_CONFIG, BUILDING_UPKEEP } from '../constants';
 import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
@@ -620,6 +620,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 {isPlayerBuildingSelected && selectedBuildingType === BuildingType.BARRACKS && (
                                     <div className="flex gap-1 border-r border-white/10 pr-2 mr-2">
                                         <TrainButton
+                                            unitType={UnitType.PIKESMAN}
                                             label="Pikesman"
                                             cost={{ food: 100, gold: 50 }}
                                             stats={stats}
@@ -627,6 +628,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             icon={<Sword size={16} />}
                                         />
                                         <TrainButton
+                                            unitType={UnitType.ARCHER}
                                             label="Archer"
                                             cost={{ food: 80, gold: 40 }}
                                             stats={stats}
@@ -634,6 +636,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             icon={<Target size={16} />}
                                         />
                                         <TrainButton
+                                            unitType={UnitType.CAVALRY}
                                             label="Cavalry"
                                             cost={{ food: 150, gold: 100 }}
                                             stats={stats}
@@ -642,6 +645,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         />
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.SLINGER) && (
                                           <TrainButton
+                                            unitType={UnitType.SLINGER}
                                             label="Slinger"
                                             cost={{ food: 40, gold: 20 }}
                                             stats={stats}
@@ -651,6 +655,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         )}
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.AXEMAN) && (
                                           <TrainButton
+                                            unitType={UnitType.AXEMAN}
                                             label="Axeman"
                                             cost={{ food: 120, gold: 60 }}
                                             stats={stats}
@@ -660,6 +665,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         )}
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.HOPLITE) && (
                                           <TrainButton
+                                            unitType={UnitType.HOPLITE}
                                             label="Hoplite"
                                             cost={{ food: 200, gold: 150 }}
                                             stats={stats}
@@ -669,6 +675,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         )}
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.CHARIOT) && (
                                           <TrainButton
+                                            unitType={UnitType.CHARIOT}
                                             label="Chariot"
                                             cost={{ food: 250, gold: 200 }}
                                             stats={stats}
@@ -678,6 +685,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                         )}
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.RAM) && (
                                           <TrainButton
+                                            unitType={UnitType.RAM}
                                             label="Ram"
                                             cost={{ food: 100, gold: 80 }}
                                             stats={stats}
@@ -1085,7 +1093,7 @@ export const GameUI: React.FC<GameUIProps> = ({
             {/* AAA event feed: neutral surfaces, semantic hierarchy, and soft edge fade. */}
             {stats.notifications && stats.notifications.length > 0 && (
                 <div
-                    className="hud-notification-stack absolute top-24 right-5 z-20 flex w-[min(29rem,calc(100vw-2.5rem))] flex-col gap-2 pointer-events-auto"
+                    className="hud-notification-stack absolute top-16 xl:top-24 right-5 z-15 flex max-h-[calc(100vh-12rem)] w-[min(29rem,calc(100vw-2.5rem))] flex-col gap-2 overflow-y-auto pointer-events-auto"
                     aria-label="Recent events"
                 >
                     <div className="px-4 pb-0.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-stone-500">
@@ -1097,7 +1105,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                         return (
                             <article
                                 key={notification.id}
-                                className="hud-notification-card group flex min-h-[72px] items-center gap-3 px-4 py-3 text-stone-100"
+                                className={`hud-notification-card group flex min-h-[72px] items-center gap-3 px-4 py-3 text-stone-100 ${index >= 3 ? 'hidden xl:flex' : ''}`}
                                 style={{ opacity: Math.max(0.48, 1 - index * 0.12) }}
                                 data-severity={notification.severity}
                             >
@@ -1310,31 +1318,108 @@ const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: B
 
 interface TrainButtonProps {
     label: string;
+    unitType?: UnitType;
     cost: { food: number; gold: number };
     stats: GameStats;
     onClick: () => void;
     icon: React.ReactNode;
 }
 
-const TrainButton: React.FC<TrainButtonProps> = ({ label, cost, stats, onClick, icon }) => {
+const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats, onClick, icon }) => {
     const canAfford = stats.resources.food >= cost.food && stats.resources.gold >= cost.gold;
+    const uStats = unitType ? UNIT_STATS[unitType] : undefined;
+    const uDmg = unitType ? UNIT_DAMAGE[unitType] : undefined;
+    const uArmor = unitType ? UNIT_ARMOR[unitType] : undefined;
+
     return (
-        <button
-            onClick={onClick}
-            disabled={!canAfford}
-            className={`flex flex-col items-center p-1.5 rounded-md border transition-all min-w-[64px]
-                ${canAfford
-                    ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-red-400/70 hover:bg-[#30271f]'
-                    : 'bg-black/20 border-white/5 opacity-40 cursor-not-allowed grayscale'}
-            `}
-        >
-            <div className={`mb-0.5 ${canAfford ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
-            <span className="text-[9px] font-bold text-stone-300">{label}</span>
-            <div className="flex gap-1 mt-0.5">
-                <span className="text-[8px] text-yellow-500 font-mono">{cost.food}F</span>
-                <span className="text-[8px] text-amber-500 font-mono">{cost.gold}G</span>
-            </div>
-        </button>
+        <div className="relative group">
+            <button
+                onClick={onClick}
+                disabled={!canAfford}
+                className={`flex flex-col items-center p-1.5 rounded-md border transition-all min-w-[64px] w-full
+                    ${canAfford
+                        ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-red-400/70 hover:bg-[#30271f]'
+                        : 'bg-black/20 border-white/5 opacity-40 cursor-not-allowed grayscale'}
+                `}
+            >
+                <div className={`mb-0.5 ${canAfford ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
+                <span className="text-[9px] font-bold text-stone-300">{label}</span>
+                <div className="flex gap-1 mt-0.5">
+                    <span className="text-[8px] text-yellow-500 font-mono">{cost.food}F</span>
+                    <span className="text-[8px] text-amber-500 font-mono">{cost.gold}G</span>
+                </div>
+            </button>
+
+            {/* Unit Stats Tooltip */}
+            {uStats && (
+                <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-stone-900/95 border border-[var(--hud-line)] rounded-lg shadow-2xl pointer-events-none z-30 text-left backdrop-blur-md">
+                    <div className="text-[11px] font-bold text-red-300 pb-1 border-b border-white/10 mb-1.5 flex items-center justify-between">
+                        <span>{label}</span>
+                        <span className="text-[9px] text-stone-400 font-mono">Squad: {uStats.squadSize}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] font-mono">
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">HP:</span>
+                            <span className="text-emerald-400 font-bold">{uStats.maxHp}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Speed:</span>
+                            <span className="text-stone-200">{uStats.speed}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Range:</span>
+                            <span className="text-stone-200">{uStats.range}</span>
+                        </div>
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Atk Spd:</span>
+                            <span className="text-stone-200">{(uStats.attackSpeed / 1000).toFixed(1)}s</span>
+                        </div>
+                    </div>
+
+                    {/* Attack by Damage Type */}
+                    {uDmg && (
+                        <div className="mt-1.5 pt-1 border-t border-white/10">
+                            <div className="text-[8px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Attack</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                {Object.entries(uDmg).length > 0 ? (
+                                    Object.entries(uDmg).map(([dmgType, val]) => (
+                                        val ? (
+                                            <span key={dmgType} className="text-[8px] font-mono px-1 py-0.2 rounded bg-stone-800 text-amber-300 border border-amber-500/20">
+                                                {dmgType}: {val}
+                                            </span>
+                                        ) : null
+                                    ))
+                                ) : (
+                                    <span className="text-[8px] text-stone-500 font-mono">None (0)</span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Armor */}
+                    {uArmor && (
+                        <div className="mt-1 pt-1 border-t border-white/10">
+                            <div className="text-[8px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Armor</div>
+                            <div className="grid grid-cols-3 gap-1 text-[8px] font-mono text-center">
+                                <div className="bg-stone-800/80 px-1 py-0.5 rounded border border-white/5">
+                                    <span className="text-stone-400 block text-[7px]">Hack</span>
+                                    <span className="text-stone-200 font-bold">{uArmor.Hack ?? 0}</span>
+                                </div>
+                                <div className="bg-stone-800/80 px-1 py-0.5 rounded border border-white/5">
+                                    <span className="text-stone-400 block text-[7px]">Pierce</span>
+                                    <span className="text-stone-200 font-bold">{uArmor.Pierce ?? 0}</span>
+                                </div>
+                                <div className="bg-stone-800/80 px-1 py-0.5 rounded border border-white/5">
+                                    <span className="text-stone-400 block text-[7px]">Crush</span>
+                                    <span className="text-stone-200 font-bold">{uArmor.Crush ?? 0}</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
     );
 };
 
@@ -1347,47 +1432,111 @@ interface BuildCardProps {
 
 const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => {
     const b = BUILDINGS[type];
+    const upkeep = BUILDING_UPKEEP[type];
     const canAfford =
         stats.resources.wood >= b.cost.wood &&
         stats.resources.food >= b.cost.food &&
         stats.resources.gold >= b.cost.gold;
 
     return (
-        <button
-            onClick={onClick}
-            disabled={!canAfford}
-            className={`flex flex-col items-center p-2 rounded-md border transition-all min-w-[70px] group relative
-                ${canAfford
-                    ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-amber-400/70 hover:bg-[#30271f]'
-                    : 'bg-black/20 border-white/5 opacity-50 cursor-not-allowed grayscale'}
-            `}
-        >
-            <div className={`mb-1 transition-colors ${canAfford ? 'text-stone-300 group-hover:text-amber-400' : 'text-stone-600'}`}>{icon}</div>
-            <span className="text-[10px] font-bold text-stone-300 text-center leading-tight">{b.name}</span>
+        <div className="relative group">
+            <button
+                onClick={onClick}
+                disabled={!canAfford}
+                className={`flex flex-col items-center p-2 rounded-md border transition-all min-w-[70px] w-full
+                    ${canAfford
+                        ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-amber-400/70 hover:bg-[#30271f]'
+                        : 'bg-black/20 border-white/5 opacity-50 cursor-not-allowed grayscale'}
+                `}
+            >
+                <div className={`mb-1 transition-colors ${canAfford ? 'text-stone-300 group-hover:text-amber-400' : 'text-stone-600'}`}>{icon}</div>
+                <span className="text-[10px] font-bold text-stone-300 text-center leading-tight">{b.name}</span>
 
-            {/* Cost Tooltip */}
-            <div className="flex flex-col items-center mt-1 w-full gap-0.5">
-                {b.cost.wood > 0 && <span className="text-[9px] text-emerald-400 font-mono">{b.cost.wood}W</span>}
-                {b.cost.food > 0 && <span className="text-[9px] text-yellow-400 font-mono">{b.cost.food}F</span>}
-                {b.cost.gold > 0 && <span className="text-[9px] text-amber-400 font-mono">{b.cost.gold}G</span>}
+                {/* Cost Tooltip */}
+                <div className="flex flex-col items-center mt-1 w-full gap-0.5">
+                    {b.cost.wood > 0 && <span className="text-[9px] text-emerald-400 font-mono">{b.cost.wood}W</span>}
+                    {b.cost.food > 0 && <span className="text-[9px] text-yellow-400 font-mono">{b.cost.food}F</span>}
+                    {b.cost.gold > 0 && <span className="text-[9px] text-amber-400 font-mono">{b.cost.gold}G</span>}
+                    {upkeep && upkeep.gold ? (
+                        <div
+                            className="flex items-center gap-0.5 text-[8px] font-mono text-amber-500 hover:text-amber-400"
+                            title={`Passive upkeep drain: -${upkeep.gold} gold/tick`}
+                        >
+                            <Coins size={9} className="text-amber-400 shrink-0" />
+                            <span>-{upkeep.gold} gold/tick</span>
+                        </div>
+                    ) : null}
+                </div>
+            </button>
+
+            {/* Building Stats Tooltip */}
+            <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-44 p-2 bg-stone-900/95 border border-[var(--hud-line)] rounded-lg shadow-2xl pointer-events-none z-30 text-left backdrop-blur-md">
+                <div className="text-[11px] font-bold text-amber-300 pb-1 border-b border-white/10 mb-1.5 flex items-center justify-between">
+                    <span>{b.name}</span>
+                </div>
+                {b.description && (
+                    <p className="text-[9px] text-stone-400 italic mb-2 leading-tight">{b.description}</p>
+                )}
+                <div className="space-y-1 text-[9px] font-mono">
+                    <div className="flex justify-between">
+                        <span className="text-stone-400">HP:</span>
+                        <span className="text-emerald-400 font-bold">{b.maxHp}</span>
+                    </div>
+                    {b.territoryRadius !== undefined && (
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Territory:</span>
+                            <span className="text-sky-300">+{b.territoryRadius}</span>
+                        </div>
+                    )}
+                    {b.populationBonus !== undefined && (
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Pop Bonus:</span>
+                            <span className="text-amber-300">+{b.populationBonus}</span>
+                        </div>
+                    )}
+                    {b.workerNeeds !== undefined && (
+                        <div className="flex justify-between">
+                            <span className="text-stone-400">Worker Slots:</span>
+                            <span className="text-stone-200">{b.workerNeeds}</span>
+                        </div>
+                    )}
+                    <div className="flex justify-between">
+                        <span className="text-stone-400">Build Time:</span>
+                        <span className="text-stone-300">{b.type === BuildingType.HOUSE ? '5s' : 'Instant'}</span>
+                    </div>
+                </div>
             </div>
-        </button>
+        </div>
     );
+};
+
+const FORMATION_TOOLTIPS: Record<FormationType, { label: string; desc: string }> = {
+    [FormationType.LINE]: { label: 'Line', desc: '+20% Attack, -20% Speed' },
+    [FormationType.CIRCLE]: { label: 'Circle', desc: '+25% Defense, -30% Speed' },
+    [FormationType.SKIRMISH]: { label: 'Skirmish', desc: '+15% Dodge, +10% Speed' },
+    [FormationType.WEDGE]: { label: 'Wedge', desc: '+10% Attack, +20% Speed' },
+    [FormationType.BOX]: { label: 'Box', desc: 'Balanced (no modifiers)' }
 };
 
 const FormationButton: React.FC<{ type: FormationType, current: FormationType, icon: React.ReactNode }> = ({ type, current, icon }) => {
     const isActive = type === current;
+    const tooltip = FORMATION_TOOLTIPS[type];
     return (
-        <button
-            onClick={() => window.dispatchEvent(new CustomEvent('request-set-formation-ui', { detail: type }))}
-            className={`p-2 rounded-md border transition-colors ${isActive
-                ? 'bg-amber-600/90 border-amber-300/70 text-white shadow-[0_0_12px_rgba(212,175,55,.2)]'
-                : 'bg-black/20 border-[var(--hud-line)] text-stone-400 hover:bg-white/[.06] hover:text-stone-200'
-                }`}
-            title={`Set Formation: ${type}`}
-        >
-            {icon}
-        </button>
+        <div className="relative group">
+            <button
+                onClick={() => window.dispatchEvent(new CustomEvent('request-set-formation-ui', { detail: type }))}
+                className={`p-2 rounded-md border transition-colors ${isActive
+                    ? 'bg-amber-600/90 border-amber-300/70 text-white shadow-[0_0_12px_rgba(212,175,55,.2)]'
+                    : 'bg-black/20 border-[var(--hud-line)] text-stone-400 hover:bg-white/[.06] hover:text-stone-200'
+                    }`}
+            >
+                {icon}
+            </button>
+            <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 bg-stone-900/95 border border-[var(--hud-line)] rounded text-center whitespace-nowrap shadow-xl pointer-events-none z-30">
+                <div className="text-xs font-semibold text-amber-300">{tooltip.label}</div>
+                <div className="text-[10px] text-stone-300 font-mono">{tooltip.desc}</div>
+            </div>
+        </div>
     );
 };
 

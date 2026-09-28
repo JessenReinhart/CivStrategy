@@ -13,6 +13,15 @@ vi.mock('phaser', () => ({
                 Between: (x1: number, y1: number, x2: number, y2: number) => Math.hypot(x2 - x1, y2 - y1),
             },
         },
+        Geom: {
+            Rectangle: class Rectangle {
+                constructor(public x = 0, public y = 0, public width = 0, public height = 0) {}
+                setTo(x: number, y: number, width: number, height: number) {
+                    this.x = x; this.y = y; this.width = width; this.height = height; return this;
+                }
+                contains() { return true; }
+            },
+        },
         Scenes: { Events: { SHUTDOWN: 'shutdown' } },
     },
 }));
@@ -434,5 +443,99 @@ describe('InputManager player command selection', () => {
         expect(setDefaultCursor).toHaveBeenLastCalledWith('default');
         const internal = manager as unknown as { attackMoveArmed: boolean };
         expect(internal.attackMoveArmed).toBe(false);
+    });
+
+    it('control groups: Ctrl+1 saves group and 1 recalls group; F1 selects combat units', () => {
+        (globalThis as unknown as { window?: unknown }).window = {
+            addEventListener: vi.fn(),
+            removeEventListener: vi.fn(),
+        };
+        const keyboardHandlers = new Map<string, (event?: unknown) => void>();
+        const keyboard = {
+            on: vi.fn((event: string, handler: (event?: unknown) => void) => keyboardHandlers.set(event, handler)),
+            off: vi.fn(),
+        };
+        const unit1 = {
+            active: true,
+            unitType: UnitType.PIKESMAN,
+            setSelected: vi.fn(),
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const unit2 = {
+            active: true,
+            unitType: UnitType.ARCHER,
+            setSelected: vi.fn(),
+            getData: vi.fn((key: string) => key === 'owner' ? 0 : undefined),
+        };
+        const emit = vi.fn();
+        const scene = {
+            input: {
+                keyboard,
+                on: vi.fn(),
+            },
+            game: { events: { emit, on: vi.fn() } },
+            cameras: {
+                main: {
+                    scrollX: 0,
+                    scrollY: 0,
+                    width: 800,
+                    height: 600,
+                    zoom: 1,
+                    centerOn: vi.fn(),
+                },
+            },
+            units: {
+                getChildren: vi.fn(() => [
+                    { ...unit1, visual: { x: 100, y: 100 } },
+                    { ...unit2, visual: { x: 200, y: 200 } },
+                ]),
+            },
+            villagerSystem: {
+                getIdleVillagers: vi.fn(() => []),
+            },
+            buildingManager: {
+                isDemolishMode: false,
+                previewBuildingType: null,
+            },
+            add: {
+                graphics: vi.fn(() => ({
+                    setDepth: vi.fn().mockReturnThis(),
+                })),
+            },
+            events: {
+                once: vi.fn(),
+            },
+        };
+
+        const manager = new InputManager(scene as never);
+        manager.selectedUnits = [unit1 as never, unit2 as never];
+
+        // Ctrl+1: save control group 1
+        keyboardHandlers.get('keydown-ONE')?.({ ctrlKey: true });
+
+        // Clear current selection
+        manager.clearSelection();
+        expect(manager.selectedUnits.length).toBe(0);
+
+        // 1: recall control group 1
+        keyboardHandlers.get('keydown-ONE')?.({ ctrlKey: false });
+        expect(manager.selectedUnits).toEqual([unit1, unit2]);
+        expect(unit1.setSelected).toHaveBeenCalledWith(true);
+        expect(unit2.setSelected).toHaveBeenCalledWith(true);
+
+        // F1: select viewport combat units
+        keyboardHandlers.get('keydown-F1')?.();
+        expect(manager.selectedUnits.length).toBe(2);
+
+        // S: commandStop
+        const commandStop = vi.fn();
+        const commandHoldPosition = vi.fn();
+        (scene as Record<string, unknown>).unitSystem = { commandStop, commandHoldPosition };
+        keyboardHandlers.get('keydown-S')?.();
+        expect(commandStop).toHaveBeenCalledWith(manager.selectedUnits);
+
+        // H: commandHoldPosition
+        keyboardHandlers.get('keydown-H')?.();
+        expect(commandHoldPosition).toHaveBeenCalledWith(manager.selectedUnits);
     });
 });

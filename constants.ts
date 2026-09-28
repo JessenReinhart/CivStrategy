@@ -672,6 +672,7 @@ export const VILLAGER_BUILDING_UPKEEP: Partial<Record<BuildingType, { food?: num
   [BuildingType.BARRACKS]: { gold: 2 },
   [BuildingType.HUNTERS_LODGE]: { gold: 1 },
 };
+export const BUILDING_UPKEEP = VILLAGER_BUILDING_UPKEEP;
 
 
 // ─── Gold Mine Resource Nodes ────────────────────────────────────────

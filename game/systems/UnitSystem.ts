@@ -257,8 +257,49 @@ export class UnitSystem {
         }
 
         // Combat state handling
+        if (unit.getData('holdGround') === true) {
+            const holdPos = unit.getData('holdPosition') as { x: number; y: number } | undefined;
+            if (holdPos) {
+                unit.x = holdPos.x;
+                unit.y = holdPos.y;
+            }
+            body.setVelocity(0, 0);
+            unit.path = null;
 
-        if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
+            this.scanForTargets(unit, time);
+
+            if (unit.target && unit.target.scene) {
+                const target = unit.target as Phaser.GameObjects.Image;
+                let effectiveDist = Math.hypot(unit.x - target.x, unit.y - target.y);
+                const def = target.getData('def') as { width: number; height: number } | undefined;
+                if (def) {
+                    const halfW = def.width / 2;
+                    const halfH = def.height / 2;
+                    const closestX = Math.max(target.x - halfW, Math.min(unit.x, target.x + halfW));
+                    const closestY = Math.max(target.y - halfH, Math.min(unit.y, target.y + halfH));
+                    effectiveDist = Math.hypot(unit.x - closestX, unit.y - closestY);
+                }
+
+                const range = (unit.getData('range') as number) || 40;
+                if (effectiveDist <= range) {
+                    unit.state = UnitState.ATTACKING;
+                    const attackSpeed = (unit.getData('attackSpeed') as number) || 1000;
+                    const now = time;
+                    const last = unit.lastAttackTime || 0;
+                    if (now - last > attackSpeed) {
+                        unit.lastAttackTime = now;
+                        this.performAttack(unit, target as GameUnit);
+                    }
+                } else {
+                    unit.target = null;
+                    unit.state = UnitState.IDLE;
+                }
+            } else {
+                unit.target = null;
+                unit.state = UnitState.IDLE;
+            }
+        }
+        else if (unit.state === UnitState.CHASING || unit.state === UnitState.ATTACKING) {
             this.handleCombatState(unit, time);
         }
         // Attack-move scans while advancing, then yields to its combat state immediately.
@@ -492,6 +533,7 @@ if (spatialHash) {
                     (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
                     unit.setData('anchor', { x: target.x, y: target.y });
                     unit.setData('attackMove', false);
+                    unit.setData('holdGround', false);
                 }
 
             }
@@ -594,6 +636,7 @@ if (spatialHash) {
             unit.setData('_flowField', flowField);
             (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
             unit.setData('anchor', { x: target.x, y: target.y });
+            unit.setData('holdGround', false);
         }
 
         const iso = toIso(target.x, target.y);
@@ -769,6 +812,54 @@ if (spatialHash) {
         }
     }
 
+    public commandStop(units: Phaser.GameObjects.GameObject[]): void {
+        for (const unitObj of units) {
+            const unit = unitObj as GameUnit;
+            unit.path = null;
+            unit.pathStep = 0;
+            unit.target = null;
+            unit.flowTarget = undefined;
+            unit.setData('_flowField', undefined);
+            unit.setData('attackMove', false);
+            unit.setData('attackMovePath', undefined);
+            unit.setData('attackMoveEngaging', false);
+            unit.setData('explicitTarget', false);
+            unit.setData('holdGround', false);
+            unit.setData('anchor', { x: unit.x, y: unit.y });
+            unit.state = UnitState.IDLE;
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            if (body) {
+                body.setVelocity(0, 0);
+                body.reset(unit.x, unit.y);
+            }
+        }
+    }
+
+    public commandHoldPosition(units: Phaser.GameObjects.GameObject[]): void {
+        for (const unitObj of units) {
+            const unit = unitObj as GameUnit;
+            unit.path = null;
+            unit.pathStep = 0;
+            unit.target = null;
+            unit.flowTarget = undefined;
+            unit.setData('_flowField', undefined);
+            unit.setData('attackMove', false);
+            unit.setData('attackMovePath', undefined);
+            unit.setData('attackMoveEngaging', false);
+            unit.setData('explicitTarget', false);
+            unit.setData('holdGround', true);
+            unit.setData('holdPosition', { x: unit.x, y: unit.y });
+            unit.setData('anchor', { x: unit.x, y: unit.y });
+            unit.setData('stance', UnitStance.HOLD);
+            unit.state = UnitState.IDLE;
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            if (body) {
+                body.setVelocity(0, 0);
+                body.reset(unit.x, unit.y);
+            }
+        }
+    }
+
     public setFormation(type: FormationType): void {
         this.currentFormation = type;
     }
@@ -796,6 +887,7 @@ if (spatialHash) {
                 unit.flowTarget = undefined;
                 unit.setData('_flowField', undefined);
                 unit.setData('explicitTarget', true);
+                unit.setData('holdGround', false);
                 unit.setData('_lastPathRecalc', 0);
                 unit.setData('_chaseTargetPos', undefined);
                 (unit.body as Phaser.Physics.Arcade.Body).reset(unit.x, unit.y);
