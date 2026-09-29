@@ -10,7 +10,7 @@ import {
     FastForward, Flame, Flower,
     X, Shield, Crown, Church,
     Zap, Crosshair, BookOpen, Check, Plus, Minus, GitBranch, Save, Circle, Activity, Grid, Triangle, Hand, Wrench,
-    TreeDeciduous, Scroll, Settings
+    TreeDeciduous, Scroll, Menu
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -388,15 +388,16 @@ export const GameUI: React.FC<GameUIProps> = ({
                         </button>
                     </div>
 
-                    {/* Settings Icon (Gear) with Menu Dropdown */}
+                    {/* Menu Button with Menu Dropdown */}
                     <div className="relative">
                         <button
                             type="button"
+                            aria-label="menu"
                             onClick={() => setShowMenu(!showMenu)}
-                            title="Settings"
+                            title="Menu"
                             className={`p-1 rounded text-[#9f9f9f] hover:text-white transition-colors cursor-pointer ${showMenu ? 'text-white' : ''}`}
                         >
-                            <Settings size={15} />
+                            <Menu size={15} />
                         </button>
 
                         {/* Menu Dropdown */}
