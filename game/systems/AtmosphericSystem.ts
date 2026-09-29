@@ -161,6 +161,8 @@ export class AtmosphericSystem {
                 }
             } else {
                 if (this.tiltShiftEffect) {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    target?.remove(this.tiltShiftEffect);
                     this.tiltShiftEffect.destroy();
                     this.tiltShiftEffect = null;
                 }
@@ -192,18 +194,28 @@ export class AtmosphericSystem {
             const target = this.scene.worldLayer
                 ? this.scene.worldLayer.postFX
                 : this.scene.cameras.main.postFX;
-            this.bloomEffect?.destroy();
-            this.vignetteEffect?.destroy();
-            this.tiltShiftEffect?.destroy();
+            if (this.bloomEffect) {
+                target.remove(this.bloomEffect);
+                this.bloomEffect.destroy();
+                this.bloomEffect = null;
+            }
+            if (this.vignetteEffect) {
+                target.remove(this.vignetteEffect);
+                this.vignetteEffect.destroy();
+                this.vignetteEffect = null;
+            }
+            if (this.tiltShiftEffect) {
+                target.remove(this.tiltShiftEffect);
+                this.tiltShiftEffect.destroy();
+                this.tiltShiftEffect = null;
+            }
             if (this.colorGradeEffect) {
                 // Phaser's runtime ColorMatrix is an FX controller, but its
                 // declaration omits that inheritance from the remove() input.
                 target.remove(this.colorGradeEffect as unknown as Phaser.FX.Controller);
+                (this.colorGradeEffect as unknown as Phaser.FX.Controller).destroy?.();
+                this.colorGradeEffect = null;
             }
-            this.bloomEffect = null;
-            this.vignetteEffect = null;
-            this.colorGradeEffect = null;
-            this.tiltShiftEffect = null;
             // Hide clouds when PostFX disabled to save CPU update
             this.clouds.forEach(c => c.setVisible(false));
         } else {

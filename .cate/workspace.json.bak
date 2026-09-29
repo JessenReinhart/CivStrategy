@@ -1,0 +1,221 @@
+{
+  "version": 1,
+  "name": "CivStrategy",
+  "color": "",
+  "dockState": {
+    "zones": {
+      "left": {
+        "position": "left",
+        "visible": false,
+        "size": 260,
+        "layout": null
+      },
+      "right": {
+        "position": "right",
+        "visible": false,
+        "size": 260,
+        "layout": null
+      },
+      "bottom": {
+        "position": "bottom",
+        "visible": false,
+        "size": 240,
+        "layout": null
+      },
+      "center": {
+        "position": "center",
+        "visible": true,
+        "size": 0,
+        "layout": {
+          "type": "tabs",
+          "id": "af90c592-2e3a-4194-b6ca-a0f915809c50",
+          "panelIds": [
+            "d8f5d27b-cae0-4f21-a154-c309471cdc5d"
+          ],
+          "activeIndex": 0
+        }
+      }
+    }
+  },
+  "panels": {
+    "48742df9-d8eb-4fea-a7a1-f73d311c30e5": {
+      "type": "editor",
+      "title": "RTS_Design_Patterns_Research.md",
+      "filePath": ".cate/RTS_Design_Patterns_Research.md"
+    },
+    "feaff76b-80e3-41d5-ad1e-7b0f90dc675e": {
+      "type": "terminal",
+      "title": "Terminal 1"
+    },
+    "d4ccb59a-2e2e-478b-83dc-e582951d1e74": {
+      "type": "browser",
+      "title": "9Router - AI Infrastructure Management",
+      "tabs": [
+        {
+          "id": "928e711e-e8ea-465a-8e48-7994c66cd783",
+          "url": "http://localhost:20128/dashboard/combos",
+          "title": "9Router - AI Infrastructure Management",
+          "favicon": "http://localhost:20128/favicon.ico?603d046c9a6fdfbb"
+        }
+      ],
+      "activeTabId": "928e711e-e8ea-465a-8e48-7994c66cd783"
+    },
+    "86849cc1-25fc-41ac-8941-9bc618de67c6": {
+      "type": "cateAgent",
+      "title": "Cate Agent 1"
+    },
+    "cc8a2783-104b-426a-9c6b-4b44a4488235": {
+      "type": "terminal",
+      "title": "Terminal 2"
+    },
+    "033039a2-c3ba-4b07-b711-f5e87c05efa0": {
+      "type": "editor",
+      "title": "Untitled"
+    },
+    "d8f5d27b-cae0-4f21-a154-c309471cdc5d": {
+      "type": "canvas",
+      "title": "Canvas"
+    }
+  },
+  "canvases": {
+    "d8f5d27b-cae0-4f21-a154-c309471cdc5d": {
+      "id": "d8f5d27b-cae0-4f21-a154-c309471cdc5d",
+      "canvasNodes": {
+        "42ab974c-3362-4c56-9782-cddcde4c2e9e": {
+          "id": "42ab974c-3362-4c56-9782-cddcde4c2e9e",
+          "origin": {
+            "x": 6,
+            "y": 1302.24
+          },
+          "size": {
+            "width": 1792,
+            "height": 1290.24
+          },
+          "zOrder": 80,
+          "creationIndex": 6,
+          "animationState": "idle",
+          "dockLayout": {
+            "type": "tabs",
+            "id": "6aed755c-7d04-4821-bee3-c0ecb2038258",
+            "panelIds": [
+              "48742df9-d8eb-4fea-a7a1-f73d311c30e5"
+            ],
+            "activeIndex": 0
+          }
+        },
+        "7da4319c-ea06-4686-ac27-3b1d3ccc0175": {
+          "id": "7da4319c-ea06-4686-ac27-3b1d3ccc0175",
+          "origin": {
+            "x": 7862.72721869214,
+            "y": 3327.745456551282
+          },
+          "size": {
+            "width": 2005.874374169152,
+            "height": 835.1596000834654
+          },
+          "zOrder": 160,
+          "creationIndex": 7,
+          "animationState": "idle",
+          "dockLayout": {
+            "type": "split",
+            "id": "5f5e8415-6cfa-4b7f-8fc0-08693416b0a4",
+            "direction": "horizontal",
+            "children": [
+              {
+                "type": "tabs",
+                "id": "6a28ad70-c24a-4a44-8c5d-a217dda7e776",
+                "panelIds": [
+                  "feaff76b-80e3-41d5-ad1e-7b0f90dc675e"
+                ],
+                "activeIndex": 0
+              },
+              {
+                "type": "tabs",
+                "id": "7b155b5a-b60e-41d9-9355-ddd019552bc3",
+                "panelIds": [
+                  "d4ccb59a-2e2e-478b-83dc-e582951d1e74"
+                ],
+                "activeIndex": 0
+              }
+            ],
+            "ratios": [
+              0.1858249919276718,
+              0.8141750080723276
+            ]
+          }
+        },
+        "edccceaf-98d7-44db-a557-03c7cdeef493": {
+          "id": "edccceaf-98d7-44db-a557-03c7cdeef493",
+          "origin": {
+            "x": 7469.742932003909,
+            "y": 4641.094986745241
+          },
+          "size": {
+            "width": 739.2338824000747,
+            "height": 1105.5816121156417
+          },
+          "zOrder": 164,
+          "creationIndex": 10,
+          "animationState": "idle",
+          "dockLayout": {
+            "type": "tabs",
+            "id": "bdda7d4c-30f9-43a0-9ded-f5db5911eaae",
+            "panelIds": [
+              "86849cc1-25fc-41ac-8941-9bc618de67c6"
+            ],
+            "activeIndex": 0
+          }
+        },
+        "15192eb0-bb52-40a2-9b1d-0c8add5ba44b": {
+          "id": "15192eb0-bb52-40a2-9b1d-0c8add5ba44b",
+          "origin": {
+            "x": 8370.79087797928,
+            "y": 4640.337064432249
+          },
+          "size": {
+            "width": 1400,
+            "height": 829.1247994470286
+          },
+          "zOrder": 165,
+          "creationIndex": 19,
+          "animationState": "idle",
+          "dockLayout": {
+            "type": "tabs",
+            "id": "fddf6f3c-1603-41dd-8100-2ab0da9adf69",
+            "panelIds": [
+              "cc8a2783-104b-426a-9c6b-4b44a4488235"
+            ],
+            "activeIndex": 0
+          }
+        },
+        "41b2a431-0b0a-4c34-a84a-b6ad05de298c": {
+          "id": "41b2a431-0b0a-4c34-a84a-b6ad05de298c",
+          "origin": {
+            "x": 10001.847705343971,
+            "y": 4647.945819454915
+          },
+          "size": {
+            "width": 1475.3043068575023,
+            "height": 835.1596000834654
+          },
+          "zOrder": 162,
+          "creationIndex": 21,
+          "animationState": "idle",
+          "dockLayout": {
+            "type": "tabs",
+            "id": "290422d0-2fba-4a84-8ee5-18a0824d7294",
+            "panelIds": [
+              "033039a2-c3ba-4b07-b711-f5e87c05efa0"
+            ],
+            "activeIndex": 0
+          }
+        }
+      },
+      "zoomLevel": 0.3,
+      "viewportOffset": {
+        "x": -2573.120814117417,
+        "y": -655.6865031820023
+      }
+    }
+  }
+}

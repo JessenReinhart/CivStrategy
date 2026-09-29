@@ -285,6 +285,23 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     scene.economySystem.updateStats();
   });
 
+  scene.game.events.on(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
+    scene.atmosphericSystem.setTiltShiftEnabled(enabled);
+    scene.economySystem.updateStats();
+  });
+  scene.game.events.on(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
+    scene.atmosphericSystem.setTiltShiftBlur(blur);
+    scene.economySystem.updateStats();
+  });
+  scene.game.events.on('set-tilt-shift-enabled-ui', (enabled: boolean) => {
+    scene.atmosphericSystem.setTiltShiftEnabled(enabled);
+    scene.economySystem.updateStats();
+  });
+  scene.game.events.on('set-tilt-shift-blur-ui', (blur: number) => {
+    scene.atmosphericSystem.setTiltShiftBlur(blur);
+    scene.economySystem.updateStats();
+  });
+
   if (scene.game.renderer && scene.game.renderer.on) {
     scene.game.renderer.on('prerender', () => {
       internal._renderStart = performance.now();

@@ -1,0 +1,22 @@
+{
+  "skills": [
+    {
+      "skillId": "cate/cate-cli",
+      "name": "cate-cli",
+      "targetId": "claude-code",
+      "path": "C:\\Users\\LGSM228\\CivStrategy\\.claude\\skills\\cate-cli\\SKILL.md",
+      "origin": "local"
+    },
+    {
+      "skillId": "cate/cate-cli",
+      "name": "cate-cli",
+      "targetId": "cate-agent",
+      "path": "C:\\Users\\LGSM228\\CivStrategy\\.cate\\cate-agent\\skills\\cate-cli\\SKILL.md",
+      "origin": "local"
+    }
+  ],
+  "seeded": [
+    "cate/cate-cli:cate-agent@8be3572be51c",
+    "cate/cate-cli:claude-code@8be3572be51c"
+  ]
+}

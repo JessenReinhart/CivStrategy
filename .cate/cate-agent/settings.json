@@ -1,0 +1,10 @@
+{
+  "packages": [
+    "npm:pi-mcp-adapter@2.11.0"
+  ],
+  "compaction": {
+    "enabled": true
+  },
+  "defaultProvider": "custom-openai-9router",
+  "defaultModel": "work"
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "workspace": {
+    "name": "CivStrategy",
+    "kind": "folder"
+  },
+  "apps": [
+    {
+      "id": "app",
+      "name": "CivStrategy",
+      "folder": ".",
+      "framework": "React",
+      "platform": "web",
+      "default": true
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "custom-openai-9router": {
+      "name": "9router",
+      "baseUrl": "http://localhost:20128/v1",
+      "api": "openai-completions",
+      "apiKey": "sk-6563042d1d997d8a-e50pjq-034b2108",
+      "models": [
+        {
+          "id": "work"
+        }
+      ]
+    }
+  }
+}
