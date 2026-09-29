@@ -26,6 +26,8 @@ const baseStats: GameStats = {
   peacefulMode: false,
   treatyTimeRemaining: 0,
   bloomIntensity: 1,
+  tiltShiftEnabled: false,
+  tiltShiftBlur: 1.0,
   currentFormation: FormationType.BOX,
   currentStance: UnitStance.AGGRESSIVE,
   currentAge: Age.VILLAGE,

@@ -139,6 +139,8 @@ export interface GameStats {
   peacefulMode: boolean;
   treatyTimeRemaining: number; // (ms)
   bloomIntensity: number;
+  tiltShiftEnabled: boolean;
+  tiltShiftBlur: number;
   currentFormation: FormationType;
   currentStance: UnitStance;
   currentAge: Age;

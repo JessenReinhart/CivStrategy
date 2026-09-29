@@ -378,6 +378,8 @@ export const EVENTS = {
   GAME_OVER: 'game-over',
   DOMINANCE_PROGRESS: 'dominance-progress',
   REQUEST_REPAIR: 'request-repair',
+  SET_TILT_SHIFT_ENABLED: 'set-tilt-shift-enabled',
+  SET_TILT_SHIFT_BLUR: 'set-tilt-shift-blur',
 };
 
 // ─── Age Configuration ─────────────────────────────────────────────────────

@@ -454,6 +454,34 @@ export const GameUI: React.FC<GameUIProps> = ({
                                 className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
                             />
                         </div>
+                        <div className="px-2 py-1">
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={stats.tiltShiftEnabled}
+                                        onChange={(e) => window.dispatchEvent(new CustomEvent('set-tilt-shift-enabled-ui', { detail: e.target.checked }))}
+                                        className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                                    />
+                                    <span className="hud-kicker">Tilt-shift</span>
+                                </label>
+                                <span className={`font-mono text-[10px] ${stats.tiltShiftEnabled ? 'text-amber-300' : 'text-stone-500'}`}>
+                                    {stats.tiltShiftEnabled ? `${Math.round(stats.tiltShiftBlur * 100)}%` : 'OFF'}
+                                </span>
+                            </div>
+                            <input
+                                type="range"
+                                min="0.1"
+                                max="2.5"
+                                step="0.05"
+                                value={stats.tiltShiftBlur}
+                                disabled={!stats.tiltShiftEnabled}
+                                onChange={(e) => window.dispatchEvent(new CustomEvent('set-tilt-shift-blur-ui', { detail: parseFloat(e.target.value) }))}
+                                className={`w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none ${
+                                    stats.tiltShiftEnabled ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
+                                }`}
+                            />
+                        </div>
                         <div className="hud-rule h-px w-full" />
                         <button onClick={() => window.dispatchEvent(new CustomEvent('save-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm">
                             <Save size={15} /> Save game <span className="ml-auto hud-kicker">Ctrl S</span>

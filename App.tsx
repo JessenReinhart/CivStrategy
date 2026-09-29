@@ -58,6 +58,8 @@ const App: React.FC = () => {
     peacefulMode: false,
     treatyTimeRemaining: 0,
     bloomIntensity: 1.0,
+    tiltShiftEnabled: false,
+    tiltShiftBlur: 1.0,
     currentFormation: FormationType.BOX,
   currentStance: UnitStance.AGGRESSIVE,
   currentAge: Age.VILLAGE,
@@ -126,6 +128,8 @@ const [selectedCount, setSelectedCount] = useState(0);
       peacefulMode: false,
       treatyTimeRemaining: 0,
       bloomIntensity: 1.0,
+      tiltShiftEnabled: false,
+      tiltShiftBlur: 1.0,
       currentFormation: FormationType.BOX,
     currentStance: UnitStance.AGGRESSIVE,
       currentAge: Age.VILLAGE,
@@ -234,6 +238,14 @@ const [selectedCount, setSelectedCount] = useState(0);
       const customEvent = e as CustomEvent;
       gameInstance.events.emit(EVENTS.SET_BLOOM_INTENSITY, customEvent.detail);
     };
+    const tiltShiftEnabledHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit(EVENTS.SET_TILT_SHIFT_ENABLED, customEvent.detail);
+    };
+    const tiltShiftBlurHandler = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      gameInstance.events.emit(EVENTS.SET_TILT_SHIFT_BLUR, customEvent.detail);
+    };
     const formationHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
       gameInstance.events.emit('request-set-formation', customEvent.detail);
@@ -289,6 +301,8 @@ const [selectedCount, setSelectedCount] = useState(0);
     window.addEventListener('center-camera-ui', centerCameraHandler);
     window.addEventListener('set-game-speed-ui', speedHandler);
     window.addEventListener('set-bloom-intensity-ui', bloomHandler);
+    window.addEventListener('set-tilt-shift-enabled-ui', tiltShiftEnabledHandler);
+    window.addEventListener('set-tilt-shift-blur-ui', tiltShiftBlurHandler);
     window.addEventListener('request-set-formation-ui', formationHandler);
     window.addEventListener('request-set-stance-ui', stanceHandler);
     const removeResearchListener = addResearchWindowListener(window, researchHandler);
@@ -307,6 +321,8 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('center-camera-ui', centerCameraHandler);
       window.removeEventListener('set-game-speed-ui', speedHandler);
       window.removeEventListener('set-bloom-intensity-ui', bloomHandler);
+      window.removeEventListener('set-tilt-shift-enabled-ui', tiltShiftEnabledHandler);
+      window.removeEventListener('set-tilt-shift-blur-ui', tiltShiftBlurHandler);
       window.removeEventListener('request-set-formation-ui', formationHandler);
       window.removeEventListener('request-set-stance-ui', stanceHandler);
       removeResearchListener();
