@@ -148,19 +148,25 @@ export class AtmosphericSystem {
         this.tiltShiftEnabled = enabled;
         if (!this.postFXEnabled) return;
 
-        if (enabled) {
-            if (!this.tiltShiftEffect) {
-                const target = this.scene.worldLayer
-                    ? this.scene.worldLayer.postFX
-                    : this.scene.cameras.main.postFX;
-                this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
-                this.updateTiltShift(this.scene.cameras.main);
+        try {
+            if (enabled) {
+                if (!this.tiltShiftEffect) {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    if (target && typeof target.addTiltShift === 'function') {
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        if (this.scene.cameras?.main) {
+                            this.updateTiltShift(this.scene.cameras.main);
+                        }
+                    }
+                }
+            } else {
+                if (this.tiltShiftEffect) {
+                    this.tiltShiftEffect.destroy();
+                    this.tiltShiftEffect = null;
+                }
             }
-        } else {
-            if (this.tiltShiftEffect) {
-                this.tiltShiftEffect.destroy();
-                this.tiltShiftEffect = null;
-            }
+        } catch (err) {
+            console.warn('[AtmosphericSystem] Tilt-shift toggle error:', err);
         }
     }
 
@@ -205,11 +211,17 @@ export class AtmosphericSystem {
                 this.setupBloom();
             }
             if (this.tiltShiftEnabled && !this.tiltShiftEffect) {
-                const target = this.scene.worldLayer
-                    ? this.scene.worldLayer.postFX
-                    : this.scene.cameras.main.postFX;
-                this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
-                this.updateTiltShift(this.scene.cameras.main);
+                try {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    if (target && typeof target.addTiltShift === 'function') {
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        if (this.scene.cameras?.main) {
+                            this.updateTiltShift(this.scene.cameras.main);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[AtmosphericSystem] Tilt-shift restore error:', err);
+                }
             }
             // Show clouds when PostFX re-enabled
             this.clouds.forEach(c => c.setVisible(true));

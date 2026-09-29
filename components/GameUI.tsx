@@ -105,6 +105,30 @@ export const GameUI: React.FC<GameUIProps> = ({
     const [gameSpeed, setGameSpeed] = useState(stats.gameSpeed);
     const [showTax, setShowTax] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
+    const [tiltShiftEnabled, setTiltShiftEnabled] = useState(stats.tiltShiftEnabled);
+    const [tiltShiftBlur, setTiltShiftBlur] = useState(stats.tiltShiftBlur);
+
+    useEffect(() => {
+        setTiltShiftEnabled(stats.tiltShiftEnabled);
+    }, [stats.tiltShiftEnabled]);
+
+    useEffect(() => {
+        setTiltShiftBlur(stats.tiltShiftBlur);
+    }, [stats.tiltShiftBlur]);
+
+    const handleSetTiltShift = (enabled: boolean) => {
+        setTiltShiftEnabled(enabled);
+        window.dispatchEvent(new CustomEvent('set-tilt-shift-enabled-ui', { detail: enabled }));
+    };
+
+    const handleToggleTiltShift = () => {
+        handleSetTiltShift(!tiltShiftEnabled);
+    };
+
+    const handleTiltShiftBlurChange = (blur: number) => {
+        setTiltShiftBlur(blur);
+        window.dispatchEvent(new CustomEvent('set-tilt-shift-blur-ui', { detail: blur }));
+    };
     const [showResearch, setShowResearch] = useState(false);
     const [showTreeView, setShowTreeView] = useState(true);
     const [ageCelebration, setAgeCelebration] = useState<string | null>(null);
@@ -456,29 +480,45 @@ export const GameUI: React.FC<GameUIProps> = ({
                         </div>
                         <div className="px-2 py-1">
                             <div className="flex justify-between items-center mb-2">
-                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                                    <input
-                                        type="checkbox"
-                                        checked={stats.tiltShiftEnabled}
-                                        onChange={(e) => window.dispatchEvent(new CustomEvent('set-tilt-shift-enabled-ui', { detail: e.target.checked }))}
-                                        className="rounded border-stone-600 bg-stone-800 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-                                    />
-                                    <span className="hud-kicker">Tilt-shift</span>
-                                </label>
-                                <span className={`font-mono text-[10px] ${stats.tiltShiftEnabled ? 'text-amber-300' : 'text-stone-500'}`}>
-                                    {stats.tiltShiftEnabled ? `${Math.round(stats.tiltShiftBlur * 100)}%` : 'OFF'}
+                                <span
+                                    onClick={handleToggleTiltShift}
+                                    className="hud-kicker cursor-pointer select-none hover:text-amber-200 transition-colors"
+                                >
+                                    Tilt-shift
                                 </span>
+                                <div className="flex items-center gap-2">
+                                    <span className={`font-mono text-[10px] ${tiltShiftEnabled ? 'text-amber-300' : 'text-stone-500'}`}>
+                                        {tiltShiftEnabled ? `${Math.round(tiltShiftBlur * 100)}%` : 'OFF'}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={tiltShiftEnabled}
+                                        aria-label="Toggle tilt-shift effect"
+                                        onClick={handleToggleTiltShift}
+                                        className={`w-8 h-4 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer ${
+                                            tiltShiftEnabled ? 'bg-amber-600' : 'bg-stone-700'
+                                        }`}
+                                    >
+                                        <span
+                                            className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                                                tiltShiftEnabled ? 'translate-x-4' : 'translate-x-0'
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
                             </div>
                             <input
                                 type="range"
                                 min="0.1"
                                 max="2.5"
                                 step="0.05"
-                                value={stats.tiltShiftBlur}
-                                disabled={!stats.tiltShiftEnabled}
-                                onChange={(e) => window.dispatchEvent(new CustomEvent('set-tilt-shift-blur-ui', { detail: parseFloat(e.target.value) }))}
+                                value={tiltShiftBlur}
+                                disabled={!tiltShiftEnabled}
+                                onChange={(e) => handleTiltShiftBlurChange(parseFloat(e.target.value))}
+                                aria-label="Tilt-shift blur intensity"
                                 className={`w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none ${
-                                    stats.tiltShiftEnabled ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
+                                    tiltShiftEnabled ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'
                                 }`}
                             />
                         </div>

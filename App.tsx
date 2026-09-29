@@ -236,14 +236,17 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
     const bloomHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
+      setStats((prev) => ({ ...prev, bloomIntensity: customEvent.detail }));
       gameInstance.events.emit(EVENTS.SET_BLOOM_INTENSITY, customEvent.detail);
     };
     const tiltShiftEnabledHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
+      setStats((prev) => ({ ...prev, tiltShiftEnabled: customEvent.detail }));
       gameInstance.events.emit(EVENTS.SET_TILT_SHIFT_ENABLED, customEvent.detail);
     };
     const tiltShiftBlurHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
+      setStats((prev) => ({ ...prev, tiltShiftBlur: customEvent.detail }));
       gameInstance.events.emit(EVENTS.SET_TILT_SHIFT_BLUR, customEvent.detail);
     };
     const formationHandler = (e: Event) => {
