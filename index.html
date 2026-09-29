@@ -53,75 +53,36 @@
       }
       .hud-rule { background: var(--hud-line); }
 
+      /* Sleek top ribbon centered relative to the screen */
       .hud-top-row {
         position: absolute;
         top: 1.5rem;
-        left: 1.5rem;
-        right: 1.5rem;
+        left: 50%;
+        transform: translateX(-50%);
         z-index: 30;
         display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: .75rem;
+        flex-direction: column;
+        align-items: center;
         pointer-events: none;
       }
       .hud-clock {
         flex-grow: 0;
         flex-shrink: 1;
       }
-      @media (max-width: 1023px) {
-        .hud-top-row {
-          position: relative;
-          left: 0;
-          right: 0;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
-      }
-      .hud-resource-panel,
-      .hud-status-rail,
-      .hud-controls-rail {
+      .hud-main-ribbon {
         flex: 0 0 auto;
       }
       .hud-dominance {
-        position: absolute;
-        top: 4rem;
-        left: 50%;
-        transform: translateX(-50%);
+        margin-top: 0.75rem;
       }
 
-      /* On narrower desktop widths, keep resources and controls on the main
-         lane and drop status/dominance into a deliberate second lane. */
-      @media (max-width: 1500px) {
-        .hud-status-rail {
-          position: absolute;
-          top: 4rem;
-          left: 0;
+      @media (max-width: 1023px) {
+        .hud-top-row {
+          top: 6rem;
+          left: 50%;
+          transform: translateX(-50%);
+          max-width: calc(100vw - 2rem);
         }
-        .hud-dominance {
-          top: 7.75rem;
-          left: 0;
-          transform: none;
-        }
-      }
-
-      /* Tax opens to the left of the system-controls cluster. */
-      .hud-controls-rail .relative > .absolute.top-12.right-0.w-64 {
-        top: 0 !important;
-        right: calc(100% + .75rem) !important;
-      }
-
-      /* The menu is an overlay, not another item that lengthens the right rail. */
-      .hud-controls-rail > .hud-surface.w-56 {
-        position: absolute !important;
-        top: 4rem !important;
-        right: 0 !important;
-      }
-
-      /* Diplomacy is already represented in the status rail. Remove the
-         duplicate large widget from the top-right controls lane. */
-      .hud-controls-rail > .flex.items-center.gap-3.px-4.py-2.rounded-full {
-        display: none !important;
       }
 
       .hud-notification-stack {

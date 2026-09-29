@@ -9,7 +9,9 @@ export class AtmosphericSystem {
 
     private bloomEffect: Phaser.FX.Bloom | null = null;
     private colorGradeEffect: Phaser.FX.ColorMatrix | null = null;
-    private tiltShiftEffect: unknown = null; // reserved for future DOF effect
+    private tiltShiftEffect: Phaser.FX.Bokeh | null = null;
+    private tiltShiftEnabled: boolean = false;
+    private userTiltShiftBlur: number = 1.0;
     
     private vignetteEffect: Phaser.FX.Vignette | null = null;
     private cloudTextureKey = 'cloud-puff';
@@ -142,6 +144,49 @@ export class AtmosphericSystem {
         this.userBloomMultiplier = intensity;
     }
 
+    public setTiltShiftEnabled(enabled: boolean): void {
+        this.tiltShiftEnabled = enabled;
+        if (!this.postFXEnabled) return;
+
+        try {
+            if (enabled) {
+                if (!this.tiltShiftEffect) {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    if (target && typeof target.addTiltShift === 'function') {
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        if (this.scene.cameras?.main) {
+                            this.updateTiltShift(this.scene.cameras.main);
+                        }
+                    }
+                }
+            } else {
+                if (this.tiltShiftEffect) {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    target?.remove(this.tiltShiftEffect);
+                    this.tiltShiftEffect.destroy();
+                    this.tiltShiftEffect = null;
+                }
+            }
+        } catch (err) {
+            console.warn('[AtmosphericSystem] Tilt-shift toggle error:', err);
+        }
+    }
+
+    public setTiltShiftBlur(blur: number): void {
+        this.userTiltShiftBlur = blur;
+        if (this.tiltShiftEffect) {
+            this.updateTiltShift(this.scene.cameras.main);
+        }
+    }
+
+    public isTiltShiftEnabled(): boolean {
+        return this.tiltShiftEnabled;
+    }
+
+    public getTiltShiftBlur(): number {
+        return this.userTiltShiftBlur;
+    }
+
     /** Toggle PostFX (bloom/vignette) — full-screen GPU passes that dominate frame cost on iGPU. */
     public setPostFXEnabled(enabled: boolean): void {
         this.postFXEnabled = enabled;
@@ -149,25 +194,62 @@ export class AtmosphericSystem {
             const target = this.scene.worldLayer
                 ? this.scene.worldLayer.postFX
                 : this.scene.cameras.main.postFX;
-            this.bloomEffect?.destroy();
-            this.vignetteEffect?.destroy();
+            if (this.bloomEffect) {
+                target.remove(this.bloomEffect);
+                this.bloomEffect.destroy();
+                this.bloomEffect = null;
+            }
+            if (this.vignetteEffect) {
+                target.remove(this.vignetteEffect);
+                this.vignetteEffect.destroy();
+                this.vignetteEffect = null;
+            }
+            if (this.tiltShiftEffect) {
+                target.remove(this.tiltShiftEffect);
+                this.tiltShiftEffect.destroy();
+                this.tiltShiftEffect = null;
+            }
             if (this.colorGradeEffect) {
                 // Phaser's runtime ColorMatrix is an FX controller, but its
                 // declaration omits that inheritance from the remove() input.
                 target.remove(this.colorGradeEffect as unknown as Phaser.FX.Controller);
+                (this.colorGradeEffect as unknown as Phaser.FX.Controller).destroy?.();
+                this.colorGradeEffect = null;
             }
-            this.bloomEffect = null;
-            this.vignetteEffect = null;
-            this.colorGradeEffect = null;
             // Hide clouds when PostFX disabled to save CPU update
             this.clouds.forEach(c => c.setVisible(false));
-        } else if (!this.bloomEffect || !this.vignetteEffect || !this.colorGradeEffect) {
-            this.setupBloom();
+        } else {
+            if (!this.bloomEffect || !this.vignetteEffect || !this.colorGradeEffect) {
+                this.setupBloom();
+            }
+            if (this.tiltShiftEnabled && !this.tiltShiftEffect) {
+                try {
+                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    if (target && typeof target.addTiltShift === 'function') {
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        if (this.scene.cameras?.main) {
+                            this.updateTiltShift(this.scene.cameras.main);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[AtmosphericSystem] Tilt-shift restore error:', err);
+                }
+            }
             // Show clouds when PostFX re-enabled
             this.clouds.forEach(c => c.setVisible(true));
             // Mark tint dirty to ensure it redraws
             this.seasonalTintDirty = true;
         }
+    }
+
+    private updateTiltShift(cam: Phaser.Cameras.Scene2D.Camera): void {
+        if (!this.tiltShiftEffect) return;
+        const zoom = Phaser.Math.Clamp(cam.zoom, 0.3, 2.5);
+        // Tilt-shift blur and focus radius scale with zoom
+        const blurFactor = (1 / zoom) * this.userTiltShiftBlur;
+        this.tiltShiftEffect.blurX = Phaser.Math.Clamp(blurFactor * 1.2, 0, 5);
+        this.tiltShiftEffect.blurY = Phaser.Math.Clamp(blurFactor * 1.2, 0, 5);
+        this.tiltShiftEffect.radius = Phaser.Math.Clamp(0.35 * zoom, 0.1, 1.5);
     }
 
     public update(time: number, delta: number) {
@@ -194,6 +276,10 @@ export class AtmosphericSystem {
             const dynamicTarget = Phaser.Math.Clamp(baseStrength + pulse, 0.015, 0.06);
             const target = Phaser.Math.Clamp(dynamicTarget * this.userBloomMultiplier, 0.0, 2.0);
             this.bloomEffect.strength = Phaser.Math.Linear(this.bloomEffect.strength, target, 0.08);
+        }
+
+        if (this.postFXEnabled && this.tiltShiftEnabled && this.tiltShiftEffect) {
+            this.updateTiltShift(this.scene.cameras.main);
         }
 
         // Smoothly interpolate seasonal tint, only redraw when changed

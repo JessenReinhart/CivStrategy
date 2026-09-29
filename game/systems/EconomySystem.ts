@@ -554,6 +554,8 @@ export class EconomySystem {
             peacefulMode: this.scene.peacefulMode,
             treatyTimeRemaining: remainingTreaty,
             bloomIntensity: this.scene.bloomIntensity || 1.0,
+            tiltShiftEnabled: this.scene.atmosphericSystem?.isTiltShiftEnabled() ?? false,
+            tiltShiftBlur: this.scene.atmosphericSystem?.getTiltShiftBlur() ?? 1.0,
             currentFormation: this.scene.unitSystem.currentFormation,
             currentStance: this.scene.unitSystem.currentStance,
             currentAge: this.scene.currentAge,

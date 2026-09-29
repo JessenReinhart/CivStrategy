@@ -26,6 +26,8 @@ const baseStats: GameStats = {
   peacefulMode: false,
   treatyTimeRemaining: 0,
   bloomIntensity: 1,
+  tiltShiftEnabled: false,
+  tiltShiftBlur: 1.0,
   currentFormation: FormationType.BOX,
   currentStance: UnitStance.AGGRESSIVE,
   currentAge: Age.VILLAGE,
@@ -116,7 +118,7 @@ describe('GameUI selected building command ownership', () => {
     const html = renderSelectedBuilding(BuildingType.BARRACKS, 0, 0.75);
 
     expect(html).toContain('Set speed 0.75×');
-    expect(html).toContain('0.75x');
+    expect(html).toContain('0.75×');
   });
 
   it('renders the neutral AAA notification feed with inferred event categories and newest first', () => {

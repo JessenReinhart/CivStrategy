@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "chats": [
+    {
+      "id": "759be23f-542b-4c39-bdd6-ddbce35951ce",
+      "title": "So, lets do a bit of research for our game. I think as of…",
+      "createdAt": 1786436666205,
+      "updatedAt": 1786436667665,
+      "sessionFile": "C:\\Users\\LGSM228\\CivStrategy\\.cate\\cate-agent\\sessions\\--C--Users-LGSM228-CivStrategy--\\2026-08-11T08-24-27-243Z_019fefec-476b-7c83-a39c-47a8e68a084e.jsonl"
+    },
+    {
+      "id": "394eb619-fa8b-4aeb-9f34-b7ee8ab4dd61",
+      "title": "span a couple of agents in the canvas to research each as…",
+      "createdAt": 1786500716860,
+      "updatedAt": 1786500718710,
+      "hostPanelId": "86849cc1-25fc-41ac-8941-9bc618de67c6",
+      "sessionFile": "C:\\Users\\LGSM228\\CivStrategy\\.cate\\cate-agent\\sessions\\--C--Users-LGSM228-CivStrategy--\\2026-08-12T02-11-58-189Z_019ff3bd-9e6d-7bfb-8b1d-169755b065e7.jsonl"
+    }
+  ]
+}

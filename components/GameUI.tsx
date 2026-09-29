@@ -6,10 +6,11 @@ import {
     Pickaxe, Wheat, Coins, User, Smile,
     Home, Hammer, Tent, Sword, Trash2,
     Rabbit, Sprout,
-    Target, LogOut, Handshake, Clock,
-    Menu, FastForward, Flame, Flower,
+    Target, LogOut, Handshake,
+    FastForward, Flame, Flower,
     X, Shield, Crown, Church,
-    Zap, Crosshair, BookOpen, Check, Plus, Minus, GitBranch, Save, Circle, Activity, Grid, Triangle, Hand, Wrench
+    Zap, Crosshair, BookOpen, Check, Plus, Minus, GitBranch, Save, Circle, Activity, Grid, Triangle, Hand, Wrench,
+    TreeDeciduous, Scroll, Menu
 } from 'lucide-react';
 
 interface GameUIProps {
@@ -44,12 +45,6 @@ const getDamageTag = (type: UnitType): { label: string; color: string } | null =
         'Crush': 'bg-amber-900/50 text-amber-300 border-amber-700/50',
     };
     return { label: `${dmgType} ${value}`, color: colors[dmgType] || 'bg-stone-800 text-stone-400' };
-};
-const RESOURCE_TONE: Record<'emerald' | 'amber' | 'gold' | 'blue', string> = {
-    emerald: 'text-emerald-300',
-    amber: 'text-yellow-300',
-    gold: 'text-amber-300',
-    blue: 'text-sky-300',
 };
 
 type GameNotification = GameStats['notifications'][number];
@@ -105,6 +100,30 @@ export const GameUI: React.FC<GameUIProps> = ({
     const [gameSpeed, setGameSpeed] = useState(stats.gameSpeed);
     const [showTax, setShowTax] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
+    const [tiltShiftEnabled, setTiltShiftEnabled] = useState(stats.tiltShiftEnabled);
+    const [tiltShiftBlur, setTiltShiftBlur] = useState(stats.tiltShiftBlur);
+
+    useEffect(() => {
+        setTiltShiftEnabled(stats.tiltShiftEnabled);
+    }, [stats.tiltShiftEnabled]);
+
+    useEffect(() => {
+        setTiltShiftBlur(stats.tiltShiftBlur);
+    }, [stats.tiltShiftBlur]);
+
+    const handleSetTiltShift = (enabled: boolean) => {
+        setTiltShiftEnabled(enabled);
+        window.dispatchEvent(new CustomEvent('set-tilt-shift-enabled-ui', { detail: enabled }));
+    };
+
+    const handleToggleTiltShift = () => {
+        handleSetTiltShift(!tiltShiftEnabled);
+    };
+
+    const handleTiltShiftBlurChange = (blur: number) => {
+        setTiltShiftBlur(blur);
+        window.dispatchEvent(new CustomEvent('set-tilt-shift-blur-ui', { detail: blur }));
+    };
     const [showResearch, setShowResearch] = useState(false);
     const [showTreeView, setShowTreeView] = useState(true);
     const [ageCelebration, setAgeCelebration] = useState<string | null>(null);
@@ -228,14 +247,6 @@ export const GameUI: React.FC<GameUIProps> = ({
     const hasSelection = selectedCount > 0 || selectedBuildingType !== null;
     const isPlayerBuildingSelected = selectedBuildingType !== null && stats.selectedBuildingOwner === 0;
 
-    // Format Time
-    const formatTime = (ms: number) => {
-        const totalSeconds = Math.floor(ms / 1000);
-        const m = Math.floor(totalSeconds / 60);
-        const s = totalSeconds % 60;
-        return `${m}:${s.toString().padStart(2, '0')}`;
-    };
-
     const netFood = stats.rates.food - stats.rates.foodConsumption;
 
     return (
@@ -243,162 +254,241 @@ export const GameUI: React.FC<GameUIProps> = ({
         <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 overflow-hidden">
 
             <div className="hud-top-row">
-            {/* --- TOP LEFT: RESOURCE STRIP --- */}
-            <div className="hud-resource-panel pointer-events-auto">
-                <div className="hud-surface hud-resource-ribbon flex items-stretch rounded-xl text-stone-100 overflow-hidden">
-                    <div className="flex items-stretch divide-x divide-white/10">
-                        <ResourceItem
-                            icon={<Pickaxe size={17} />}
-                            label="Wood"
-                            value={stats.resources.wood}
-                            rate={stats.rates.wood}
-                            tone="emerald"
-                        />
-                        <ResourceItem
-                            icon={<Wheat size={17} />}
-                            label="Food"
-                            value={stats.resources.food}
-                            rate={netFood}
-                            tone="amber"
-                            warning={netFood < 0 ? 'Declining' : undefined}
-                        />
-                        <ResourceItem
-                            icon={<Coins size={17} />}
-                            label="Gold"
-                            value={stats.resources.gold}
-                            rate={stats.rates.gold}
-                            tone="gold"
-                        />
-                        <ResourceItem
-                            icon={<User size={17} />}
-                            label="Population"
-                            value={`${stats.population}/${stats.maxPopulation}`}
-                            tone="blue"
-                            warning={stats.population >= stats.maxPopulation ? 'At capacity' : undefined}
-                            meter={stats.maxPopulation > 0 ? stats.population / stats.maxPopulation : 0}
-                        />
+                <div className="hud-surface hud-main-ribbon pointer-events-auto flex items-center h-9 px-3 gap-3.5 bg-[#080808]/95 border border-white/10 rounded-lg shadow-2xl backdrop-blur-md text-stone-100 select-none">
+                    {/* Wood */}
+                    <div className="flex items-center gap-1.5" title="Wood">
+                        <Pickaxe size={15} className="text-[#897f73]" />
+                        <span className="font-bold text-xs text-[#b6b6b6] tabular-nums">{stats.resources.wood}</span>
+                        <span className="text-[10px] text-[#88918c] tabular-nums font-mono">{stats.rates.wood >= 0 ? `+${stats.rates.wood}` : stats.rates.wood}</span>
                     </div>
-                </div>
-            </div>
 
-            {/* --- TOP CENTER: STATUS RAIL --- */}
-            <div className="hud-surface hud-status-rail pointer-events-auto flex items-center gap-1 rounded-xl overflow-hidden">
-                <button
-                    type="button"
-                    className="group min-w-[118px] px-3 py-2 text-left hover:bg-amber-400/[.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-300/80 transition-colors"
-                    onClick={onAdvanceAge}
-                    title="Advance Age"
-                >
-                    <span className="flex items-center gap-2">
-                        <Zap size={16} className={stats.nextAge ? 'text-amber-300 animate-pulse' : 'text-stone-400 group-hover:text-amber-300'} />
-                        <span>
-                            <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Civilization</span>
-                            <span className="block text-xs font-semibold text-stone-100">{stats.currentAge}</span>
-                        </span>
-                    </span>
-                    {stats.nextAge && (
-                        <span className="block mt-1.5 h-1 bg-black/40 rounded-full overflow-hidden" aria-label={`Age progress ${Math.round(stats.ageProgress * 100)}%`}>
-                            <span className="block h-full bg-amber-400 transition-[width]" style={{ width: `${stats.ageProgress * 100}%` }} />
-                        </span>
-                    )}
-                </button>
+                    {/* Food */}
+                    <div className="flex items-center gap-1.5 relative" title="Food">
+                        <Wheat size={15} className="text-[#a89858]" />
+                        <div className="flex flex-col justify-center">
+                            <div className="flex items-baseline gap-1">
+                                <span className="font-bold text-xs text-[#e4e4e4] tabular-nums">{stats.resources.food}</span>
+                                <span className={`text-[10px] tabular-nums font-mono ${netFood < 0 ? 'text-[#e06666] font-semibold' : 'text-[#88918c]'}`}>
+                                    {netFood >= 0 ? `+${netFood}` : netFood}
+                                </span>
+                            </div>
+                            {netFood < 0 && (
+                                <span className="text-[7px] uppercase font-bold text-[#e06666] tracking-tighter leading-none -mt-0.5">
+                                    DECLINING
+                                </span>
+                            )}
+                        </div>
+                    </div>
 
-                <div className="hud-rule w-px self-stretch my-2" />
+                    {/* Gold */}
+                    <div className="flex items-center gap-1.5" title="Gold">
+                        <Coins size={15} className="text-[#b0a98c]" />
+                        <span className="font-bold text-xs text-[#e0e0e0] tabular-nums">{stats.resources.gold}</span>
+                        <span className="text-[10px] text-[#6b7a73] tabular-nums font-mono">+{stats.rates.gold}</span>
+                    </div>
 
-                <div className="flex items-center gap-3 px-3 py-2">
-                    <div className="min-w-[72px]">
-                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Morale</span>
-                        <span className={`flex items-center gap-1.5 text-sm font-bold tabular-nums ${stats.happiness < 50 ? 'text-red-300' : 'text-emerald-300'}`}>
-                            <Smile size={15} /> {stats.happiness}%
+                    {/* Population with progress underline */}
+                    <div className="flex flex-col justify-center min-w-[48px]" title="Population">
+                        <div className="flex items-center gap-1.5">
+                            <User size={15} className="text-[#7f90a0]" />
+                            <span className="font-bold text-xs text-[#f0f1f5] tabular-nums">
+                                {stats.population}/{stats.maxPopulation}
+                            </span>
+                        </div>
+                        <div className="w-full h-[2px] bg-[#142020] rounded-full mt-0.5 overflow-hidden">
+                            <div
+                                className="h-full bg-[#596c73] transition-all duration-300"
+                                style={{ width: `${Math.min(100, stats.maxPopulation > 0 ? (stats.population / stats.maxPopulation) * 100 : 0)}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Divider */}
+                    <div className="w-px h-4 bg-white/10 self-center" />
+
+                    {/* Morale / Happiness */}
+                    <div className="flex items-center gap-1 text-xs" title="Morale">
+                        <Smile size={14} className={stats.happiness < 50 ? 'text-rose-400' : 'text-[#8da79e]'} />
+                        <span className="text-xs text-[#848889] tabular-nums font-medium">{stats.happiness}%</span>
+                    </div>
+
+                    {/* Season */}
+                    <div className="flex items-center gap-1.5 text-xs" title="Season">
+                        <TreeDeciduous size={15} className="text-[#e99e65]" />
+                        <span className="text-[9px] uppercase font-semibold tracking-wider text-[#8d8d8b]">
+                            {stats.currentSeason}
                         </span>
                     </div>
-                    <div className="min-w-[62px]">
-                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Season</span>
-                        <span className="block text-xs font-semibold text-stone-200 capitalize">{stats.currentSeason}</span>
-                    </div>
-                    <div className="min-w-[76px]">
-                        <span className="block text-[9px] uppercase tracking-[.14em] text-stone-400">Diplomacy</span>
-                        <span className={`block text-xs font-semibold ${stats.peacefulMode ? 'text-emerald-300' : stats.treatyTimeRemaining > 0 ? 'text-amber-300' : 'text-red-300'}`}>
-                            {stats.peacefulMode ? 'Peace' : stats.treatyTimeRemaining > 0 ? `Treaty ${Math.ceil(stats.treatyTimeRemaining / 1000)}s` : 'At war'}
+
+                    {/* Diplomacy */}
+                    <div className="flex items-center gap-1.5 text-xs" title="Diplomacy">
+                        <Scroll size={15} className="text-[#e5d8c7]" />
+                        <span className="text-[8.5px] uppercase font-semibold tracking-wider text-[#808281]">
+                            {stats.peacefulMode ? 'PEACE' : stats.treatyTimeRemaining > 0 ? `TREATY: ${Math.ceil(stats.treatyTimeRemaining / 1000)}s` : 'AT WAR'}
                         </span>
                     </div>
-                </div>
-            </div>
 
-            {/* --- DOMINANCE PROGRESS BAR --- */}
-            {typeof stats.dominanceProgress === 'number' && stats.dominanceProgress > 0 && (
-                <div className="hud-dominance w-64 pointer-events-none">
-                    <div className="text-xs text-amber-400 text-center mb-1 font-bold tracking-wide">
-                        ⚔️ Dominance: {Math.round(stats.dominanceProgress / 1000)}s / {DOMINANCE_HOLD_TIME_MS / 1000}s
-                    </div>
-                    <div className="h-2 bg-stone-800 rounded-full overflow-hidden border border-amber-900/50">
-                        <div
-                            className="h-full bg-amber-500 transition-all duration-1000"
-                            style={{ width: `${(stats.dominanceProgress / DOMINANCE_HOLD_TIME_MS) * 100}%` }}
-                        />
-                    </div>
-                </div>
-            )}
+                    {/* Divider */}
+                    <div className="w-px h-4 bg-white/10 self-center" />
 
-            {/* --- TOP RIGHT: SYSTEM CONTROLS --- */}
-            <div className="hud-controls-rail flex flex-col items-end gap-3 pointer-events-auto">
-                {/* Main Controls Group */}
-                <div className="flex items-center gap-2 p-2 bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl">
-                    {/* Speed Controls */}
-                    <div className="flex items-center bg-white/5 rounded-xl p-1 gap-0.5">
+                    {/* Age (Advance Age Button) */}
+                    <button
+                        type="button"
+                        onClick={onAdvanceAge}
+                        title={stats.nextAge ? `Advance to ${stats.nextAge}` : `Age: ${stats.currentAge}`}
+                        className="flex items-center gap-1.5 text-xs group cursor-pointer hover:opacity-80 transition-opacity focus:outline-none"
+                    >
+                        <Zap size={14} className={stats.nextAge ? 'text-amber-300 animate-pulse' : 'text-[#8e908f]'} />
+                        <span className="text-[8.5px] uppercase font-bold tracking-wider text-[#aeaeac] group-hover:text-white">
+                            {stats.currentAge}
+                        </span>
+                    </button>
+
+                    {/* Speed Controls Pill */}
+                    <div className="flex items-center bg-[#1f201f] border border-[#2a2a28] rounded-full px-1.5 py-0.5 gap-1">
                         <button
+                            type="button"
                             onClick={() => handleSpeedChange(Math.max(0.5, gameSpeed - 0.5))}
                             disabled={gameSpeed <= 0.5}
-                            className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            className="p-0.5 rounded text-[#9b9b99] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             title="Decrease speed (-)"
                         >
-                            <Minus size={14} />
+                            <Minus size={11} />
                         </button>
                         {[
-                            { speed: 0.5, icon: '▸', label: '0.5×' },
-                            { speed: 0.75, icon: '▸', label: '0.75×' },
-                            { speed: 1, icon: '▶', label: '1×' },
-                            { speed: 2, icon: '▶▶', label: '2×' },
-                            { speed: 3, icon: '▶▶▶', label: '3×' },
+                            { speed: 0.5, label: '0.5×' },
+                            { speed: 0.75, label: '0.75×' },
+                            { speed: 1, label: '1×' },
+                            { speed: 2, label: '2×' },
+                            { speed: 3, label: '3×' },
                         ].map(({ speed, label }) => (
                             <button
                                 key={speed}
+                                type="button"
+                                aria-label={label}
                                 onClick={() => handleSpeedChange(speed)}
-                                className={`px-2 py-1 rounded-lg transition-all min-w-[36px] text-xs font-bold ${
-                                    gameSpeed === speed
-                                        ? 'bg-amber-600 text-white shadow-lg shadow-amber-600/30'
-                                        : 'text-stone-400 hover:text-white hover:bg-white/10'
-                                }`}
                                 title={`Set speed ${label}`}
+                                className={`px-1.5 py-0.5 rounded text-[10px] transition-all ${
+                                    gameSpeed === speed
+                                        ? 'bg-[#414141] text-[#bfbfbf] font-bold'
+                                        : 'text-[#6d6d6d] hover:text-stone-200'
+                                }`}
                             >
                                 {label}
                             </button>
                         ))}
                         <button
+                            type="button"
                             onClick={() => handleSpeedChange(Math.min(3, gameSpeed + 0.5))}
                             disabled={gameSpeed >= 3}
-                            className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            className="p-0.5 rounded text-[#989898] hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                             title="Increase speed (+)"
                         >
-                            <Plus size={14} />
+                            <Plus size={11} />
                         </button>
-                        <span className="ml-1 text-amber-400 font-mono text-[10px] font-bold tabular-nums">
-                            {gameSpeed.toFixed(gameSpeed === 0.75 ? 2 : 1)}x
-                        </span>
                     </div>
 
-                    {/* Tax Toggle */}
+                    {/* Menu Button with Menu Dropdown */}
                     <div className="relative">
                         <button
-                            onClick={() => setShowTax(!showTax)}
-                            className={`p-2 rounded-xl transition-colors ${showTax ? 'bg-amber-500/20 text-amber-400' : 'text-stone-400 hover:text-amber-400 hover:bg-white/5'}`}
+                            type="button"
+                            aria-label="menu"
+                            onClick={() => setShowMenu(!showMenu)}
+                            title="Menu"
+                            className={`p-1 rounded text-[#9f9f9f] hover:text-white transition-colors cursor-pointer ${showMenu ? 'text-white' : ''}`}
                         >
-                            <Crown size={20} />
+                            <Menu size={15} />
+                        </button>
+
+                        {/* Menu Dropdown */}
+                        {showMenu && (
+                            <div className="hud-surface absolute top-9 right-0 flex flex-col gap-2 w-56 rounded-lg p-2 animate-in slide-in-from-top-2 fade-in duration-200 bg-stone-900/95 border border-white/10 shadow-2xl backdrop-blur-xl z-50">
+                                <div className="px-2 py-1">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span className="hud-kicker">Bloom intensity</span>
+                                        <span className="font-mono text-[10px] text-amber-300">{Math.round(stats.bloomIntensity * 100)}%</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="3"
+                                        step="0.1"
+                                        value={stats.bloomIntensity}
+                                        onChange={(e) => window.dispatchEvent(new CustomEvent('set-bloom-intensity-ui', { detail: parseFloat(e.target.value) }))}
+                                        className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                                    />
+                                </div>
+                                <div className="px-2 py-1">
+                                    <div className="flex justify-between items-center mb-2">
+                                        <span
+                                            onClick={handleToggleTiltShift}
+                                            className="hud-kicker cursor-pointer select-none hover:text-amber-200 transition-colors"
+                                        >
+                                            Tilt-shift
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`font-mono text-[10px] ${tiltShiftEnabled ? 'text-amber-300' : 'text-stone-500'}`}>
+                                                {tiltShiftEnabled ? `${Math.round(tiltShiftBlur * 100)}%` : 'OFF'}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={tiltShiftEnabled}
+                                                aria-label="Toggle tilt-shift effect"
+                                                onClick={handleToggleTiltShift}
+                                                className={`w-8 h-4 rounded-full transition-colors relative flex items-center p-0.5 cursor-pointer ${
+                                                    tiltShiftEnabled ? 'bg-amber-600' : 'bg-stone-700'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                                                        tiltShiftEnabled ? 'translate-x-4' : 'translate-x-0'
+                                                    }`}
+                                                />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {tiltShiftEnabled && (
+                                        <input
+                                            type="range"
+                                            min="0.1"
+                                            max="2.5"
+                                            step="0.05"
+                                            value={tiltShiftBlur}
+                                            onChange={(e) => handleTiltShiftBlurChange(parseFloat(e.target.value))}
+                                            className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                                            title="Tilt-shift blur intensity"
+                                        />
+                                    )}
+                                </div>
+                                <div className="hud-rule h-px w-full" />
+                                <button onClick={() => window.dispatchEvent(new CustomEvent('save-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm cursor-pointer">
+                                    <Save size={15} /> Save game <span className="ml-auto hud-kicker">Ctrl S</span>
+                                </button>
+                                <button onClick={() => window.dispatchEvent(new CustomEvent('load-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm cursor-pointer">
+                                    <BookOpen size={15} /> Load game
+                                </button>
+                                <button onClick={onQuit} className="flex items-center gap-3 px-3 py-2 text-red-300 hover:text-red-200 hover:bg-red-500/10 rounded-md transition-colors text-sm cursor-pointer">
+                                    <LogOut size={15} /> Exit to menu
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Crown Icon (Tax) with Tax Slider Popover */}
+                    <div className="relative">
+                        <button
+                            type="button"
+                            onClick={() => setShowTax(!showTax)}
+                            title="Taxation"
+                            className={`p-1 rounded text-[#a5a5a5] hover:text-amber-400 transition-colors cursor-pointer ${showTax ? 'text-amber-400' : ''}`}
+                        >
+                            <Crown size={15} />
                         </button>
 
                         {/* Floating Tax Slider Popover */}
                         {showTax && (
-                            <div className="absolute top-12 right-0 w-64 p-4 bg-stone-900/95 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl flex flex-col gap-2 animate-in slide-in-from-top-2 fade-in duration-200">
+                            <div className="absolute top-9 right-0 w-64 p-4 bg-stone-900/95 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl flex flex-col gap-2 animate-in slide-in-from-top-2 fade-in duration-200 z-50">
                                 <div className="flex justify-between items-center text-xs font-bold text-stone-400 uppercase tracking-wider">
                                     <span>Tax Rate</span>
                                     <span className="text-amber-400">{stats.taxRate * 20}%</span>
@@ -425,65 +515,22 @@ export const GameUI: React.FC<GameUIProps> = ({
                             </div>
                         )}
                     </div>
-
-
-                    {/* Menu Toggle */}
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className={`p-2 rounded-xl transition-colors ${showMenu ? 'bg-red-500/20 text-red-400' : 'text-stone-400 hover:text-white hover:bg-white/5'}`}
-                    >
-                        <Menu size={20} />
-                    </button>
                 </div>
 
-                {/* Menu Dropdown */}
-                {showMenu && (
-                    <div className="hud-surface flex flex-col gap-2 w-56 rounded-lg p-2 animate-in slide-in-from-top-2 fade-in duration-200">
-                        <div className="px-2 py-1">
-                            <div className="flex justify-between items-center mb-2">
-                                <span className="hud-kicker">Bloom intensity</span>
-                                <span className="font-mono text-[10px] text-amber-300">{Math.round(stats.bloomIntensity * 100)}%</span>
-                            </div>
-                            <input
-                                type="range"
-                                min="0"
-                                max="3"
-                                step="0.1"
-                                value={stats.bloomIntensity}
-                                onChange={(e) => window.dispatchEvent(new CustomEvent('set-bloom-intensity-ui', { detail: parseFloat(e.target.value) }))}
-                                className="w-full accent-amber-500 h-1 bg-stone-700 rounded-lg appearance-none cursor-pointer"
+                {/* --- DOMINANCE PROGRESS BAR --- */}
+                {typeof stats.dominanceProgress === 'number' && stats.dominanceProgress > 0 && (
+                    <div className="hud-dominance w-64 pointer-events-none">
+                        <div className="text-xs text-amber-400 text-center mb-1 font-bold tracking-wide">
+                            ⚔️ Dominance: {Math.round(stats.dominanceProgress / 1000)}s / {DOMINANCE_HOLD_TIME_MS / 1000}s
+                        </div>
+                        <div className="h-2 bg-stone-800 rounded-full overflow-hidden border border-amber-900/50">
+                            <div
+                                className="h-full bg-amber-500 transition-all duration-1000"
+                                style={{ width: `${(stats.dominanceProgress / DOMINANCE_HOLD_TIME_MS) * 100}%` }}
                             />
                         </div>
-                        <div className="hud-rule h-px w-full" />
-                        <button onClick={() => window.dispatchEvent(new CustomEvent('save-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm">
-                            <Save size={15} /> Save game <span className="ml-auto hud-kicker">Ctrl S</span>
-                        </button>
-                        <button onClick={() => window.dispatchEvent(new CustomEvent('load-game'))} className="flex items-center gap-3 px-3 py-2 text-stone-200 hover:text-amber-200 hover:bg-white/5 rounded-md transition-colors text-sm">
-                            <BookOpen size={15} /> Load game
-                        </button>
-                        <button onClick={onQuit} className="flex items-center gap-3 px-3 py-2 text-red-300 hover:text-red-200 hover:bg-red-500/10 rounded-md transition-colors text-sm">
-                            <LogOut size={15} /> Exit to menu
-                        </button>
                     </div>
                 )}
-
-                {/* Diplomacy Status Widget */}
-                {(stats.peacefulMode || stats.treatyTimeRemaining > 0) && (
-                    <div className="flex items-center gap-3 px-4 py-2 bg-black/60 backdrop-blur-xl rounded-full border border-white/10 shadow-lg animate-in slide-in-from-right fade-in">
-                        {stats.peacefulMode ? (
-                            <>
-                                <Handshake size={16} className="text-emerald-400" />
-                                <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Peaceful Mode</span>
-                            </>
-                        ) : (
-                            <>
-                                <Clock size={16} className="text-blue-400" />
-                                <span className="text-xs font-bold text-blue-400 uppercase tracking-wide font-mono">{formatTime(stats.treatyTimeRemaining)}</span>
-                            </>
-                        )}
-                    </div>
-                )}
-            </div>
             </div>
 
             {/* --- BOTTOM LEFT: MAP / RADAR --- */}
@@ -1209,46 +1256,6 @@ export const GameUI: React.FC<GameUIProps> = ({
 };
 
 // --- SUBCOMPONENTS ---
-
-interface ResourceItemProps {
-    icon: React.ReactNode;
-    label: string;
-    value: React.ReactNode;
-    rate?: number;
-    tone: 'emerald' | 'amber' | 'gold' | 'blue';
-    meter?: number;
-    warning?: string;
-}
-
-const ResourceItem: React.FC<ResourceItemProps> = ({ icon, label, value, rate, tone, meter, warning }) => {
-    const isNegative = typeof rate === 'number' && rate < 0;
-    return (
-        <div className="min-w-[92px] px-3 py-1.5" aria-live="polite" title={warning ?? label}>
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[.12em] text-stone-400">
-                <span className={RESOURCE_TONE[tone]}>{icon}</span>
-                <span>{label}</span>
-            </div>
-            <div className="mt-0.5 flex items-baseline gap-1.5">
-                <span className="text-base font-bold tabular-nums leading-none text-stone-50">{value}</span>
-                {typeof rate === 'number' && (
-                    <span className={`text-[10px] font-bold tabular-nums ${isNegative ? 'text-red-300' : 'text-emerald-300/80'}`}>
-                        {rate >= 0 ? `+${rate}` : rate}
-                    </span>
-                )}
-            </div>
-            {typeof meter === 'number' && (
-                <div className="mt-1 h-0.5 w-full overflow-hidden rounded bg-black/40" aria-hidden="true">
-                    <div className="h-full bg-sky-300/90" style={{ width: `${Math.min(1, Math.max(0, meter)) * 100}%` }} />
-                </div>
-            )}
-            {warning && (
-                <div className={`mt-0.5 text-[9px] font-semibold uppercase tracking-[.12em] ${warning === 'At capacity' ? 'text-amber-300/90' : 'text-red-300/90'}`}>
-                    {warning}
-                </div>
-            )}
-        </div>
-    );
-};
 
 interface DockButtonProps {
     isActive: boolean;

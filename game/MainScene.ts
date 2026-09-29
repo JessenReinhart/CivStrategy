@@ -798,6 +798,23 @@ export class MainScene extends Phaser.Scene {
       this.economySystem.updateStats(); // Update React state
     });
 
+    this.game.events.on(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
+      this.atmosphericSystem.setTiltShiftEnabled(enabled);
+      this.economySystem.updateStats();
+    });
+    this.game.events.on(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
+      this.atmosphericSystem.setTiltShiftBlur(blur);
+      this.economySystem.updateStats();
+    });
+    this.game.events.on('set-tilt-shift-enabled-ui', (enabled: boolean) => {
+      this.atmosphericSystem.setTiltShiftEnabled(enabled);
+      this.economySystem.updateStats();
+    });
+    this.game.events.on('set-tilt-shift-blur-ui', (blur: number) => {
+      this.atmosphericSystem.setTiltShiftBlur(blur);
+      this.economySystem.updateStats();
+    });
+
     // Render performance tracking
     if (this.game.renderer && this.game.renderer.on) {
       this.game.renderer.on('prerender', () => {

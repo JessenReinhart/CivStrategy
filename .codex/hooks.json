@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\\\Users\\\\LGSM228\\\\.october\\\\bus-hook.mjs\" session-start codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\\\Users\\\\LGSM228\\\\.october\\\\bus-hook.mjs\" pre-prompt codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\\\Users\\\\LGSM228\\\\.october\\\\bus-hook.mjs\" stop codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"C:\\\\Users\\\\LGSM228\\\\.october\\\\bus-hook.mjs\" notify codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
