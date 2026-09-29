@@ -356,17 +356,18 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <Minus size={11} />
                         </button>
                         {[
-                            { speed: 0.5, label: '0.5x' },
-                            { speed: 0.75, label: '0.75x' },
-                            { speed: 1, label: '1x' },
-                            { speed: 2, label: '2x' },
-                            { speed: 3, label: '3x' },
+                            { speed: 0.5, label: '0.5×' },
+                            { speed: 0.75, label: '0.75×' },
+                            { speed: 1, label: '1×' },
+                            { speed: 2, label: '2×' },
+                            { speed: 3, label: '3×' },
                         ].map(({ speed, label }) => (
                             <button
                                 key={speed}
                                 type="button"
+                                aria-label={label}
                                 onClick={() => handleSpeedChange(speed)}
-                                title={`Set speed ${speed === 1 ? '1×' : speed === 0.75 ? '0.75×' : speed === 0.5 ? '0.5×' : `${speed}×`}`}
+                                title={`Set speed ${label}`}
                                 className={`px-1.5 py-0.5 rounded text-[10px] transition-all ${
                                     gameSpeed === speed
                                         ? 'bg-[#414141] text-[#bfbfbf] font-bold'
