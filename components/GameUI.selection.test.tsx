@@ -118,7 +118,7 @@ describe('GameUI selected building command ownership', () => {
     const html = renderSelectedBuilding(BuildingType.BARRACKS, 0, 0.75);
 
     expect(html).toContain('Set speed 0.75×');
-    expect(html).toContain('0.75x');
+    expect(html).toContain('0.75×');
   });
 
   it('renders the neutral AAA notification feed with inferred event categories and newest first', () => {
