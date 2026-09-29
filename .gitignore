@@ -40,6 +40,17 @@ profile-results.json
 active-*-results.json
 progress-baseline.json
 profile-stress-output.txt
+
+# Agent / tooling artifacts
+.cate/
+.codex/
+.october/
+gauntlet/
+artifacts/
+/aoe4-page.html
+/1
+/Dumping
+
 *.png
 !assets/**/*.png
 !public/**/*.png
