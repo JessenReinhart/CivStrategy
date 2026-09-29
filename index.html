@@ -53,10 +53,13 @@
       }
       .hud-rule { background: var(--hud-line); }
 
+      /* Reserve the clock's 208px lane, then align the three primary HUD groups
+         on one shared baseline. This prevents independent absolute offsets from
+         drifting into each other as the HUD grows. */
       .hud-top-row {
         position: absolute;
         top: 1.5rem;
-        left: 1.5rem;
+        left: 15.5rem;
         right: 1.5rem;
         z-index: 30;
         display: flex;
@@ -68,15 +71,6 @@
       .hud-clock {
         flex-grow: 0;
         flex-shrink: 1;
-      }
-      @media (max-width: 1023px) {
-        .hud-top-row {
-          position: relative;
-          left: 0;
-          right: 0;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }
       }
       .hud-resource-panel,
       .hud-status-rail,
@@ -102,6 +96,16 @@
           top: 7.75rem;
           left: 0;
           transform: none;
+        }
+      }
+
+      @media (max-width: 1023px) {
+        .hud-top-row {
+          top: 8rem;
+          left: 1.5rem;
+          right: 1.5rem;
+          flex-wrap: wrap;
+          gap: 0.5rem;
         }
       }
 

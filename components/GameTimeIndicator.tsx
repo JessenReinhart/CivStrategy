@@ -134,7 +134,7 @@ export const GameTimeIndicator: React.FC<GameTimeIndicatorProps> = ({ gameInstan
 
   return (
     <div
-      className="absolute top-6 left-6 z-30 pointer-events-none select-none"
+      className="hud-clock absolute top-6 left-6 z-30 pointer-events-none select-none"
       aria-label={`Game time ${formatGameClock(clock.hour)}, ${daypart}`}
     >
       <div
