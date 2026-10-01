@@ -1,17 +1,25 @@
-
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { Season } from '../../types';
+
+const TILT_SHIFT_CONTRAST = 1.0;
+const TILT_SHIFT_MAX_BLUR = 2.0;
+const TILT_SHIFT_EPSILON = 0.0001;
 
 export class AtmosphericSystem {
     private scene: MainScene;
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
-    private bloomEffect: Phaser.FX.Bloom | null = null;
-    private colorGradeEffect: Phaser.FX.ColorMatrix | null = null;
-    private tiltShiftEffect: Phaser.FX.Bokeh | null = null;
+    private bloomEffect: any | null = null;
+    private colorGradeEffect: any | null = null;
+    private tiltShiftEffect: any | null = null;
+    private tiltShiftController: any | null = null;
     private tiltShiftEnabled: boolean = false;
     private userTiltShiftBlur: number = 1.0;
+    // Last zoom/blur values written into the bokeh uniforms — per-frame writes are gated on these.
+    private lastTiltShiftZoom: number | null = null;
+    private lastTiltShiftUserBlur: number = Number.NaN;
     
     private vignetteEffect: Phaser.FX.Vignette | null = null;
     private cloudTextureKey = 'cloud-puff';
@@ -151,20 +159,26 @@ export class AtmosphericSystem {
         try {
             if (enabled) {
                 if (!this.tiltShiftEffect) {
-                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    const target = this.scene.cameras?.main?.postFX;
                     if (target && typeof target.addTiltShift === 'function') {
-                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, TILT_SHIFT_CONTRAST, 1, 1, 1);
+                        this.tiltShiftController = target as unknown as Phaser.FX.Controller;
+                        this.lastTiltShiftZoom = null;
+                        this.lastTiltShiftUserBlur = Number.NaN;
                         if (this.scene.cameras?.main) {
-                            this.updateTiltShift(this.scene.cameras.main);
+                            this.updateTiltShift(this.scene.cameras.main, true);
                         }
                     }
                 }
             } else {
                 if (this.tiltShiftEffect) {
-                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
-                    target?.remove(this.tiltShiftEffect);
+                    const target = this.tiltShiftController ?? this.scene.cameras?.main?.postFX;
+                    (target as any).remove(this.tiltShiftEffect);
                     this.tiltShiftEffect.destroy();
                     this.tiltShiftEffect = null;
+                    this.tiltShiftController = null;
+                    this.lastTiltShiftZoom = null;
+                    this.lastTiltShiftUserBlur = Number.NaN;
                 }
             }
         } catch (err) {
@@ -191,9 +205,7 @@ export class AtmosphericSystem {
     public setPostFXEnabled(enabled: boolean): void {
         this.postFXEnabled = enabled;
         if (!enabled) {
-            const target = this.scene.worldLayer
-                ? this.scene.worldLayer.postFX
-                : this.scene.cameras.main.postFX;
+            const target = this.scene.cameras.main.postFX;
             if (this.bloomEffect) {
                 target.remove(this.bloomEffect);
                 this.bloomEffect.destroy();
@@ -205,9 +217,13 @@ export class AtmosphericSystem {
                 this.vignetteEffect = null;
             }
             if (this.tiltShiftEffect) {
-                target.remove(this.tiltShiftEffect);
+                const tiltTarget = this.tiltShiftController ?? target;
+                tiltTarget.remove(this.tiltShiftEffect as unknown as Phaser.FX.Controller);
                 this.tiltShiftEffect.destroy();
                 this.tiltShiftEffect = null;
+                this.tiltShiftController = null;
+                this.lastTiltShiftZoom = null;
+                this.lastTiltShiftUserBlur = Number.NaN;
             }
             if (this.colorGradeEffect) {
                 // Phaser's runtime ColorMatrix is an FX controller, but its
@@ -224,11 +240,14 @@ export class AtmosphericSystem {
             }
             if (this.tiltShiftEnabled && !this.tiltShiftEffect) {
                 try {
-                    const target = this.scene.worldLayer?.postFX ?? this.scene.cameras?.main?.postFX;
+                    const target = this.scene.cameras?.main?.postFX;
                     if (target && typeof target.addTiltShift === 'function') {
-                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, 0.2, 1, 1, 1);
+                        this.tiltShiftEffect = target.addTiltShift(0.5, 1, TILT_SHIFT_CONTRAST, 1, 1, 1);
+                        this.tiltShiftController = target as unknown as Phaser.FX.Controller;
+                        this.lastTiltShiftZoom = null;
+                        this.lastTiltShiftUserBlur = Number.NaN;
                         if (this.scene.cameras?.main) {
-                            this.updateTiltShift(this.scene.cameras.main);
+                            this.updateTiltShift(this.scene.cameras.main, true);
                         }
                     }
                 } catch (err) {
@@ -242,13 +261,24 @@ export class AtmosphericSystem {
         }
     }
 
-    private updateTiltShift(cam: Phaser.Cameras.Scene2D.Camera): void {
+    private updateTiltShift(cam: Phaser.Cameras.Scene2D.Camera, force: boolean = false): void {
         if (!this.tiltShiftEffect) return;
         const zoom = Phaser.Math.Clamp(cam.zoom, 0.3, 2.5);
+        
+        if (!force &&
+            this.lastTiltShiftZoom !== null &&
+            Math.abs(zoom - this.lastTiltShiftZoom) < TILT_SHIFT_EPSILON &&
+            Math.abs(this.userTiltShiftBlur - this.lastTiltShiftUserBlur) < TILT_SHIFT_EPSILON) {
+            return;
+        }
+
+        this.lastTiltShiftZoom = zoom;
+        this.lastTiltShiftUserBlur = this.userTiltShiftBlur;
+
         // Tilt-shift blur and focus radius scale with zoom
         const blurFactor = (1 / zoom) * this.userTiltShiftBlur;
-        this.tiltShiftEffect.blurX = Phaser.Math.Clamp(blurFactor * 1.2, 0, 5);
-        this.tiltShiftEffect.blurY = Phaser.Math.Clamp(blurFactor * 1.2, 0, 5);
+        this.tiltShiftEffect.blurX = Phaser.Math.Clamp(blurFactor * 1.2, 0, TILT_SHIFT_MAX_BLUR);
+        this.tiltShiftEffect.blurY = Phaser.Math.Clamp(blurFactor * 1.2, 0, TILT_SHIFT_MAX_BLUR);
         this.tiltShiftEffect.radius = Phaser.Math.Clamp(0.35 * zoom, 0.1, 1.5);
     }
 
