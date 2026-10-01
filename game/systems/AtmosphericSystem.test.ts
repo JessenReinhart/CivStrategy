@@ -112,7 +112,7 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
         atmosphericSystem.setTiltShiftEnabled(true);
 
         expect(mockPostFX.addTiltShift).toHaveBeenCalledTimes(1);
-        expect(mockPostFX.addTiltShift).toHaveBeenCalledWith(0.5, 1, 0.2, 1, 1, 1);
+        expect(mockPostFX.addTiltShift).toHaveBeenCalledWith(0.5, 1, 1.0, 1, 1, 1);
     });
 
     it('2. isTiltShiftEnabled() reflects current toggle state', () => {
@@ -133,9 +133,9 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
         expect(atmosphericSystem.getTiltShiftBlur()).toBe(2.5);
 
         // zoom = 1.0, blurFactor = (1 / 1.0) * 2.5 = 2.5
-        // blurX = blurY = clamp(2.5 * 1.2, 0, 5) = 3.0
-        expect(mockTiltShift.blurX).toBeCloseTo(3.0);
-        expect(mockTiltShift.blurY).toBeCloseTo(3.0);
+        // blurX = blurY = clamp(2.5 * 1.2, 0, 2.0) = 2.0
+        expect(mockTiltShift.blurX).toBeCloseTo(2.0);
+        expect(mockTiltShift.blurY).toBeCloseTo(2.0);
     });
 
     it('4. setTiltShiftEnabled(false) destroys the effect and clears reference', () => {
@@ -179,7 +179,7 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
 
         // zoom = 2.0
         // blurFactor = (1 / 2.0) * 1.0 = 0.5
-        // blurX = blurY = clamp(0.5 * 1.2, 0, 5) = 0.6
+        // blurX = blurY = clamp(0.5 * 1.2, 0, 2.0) = 0.6
         // radius = clamp(0.35 * 2.0, 0.1, 1.5) = 0.7
         expect(mockTiltShift.blurX).toBeCloseTo(0.6);
         expect(mockTiltShift.blurY).toBeCloseTo(0.6);
@@ -191,10 +191,10 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
 
         // zoom = 0.5
         // blurFactor = (1 / 0.5) * 1.0 = 2.0
-        // blurX = blurY = clamp(2.0 * 1.2, 0, 5) = 2.4
+        // blurX = blurY = clamp(2.0 * 1.2, 0, 2.0) = 2.0
         // radius = clamp(0.35 * 0.5, 0.1, 1.5) = 0.175
-        expect(mockTiltShift.blurX).toBeCloseTo(2.4);
-        expect(mockTiltShift.blurY).toBeCloseTo(2.4);
+        expect(mockTiltShift.blurX).toBeCloseTo(2.0);
+        expect(mockTiltShift.blurY).toBeCloseTo(2.0);
         expect(mockTiltShift.radius).toBeCloseTo(0.175);
     });
 });
