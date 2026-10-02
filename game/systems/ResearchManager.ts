@@ -1,4 +1,4 @@
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import {
   Age,
   ActiveResearch,

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { UnitType, FormationType, UnitState, GameUnit, SoldierSteeringMode } from '../../types';
 import { UNIT_STATS, STRESS_RENDER_INTERVAL, FRONT_RANK_RADIUS, CROWD_PUSH_SCALE, COMBAT_JITTER_AMPLITUDE, COMBAT_JITTER_PERIOD_MS, CHARGE_THRUST_RATIO, CROWD_PUSH_FORWARD_RATIO, CHARGE_TIMER_DECAY_MS, CHARGE_IMPULSE_DURATION_MS } from '../../constants';
 import { toIsoElev } from '../utils/iso';

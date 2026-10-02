@@ -137,6 +137,31 @@ describe('SaveSystem storage helpers', () => {
     });
   });
 
+  it('accepts optional building repair state while legacy building records may omit it', () => {
+    const building = {
+      type: 'House', owner: 0, x: 20, y: 24, hp: 125, maxHp: 250, workers: 0,
+    };
+
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, buildings: [{ ...building, repairing: true }] }));
+    expect(hasSave()).toBe(true);
+    expect(loadFromLocalStorage()).toMatchObject({ buildings: [{ repairing: true }] });
+
+    storage.set(SAVE_KEY, JSON.stringify({ ...save, buildings: [building] }));
+    expect(hasSave()).toBe(true);
+  });
+
+  it.each([null, 'yes', 1])('rejects malformed optional building repair state %j', (repairing) => {
+    storage.set(SAVE_KEY, JSON.stringify({
+      ...save,
+      buildings: [{
+        type: 'House', owner: 0, x: 20, y: 24, hp: 125, maxHp: 250, workers: 0, repairing,
+      }],
+    }));
+
+    expect(hasSave()).toBe(false);
+    expect(loadFromLocalStorage()).toBeNull();
+  });
+
   it('accepts ordinary serialized AI state', () => {
     storage.set(SAVE_KEY, JSON.stringify({
       ...save,

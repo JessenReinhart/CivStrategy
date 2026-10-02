@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { UnitState, VillagerData, BuildingType } from '../../types';
 import { VILLAGER_SPEED, VILLAGER_CARRY_CAPACITY, VILLAGER_GATHER_RATE_MS, GOLD_MINE_SEARCH_RADIUS } from '../../constants';
 import { toIsoElev } from '../utils/iso';

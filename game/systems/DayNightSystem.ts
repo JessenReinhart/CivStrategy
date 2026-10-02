@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { BuildingDef, type GameUnit } from '../../types';
 import {
   BUILDING_SPRITE_VISUALS,

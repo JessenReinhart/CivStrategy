@@ -1,4 +1,4 @@
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import { DamageType } from '../../types';
 import { loadAllSFXBuffers, SFXBufferMap } from './SFXAssetLoader';

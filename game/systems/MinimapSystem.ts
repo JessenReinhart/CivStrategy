@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { MapMode, UnitType } from '../../types';
 import { UNIT_VISION } from '../../constants';
 import { toCartesian, toIso } from '../utils/iso';
