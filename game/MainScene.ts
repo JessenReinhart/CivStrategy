@@ -25,6 +25,7 @@ import terrainTundraImg from '../assets/textures/terrain_tundra.png';
 import terrainScrubImg from '../assets/textures/terrain_scrub.png';
 import terrainStoneImg from '../assets/textures/terrain_stone.png';
 import waterFoamImg from '../assets/textures/water-foam.jpg';
+import seamlessFogImg from '../assets/textures/seamless_fog.jpg';
 import pikesmanImg from '../assets/textures/units/pikesman-faction.png';
 import cavalryImg from '../assets/textures/units/cavalry-faction.png';
 import legionImg from '../assets/textures/units/legion-faction.png';
@@ -222,10 +223,7 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     // Seamless cloud/stone texture used by the Fog of War shroud.
-    // Kept as the supplied external texture so the material itself remains
-    // visible instead of being replaced by a generated flat/noise pattern.
-    this.load.setCORS('anonymous');
-    this.load.image('fog-clouds', 'https://tse1.mm.bing.net/th/id/OIP.P3dNCUJh-GSQ8bVCk_HHogHaHa?r=0&rs=1&pid=ImgDetMain&o=7&rm=3');
+    this.load.image('fog-clouds', seamlessFogImg);
     // Dispatch progress to React
     this.load.on('progress', (value: number) => {
       window.dispatchEvent(new CustomEvent('game-load-progress', { detail: value }));
