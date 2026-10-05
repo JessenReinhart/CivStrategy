@@ -423,7 +423,10 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
       scene.time.delayedCall(500, () => {
         scene.resourcesRestored = false;
         void deserializeGame(scene, pendingSave!)
-          .then(() => {
+          .then(async () => {
+            // Publish the readiness boundary only after Phaser gets a frame to
+            // flush restored entities and derived UI state for Continue/reload.
+            await yieldToBrowser();
             scene.resourcesRestoredSnapshot = { ...scene.resources };
             scene.resourcesRestored = true;
             scene.feedbackSystem.addNotification('💾 Game loaded!', 'success', 3000);
