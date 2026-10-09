@@ -482,11 +482,17 @@ try {
       gold: scene.resources.gold,
     };
     if (!before.repairing) throw new Error('Active House repair did not resume after cold reload.');
-    if (Math.abs(before.repairLastTick - before.gameTime) > 0.01) {
-      throw new Error(`Reloaded repair baseline drifted from simulation time: tick ${before.repairLastTick}, game ${before.gameTime}.`);
+    const elapsedSinceRepairBaseline = before.gameTime - before.repairLastTick;
+    if (!Number.isFinite(before.repairLastTick)
+      || elapsedSinceRepairBaseline < 0
+      || elapsedSinceRepairBaseline > 1_000) {
+      throw new Error(`Reloaded repair baseline is invalid or stale: tick ${before.repairLastTick}, game ${before.gameTime}.`);
     }
 
-    scene.gameTime += 1_000;
+    // Advance one full repair interval from the persisted simulation baseline.
+    // Continue can run a few frames before this probe pauses the scene, so exact
+    // equality with the later game clock is not a valid reload invariant.
+    scene.gameTime = before.repairLastTick + 1_000;
     scene.buildingManager.update();
     const after = {
       hp: house.getData('hp'),
