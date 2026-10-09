@@ -1,6 +1,6 @@
 
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { CHUNK_SIZE } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
 

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { toIso } from '../utils/iso';
 import {
   SaveGame, SerializedUnit, SerializedBuilding, SerializedAIState,
@@ -12,6 +12,19 @@ export const PENDING_LOAD_KEY = 'civstrategy-pending-load';
 
 const SAVE_VERSION = 1;
 
+let resourcesRestorationPromise: Promise<void> = Promise.resolve();
+
+function waitForNextBrowserFrame(): Promise<void> {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    return new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+  }
+  return Promise.resolve();
+}
+
+export function whenResourcesRestored(): Promise<void> {
+  return resourcesRestorationPromise;
+}
+
 type SerializedBuildingWithWaypoint = SerializedBuilding & {
   waypoint?: { x: number; y: number };
 };
@@ -19,6 +32,7 @@ type SerializedBuildingRuntimeState = SerializedBuildingWithWaypoint & {
   constructionComplete?: boolean;
   constructionRemainingMs?: number;
   workforceTarget?: number;
+  repairing?: boolean;
 };
 
 type VillagerCarryType = 'wood' | 'food' | 'gold';
@@ -225,6 +239,7 @@ function serializeBuildings(scene: MainScene): SerializedBuilding[] {
         : undefined,
       constructionComplete: isUnfinishedPlayerHouse ? false : undefined,
       constructionRemainingMs,
+      repairing: b.getData('repairing') === true ? true : undefined,
     } as SerializedBuildingRuntimeState);
   }
   return buildings;
@@ -322,7 +337,8 @@ function getMapSizeFromDimensions(width: number, _height: number): MapSize {
 
 // ─── Deserialize ────────────────────────────────────────────────────────
 
-export function deserializeGame(scene: MainScene, save: SaveGame): void {
+export function deserializeGame(scene: MainScene, save: SaveGame): Promise<void> {
+  resourcesRestorationPromise = Promise.resolve();
   // Selection owns live Phaser object references. Release them before replacing
   // the world so post-load commands cannot target entities from the old session.
   scene.inputManager?.clearSelection();
@@ -371,6 +387,8 @@ export function deserializeGame(scene: MainScene, save: SaveGame): void {
   // 10. Force a full update cycle so everything is consistent
   const center = getIsoCenter(scene);
   scene.cameras.main.centerOn(center.x, center.y);
+
+  return resourcesRestorationPromise;
 }
 
 function destroyAllEntities(scene: MainScene): void {
@@ -417,6 +435,7 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.currentSeason = save.currentSeason;
   (scene as any).seasonTimer = save.seasonTimer;
   scene.resources = { ...save.resources };
+  resourcesRestorationPromise = waitForNextBrowserFrame();
   scene.population = 0; // Will be rebuilt by spawning units
   scene.maxPopulation = 8; // Match MainScene.init(); buildings rebuild derived bonuses.
   scene.happiness = save.happiness;
@@ -524,6 +543,15 @@ function respawnBuildings(scene: MainScene, save: SaveGame): void {
     }
     if (b.type === BuildingType.HOUSE && b.owner === 0 && runtimeState.constructionComplete === false) {
       scene.buildingManager.beginPlayerHouseConstruction(building, runtimeState.constructionRemainingMs);
+    }
+    if (runtimeState.repairing === true
+      && b.owner === 0
+      && runtimeState.constructionComplete !== false
+      && b.hp < b.maxHp) {
+      building.setData('repairing', true);
+      // Repair time is simulation time. Resume from the loaded clock so wall-clock
+      // time spent outside the match cannot grant HP or consume resources.
+      building.setData('repairLastTick', scene.gameTime);
     }
     // assignedWorker is a runtime object reference and is rebuilt after villagers respawn.
   }
@@ -664,7 +692,8 @@ function isSerializedBuildingShape(value: unknown): boolean {
     && isFiniteNumber(value.x)
     && isFiniteNumber(value.y)
     && isFiniteNumber(value.hp)
-    && isFiniteNumber(value.maxHp);
+    && isFiniteNumber(value.maxHp)
+    && isOptionalBoolean(value.repairing);
 }
 
 function isBlueprintItemShape(value: unknown): boolean {

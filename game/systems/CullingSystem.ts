@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 
 /** Tree logic entity with optional pooled visual (set by this system). */

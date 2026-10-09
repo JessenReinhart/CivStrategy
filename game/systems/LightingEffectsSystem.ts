@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 import { BuildingType } from '../../types';
-import { MainScene } from '../MainScene';
+import type { MainScene } from '../MainScene';
 import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
 
 // Fog composites at depth 10000. Keep every light below it so unexplored terrain
