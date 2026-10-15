@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isPlayerEnemyEngagement, MusicStateController } from './MusicStateController';
+import { isPlayerEnemyEngagement, MusicStateController, resolveBattleTrackVolume } from './MusicStateController';
 
 describe('MusicStateController', () => {
   it('uses idle music before combat starts', () => {
@@ -45,5 +45,18 @@ describe('isPlayerEnemyEngagement', () => {
     expect(isPlayerEnemyEngagement(0, 0)).toBe(false);
     expect(isPlayerEnemyEngagement(0, -1)).toBe(false);
     expect(isPlayerEnemyEngagement(1, -1)).toBe(false);
+  });
+});
+
+describe('resolveBattleTrackVolume', () => {
+  it('scales battle volume smoothly from skirmish to full army clash', () => {
+    const skirmish = resolveBattleTrackVolume(0.4, 1);
+    const mediumClash = resolveBattleTrackVolume(0.4, 4);
+    const fullBattle = resolveBattleTrackVolume(0.4, 12);
+
+    expect(skirmish).toBeGreaterThan(0.36);
+    expect(mediumClash).toBeGreaterThan(skirmish);
+    expect(fullBattle).toBeGreaterThan(mediumClash);
+    expect(fullBattle).toBeCloseTo(0.4 * 1.08, 5);
   });
 });

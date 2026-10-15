@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 import { BuildingType } from '../../types';
 import { MainScene } from '../MainScene';
-import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
+import { calculateLocalLightAlpha, calculateSunlightStyle, calculateTorchFlicker, type TorchFlickerState } from './lightingMath';
 
 // Fog composites at depth 10000. Keep every light below it so unexplored terrain
 // stays dark instead of being re-exposed by the SCREEN pass.
@@ -278,19 +278,16 @@ export class LightingEffectsSystem {
 
       const fireX = visual.x + sprite.x;
       const fireY = visual.y + sprite.y - Math.abs(sprite.displayHeight) * 0.23;
-      const phase = timeMs * 0.012 + light.seed;
-      const flicker = 1
-        + Math.sin(phase) * 0.035
-        + Math.sin(timeMs * 0.029 + light.seed * 1.7) * 0.018;
-      const alphaFlicker = 0.92 + Math.sin(timeMs * 0.021 + light.seed) * 0.08;
-      const width = Math.max(170, Math.abs(sprite.displayWidth) * 2.35) * flicker;
-      const height = Math.max(105, Math.abs(sprite.displayHeight) * 1.25) * flicker;
+      const torch: TorchFlickerState = calculateTorchFlicker(timeMs, light.seed);
+      const width = Math.max(170, Math.abs(sprite.displayWidth) * 2.35) * torch.scale;
+      const height = Math.max(105, Math.abs(sprite.displayHeight) * 1.25) * torch.scale;
 
       light.image
         .setVisible(true)
         .setPosition(fireX, fireY)
         .setDisplaySize(width, height)
-        .setAlpha(baseAlpha * alphaFlicker * visual.alpha);
+        .setTint(torch.tint)
+        .setAlpha(baseAlpha * torch.alpha * visual.alpha);
     }
   }
 

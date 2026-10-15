@@ -20,6 +20,7 @@ import {
   canAffordBuilding,
   generateBuildSearchOffsets,
   isBuildingUnlockedForAI,
+  scoreBuildSiteTerrain,
 } from './EnemyAIBuildRules';
 import { ProactiveEnemyAISystem } from './ProactiveEnemyAISystem';
 
@@ -165,5 +166,15 @@ describe('ProactiveEnemyAISystem build rules', () => {
     expect(ai.buildings).toContain(expansion);
     const expansionType = (expansion?.getData('def') as BuildingDef).type;
     expect([BuildingType.FARM, BuildingType.LUMBER_CAMP, BuildingType.HOUSE]).toContain(expansionType);
+  });
+
+  it('scores high ground better for fortifications and low valleys better for farms', () => {
+    const castleHigh = scoreBuildSiteTerrain(BuildingType.CASTLE, 0.72, 48, 0);
+    const castleLow = scoreBuildSiteTerrain(BuildingType.CASTLE, 0.44, 48, 0);
+    expect(castleHigh).toBeLessThan(castleLow);
+
+    const farmValley = scoreBuildSiteTerrain(BuildingType.FARM, 0.45, 48, 0);
+    const farmHill = scoreBuildSiteTerrain(BuildingType.FARM, 0.70, 48, 0);
+    expect(farmValley).toBeLessThan(farmHill);
   });
 });

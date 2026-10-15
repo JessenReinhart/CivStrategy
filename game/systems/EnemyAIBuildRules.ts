@@ -54,3 +54,36 @@ export function canAffordBuilding(resources: Resources, def: BuildingDef): boole
     && resources.food >= def.cost.food
     && resources.gold >= def.cost.gold;
 }
+
+/**
+ * Terrain-aware placement score (lower is better) for AI town expansion.
+ * Balances blueprint proximity against tactical and economic terrain suitability:
+ * - Farms favor fertile low-elevation valleys.
+ * - Barracks, Castles, and Walls favor commanding high ground.
+ * - Lumber Camps and Hunter's Lodges favor mid-elevation timber/game belts.
+ */
+export function scoreBuildSiteTerrain(
+  type: BuildingType,
+  height: number,
+  offsetX: number,
+  offsetY: number,
+): number {
+  const distancePenalty = Math.hypot(offsetX, offsetY);
+  let terrainBonus = 0;
+  if (type === BuildingType.FARM) {
+    terrainBonus = Math.max(0, 0.66 - height) * 120;
+  } else if (
+    type === BuildingType.BARRACKS
+    || type === BuildingType.CASTLE
+    || type === BuildingType.WALL
+  ) {
+    terrainBonus = Math.max(0, height - 0.5) * 80;
+  } else if (
+    type === BuildingType.LUMBER_CAMP
+    || type === BuildingType.HUNTERS_LODGE
+  ) {
+    const midBandCloseness = Math.max(0, 0.14 - Math.abs(height - 0.56));
+    terrainBonus = midBandCloseness * 90;
+  }
+  return distancePenalty - terrainBonus;
+}

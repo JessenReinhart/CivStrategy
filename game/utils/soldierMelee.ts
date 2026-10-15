@@ -43,6 +43,8 @@ export interface SoldierCombatState {
   chargeTimer: number;
   crowdPush: number;
   phase: number;
+  /** Optional normalized melee strike cycle (0..1) for thrust/recovery kinematics. */
+  strikeProgress?: number;
 }
 
 export interface SoldierOffset {
@@ -92,6 +94,16 @@ export function computeSoldierCombatDeformation(
       const jitter = Math.sin(timeNow / COMBAT_JITTER_PERIOD_MS + soldier.phase) * COMBAT_JITTER_AMPLITUDE;
       deformX += jitter * 0.5;
       deformY += jitter * 0.5;
+    }
+
+    // Optional procedural strike lunge & shield recoil along facing angle
+    if (typeof soldier.strikeProgress === 'number' && soldier.strikeProgress > 0 && soldier.strikeProgress < 1) {
+      const p = soldier.strikeProgress;
+      const lungeAmplitude = p < 0.35
+        ? (p / 0.35) * 3.5
+        : (1 - (p - 0.35) / 0.65) * 3.5 - 0.8 * Math.sin(((p - 0.35) / 0.65) * Math.PI);
+      deformX += Math.cos(angle) * lungeAmplitude;
+      deformY += Math.sin(angle) * lungeAmplitude;
     }
   } else {
     // Formation mode: crowd-push from rear ranks

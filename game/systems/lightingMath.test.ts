@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateLocalLightAlpha, calculateSunlightStyle } from './lightingMath';
+import { calculateLocalLightAlpha, calculateSunlightStyle, calculateTorchFlicker } from './lightingMath';
 
 describe('calculateSunlightStyle', () => {
   it('removes direct sunlight at night', () => {
@@ -41,5 +41,26 @@ describe('calculateLocalLightAlpha', () => {
 
     expect(night).toBeGreaterThan(0.3);
     expect(night).toBeGreaterThan(noon * 10);
+  });
+});
+
+describe('calculateTorchFlicker', () => {
+  it('keeps scale and alpha modulation within natural hearth bounds', () => {
+    for (let t = 0; t <= 2000; t += 125) {
+      const flicker = calculateTorchFlicker(t, 1.73);
+      expect(flicker.scale).toBeGreaterThan(0.94);
+      expect(flicker.scale).toBeLessThan(1.06);
+      expect(flicker.alpha).toBeGreaterThanOrEqual(0.84);
+      expect(flicker.alpha).toBeLessThanOrEqual(1.0);
+      expect(flicker.tint).toBeGreaterThan(0xff0000);
+    }
+  });
+
+  it('produces distinct phase states for different bonfire seeds', () => {
+    const first = calculateTorchFlicker(420, 0.5);
+    const second = calculateTorchFlicker(420, 2.9);
+
+    expect(first.scale).not.toBeCloseTo(second.scale, 4);
+    expect(first.tint).not.toBe(second.tint);
   });
 });

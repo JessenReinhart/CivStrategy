@@ -74,11 +74,13 @@ export const GameTimeIndicator: React.FC<GameTimeIndicatorProps> = ({ gameInstan
   const daypart = getDaypart(clock.hour);
   const progress = (((clock.hour % 24) + 24) % 24) / 24;
   const daylight = daypart !== 'Night';
+  const elevationPct = Math.round(Math.max(0, Math.min(1, clock.sunElevation)) * 100);
 
   return (
     <div
       className="hud-clock absolute top-6 left-6 z-30 pointer-events-none select-none flex flex-col justify-center w-[125px]"
       aria-label={`Game time ${formatGameClock(clock.hour)}, ${daypart}`}
+      title={`${daypart} (${formatGameClock(clock.hour)}) • Solar elevation ${elevationPct}%`}
     >
       <div className="text-[9px] font-semibold uppercase tracking-[0.16em] text-[#7b7c77] flex items-center gap-1.5 leading-none select-none">
         <span>{daypart}</span>
@@ -91,8 +93,11 @@ export const GameTimeIndicator: React.FC<GameTimeIndicatorProps> = ({ gameInstan
       </div>
 
       <div className="relative w-full h-[2px] bg-[#625c51]/60 rounded-full mt-0.5">
+        <div className="absolute left-1/4 top-1/2 -translate-y-1/2 w-px h-1 bg-white/25" />
+        <div className="absolute left-1/2 top-1/2 -translate-y-1/2 w-px h-1 bg-amber-200/35" />
+        <div className="absolute left-3/4 top-1/2 -translate-y-1/2 w-px h-1 bg-white/25" />
         <div
-          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#fff1c2] shadow-[0_0_8px_#ffe494,0_0_2px_#fff]"
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#fff1c2] shadow-[0_0_8px_#ffe494,0_0_2px_#fff] transition-[left] duration-150 ease-linear"
           style={{ left: `${progress * 100}%` }}
         />
       </div>

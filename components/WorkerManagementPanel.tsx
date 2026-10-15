@@ -72,6 +72,10 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
     gameInstance.events.emit(WORKFORCE_EVENTS.SET_TARGET, { buildingId, target });
   };
 
+  const utilizationPct = snapshot.totalVillagers > 0
+    ? Math.round((snapshot.assignedVillagers / snapshot.totalVillagers) * 100)
+    : 0;
+
   return (
     <div className="pointer-events-none fixed bottom-6 right-4 z-[80] flex flex-col-reverse items-end gap-2 font-sans text-stone-100">
       <button
@@ -193,7 +197,7 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
               </div>
 
               <footer className="flex items-center justify-between border-t border-stone-700/60 bg-stone-950/45 px-3 py-2 text-[10px] text-stone-500">
-                <span>{snapshot.enabledSlots}/{snapshot.totalSlots} slots enabled</span>
+                <span>{snapshot.enabledSlots}/{snapshot.totalSlots} slots enabled ({utilizationPct}% active)</span>
                 <span>{snapshot.idleVillagers} available workers</span>
               </footer>
             </>

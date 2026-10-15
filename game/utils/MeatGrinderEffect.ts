@@ -7,8 +7,27 @@ import Phaser from 'phaser';
 import { toIso } from './iso';
 
 const CLASH_COOLDOWN_MS = 400;
+const CLASH_MAX_SHAKE_DISTANCE_PX = 500;
+const CLASH_MAX_SHAKE_INTENSITY = 0.0045;
+const CLASH_MIN_SHAKE_INTENSITY = 0.0012;
 let _lastClashAt = 0;
 let _bloomPulseActive = false;
+
+/**
+ * Compute distance-attenuated camera shake intensity for an isometric clash.
+ * Returns 0 when the clash is outside maxDistancePx, or a smooth falloff
+ * between CLASH_MIN_SHAKE_INTENSITY and CLASH_MAX_SHAKE_INTENSITY inside it.
+ */
+function computeClashShakeIntensity(
+    distancePx: number,
+    maxDistancePx: number = CLASH_MAX_SHAKE_DISTANCE_PX,
+): number {
+    if (!Number.isFinite(distancePx) || distancePx < 0 || maxDistancePx <= 0 || distancePx >= maxDistancePx) {
+        return 0;
+    }
+    const proximity = 1 - distancePx / maxDistancePx;
+    return CLASH_MIN_SHAKE_INTENSITY + (CLASH_MAX_SHAKE_INTENSITY - CLASH_MIN_SHAKE_INTENSITY) * proximity;
+}
 
 export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: number): void {
     // Cooldown — only one clash per 400ms to prevent effect stacking
@@ -24,12 +43,13 @@ export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: 
 
     const iso = toIso(worldX, worldY);
 
-    // 1. Subtle camera tremor — tight, grounded, like a heavy thud
+    // 1. Distance-attenuated camera tremor — heavier at screen center, subtle near edges
     const cam = scene.cameras.main;
     const dx = iso.x - cam.scrollX - cam.width / 2;
     const dy = iso.y - cam.scrollY - cam.height / 2;
-    if (Math.sqrt(dx * dx + dy * dy) < 500) {
-        cam.shake(200, 0.004);
+    const shakeIntensity = computeClashShakeIntensity(Math.hypot(dx, dy));
+    if (shakeIntensity > 0) {
+        cam.shake(200, shakeIntensity);
     }
 
     // 2. Ground dust plume at clash point (uses 'smoke' texture)
@@ -48,6 +68,22 @@ export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: 
         dust.setDepth(iso.y + 500);
         dust.explode(8, iso.x, iso.y + 10);
         scene.time.delayedCall(900, () => dust.destroy());
+
+        // Directional metallic clash sparks above the dust plume
+        const sparks = scene.add.particles(iso.x, iso.y - 2, 'smoke', {
+            speed: { min: 35, max: 85 },
+            angle: { min: 200, max: 340 },
+            scale: { start: 0.045, end: 0.01 },
+            alpha: { start: 0.85, end: 0 },
+            tint: [0xffe082, 0xffb74d, 0xffffff],
+            lifespan: 340,
+            quantity: 6,
+            emitting: false,
+            gravityY: 90
+        });
+        sparks.setDepth(iso.y + 505);
+        sparks.explode(6, iso.x, iso.y - 2);
+        scene.time.delayedCall(400, () => sparks.destroy());
     }
 
     // 3. Subtle bloom pulse — very brief, barely noticeable.

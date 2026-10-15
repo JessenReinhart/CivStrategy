@@ -8,6 +8,7 @@ import {
   canAffordBuilding,
   generateBuildSearchOffsets,
   isBuildingUnlockedForAI,
+  scoreBuildSiteTerrain,
 } from './EnemyAIBuildRules';
 
 const PROACTIVE_BUILD_INTERVAL_MS = 4000;
@@ -63,8 +64,7 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
       return;
     }
 
-    this.syncBuildIndex(blueprint.length, age, blueprint);
-    this.tryTownExpansion(age, state.personality ?? 'balanced');
+    this.syncBuildIndex(blueprint.length, age, blueprint);\n    this.tryTownExpansion(age, state.personality ?? 'balanced');
   }
 
   private syncBuildIndex(
@@ -137,11 +137,7 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
       if (!this.isBuildableTerrain(x, y, def) || this.overlapsExistingBuilding(x, y, def)) continue;
 
       const height = this.mainScene.terrainSystem.getHeightAt(x, y);
-      const distancePenalty = Math.hypot(offset.x, offset.y);
-      let terrainBonus = 0;
-      if (type === BuildingType.FARM) terrainBonus = Math.max(0, 0.66 - height) * 120;
-      if (type === BuildingType.BARRACKS) terrainBonus = Math.max(0, height - 0.5) * 80;
-      const score = distancePenalty - terrainBonus;
+      const score = scoreBuildSiteTerrain(type, height, offset.x, offset.y);
       if (!best || score < best.score) best = { x, y, score };
     }
 

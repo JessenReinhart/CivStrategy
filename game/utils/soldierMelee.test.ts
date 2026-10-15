@@ -33,11 +33,11 @@ describe('soldierMelee - pure soldier-level melee utilities', () => {
       expect(SEP_COMBAT_MULTIPLIER).toBe(0.5);
     });
 
-    it('CHARGE_IMPULSE is 120 (first contact velocity boost, cozier)', () => {
+    it('CHARGE_IMPULSE is 120 (first contact velocity boost)', () => {
       expect(CHARGE_IMPULSE).toBe(120);
     });
 
-    it('CHARGE_IMPULSE_DURATION_MS is 300 (slower decay)', () => {
+    it('CHARGE_IMPULSE_DURATION_MS is 300', () => {
       expect(CHARGE_IMPULSE_DURATION_MS).toBe(300);
     });
 
@@ -145,6 +145,26 @@ describe('soldierMelee - pure soldier-level melee utilities', () => {
         soldier = { ...soldier, chargeTimer: result.chargeTimer };
       }
       expect(soldier.chargeTimer).toBe(0);
+    });
+
+    it('applies forward weapon lunge during active strikeProgress windup/thrust', () => {
+      const strikingSoldier: SoldierCombatState = {
+        mode: 'combat',
+        chargeTimer: 0,
+        crowdPush: 0,
+        phase: 0,
+        strikeProgress: 0.35, // peak thrust
+      };
+      const baselineSoldier: SoldierCombatState = {
+        mode: 'combat',
+        chargeTimer: 0,
+        crowdPush: 0,
+        phase: 0,
+      };
+      const withLunge = computeSoldierCombatDeformation(strikingSoldier, 0, 0, 0, 0);
+      const withoutLunge = computeSoldierCombatDeformation(baselineSoldier, 0, 0, 0, 0);
+      expect(withLunge.deformX - withoutLunge.deformX).toBeCloseTo(3.5, 5);
+      expect(withLunge.deformY - withoutLunge.deformY).toBeCloseTo(0, 5);
     });
   });
 

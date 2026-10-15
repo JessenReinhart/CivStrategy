@@ -84,6 +84,8 @@ interface ContactLine {
     ty: number;
     /** Strength 0–1 based on proximity of the two formations. */
     strength: number;
+    /** Overwhelm multiplier (0.5–1.5) from opposing vs friendly formation size. */
+    overwhelm: number;
     /** Which owner this contact affects (the friendly side). */
     owner: number;
 }
@@ -334,6 +336,7 @@ export class LiquidCombatSystem {
 
                     // Contact strength: 1.0 at full front contact, 0.0 at CONTACT_RANGE.
                     const strength = Math.min(1, 1 - gap / CONTACT_RANGE);
+                    const overwhelm = this.getOverwhelmFactor(friendly.count, enemy.count);
 
                     // Normal: friendly → enemy (from centroids; fall back to cell centers).
                     const enemyX = enemy.sx / enemy.count;
@@ -379,6 +382,7 @@ export class LiquidCombatSystem {
                         tx,
                         ty,
                         strength,
+                        overwhelm,
                         owner: friendly.owner,
                     });
                 }
@@ -413,10 +417,10 @@ export class LiquidCombatSystem {
             const distSq = dx * dx + dy * dy;
             if (distSq > rangeSq) continue;
 
-            // Falloff: 1.0 at center, 0.0 at edge.
+            // Falloff: 1.0 at center, 0.0 at edge, scaled by local overwhelm ratio.
             const dist = Math.sqrt(distSq);
             const falloff = 1 - dist / CONTACT_SAMPLE_RADIUS;
-            const force = cl.strength * falloff;
+            const force = cl.strength * falloff * cl.overwhelm;
 
             // Backward push: away from enemy (along normal, reversed = toward friendly).
             // Normal points friendly→enemy, so backward = -normal.
@@ -494,6 +498,17 @@ export class LiquidCombatSystem {
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Compute overwhelm factor (0.5–1.5) from friendly vs enemy formation counts.
+     * Outnumbered fronts experience stronger backward compression and lateral wrap;
+     * outnumbering fronts hold their line with reduced backward recoil.
+     */
+    public getOverwhelmFactor(friendlyCount: number, enemyCount: number): number {
+        const safeFriendly = Math.max(1, friendlyCount);
+        const safeEnemy = Math.max(1, enemyCount);
+        return Math.max(0.5, Math.min(1.5, safeEnemy / safeFriendly));
+    }
 
     /**
      * Check if a unit is civilian (villager/animal) and should be excluded from combat fluid.

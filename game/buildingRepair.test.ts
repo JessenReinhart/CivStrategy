@@ -77,7 +77,17 @@ describe('computeRepairTick', () => {
         });
 
         expect(result.hpDelta).toBeCloseTo(200, 5);
+        expect(result.progressRatio).toBeCloseTo(1, 5);
         expect(result.resourceStarved).toBe(false);
         expect(result.complete).toBe(true);
+    });
+
+    it('reports normalized post-tick progressRatio for HUD health bar feedback', () => {
+        const halfway = computeRepairTick({
+            hp: 50, maxHp: 200, cost: COST,
+            resources: { wood: 1000, food: 1000, gold: 1000 },
+            deltaMs: REPAIR_DURATION_MS / 4,
+        });
+        expect(halfway.progressRatio).toBeCloseTo(0.5, 5);
     });
 });

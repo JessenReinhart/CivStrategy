@@ -89,3 +89,25 @@ export function calculateLocalLightAlpha(
   const solarSuppression = 1 - clamp01(sunIntensity) * 0.35;
   return clamp01((0.025 + darkness * 0.34) * solarSuppression);
 }
+
+export interface TorchFlickerState {
+  readonly scale: number;
+  readonly alpha: number;
+  readonly tint: number;
+}
+
+/**
+ * Multi-harmonic hearth/bonfire flicker model for warm night settlement glow.
+ * Combines primary flame oscillation, secondary wind draft, and subtle ember-to-gold
+ * color temperature shift so multiple bonfires breathe organically out of phase.
+ */
+export function calculateTorchFlicker(timeMs: number, seed: number): TorchFlickerState {
+  const phase = timeMs * 0.012 + seed;
+  const scale = 1
+    + Math.sin(phase) * 0.035
+    + Math.sin(timeMs * 0.029 + seed * 1.7) * 0.018;
+  const alpha = 0.92 + Math.sin(timeMs * 0.021 + seed) * 0.08;
+  const warmthT = clamp01(0.5 + 0.5 * Math.sin(timeMs * 0.017 + seed * 1.3));
+  const tint = lerpColor(0xff8c3b, 0xffb866, warmthT);
+  return { scale, alpha, tint };
+}

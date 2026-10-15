@@ -25,6 +25,8 @@ export interface RepairTickResult {
     hpDelta: number;
     /** Resources to deduct this tick (already resource-capped). */
     resourceDelta: RepairResources;
+    /** Normalized post-tick health ratio (0..1) for HUD/bar feedback. */
+    progressRatio: number;
     /** True once hp + hpDelta reaches maxHp. */
     complete: boolean;
     /** True when progress this tick was limited by available resources. */
@@ -46,9 +48,11 @@ export function computeRepairTick(input: RepairTickInput): RepairTickResult {
     const missingHp = Math.max(0, input.maxHp - input.hp);
 
     if (missingHp <= 0 || input.deltaMs <= 0 || durationMs <= 0) {
+        const safeRatio = input.maxHp > 0 ? Math.max(0, Math.min(1, input.hp / input.maxHp)) : 1;
         return {
             hpDelta: 0,
             resourceDelta: { wood: 0, food: 0, gold: 0 },
+            progressRatio: safeRatio,
             complete: missingHp <= 0,
             resourceStarved: false,
         };
@@ -81,10 +85,12 @@ export function computeRepairTick(input: RepairTickInput): RepairTickResult {
         gold: desiredCost.gold * affordableFactor,
     };
 
+    const newHp = Math.min(input.maxHp, input.hp + hpDelta);
     return {
         hpDelta,
         resourceDelta,
-        complete: input.hp + hpDelta >= input.maxHp,
+        progressRatio: input.maxHp > 0 ? Math.max(0, Math.min(1, newHp / input.maxHp)) : 1,
+        complete: newHp >= input.maxHp,
         resourceStarved: affordableFactor < 1,
     };
 }

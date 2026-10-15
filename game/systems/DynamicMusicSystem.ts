@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 import { UnitState, type GameUnit } from '../../types';
 import type { MainScene } from '../MainScene';
-import { isPlayerEnemyEngagement, MusicStateController, type MusicMode } from './MusicStateController';
+import { isPlayerEnemyEngagement, MusicStateController, resolveBattleTrackVolume, type MusicMode } from './MusicStateController';
 
 const IDLE_MUSIC_PATH = '/assets/audio/music/hearth-of-ashen-oak.mp3';
 const BATTLE_MUSIC_PATH = '/assets/audio/music/ravenbanner-march.mp3';
@@ -110,7 +110,16 @@ export class DynamicMusicSystem {
 
     const previous = this.currentMode === 'battle' ? this.battleTrack : this.idleTrack;
     const next = mode === 'battle' ? this.battleTrack : this.idleTrack;
-    const nextVolume = mode === 'battle' ? BATTLE_VOLUME : IDLE_VOLUME;
+    const units = (this.scene.units?.getChildren?.() ?? []) as GameUnit[];
+    let engagedCount = 0;
+    if (mode === 'battle') {
+      for (const unit of units) {
+        if (unit.active && unit.state === UnitState.ATTACKING) engagedCount++;
+      }
+    }
+    const nextVolume = mode === 'battle'
+      ? resolveBattleTrackVolume(BATTLE_VOLUME, Math.max(1, engagedCount))
+      : IDLE_VOLUME;
 
     if (mode === 'battle') {
       try {

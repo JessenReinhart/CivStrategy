@@ -199,8 +199,7 @@ describe('LiquidCombatSystem', () => {
 
             system.precompute();
 
-            const force = system.getContactForce(50, 50, 0);
-            // Lateral (tangent) must be non-zero for a diagonal contact
+            const force = system.getContactForce(50, 50, 0);\n            // Lateral (tangent) must be non-zero for a diagonal contact
             expect(force.lx).not.toBe(0);
             expect(force.ly).not.toBe(0);
             // Tangent is perpendicular to backward (both scale the same normal/tangent pair)
@@ -245,6 +244,26 @@ describe('LiquidCombatSystem', () => {
             const farSystem = new LiquidCombatSystem(makeScene({ units: [justFar, farEnemy] }));
             farSystem.precompute();
             expect(farSystem.contactLineCount).toBe(0);
+        });
+
+        it('scales contact compression by numerical overwhelm ratio when outnumbered', () => {
+            // 1 player unit facing 3 enemy units in the same contact zone
+            const outnumberedUnits: GameUnit[] = [
+                makeUnit({ unitType: UnitType.PIKESMAN, x: 50, y: 50, owner: 0, spatialKey: '0,0' }),
+                makeUnit({ unitType: UnitType.PIKESMAN, x: 95, y: 48, owner: 1, spatialKey: '0,0' }),
+                makeUnit({ unitType: UnitType.PIKESMAN, x: 95, y: 50, owner: 1, spatialKey: '0,0' }),
+                makeUnit({ unitType: UnitType.PIKESMAN, x: 95, y: 52, owner: 1, spatialKey: '0,0' }),
+            ];
+            const system = new LiquidCombatSystem(makeScene({ units: outnumberedUnits }));
+            system.precompute();
+
+            expect(system.getOverwhelmFactor(1, 3)).toBe(1.5);
+            expect(system.getOverwhelmFactor(3, 1)).toBe(0.5);
+            expect(system.getOverwhelmFactor(2, 2)).toBe(1.0);
+
+            const outnumberedForce = system.getContactForce(50, 50, 0);
+            const outnumberingForce = system.getContactForce(95, 50, 1);
+            expect(Math.abs(outnumberedForce.bx)).toBeGreaterThan(Math.abs(outnumberingForce.bx));
         });
     });
 

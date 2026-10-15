@@ -30,3 +30,14 @@ export class MusicStateController {
     this.battleHoldUntilMs = 0;
   }
 }
+
+/**
+ * Computes a subtly scaled battle soundtrack target volume based on how many
+ * units are actively engaged in player-enemy combat, so small skirmishes and
+ * full-scale army clashes have distinct dynamic headroom.
+ */
+export function resolveBattleTrackVolume(baseVolume: number, engagedUnitCount: number): number {
+  const clampedCount = Math.max(0, engagedUnitCount);
+  const intensity = Math.min(1, clampedCount / 8);
+  return Math.min(1, Math.max(0, baseVolume * (0.92 + intensity * 0.16)));
+}
