@@ -2,7 +2,13 @@ import Phaser from 'phaser';
 
 import { BuildingType } from '../../types';
 import { MainScene } from '../MainScene';
-import { calculateLocalLightAlpha, calculateSunlightStyle, calculateTorchFlicker, type TorchFlickerState } from './lightingMath';
+import {
+  calculateLocalLightAlpha,
+  calculateSunlightStyle,
+  calculateTorchFlicker,
+  calculateWaterSpecularShimmer,
+  type TorchFlickerState,
+} from './lightingMath';
 
 // Fog composites at depth 10000. Keep every light below it so unexplored terrain
 // stays dark instead of being re-exposed by the SCREEN pass.
@@ -111,7 +117,7 @@ export class LightingEffectsSystem {
 
     this.setVisible(true);
     const state = this.scene.dayNightSystem.getState();
-    this.updateSunlight(state);
+    this.updateSunlight(state, timeMs);
 
     if (
       this.lastBonfireSync === Number.NEGATIVE_INFINITY
@@ -124,7 +130,10 @@ export class LightingEffectsSystem {
     this.updateBonfireLights(timeMs, state.sunIntensity, state.ambientAlpha);
   }
 
-  private updateSunlight(state: ReturnType<MainScene['dayNightSystem']['getState']>): void {
+  private updateSunlight(
+    state: ReturnType<MainScene['dayNightSystem']['getState']>,
+    timeMs = 0,
+  ): void {
     const view = this.scene.cameras.main.worldView;
     const style = calculateSunlightStyle(state.hour, state.sunIntensity, state.sunElevation);
     const centerX = view.left + view.width * 0.5;
@@ -164,6 +173,7 @@ export class LightingEffectsSystem {
       diagonal,
       sunDirectionX,
       sunDirectionY,
+      timeMs,
     );
   }
 
@@ -174,6 +184,7 @@ export class LightingEffectsSystem {
     diagonal: number,
     sunDirectionX: number,
     sunDirectionY: number,
+    timeMs = 0,
   ): void {
     if (state.sunIntensity <= 0.001) {
       this.sunFlare.setAlpha(0);
@@ -205,11 +216,17 @@ export class LightingEffectsSystem {
     const rayLengthScales = [1, 1.18] as const;
     const rayThicknessScales = [0.09, 0.20] as const;
     const rayAngleOffsets = [0, -0.035] as const;
+    const waterShimmer = calculateWaterSpecularShimmer(
+      state.hour,
+      state.sunIntensity,
+      state.sunElevation,
+      timeMs,
+    );
     const rayAlphas = [
       Math.min(0.075, horizonEnergy * 0.24),
-      Math.min(0.035, horizonEnergy * 0.11),
+      Math.min(0.045, horizonEnergy * 0.11 + waterShimmer.shimmerAlpha * 0.12),
     ] as const;
-    const rayTints = [0xffdda6, 0xffe7bd] as const;
+    const rayTints = [0xffdda6, waterShimmer.shimmerColor] as const;
 
     for (let index = 0; index < this.sunRays.length; index++) {
       const offset = diagonal * rayOffsets[index];

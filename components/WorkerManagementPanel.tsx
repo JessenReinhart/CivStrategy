@@ -63,8 +63,20 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
     gameInstance.events.on(WORKFORCE_EVENTS.SNAPSHOT, update);
     gameInstance.events.emit(WORKFORCE_EVENTS.REQUEST_SNAPSHOT);
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      if (event.key === 'w' || event.key === 'W') {
+        setOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
     return () => {
       gameInstance.events.off(WORKFORCE_EVENTS.SNAPSHOT, update);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [gameInstance]);
 
@@ -87,7 +99,10 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
           <Users size={17} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">Workforce</div>
+          <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+            <span>Workforce</span>
+            <span className="rounded border border-stone-700/80 bg-stone-900/90 px-1 py-0.2 text-[9px] font-mono text-stone-300">[W]</span>
+          </div>
           <div className="mt-0.5 flex items-baseline gap-2">
             <span className="text-sm font-bold text-stone-100">{snapshot.assignedVillagers} working</span>
             <span className="text-xs text-stone-400">{snapshot.idleVillagers} idle</span>
@@ -158,12 +173,33 @@ export const WorkerManagementPanel: React.FC<WorkerManagementPanelProps> = ({ ga
                     >
                       <div className="flex items-center gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-xs font-bold text-stone-200">{workplace.name}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="truncate text-xs font-bold text-stone-200">{workplace.name}</div>
+                            {typeof workplace.efficiencyPct === 'number' && (
+                              <span
+                                className={[
+                                  'rounded px-1.5 py-0.2 text-[9px] font-bold tabular-nums',
+                                  workplace.efficiencyPct >= 100
+                                    ? 'bg-emerald-950/70 text-emerald-300 ring-1 ring-emerald-500/30'
+                                    : workplace.efficiencyPct > 0
+                                      ? 'bg-amber-950/70 text-amber-300 ring-1 ring-amber-500/30'
+                                      : 'bg-stone-800/80 text-stone-400',
+                                ].join(' ')}
+                              >
+                                {workplace.efficiencyPct}%
+                              </span>
+                            )}
+                          </div>
                           <div className="mt-1.5 flex items-center gap-2">
                             <WorkerSlots workplace={workplace} />
                             <span className="text-[10px] tabular-nums text-stone-500">
                               {workplace.filled}/{workplace.capacity}
                             </span>
+                            {workplace.acceptedResources && workplace.acceptedResources.length > 0 && (
+                              <span className="truncate text-[9px] uppercase tracking-wider text-stone-500">
+                                • {workplace.acceptedResources.join('/')}
+                              </span>
+                            )}
                           </div>
                         </div>
 

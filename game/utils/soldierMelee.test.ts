@@ -13,7 +13,10 @@ import {
   CHARGE_THRUST_RATIO,
   CROWD_PUSH_FORWARD_RATIO,
   CHARGE_TIMER_DECAY_MS,
+  STAGGER_DURATION_MS,
+  STAGGER_KNOCKBACK_PX,
   computeSoldierCombatDeformation,
+  computeChargeImpactStagger,
   selectTargetWithAttackerCap,
   computeFrontRankFlags,
   computeCrowdPush,
@@ -165,6 +168,42 @@ describe('soldierMelee - pure soldier-level melee utilities', () => {
       const withoutLunge = computeSoldierCombatDeformation(baselineSoldier, 0, 0, 0, 0);
       expect(withLunge.deformX - withoutLunge.deformX).toBeCloseTo(3.5, 5);
       expect(withLunge.deformY - withoutLunge.deformY).toBeCloseTo(0, 5);
+    });
+
+    it('applies backward knockback displacement and decays staggerTimer during shock stagger', () => {
+      const staggeredSoldier: SoldierCombatState = {
+        mode: 'combat',
+        chargeTimer: 0,
+        crowdPush: 0,
+        phase: 0,
+        staggerTimer: STAGGER_DURATION_MS / 2,
+      };
+      const baselineSoldier: SoldierCombatState = {
+        mode: 'combat',
+        chargeTimer: 0,
+        crowdPush: 0,
+        phase: 0,
+      };
+      const staggered = computeSoldierCombatDeformation(staggeredSoldier, 0, 0, 0, 0);
+      const baseline = computeSoldierCombatDeformation(baselineSoldier, 0, 0, 0, 0);
+
+      expect(staggered.deformX - baseline.deformX).toBeCloseTo(-STAGGER_KNOCKBACK_PX, 5);
+      expect(staggered.staggerTimer).toBe(STAGGER_DURATION_MS / 2 - CHARGE_TIMER_DECAY_MS);
+    });
+  });
+
+  // ─── computeChargeImpactStagger ────────────────────────────────────────
+  describe('computeChargeImpactStagger', () => {
+    it('returns 0 when closing speed is at or below marching threshold', () => {
+      expect(computeChargeImpactStagger(45)).toBe(0);
+      expect(computeChargeImpactStagger(60)).toBe(0);
+    });
+
+    it('scales stagger duration with charge velocity and inverse armor weight', () => {
+      const lightTarget = computeChargeImpactStagger(100, 0.8);
+      const heavyTarget = computeChargeImpactStagger(100, 1.5);
+      expect(lightTarget).toBeGreaterThan(heavyTarget);
+      expect(lightTarget).toBeLessThanOrEqual(STAGGER_DURATION_MS);
     });
   });
 

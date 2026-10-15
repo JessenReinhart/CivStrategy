@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { calculateLocalLightAlpha, calculateSunlightStyle, calculateTorchFlicker } from './lightingMath';
+import {
+  calculateLocalLightAlpha,
+  calculateSunlightStyle,
+  calculateTorchFlicker,
+  calculateWaterSpecularShimmer,
+  type WaterSpecularShimmer,
+} from './lightingMath';
 
 describe('calculateSunlightStyle', () => {
   it('removes direct sunlight at night', () => {
@@ -62,5 +68,25 @@ describe('calculateTorchFlicker', () => {
 
     expect(first.scale).not.toBeCloseTo(second.scale, 4);
     expect(first.tint).not.toBe(second.tint);
+  });
+});
+
+describe('calculateWaterSpecularShimmer', () => {
+  it('returns a subtle moonlit silver shimmer when direct sunlight is absent', () => {
+    const night: WaterSpecularShimmer = calculateWaterSpecularShimmer(23, 0, 0, 500);
+
+    expect(night.shimmerColor).toBe(0x7aa8d6);
+    expect(night.shimmerAlpha).toBeGreaterThanOrEqual(0.02);
+    expect(night.shimmerAlpha).toBeLessThanOrEqual(0.05);
+  });
+
+  it('shifts from warm golden-hour glint to cool aqua-white highlights at noon', () => {
+    const goldenHour = calculateWaterSpecularShimmer(17.5, 0.7, 0.18, 1000);
+    const noon = calculateWaterSpecularShimmer(12, 1.0, 1.0, 1000);
+
+    expect(goldenHour.shimmerColor).not.toBe(noon.shimmerColor);
+    expect(goldenHour.crestPulse).toBeGreaterThanOrEqual(0);
+    expect(goldenHour.crestPulse).toBeLessThanOrEqual(1);
+    expect(noon.shimmerAlpha).toBeGreaterThan(0.04);
   });
 });

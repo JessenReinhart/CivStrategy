@@ -20,6 +20,9 @@ import {
 } from '../../constants';
 
 // ─── Re-export constants for external consumers ──────────────────────────────
+export const STAGGER_DURATION_MS = 220;
+export const STAGGER_KNOCKBACK_PX = 2.8;
+
 export {
   MAX_ATTACKERS,
   SEP_COMBAT as SEP_COMBAT_MULTIPLIER,
@@ -45,6 +48,8 @@ export interface SoldierCombatState {
   phase: number;
   /** Optional normalized melee strike cycle (0..1) for thrust/recovery kinematics. */
   strikeProgress?: number;
+  /** Optional remaining knockback stagger timer in ms from heavy charge impact. */
+  staggerTimer?: number;
 }
 
 export interface SoldierOffset {
@@ -57,6 +62,7 @@ export interface CombatDeformation {
   deformY: number;
   spacingScale: number;
   chargeTimer: number;
+  staggerTimer?: number;
 }
 
 // ─── Pure Functions ─────────────────────────────────────────────────────────
@@ -76,6 +82,7 @@ export function computeSoldierCombatDeformation(
   let deformY = 0;
   let spacingScale = 1.0;
   let chargeTimer = soldier.chargeTimer;
+  let staggerTimer = soldier.staggerTimer ?? 0;
 
   if (soldier.mode === 'combat') {
     // Combat clustering: tighter spacing
@@ -105,6 +112,15 @@ export function computeSoldierCombatDeformation(
       deformX += Math.cos(angle) * lungeAmplitude;
       deformY += Math.sin(angle) * lungeAmplitude;
     }
+
+    // Shock charge impact stagger: brief backward knockback and recovery along facing axis
+    if (staggerTimer > 0) {
+      const staggerRatio = Math.min(1, staggerTimer / STAGGER_DURATION_MS);
+      const knockback = Math.sin(staggerRatio * Math.PI) * STAGGER_KNOCKBACK_PX;
+      deformX -= Math.cos(angle) * knockback;
+      deformY -= Math.sin(angle) * knockback;
+      staggerTimer = Math.max(0, staggerTimer - CHARGE_TIMER_DECAY_MS);
+    }
   } else {
     // Formation mode: crowd-push from rear ranks
     if (soldier.crowdPush > 0) {
@@ -113,7 +129,21 @@ export function computeSoldierCombatDeformation(
       deformY = Math.sin(angle) * soldier.crowdPush * CROWD_PUSH_FORWARD_RATIO;
     }
   }
-  return { deformX, deformY, spacingScale, chargeTimer };
+  return { deformX, deformY, spacingScale, chargeTimer, staggerTimer };
+}
+
+/**
+ * Compute shock charge stagger duration (ms) inflicted on a defender
+ * based on closing speed and defender armor weight.
+ */
+export function computeChargeImpactStagger(
+  chargeSpeed: number,
+  armorWeight = 1.0,
+): number {
+  if (chargeSpeed <= 60) return 0;
+  const normalizedSpeed = Math.min(1, (chargeSpeed - 60) / Math.max(1, CHARGE_IMPULSE - 60));
+  const weightFactor = 1 / Math.max(0.5, armorWeight);
+  return Math.min(STAGGER_DURATION_MS, Math.round(normalizedSpeed * STAGGER_DURATION_MS * weightFactor));
 }
 /**
  * Select target with attacker cap using spatial hash results.

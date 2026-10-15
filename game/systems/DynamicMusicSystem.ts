@@ -2,12 +2,18 @@ import Phaser from 'phaser';
 
 import { UnitState, type GameUnit } from '../../types';
 import type { MainScene } from '../MainScene';
-import { isPlayerEnemyEngagement, MusicStateController, resolveBattleTrackVolume, type MusicMode } from './MusicStateController';
+import {
+  isPlayerEnemyEngagement,
+  MusicStateController,
+  resolveAdaptiveCrossfadeMs,
+  resolveBattleTrackVolume,
+  resolveCombatThreatLevel,
+  type MusicMode,
+} from './MusicStateController';
 
 const IDLE_MUSIC_PATH = '/assets/audio/music/hearth-of-ashen-oak.mp3';
 const BATTLE_MUSIC_PATH = '/assets/audio/music/ravenbanner-march.mp3';
 const MUSIC_POLL_INTERVAL_MS = 250;
-const MUSIC_CROSSFADE_MS = 1_400;
 const IDLE_VOLUME = 0.34;
 const BATTLE_VOLUME = 0.4;
 
@@ -117,6 +123,8 @@ export class DynamicMusicSystem {
         if (unit.active && unit.state === UnitState.ATTACKING) engagedCount++;
       }
     }
+    const threatLevel = resolveCombatThreatLevel(engagedCount);
+    const crossfadeDurationMs = resolveAdaptiveCrossfadeMs(mode, threatLevel);
     const nextVolume = mode === 'battle'
       ? resolveBattleTrackVolume(BATTLE_VOLUME, Math.max(1, engagedCount))
       : IDLE_VOLUME;
@@ -145,7 +153,7 @@ export class DynamicMusicSystem {
     this.fadeTween = this.scene.tweens.addCounter({
       from: 0,
       to: 1,
-      duration: MUSIC_CROSSFADE_MS,
+      duration: crossfadeDurationMs,
       ease: 'Sine.easeInOut',
       onUpdate: (tween) => {
         const progress = tween.getValue() ?? 0;

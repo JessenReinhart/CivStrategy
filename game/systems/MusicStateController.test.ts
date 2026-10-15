@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { isPlayerEnemyEngagement, MusicStateController, resolveBattleTrackVolume } from './MusicStateController';
+import {
+  isPlayerEnemyEngagement,
+  MusicStateController,
+  resolveAdaptiveCrossfadeMs,
+  resolveBattleTrackVolume,
+  resolveCombatThreatLevel,
+  type CombatThreatLevel,
+} from './MusicStateController';
 
 describe('MusicStateController', () => {
   it('uses idle music before combat starts', () => {
@@ -58,5 +65,25 @@ describe('resolveBattleTrackVolume', () => {
     expect(mediumClash).toBeGreaterThan(skirmish);
     expect(fullBattle).toBeGreaterThan(mediumClash);
     expect(fullBattle).toBeCloseTo(0.4 * 1.08, 5);
+  });
+});
+
+describe('resolveCombatThreatLevel & resolveAdaptiveCrossfadeMs', () => {
+  it('classifies calm, skirmish, and pitched-battle threat tiers accurately', () => {
+    const calm: CombatThreatLevel = resolveCombatThreatLevel(0, 0);
+    const skirmish: CombatThreatLevel = resolveCombatThreatLevel(2, 1);
+    const pitchedByUnits: CombatThreatLevel = resolveCombatThreatLevel(6, 0);
+    const pitchedByClashes: CombatThreatLevel = resolveCombatThreatLevel(3, 3);
+
+    expect(calm).toBe('calm');
+    expect(skirmish).toBe('skirmish');
+    expect(pitchedByUnits).toBe('pitched-battle');
+    expect(pitchedByClashes).toBe('pitched-battle');
+  });
+
+  it('uses faster crossfades for pitched battles and gentler releases back to idle', () => {
+    expect(resolveAdaptiveCrossfadeMs('battle', 'pitched-battle')).toBe(850);
+    expect(resolveAdaptiveCrossfadeMs('battle', 'skirmish')).toBe(1_400);
+    expect(resolveAdaptiveCrossfadeMs('idle', 'calm')).toBe(2_400);
   });
 });

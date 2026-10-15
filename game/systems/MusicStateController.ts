@@ -41,3 +41,31 @@ export function resolveBattleTrackVolume(baseVolume: number, engagedUnitCount: n
   const intensity = Math.min(1, clampedCount / 8);
   return Math.min(1, Math.max(0, baseVolume * (0.92 + intensity * 0.16)));
 }
+
+export type CombatThreatLevel = 'calm' | 'skirmish' | 'pitched-battle';
+
+/**
+ * Classifies current battlefield intensity from active melee/ranged engagements
+ * and nearby squad clashes so music transitions can scale urgency accordingly.
+ */
+export function resolveCombatThreatLevel(
+  engagedUnitCount: number,
+  nearbyClashCount = 0,
+): CombatThreatLevel {
+  if (engagedUnitCount <= 0 && nearbyClashCount <= 0) return 'calm';
+  if (engagedUnitCount >= 6 || nearbyClashCount >= 3) return 'pitched-battle';
+  return 'skirmish';
+}
+
+/**
+ * Computes an adaptive soundtrack crossfade duration (ms). Major pitched battles
+ * cut in briskly while transitions back to peace decay gently.
+ */
+export function resolveAdaptiveCrossfadeMs(
+  mode: MusicMode,
+  threatLevel: CombatThreatLevel,
+): number {
+  if (mode === 'idle') return 2_400;
+  if (threatLevel === 'pitched-battle') return 850;
+  return 1_400;
+}

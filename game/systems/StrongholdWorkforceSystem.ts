@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import type { MainScene } from '../MainScene';
 import { BuildingType, UnitState, type VillagerData } from '../../types';
+import { canBuildingAcceptResource } from './villagerCommandPolicy';
 
 export const WORKFORCE_EVENTS = {
   SNAPSHOT: 'workforce-snapshot',
@@ -16,6 +17,8 @@ export interface WorkforceBuildingSnapshot {
   capacity: number;
   target: number;
   filled: number;
+  efficiencyPct?: number;
+  acceptedResources?: string[];
 }
 
 export interface WorkforceSnapshot {
@@ -142,13 +145,22 @@ export class StrongholdWorkforceSystem {
       const target = this.ensureTarget(building, capacity);
       const filled = Math.min(capacity, this.getWorkersFor(building).length);
       const def = building.getData('def');
+      const type = String(def?.type ?? 'Workplace');
+      const efficiencyPct = target <= 0
+        ? 0
+        : Math.round((Math.min(filled, target) / target) * 100);
+      const acceptedResources = ['wood', 'food', 'stone', 'gold', 'iron'].filter((res) =>
+        canBuildingAcceptResource(type, res),
+      );
       return {
         id: this.getBuildingId(building),
-        type: String(def?.type ?? 'Workplace'),
+        type,
         name: String(def?.name ?? def?.type ?? 'Workplace'),
         capacity,
         target,
         filled,
+        efficiencyPct,
+        acceptedResources,
       } satisfies WorkforceBuildingSnapshot;
     });
 

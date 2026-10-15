@@ -111,3 +111,47 @@ export function calculateTorchFlicker(timeMs: number, seed: number): TorchFlicke
   const tint = lerpColor(0xff8c3b, 0xffb866, warmthT);
   return { scale, alpha, tint };
 }
+
+export interface WaterSpecularShimmer {
+  readonly shimmerAlpha: number;
+  readonly shimmerColor: number;
+  readonly crestPulse: number;
+}
+
+/**
+ * Coastal shoreline & water surface specular shimmer across the day-night cycle.
+ * Low solar elevation warms the water glint toward amber gold, midday shifts toward
+ * crisp aqua-white highlights, and night settles into a subtle moonlit silver pulse.
+ */
+export function calculateWaterSpecularShimmer(
+  hour: number,
+  sunIntensity: number,
+  sunElevation: number,
+  timeMs = 0,
+): WaterSpecularShimmer {
+  const intensity = clamp01(sunIntensity);
+  const elevation = clamp01(sunElevation);
+  const crestPulse = clamp01(
+    0.5 + 0.35 * Math.sin(timeMs * 0.0032) + 0.15 * Math.cos(timeMs * 0.0051 + 0.8),
+  );
+
+  if (intensity <= 0.001) {
+    return {
+      shimmerAlpha: Number((0.025 + crestPulse * 0.02).toFixed(4)),
+      shimmerColor: 0x7aa8d6,
+      crestPulse,
+    };
+  }
+
+  const horizonWarmth = 1 - elevation;
+  const baseSolarColor = sunlightColorForHour(hour);
+  const shimmerColor = lerpColor(0xd8f6ff, baseSolarColor, clamp01(horizonWarmth * 0.85));
+  const baseAlpha = intensity * (0.06 + horizonWarmth * 0.09);
+  const shimmerAlpha = clamp01(baseAlpha * (0.82 + crestPulse * 0.36));
+
+  return {
+    shimmerAlpha,
+    shimmerColor,
+    crestPulse,
+  };
+}
