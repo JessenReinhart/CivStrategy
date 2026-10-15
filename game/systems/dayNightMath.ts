@@ -135,6 +135,33 @@ export function calculateDayNightState(
 }
 
 /**
+ * Calculates golden-hour cloud tinting and nocturnal atmospheric dimming.
+ */
+export function calculateCloudTint(
+    hour: number,
+    _sunElevation: number,
+): { tint: number; alphaScale: number } {
+    const h = wrap(hour, 24);
+
+    // Dawn golden hour (05:30 - 07:30): warm peach / gold
+    if (h >= 5.5 && h <= 7.5) {
+        const t = (h - 5.5) / 2.0;
+        return { tint: 0xffd29d, alphaScale: 0.85 + Math.sin(t * Math.PI) * 0.15 };
+    }
+    // Dusk golden hour (16:30 - 18:30): rich amber / violet rose
+    if (h >= 16.5 && h <= 18.5) {
+        const t = (h - 16.5) / 2.0;
+        return { tint: 0xffbe7b, alphaScale: 0.90 + Math.sin(t * Math.PI) * 0.10 };
+    }
+    // Nocturnal dimming (19:30 - 04:30): cool slate blue / moonlight
+    if (h >= 19.5 || h <= 4.5) {
+        return { tint: 0x94a3b8, alphaScale: 0.55 };
+    }
+    // Crisp daylight
+    return { tint: 0xffffff, alphaScale: 1.0 };
+}
+
+/**
  * Pure redraw gate used by the renderer. Recording the actual refresh time as
  * `lastRefreshMs` prevents catch-up redraws after a slow frame, so 5 Hz remains
  * an upper bound rather than an expected wall-clock redraw count.

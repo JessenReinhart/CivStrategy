@@ -4,6 +4,7 @@ import {
   shouldRepathChase,
   stalePathAction,
   pathEndNearTarget,
+  predictChaseInterceptPoint,
   CHASE_REPATH_MIN_MS,
   CHASE_REPATH_FAR_MS,
   CHASE_TARGET_MOVE_THRESH,
@@ -221,5 +222,26 @@ describe('pathEndNearTarget', () => {
 
   it('false when end far from target', () => {
     expect(pathEndNearTarget([{ x: 0, y: 0 }, { x: 100, y: 100 }], 300, 300, 48)).toBe(false);
+  });
+});
+
+describe('predictChaseInterceptPoint', () => {
+  it('returns target position when target is static or chaser is stopped', () => {
+    expect(predictChaseInterceptPoint(0, 0, 100, 50, 50, 0, 0)).toEqual({ x: 50, y: 50 });
+    expect(predictChaseInterceptPoint(0, 0, 0, 50, 50, 20, 20)).toEqual({ x: 50, y: 50 });
+  });
+
+  it('leads ahead along the target velocity vector for moving targets', () => {
+    // Distance 100, chaser speed 100 => 1.0s lead time
+    const intercept = predictChaseInterceptPoint(0, 0, 100, 100, 0, 50, 0);
+    expect(intercept.x).toBeCloseTo(150, 5);
+    expect(intercept.y).toBeCloseTo(0, 5);
+  });
+
+  it('clamps lead time to maxLeadSec for far targets', () => {
+    // Distance 1000, speed 100 => 10s uncontrolled lead, clamped to maxLeadSec 2.0s
+    const intercept = predictChaseInterceptPoint(0, 0, 100, 1000, 0, 30, 0, 2.0);
+    expect(intercept.x).toBeCloseTo(1060, 5);
+    expect(intercept.y).toBeCloseTo(0, 5);
   });
 });

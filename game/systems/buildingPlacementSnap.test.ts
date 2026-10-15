@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { toCartesian, toIso } from '../utils/iso';
-import { formatBuildingPlacementFeedback, resolveCursorAlignedPlacement } from './buildingPlacementSnap';
+import {
+    formatBuildingPlacementFeedback,
+    resolveCursorAlignedPlacement,
+    snapWallToAdjacentSegment,
+} from './buildingPlacementSnap';
 const GRID = 16;
 
 function finalManagerCenter(inputWorldX: number, inputWorldY: number, width: number, height: number) {
@@ -56,8 +60,30 @@ describe('formatBuildingPlacementFeedback', () => {
         expect(formatBuildingPlacementFeedback({ valid: true, farmYield: 1.2 })).toBe('Fertility ×1.2 · Click to place');
     });
 
+    it('shows resource proximity bonus when available', () => {
+        expect(formatBuildingPlacementFeedback({ valid: true, resourceBonus: 'Dense Forest +25%' })).toBe('Dense Forest +25% · Click to place');
+    });
+
     it('shows default click-to-place instruction for other valid buildings', () => {
         expect(formatBuildingPlacementFeedback({ valid: true })).toBe('Click to place');
     });
 });
 
+describe('snapWallToAdjacentSegment', () => {
+    it('snaps to adjacent edge when within snap radius', () => {
+        const existing = [{ x: 100, y: 100, width: 32, height: 32 }];
+        // Cursor at 134, 102 (close to right edge at x=132, y=100)
+        const result = snapWallToAdjacentSegment(134, 102, 32, 32, existing, 24);
+        expect(result.snapped).toBe(true);
+        expect(result.x).toBe(132);
+        expect(result.y).toBe(100);
+    });
+
+    it('does not snap when outside snap radius', () => {
+        const existing = [{ x: 100, y: 100, width: 32, height: 32 }];
+        const result = snapWallToAdjacentSegment(250, 250, 32, 32, existing, 24);
+        expect(result.snapped).toBe(false);
+        expect(result.x).toBe(250);
+        expect(result.y).toBe(250);
+    });
+});

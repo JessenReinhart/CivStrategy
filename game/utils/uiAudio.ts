@@ -129,3 +129,27 @@ export function uiClick(): void {
     applyPan(0, tickGain);
     applyPan(0, clickGain);
 }
+
+/**
+ * Tactical order acknowledgement cue for unit selection and commands.
+ */
+export function uiCommandAck(): void {
+    const ctx = ensureAudioContext();
+    if (!ctx || !masterGain) return;
+
+    const volume = 0.10;
+    const ackGain = tone('triangle', 587.33, 0.002, 0.06, volume, ctx);
+    applyPan(0, ackGain);
+}
+
+/**
+ * Tactile error cue for invalid placement or resource shortfalls.
+ */
+export function uiError(): void {
+    const ctx = ensureAudioContext();
+    if (!ctx || !masterGain) return;
+
+    const volume = 0.12;
+    const errorGain = tone('sine', 130, 0.005, 0.09, volume, ctx);
+    applyPan(0, errorGain);
+}

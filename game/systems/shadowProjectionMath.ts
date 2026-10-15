@@ -11,6 +11,8 @@ export interface ShadowProjection {
   perpendicularY: number;
   rotation: number;
   length: number;
+  penumbraAlphaScale: number;
+  contactShadowScale: number;
 }
 
 const MAX_SHADOW_ANGLE_FROM_DOWN_RAD = 60 * Math.PI / 180;
@@ -35,6 +37,11 @@ export function calculateShadowProjection(input: ShadowProjectionInput): ShadowP
   const directionY = projectedY / magnitude;
   const length = Math.max(0, input.shadowLength * input.shadowHeightScale);
 
+  // Solar penumbra attenuation: longer dawn/dusk shadows soften slightly at outer edge
+  const penumbraAlphaScale = Math.max(0.68, Math.min(1.0, 1.0 - (length / 250) * 0.32));
+  // High midday sun produces shorter, more concentrated contact shadows
+  const contactShadowScale = Math.max(0.75, Math.min(1.2, 1.2 - (length / 250) * 0.45));
+
   return {
     directionX,
     directionY,
@@ -42,5 +49,7 @@ export function calculateShadowProjection(input: ShadowProjectionInput): ShadowP
     perpendicularY: directionX,
     rotation: Math.atan2(directionY, directionX) - Math.PI / 2,
     length,
+    penumbraAlphaScale,
+    contactShadowScale,
   };
 }

@@ -33,6 +33,10 @@ describe('calculateShadowProjection', () => {
     expect(Number.isFinite(projection.rotation)).toBe(true);
     expect(Number.isFinite(projection.directionX)).toBe(true);
     expect(Number.isFinite(projection.directionY)).toBe(true);
+    expect(projection.penumbraAlphaScale).toBeGreaterThanOrEqual(0.68);
+    expect(projection.penumbraAlphaScale).toBeLessThanOrEqual(1.0);
+    expect(projection.contactShadowScale).toBeGreaterThanOrEqual(0.75);
+    expect(projection.contactShadowScale).toBeLessThanOrEqual(1.2);
   });
 
   it('keeps the solar cast inside a stable downward cone', () => {
@@ -57,6 +61,14 @@ describe('calculateShadowProjection', () => {
     expect(low.length).toBeCloseTo(20);
     expect(low.directionX).toBeCloseTo(tall.directionX, 5);
     expect(low.directionY).toBeCloseTo(tall.directionY, 5);
+  });
+
+  it('softens penumbra on long shadows while keeping contact shadows crisp on short ones', () => {
+    const noon = calculateShadowProjection({ shadowAngleRad: Math.PI / 2, shadowLength: 30, shadowHeightScale: 1.0 });
+    const dusk = calculateShadowProjection({ shadowAngleRad: Math.PI * 0.9, shadowLength: 220, shadowHeightScale: 1.0 });
+
+    expect(noon.penumbraAlphaScale).toBeGreaterThan(dusk.penumbraAlphaScale);
+    expect(noon.contactShadowScale).toBeGreaterThan(dusk.contactShadowScale);
   });
 });
 

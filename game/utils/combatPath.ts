@@ -135,3 +135,33 @@ export function pathEndNearTarget(
   // Use larger slack >= attack range so units can finish approach without immediate repath.
   return dx * dx + dy * dy <= slack * slack;
 }
+
+/**
+ * Predicts the optimal intercept / lead point when pursuing a moving target.
+ * Solves for arrival lead time based on chaser speed and target velocity,
+ * capped to maxLeadSec so long-distance paths do not wildly overshoot.
+ */
+export function predictChaseInterceptPoint(
+  chaserX: number,
+  chaserY: number,
+  chaserSpeed: number,
+  targetX: number,
+  targetY: number,
+  targetVx: number,
+  targetVy: number,
+  maxLeadSec: number = 2.0,
+): PathPoint {
+  if (chaserSpeed <= 0) return { x: targetX, y: targetY };
+  const targetSpeedSq = targetVx * targetVx + targetVy * targetVy;
+  if (targetSpeedSq < 1e-4) return { x: targetX, y: targetY };
+
+  const dx = targetX - chaserX;
+  const dy = targetY - chaserY;
+  const dist = Math.hypot(dx, dy);
+
+  const leadTimeSec = Math.min(maxLeadSec, Math.max(0, dist / chaserSpeed));
+  return {
+    x: targetX + targetVx * leadTimeSec,
+    y: targetY + targetVy * leadTimeSec,
+  };
+}

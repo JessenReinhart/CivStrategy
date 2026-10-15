@@ -40,11 +40,59 @@ export interface BuildingPlacementFeedback {
     valid: boolean;
     reason?: string;
     farmYield?: number;
+    resourceBonus?: string;
 }
 
 export function formatBuildingPlacementFeedback(feedback: BuildingPlacementFeedback): string {
     if (!feedback.valid) return feedback.reason ?? 'Unable to build';
     if (feedback.farmYield !== undefined) return `Fertility ×${feedback.farmYield.toFixed(1)} · Click to place`;
+    if (feedback.resourceBonus) return `${feedback.resourceBonus} · Click to place`;
     return 'Click to place';
 }
 
+export interface WallSegment {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+/**
+ * Magnetically snaps a wall or palisade piece to align seamlessly with an
+ * adjacent existing wall piece within snapRadius.
+ */
+export function snapWallToAdjacentSegment(
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    existingWalls: WallSegment[],
+    snapRadius: number = 24,
+): { x: number; y: number; snapped: boolean } {
+    let bestDistSq = snapRadius * snapRadius;
+    let bestX = centerX;
+    let bestY = centerY;
+    let snapped = false;
+
+    for (const wall of existingWalls) {
+        const candidates = [
+            { x: wall.x + (wall.width + width) / 2, y: wall.y },
+            { x: wall.x - (wall.width + width) / 2, y: wall.y },
+            { x: wall.x, y: wall.y + (wall.height + height) / 2 },
+            { x: wall.x, y: wall.y - (wall.height + height) / 2 },
+        ];
+        for (const cand of candidates) {
+            const dx = cand.x - centerX;
+            const dy = cand.y - centerY;
+            const dSq = dx * dx + dy * dy;
+            if (dSq < bestDistSq) {
+                bestDistSq = dSq;
+                bestX = cand.x;
+                bestY = cand.y;
+                snapped = true;
+            }
+        }
+    }
+
+    return { x: bestX, y: bestY, snapped };
+}

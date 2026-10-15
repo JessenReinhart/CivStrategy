@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+    calculateCloudTint,
     calculateDayNightState,
     DAY_LENGTH_GAME_MS,
     DAY_START_HOUR,
@@ -104,6 +105,21 @@ describe('calculateDayNightState', () => {
             .toBeLessThan(0x020202);
         expect(Math.abs(afterWrap.ambientAlpha - beforeWrap.ambientAlpha)).toBeLessThan(0.001);
         expect(afterWrap.ambientColor).toBe(beforeWrap.ambientColor);
+    });
+
+    it('tints clouds during dawn and dusk golden hours and dims at night', () => {
+        const dawn = calculateCloudTint(6.5, 0.2);
+        const midday = calculateCloudTint(12, 1.0);
+        const dusk = calculateCloudTint(17.5, 0.2);
+        const midnight = calculateCloudTint(0, 0);
+
+        expect(dawn.tint).toBe(0xffd29d);
+        expect(dawn.alphaScale).toBeGreaterThan(0.85);
+        expect(midday.tint).toBe(0xffffff);
+        expect(midday.alphaScale).toBe(1.0);
+        expect(dusk.tint).toBe(0xffbe7b);
+        expect(midnight.tint).toBe(0x94a3b8);
+        expect(midnight.alphaScale).toBe(0.55);
     });
 });
 

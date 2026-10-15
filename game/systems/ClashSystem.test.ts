@@ -32,7 +32,7 @@ class TestEvents {
   }
 }
 
-describe('ClashSystem listener ownership', () => {
+describe('ClashSystem listener ownership and alerts', () => {
   it('removes only its own CLASH_START listener during teardown', () => {
     const events = new TestEvents();
     const unrelatedListener = vi.fn();
@@ -53,5 +53,20 @@ describe('ClashSystem listener ownership', () => {
     expect(triggerMeatGrinder).toHaveBeenCalledOnce();
     expect(unrelatedListener).toHaveBeenCalledTimes(2);
     expect(unrelatedListener).toHaveBeenLastCalledWith(afterTeardown);
+  });
+
+  it('records and filters active clash alerts', () => {
+    ClashSystem.clearClashAlerts();
+    ClashSystem.recordClashAlert(100, 200, 1000);
+    ClashSystem.recordClashAlert(150, 250, 2500);
+
+    // At t=3500, alert from 1000 is 2500ms old (<=3000ms), alert from 2500 is 1000ms old
+    const alertsNow = ClashSystem.getActiveClashAlerts(3500, 3000);
+    expect(alertsNow).toHaveLength(2);
+
+    // At t=4500, first alert is 3500ms old (>3000ms), so only second alert remains
+    const alertsLater = ClashSystem.getActiveClashAlerts(4500, 3000);
+    expect(alertsLater).toHaveLength(1);
+    expect(alertsLater[0]).toEqual({ x: 150, y: 250, timestamp: 2500 });
   });
 });

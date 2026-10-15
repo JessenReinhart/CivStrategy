@@ -271,6 +271,18 @@ describe('uiAudio — audio node graph (P0)', () => {
         assertSingleOutputPath('uiClick');
     });
 
+    it('uiCommandAck: single correct output path, no orphaned envelope', async () => {
+        const { uiCommandAck } = await installMockAudioContext(BaseMockAudioContext);
+        uiCommandAck();
+        assertSingleOutputPath('uiCommandAck');
+    });
+
+    it('uiError: single correct output path, no orphaned envelope', async () => {
+        const { uiError } = await installMockAudioContext(BaseMockAudioContext);
+        uiError();
+        assertSingleOutputPath('uiError');
+    });
+
     it('uiClick: AudioContext created lazily on first call only', async () => {
         const { uiClick } = await installMockAudioContext(CountingAudioContext);
         uiClick();

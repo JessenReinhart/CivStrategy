@@ -6,8 +6,17 @@ import Phaser from 'phaser';
 import { EVENTS } from '../../constants';
 import { triggerMeatGrinder } from '../utils/MeatGrinderEffect';
 
+export interface ClashAlert {
+    x: number;
+    y: number;
+    timestamp: number;
+}
+
 export class ClashSystem {
     private scene: Phaser.Scene;
+    private static readonly MAX_ALERTS = 16;
+    private static activeAlerts: ClashAlert[] = [];
+
     private readonly clashStartHandler = (data: { x: number; y: number }): void => {
         this.handleClash(data.x, data.y);
     };
@@ -22,8 +31,23 @@ export class ClashSystem {
     }
 
     private handleClash(x: number, y: number): void {
-        // Trigger the epic meatgrinder effect
+        ClashSystem.recordClashAlert(x, y, Date.now());
         triggerMeatGrinder(this.scene, x, y);
+    }
+
+    public static recordClashAlert(x: number, y: number, timestamp: number): void {
+        this.activeAlerts.push({ x, y, timestamp });
+        if (this.activeAlerts.length > this.MAX_ALERTS) {
+            this.activeAlerts.shift();
+        }
+    }
+
+    public static getActiveClashAlerts(currentTimeMs: number, maxAgeMs: number = 3000): ClashAlert[] {
+        return this.activeAlerts.filter(alert => (currentTimeMs - alert.timestamp) <= maxAgeMs);
+    }
+
+    public static clearClashAlerts(): void {
+        this.activeAlerts = [];
     }
 
     update(): void {

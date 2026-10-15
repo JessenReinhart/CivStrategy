@@ -1,24 +1,54 @@
-
 import Phaser from 'phaser';
 import { FormationType } from '../../types';
 
 export class FormationSystem {
-    public static getFormationOffsets(type: FormationType, count: number, spacing: number): Phaser.Math.Vector2[] {
-        // const offsets: Phaser.Math.Vector2[] = [];
+    public static getFormationOffsets(
+        type: FormationType,
+        count: number,
+        spacing: number,
+        facingAngleRad?: number,
+    ): Phaser.Math.Vector2[] {
+        let offsets: Phaser.Math.Vector2[];
 
         switch (type) {
             case FormationType.LINE:
-                return this.getLineOffsets(count, spacing);
+                offsets = this.getLineOffsets(count, spacing);
+                break;
             case FormationType.CIRCLE:
-                return this.getCircleOffsets(count, spacing);
+                offsets = this.getCircleOffsets(count, spacing);
+                break;
             case FormationType.SKIRMISH:
-                return this.getSkirmishOffsets(count, spacing);
+                offsets = this.getSkirmishOffsets(count, spacing);
+                break;
             case FormationType.WEDGE:
-                return this.getWedgeOffsets(count, spacing);
+                offsets = this.getWedgeOffsets(count, spacing);
+                break;
             case FormationType.BOX:
             default:
-                return this.getBoxOffsets(count, spacing);
+                offsets = this.getBoxOffsets(count, spacing);
+                break;
         }
+
+        if (facingAngleRad !== undefined && facingAngleRad !== 0) {
+            return this.rotateFormationOffsets(offsets, facingAngleRad);
+        }
+        return offsets;
+    }
+
+    /**
+     * Rotates formation offsets around the group centroid so rank and file
+     * align perpendicularly or along the unit movement heading.
+     */
+    public static rotateFormationOffsets(
+        offsets: Phaser.Math.Vector2[],
+        facingAngleRad: number,
+    ): Phaser.Math.Vector2[] {
+        const cos = Math.cos(facingAngleRad);
+        const sin = Math.sin(facingAngleRad);
+        return offsets.map(o => new Phaser.Math.Vector2(
+            o.x * cos - o.y * sin,
+            o.x * sin + o.y * cos,
+        ));
     }
 
     private static getBoxOffsets(count: number, spacing: number): Phaser.Math.Vector2[] {
@@ -96,11 +126,7 @@ export class FormationSystem {
             const startX = -rowWidth / 2;
 
             const x = startX + inRow * spacing;
-            const y = currentRow * spacing; // Growing "backwards" or "forwards"? 
-            // Standard Wedge points forward, but offsets are usually relative to center.
-            // Let's make the tip (i=0) be at 0,0 or slightly forward?
-            // Actually nice if tip is at front.
-            // Let's center the whole shape.
+            const y = currentRow * spacing;
 
             offsets.push(new Phaser.Math.Vector2(x, y));
 
