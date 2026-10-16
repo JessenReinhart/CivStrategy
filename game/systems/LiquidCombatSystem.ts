@@ -405,6 +405,7 @@ export class LiquidCombatSystem {
         let by = 0;
         let lx = 0;
         let ly = 0;
+        const contactAngles: number[] = [];
 
         const rangeSq = CONTACT_SAMPLE_RADIUS * CONTACT_SAMPLE_RADIUS;
 
@@ -416,6 +417,8 @@ export class LiquidCombatSystem {
             const dy = y - cl.y;
             const distSq = dx * dx + dy * dy;
             if (distSq > rangeSq) continue;
+
+            contactAngles.push(Math.atan2(cl.ny, cl.nx));
 
             // Falloff: 1.0 at center, 0.0 at edge, scaled by local overwhelm ratio.
             const dist = Math.sqrt(distSq);
@@ -432,7 +435,13 @@ export class LiquidCombatSystem {
             ly += cl.ty * CONTACT_LATERAL_FORCE * force;
         }
 
-        return { bx, by, lx, ly };
+        const pinchMultiplier = this.getFlankPinchMultiplier(contactAngles);
+        return {
+            bx: bx * pinchMultiplier,
+            by: by * pinchMultiplier,
+            lx: lx * pinchMultiplier,
+            ly: ly * pinchMultiplier,
+        };
     }
 
     // ─── Velocity Alignment ──────────────────────────────────────────────
@@ -508,6 +517,29 @@ export class LiquidCombatSystem {
         const safeFriendly = Math.max(1, friendlyCount);
         const safeEnemy = Math.max(1, enemyCount);
         return Math.max(0.5, Math.min(1.5, safeEnemy / safeFriendly));
+    }
+
+    /**
+     * Compute multi-front flank/pincer amplification (1.0–1.35) from the normal
+     * angles of all contact lines engaging a unit. Single-front engagements
+     * (< 60 deg separation) return 1.0; orthogonal flanks and full pincer
+     * envelopments scale up to 1.35x compression and lateral wrap.
+     */
+    public getFlankPinchMultiplier(contactAnglesRad: readonly number[]): number {
+        if (contactAnglesRad.length < 2) return 1.0;
+        let maxSpread = 0;
+        const twoPi = Math.PI * 2;
+        for (let i = 0; i < contactAnglesRad.length; i++) {
+            for (let j = i + 1; j < contactAnglesRad.length; j++) {
+                const rawDiff = Math.abs(contactAnglesRad[i] - contactAnglesRad[j]) % twoPi;
+                const spread = rawDiff > Math.PI ? twoPi - rawDiff : rawDiff;
+                if (spread > maxSpread) maxSpread = spread;
+            }
+        }
+        const minFlankRad = Math.PI / 3;
+        if (maxSpread <= minFlankRad) return 1.0;
+        const pinchProgress = Math.min(1, (maxSpread - minFlankRad) / (Math.PI - minFlankRad));
+        return 1 + pinchProgress * 0.35;
     }
 
     /**

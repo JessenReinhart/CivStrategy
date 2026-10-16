@@ -199,7 +199,8 @@ describe('LiquidCombatSystem', () => {
 
             system.precompute();
 
-            const force = system.getContactForce(50, 50, 0);\n            // Lateral (tangent) must be non-zero for a diagonal contact
+            const force = system.getContactForce(50, 50, 0);
+            // Lateral (tangent) must be non-zero for a diagonal contact
             expect(force.lx).not.toBe(0);
             expect(force.ly).not.toBe(0);
             // Tangent is perpendicular to backward (both scale the same normal/tangent pair)
@@ -382,6 +383,14 @@ describe('LiquidCombatSystem', () => {
 
             expect(system.pressureCellCount).toBe(0);
             expect(system.contactLineCount).toBe(0);
+        });
+        it('amplifies contact pressure when pinched from multiple flanking directions', () => {
+            const system = new LiquidCombatSystem(makeScene({ units: [] }));
+
+            expect(system.getFlankPinchMultiplier([0])).toBe(1.0);
+            expect(system.getFlankPinchMultiplier([0, Math.PI / 6])).toBe(1.0);
+            expect(system.getFlankPinchMultiplier([0, Math.PI / 2])).toBeGreaterThan(1.05);
+            expect(system.getFlankPinchMultiplier([0, Math.PI])).toBeCloseTo(1.35, 5);
         });
     });
 });

@@ -257,4 +257,16 @@ describe('ProceduralSoundSystem — audio node graph (P0)', () => {
             expect(g.__outEdges.length, `gain ${g.__id} should have an outgoing connection`).toBeGreaterThan(0);
         }
     });
+
+    it('computeSpatialAcousticProfile scales filter cutoff, gain, and stereo width with camera zoom', () => {
+        const neutral = sound.computeSpatialAcousticProfile(0.25, 1.0);
+        const zoomedIn = sound.computeSpatialAcousticProfile(0.25, 1.8);
+        const zoomedOut = sound.computeSpatialAcousticProfile(0.25, 0.5);
+
+        expect(zoomedIn.filterFreq).toBeGreaterThan(neutral.filterFreq);
+        expect(zoomedOut.filterFreq).toBeLessThan(neutral.filterFreq);
+        expect(zoomedIn.stereoWidth).toBeGreaterThan(neutral.stereoWidth);
+        expect(zoomedOut.stereoWidth).toBeLessThan(neutral.stereoWidth);
+        expect(zoomedIn.gain).toBeGreaterThan(zoomedOut.gain);
+    });
 });

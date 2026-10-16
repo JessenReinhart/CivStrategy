@@ -26,6 +26,7 @@ vi.mock('../MainScene', () => ({
     MainScene: class {},
 }));
 
+import { Season } from '../../types';
 import { AtmosphericSystem } from './AtmosphericSystem';
 
 describe('AtmosphericSystem - Tilt-shift effect', () => {
@@ -196,5 +197,25 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
         expect(mockTiltShift.blurX).toBeCloseTo(2.0);
         expect(mockTiltShift.blurY).toBeCloseTo(2.0);
         expect(mockTiltShift.radius).toBeCloseTo(0.175);
+    });
+
+    it('7. applySeasonalTint updates seasonal wind multiplier and scales canopy wind sway', () => {
+        expect(atmosphericSystem.getSeasonalWindMultiplier()).toBe(1.0);
+
+        atmosphericSystem.applySeasonalTint(Season.SUMMER);
+        expect(atmosphericSystem.getSeasonalWindMultiplier()).toBeCloseTo(0.7);
+        const summerPeak = Math.max(
+            Math.abs(atmosphericSystem.getWindSway(120, 80, 500)),
+            Math.abs(atmosphericSystem.getWindSway(120, 80, 1400)),
+        );
+
+        atmosphericSystem.applySeasonalTint(Season.WINTER);
+        expect(atmosphericSystem.getSeasonalWindMultiplier()).toBeCloseTo(1.6);
+        const winterPeak = Math.max(
+            Math.abs(atmosphericSystem.getWindSway(120, 80, 500)),
+            Math.abs(atmosphericSystem.getWindSway(120, 80, 1400)),
+        );
+
+        expect(winterPeak).toBeGreaterThan(summerPeak);
     });
 });

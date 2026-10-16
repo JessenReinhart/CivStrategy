@@ -87,3 +87,26 @@ export function scoreBuildSiteTerrain(
   }
   return distancePenalty - terrainBonus;
 }
+
+/**
+ * Orders an AI expansion pool so missing or underrepresented infrastructure
+ * is constructed before duplicating already abundant building types, while
+ * preserving deterministic rotation order as a tie-breaker.
+ */
+export function prioritizeExpansionPool(
+  pool: readonly BuildingType[],
+  existingCounts: Partial<Record<BuildingType, number>>,
+  startOffset: number = 0,
+): BuildingType[] {
+  if (pool.length === 0) return [];
+  const safeOffset = ((startOffset % pool.length) + pool.length) % pool.length;
+  const rotated = pool.map((_, step) => ({
+    type: pool[(safeOffset + step) % pool.length],
+    step,
+  }));
+  rotated.sort((a, b) => {
+    const countDiff = (existingCounts[a.type] ?? 0) - (existingCounts[b.type] ?? 0);
+    return countDiff !== 0 ? countDiff : a.step - b.step;
+  });
+  return rotated.map(entry => entry.type);
+}

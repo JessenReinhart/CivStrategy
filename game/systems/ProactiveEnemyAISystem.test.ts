@@ -20,6 +20,7 @@ import {
   canAffordBuilding,
   generateBuildSearchOffsets,
   isBuildingUnlockedForAI,
+  prioritizeExpansionPool,
   scoreBuildSiteTerrain,
 } from './EnemyAIBuildRules';
 import { ProactiveEnemyAISystem } from './ProactiveEnemyAISystem';
@@ -176,5 +177,19 @@ describe('ProactiveEnemyAISystem build rules', () => {
     const farmValley = scoreBuildSiteTerrain(BuildingType.FARM, 0.45, 48, 0);
     const farmHill = scoreBuildSiteTerrain(BuildingType.FARM, 0.70, 48, 0);
     expect(farmValley).toBeLessThan(farmHill);
+  });
+
+  it('prioritizes missing infrastructure before duplicating existing expansion buildings', () => {
+    const pool = [BuildingType.FARM, BuildingType.LUMBER_CAMP, BuildingType.HOUSE, BuildingType.MARKET];
+    const counts: Partial<Record<BuildingType, number>> = {
+      [BuildingType.FARM]: 2,
+      [BuildingType.HOUSE]: 3,
+      [BuildingType.LUMBER_CAMP]: 1,
+    };
+    const ordered = prioritizeExpansionPool(pool, counts, 0);
+    expect(ordered[0]).toBe(BuildingType.MARKET);
+    expect(ordered[1]).toBe(BuildingType.LUMBER_CAMP);
+    expect(ordered[2]).toBe(BuildingType.FARM);
+    expect(ordered[3]).toBe(BuildingType.HOUSE);
   });
 });

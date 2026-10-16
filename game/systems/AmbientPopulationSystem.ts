@@ -141,6 +141,42 @@ export class AmbientPopulationSystem {
   }
 
   /**
+   * Computes daylight-aware walking speed multiplier and pause bonus by role.
+   * Bright daylight sustains brisk settlement activity; twilight and night
+   * calm walking speed and lengthen social/rest pauses around anchors.
+   */
+  public getDaylightActivityTempo(
+    sunIntensity: number,
+    role: AmbientRole,
+  ): { speedMultiplier: number; pauseBonus: number } {
+    const sun = Math.max(0, Math.min(1, sunIntensity));
+    if (sun >= 0.75) {
+      const dayBoost = role === AmbientRole.MERCHANT || role === AmbientRole.FARMER ? 1.05 : 1.0;
+      return { speedMultiplier: dayBoost, pauseBonus: 0 };
+    }
+    const nightFactor = (0.75 - sun) / 0.75;
+    switch (role) {
+      case AmbientRole.FARMER:
+      case AmbientRole.WORKER:
+        return {
+          speedMultiplier: 1 - nightFactor * 0.32,
+          pauseBonus: nightFactor * 0.18,
+        };
+      case AmbientRole.MERCHANT:
+        return {
+          speedMultiplier: 1 - nightFactor * 0.25,
+          pauseBonus: nightFactor * 0.14,
+        };
+      case AmbientRole.CIVILIAN:
+      default:
+        return {
+          speedMultiplier: 1 - nightFactor * 0.20,
+          pauseBonus: nightFactor * 0.12,
+        };
+    }
+  }
+
+  /**
    * Read-only: current texture frame name for the citizen at the given index.
    * Exported for deterministic testing only.
    */
@@ -287,8 +323,14 @@ export class AmbientPopulationSystem {
         if (distSq < 16 || now >= citizen.retargetAt) {
           this.assignTarget(citizen, now);
         } else if (dtSeconds > 0) {
+          const rawSun = (
+            this.scene as MainScene & { dayNightSystem?: { getState?: () => { sunIntensity: number } } }
+          ).dayNightSystem?.getState?.().sunIntensity;
+          const speedMult = typeof rawSun === 'number'
+            ? this.getDaylightActivityTempo(rawSun, citizen.role).speedMultiplier
+            : 1.0;
           const distance = Math.sqrt(distSq);
-          const step = Math.min(distance, citizen.speed * dtSeconds);
+          const step = Math.min(distance, citizen.speed * speedMult * dtSeconds);
           citizen.x += (dx / distance) * step;
           citizen.y += (dy / distance) * step;
         }
@@ -428,8 +470,14 @@ export class AmbientPopulationSystem {
 
     const config = this.getAnchorConfig(anchor.type);
     const profile = config?.profile;
+    const rawSun = (
+      this.scene as MainScene & { dayNightSystem?: { getState?: () => { sunIntensity: number } } }
+    ).dayNightSystem?.getState?.().sunIntensity;
+    const pauseBonus = typeof rawSun === 'number'
+      ? this.getDaylightActivityTempo(rawSun, citizen.role).pauseBonus
+      : 0;
 
-    if (profile && Math.random() < profile.pauseChance) {
+    if (profile && Math.random() < Math.min(0.85, profile.pauseChance + pauseBonus)) {
       citizen.retargetAt = now + 2000 + Math.random() * 3000;
       citizen.targetX = citizen.x;
       citizen.targetY = citizen.y;

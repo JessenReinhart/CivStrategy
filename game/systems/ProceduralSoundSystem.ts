@@ -202,6 +202,33 @@ export class ProceduralSoundSystem {
     }
 
     /**
+     * Compute zoom-aware spatial acoustic profile (gain, lowpass cutoff, stereo width)
+     * from normalized screen distance [0, 1] and camera zoom level.
+     * Close-up tactical views widen stereo separation and preserve crisp highs;
+     * strategic zoomed-out views soften high-frequency harshness and narrow pan spread.
+     */
+    public computeSpatialAcousticProfile(
+        distanceRatio: number,
+        cameraZoom: number = 1.0,
+    ): { gain: number; filterFreq: number; stereoWidth: number } {
+        const t = Phaser.Math.Clamp(distanceRatio, 0, 1);
+        const safeZoom = Number.isFinite(cameraZoom) && cameraZoom > 0
+            ? Phaser.Math.Clamp(cameraZoom, 0.4, 2.5)
+            : 1.0;
+        const zoomDelta = safeZoom - 1.0;
+        const zoomGainFactor = Phaser.Math.Clamp(1 + zoomDelta * 0.12, 0.85, 1.15);
+        const zoomFilterFactor = Phaser.Math.Clamp(1 + zoomDelta * 0.18, 0.78, 1.25);
+        const stereoWidth = Phaser.Math.Clamp(1 + zoomDelta * 0.22, 0.72, 1.22);
+        const baseGain = 1 - t * 0.85;
+        const baseFilter = 3000 - t * 2600;
+        return {
+            gain: Phaser.Math.Clamp(baseGain * zoomGainFactor, 0.05, 1.15),
+            filterFreq: Math.round(Phaser.Math.Clamp(baseFilter * zoomFilterFactor, 280, 4200)),
+            stereoWidth,
+        };
+    }
+
+    /**
      * Get stereo pan value (-1 = full left, 1 = full right) based on world position.
      */
     private getPan(worldX: number, worldY: number): number {
@@ -209,7 +236,9 @@ export class ProceduralSoundSystem {
         const cam = this.scene.cameras.main;
         const screenX = iso.x - cam.scrollX;
         const screenMid = cam.width / 2;
-        return Phaser.Math.Clamp((screenX - screenMid) / (cam.width * 0.4), -1, 1);
+        const rawPan = (screenX - screenMid) / (cam.width * 0.4);
+        const { stereoWidth } = this.computeSpatialAcousticProfile(0, typeof cam.zoom === 'number' ? cam.zoom : 1.0);
+        return Phaser.Math.Clamp(rawPan * stereoWidth, -1, 1);
     }
 
     /**
@@ -225,9 +254,10 @@ export class ProceduralSoundSystem {
         const dist = Math.sqrt((screenX - centerX) ** 2 + (screenY - centerY) ** 2);
         const maxDist = Math.max(cam.width, cam.height) * 0.6;
         const t = Phaser.Math.Clamp(dist / maxDist, 0, 1);
+        const profile = this.computeSpatialAcousticProfile(t, typeof cam.zoom === 'number' ? cam.zoom : 1.0);
         return {
-            gain: 1 - t * 0.85,
-            filterFreq: 3000 - t * 2600
+            gain: profile.gain,
+            filterFreq: profile.filterFreq
         };
     }
 

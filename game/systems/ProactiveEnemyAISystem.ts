@@ -8,6 +8,7 @@ import {
   canAffordBuilding,
   generateBuildSearchOffsets,
   isBuildingUnlockedForAI,
+  prioritizeExpansionPool,
   scoreBuildSiteTerrain,
 } from './EnemyAIBuildRules';
 
@@ -64,7 +65,8 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
       return;
     }
 
-    this.syncBuildIndex(blueprint.length, age, blueprint);\n    this.tryTownExpansion(age, state.personality ?? 'balanced');
+    this.syncBuildIndex(blueprint.length, age, blueprint);
+    this.tryTownExpansion(age, state.personality ?? 'balanced');
   }
 
   private syncBuildIndex(
@@ -86,9 +88,16 @@ export class ProactiveEnemyAISystem extends EnemyAISystem {
     const pool = this.getExpansionPool(age, personality);
     if (pool.length === 0) return;
 
-    const start = owned.length % pool.length;
-    for (let step = 0; step < pool.length; step++) {
-      const type = pool[(start + step) % pool.length];
+    const existingCounts: Partial<Record<BuildingType, number>> = {};
+    for (const building of owned) {
+      const def = building.getData('def') as BuildingDef | undefined;
+      if (def?.type) {
+        existingCounts[def.type] = (existingCounts[def.type] ?? 0) + 1;
+      }
+    }
+    const orderedPool = prioritizeExpansionPool(pool, existingCounts, owned.length);
+    for (let step = 0; step < orderedPool.length; step++) {
+      const type = orderedPool[step];
       if (!isBuildingUnlockedForAI(type, age)) continue;
       const def = BUILDINGS[type];
       if (!canAffordBuilding(this.resources, def)) continue;

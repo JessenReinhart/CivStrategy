@@ -326,6 +326,20 @@ describe('AmbientPopulationSystem', () => {
       tickUpdate(scene, ambient, 16);
       expect(ambient.getCitizenCount()).toBe(ambient.getDesiredCitizenCount());
     });
+    it('modulates citizen walking tempo and pause bonus across daylight and night', () => {
+      scene = makeMockScene({
+        buildings: [makeBuilding(BuildingType.FARM, 400, 300, 1, 100)],
+      });
+      ambient = new AmbientPopulationSystem(scene);
+
+      const middayFarmer = ambient.getDaylightActivityTempo(0.95, AmbientRole.FARMER);
+      const nightFarmer = ambient.getDaylightActivityTempo(0.05, AmbientRole.FARMER);
+      const nightCivilian = ambient.getDaylightActivityTempo(0.05, AmbientRole.CIVILIAN);
+
+      expect(middayFarmer.speedMultiplier).toBeGreaterThan(nightFarmer.speedMultiplier);
+      expect(middayFarmer.pauseBonus).toBe(0);
+      expect(nightFarmer.pauseBonus).toBeGreaterThan(nightCivilian.pauseBonus);
+    });
   });
 });
 
