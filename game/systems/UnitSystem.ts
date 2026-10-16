@@ -1331,9 +1331,27 @@ if (spatialHash) {
      * render/LOD bucket and can legitimately lag behind an off-screen marching squad.
      * Never let a stale render coordinate become a gameplay projectile origin.
      */
+    private projectToIso(x: number, y: number): { x: number; y: number } {
+        const terrainHeight = this.scene.terrainSystem?.getHeightAt?.(x, y);
+        return Number.isFinite(terrainHeight)
+            ? toIsoElev(x, y, terrainHeight as number)
+            : toIso(x, y);
+    }
+
     private resolveProjectileOrigin(unit: GameUnit, soldier?: SoldierState): { x: number; y: number } {
         if (!soldier || !Number.isFinite(soldier.x) || !Number.isFinite(soldier.y)) {
             return { x: unit.x, y: unit.y };
+        }
+
+        if (soldier.offset && Number.isFinite(soldier.offset.x) && Number.isFinite(soldier.offset.y)) {
+            const angle = (unit.getData?.('formationAngle') as number | undefined) || 0;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            const slotX = unit.x + (soldier.offset.x * cos - soldier.offset.y * sin);
+            const slotY = unit.y + (soldier.offset.x * sin + soldier.offset.y * cos);
+            if (Math.hypot(soldier.x - slotX, soldier.y - slotY) > 16) {
+                return { x: slotX, y: slotY };
+            }
         }
 
         const stats = UNIT_STATS[unit.unitType];
@@ -1480,7 +1498,7 @@ if (spatialHash) {
                         x: lungeX, y: lungeY,
                         duration: 100, yoyo: true,
                         onComplete: () => {
-                            const iso = toIso(unit.x, unit.y);
+                            const iso = this.projectToIso(unit.x, unit.y);
                             visual.setPosition(iso.x, iso.y);
                         }
                     });
@@ -1556,8 +1574,8 @@ if (spatialHash) {
         dmg: number,
         delayMs: number
     ): void {
-        const startIso = toIso(origin.x, origin.y);
-        const endIso = toIso(target.x, target.y);
+        const startIso = this.projectToIso(origin.x, origin.y);
+        const endIso = this.projectToIso(target.x, target.y);
 
         const midX = (startIso.x + endIso.x) / 2;
         const midY = (startIso.y + endIso.y) / 2 - 50;
@@ -1800,8 +1818,8 @@ if (spatialHash) {
         this.fireProjectile(origin, { ...target, takeDamage: () => {} }, 0);
     }
     private fireProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene: Phaser.Scene; takeDamage: (amt: number) => void }, dmg: number): void {
-        const startIso = toIso(origin.x, origin.y);
-        const endIso = toIso(target.x, target.y);
+        const startIso = this.projectToIso(origin.x, origin.y);
+        const endIso = this.projectToIso(target.x, target.y);
 
         const arrow = this.getPooledArrow(startIso.x, startIso.y - 20);
         const emitter = this.getPooledEmitter();
@@ -1988,7 +2006,9 @@ if (spatialHash) {
                 const profile: DamageProfile = (unit.getData('damage') as DamageProfile) || { [DamageType.PIERCE]: 10 };
                 const halfDmgProfile = scaleDamageProfile(profile, 0.5);
 
-                for (const enemy of enemies) {
+                const soldiers = (unit.getData('soldierStates') as SoldierState[] | undefined) ?? [];
+                for (let i = 0; i < enemies.length; i++) {
+                    const enemy = enemies[i];
                     const enemyArmor = (enemy.getData('armor') as ArmorProfile) || {};
                     const finalDmg = computeDamage(halfDmgProfile, enemyArmor);
                     if (enemy.takeDamage) {
@@ -1997,8 +2017,12 @@ if (spatialHash) {
                     // Show damage number
                     this.scene.feedbackSystem.showDamageNumber(enemy.x, enemy.y, Math.round(finalDmg), 'Pierce');
                     // Fire visual arrow
+                    const origin = this.resolveProjectileOrigin(
+                        unit,
+                        soldiers.length > 0 ? soldiers[i % soldiers.length] : undefined,
+                    );
                     this.fireProjectile(
-                        { x: unit.x, y: unit.y },
+                        origin,
                         { x: enemy.x, y: enemy.y, scene: enemy.scene, takeDamage: () => {} },
                         0 // Visual only, damage already applied
                     );

@@ -8,6 +8,7 @@ vi.mock('../MainScene', () => ({ MainScene: class {} }));
 vi.mock('./FormationSystem', () => ({ FormationSystem: class {} }));
 
 import { UnitSystem } from './UnitSystem';
+import { toIsoElev } from '../utils/iso';
 import { EntityFactory } from './EntityFactory';
 import { BUILDING_ARMOR, UNIT_DAMAGE, UNIT_STATS } from '../../constants';
 import { BuildingType, FactionType, FormationType, UnitType } from '../../types';
@@ -134,5 +135,92 @@ describe('ranged projectile origin safety', () => {
         } as unknown as GameUnit;
 
         expect(system.isTargetWithinAttackRange(attacker, target)).toBe(false);
+    });
+
+    it('snaps lagging soldier render positions to the unit live formation slot', () => {
+        const system = makeSystem() as unknown as {
+            resolveProjectileOrigin(
+                unit: GameUnit,
+                soldier: { x: number; y: number; offset: { x: number; y: number } }
+            ): { x: number; y: number };
+        };
+        const attacker = {
+            x: 900,
+            y: 900,
+            scene: {},
+            unitType: UnitType.ARCHER,
+            getData: (key: string) => (key === 'formationAngle' ? 0 : undefined),
+        } as unknown as GameUnit;
+
+        // Soldier render state lags 60px behind its live slot (912, 894)
+        expect(
+            system.resolveProjectileOrigin(attacker, {
+                x: 852,
+                y: 894,
+                offset: { x: 12, y: -6 },
+            })
+        ).toEqual({ x: 912, y: 894 });
+    });
+
+    it('projects projectile start and end coordinates with terrain elevation lift', () => {
+        const spawnedArrows: Array<{ x: number; y: number }> = [];
+        const scene = {
+            add: {
+                graphics: () => ({ setDepth() { return this; } }),
+                rectangle: (x: number, y: number) => {
+                    const rect = {
+                        x,
+                        y,
+                        setPosition(nx: number, ny: number) {
+                            this.x = nx;
+                            this.y = ny;
+                            return this;
+                        },
+                        setVisible() { return this; },
+                        setActive() { return this; },
+                        setDepth() { return this; },
+                        setRotation() { return this; },
+                    };
+                    spawnedArrows.push(rect);
+                    return rect;
+                },
+                particles: () => ({
+                    setPosition() { return this; },
+                    start() { return this; },
+                    stop() { return this; },
+                    setVisible() { return this; },
+                    setDepth() { return this; },
+                }),
+            },
+            terrainSystem: {
+                getHeightAt: (x: number, y: number) => (x === 400 && y === 300 ? 0.65 : 0.45),
+            },
+        } as unknown as MainScene;
+
+        const system = new UnitSystem(scene) as unknown as {
+            scheduleProjectile(
+                origin: { x: number; y: number },
+                target: { x: number; y: number; scene: unknown; takeDamage: (amt: number) => void },
+                dmg: number,
+                delayMs: number
+            ): void;
+            activeStressProjectiles: Array<{ p0x: number; p0y: number; p2x: number; p2y: number }>;
+        };
+
+        system.scheduleProjectile(
+            { x: 400, y: 300 },
+            { x: 520, y: 360, scene, takeDamage: () => {} },
+            5,
+            0
+        );
+
+        const expectedStart = toIsoElev(400, 300, 0.65);
+        const expectedEnd = toIsoElev(520, 360, 0.45);
+        expect(spawnedArrows[0].x).toBeCloseTo(expectedStart.x);
+        expect(spawnedArrows[0].y).toBeCloseTo(expectedStart.y - 20);
+        expect(system.activeStressProjectiles[0].p0x).toBeCloseTo(expectedStart.x);
+        expect(system.activeStressProjectiles[0].p0y).toBeCloseTo(expectedStart.y - 15);
+        expect(system.activeStressProjectiles[0].p2x).toBeCloseTo(expectedEnd.x);
+        expect(system.activeStressProjectiles[0].p2y).toBeCloseTo(expectedEnd.y - 10);
     });
 });
