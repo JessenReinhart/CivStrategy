@@ -117,14 +117,22 @@ try {
 
   async function capturePhase(label, hour) {
     telemetry.phase = `capture-${label}`;
-    await page.evaluate(({ hourValue, gameTime }) => {
+    const baselineRefreshCount = await page.evaluate(({ hourValue, gameTime }) => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const system = scene.dayNightSystem ?? scene.data.get('dayNightSystem');
+      const count = system.getDiagnostics().shadowRefreshCount;
       scene.gameSpeed = 0;
       scene.gameTime = gameTime;
       scene.data.set('acceptanceTargetHour', hourValue);
+      return count;
     }, { hourValue: hour, gameTime: gameTimeForHour(hour) });
 
     await page.waitForTimeout(350);
+    await page.waitForFunction((minRefreshCount) => {
+      const scene = window.__civStrategyGame.scene.getScene('MainScene');
+      const system = scene.dayNightSystem ?? scene.data.get('dayNightSystem');
+      return system.getDiagnostics().shadowRefreshCount > minRefreshCount;
+    }, baselineRefreshCount, { timeout: 10_000 });
     const snapshot = await page.evaluate(() => {
       const scene = window.__civStrategyGame.scene.getScene('MainScene');
       const system = scene.dayNightSystem ?? scene.data.get('dayNightSystem');

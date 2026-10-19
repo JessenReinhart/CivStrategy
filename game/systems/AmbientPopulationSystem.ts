@@ -283,6 +283,11 @@ export class AmbientPopulationSystem {
     const view = cam.worldView;
     const cameraCenterX = view.centerX;
     const cameraCenterY = view.centerY;
+    const rawSun = dtSeconds > 0
+      ? (
+          this.scene as MainScene & { dayNightSystem?: { getState?: () => { sunIntensity: number } } }
+        ).dayNightSystem?.getState?.().sunIntensity
+      : undefined;
 
     for (let i = 0; i < this.desiredCitizenCount; i++) {
       const citizen = this.citizens[i];
@@ -323,9 +328,6 @@ export class AmbientPopulationSystem {
         if (distSq < 16 || now >= citizen.retargetAt) {
           this.assignTarget(citizen, now);
         } else if (dtSeconds > 0) {
-          const rawSun = (
-            this.scene as MainScene & { dayNightSystem?: { getState?: () => { sunIntensity: number } } }
-          ).dayNightSystem?.getState?.().sunIntensity;
           const speedMult = typeof rawSun === 'number'
             ? this.getDaylightActivityTempo(rawSun, citizen.role).speedMultiplier
             : 1.0;

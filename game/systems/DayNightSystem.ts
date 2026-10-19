@@ -138,6 +138,7 @@ export class DayNightSystem {
   private lastStampedUnitProjections = 0;
   private shadowBufferWidth = 2;
   private shadowBufferHeight = 2;
+  private contactShadowSource: HTMLImageElement | HTMLCanvasElement | null = null;
   private destroyed = false;
 
   constructor(scene: MainScene) {
@@ -343,7 +344,12 @@ export class DayNightSystem {
   }
 
   private createContactShadowTexture(): void {
-    if (this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+    if (this.scene.textures.exists(CONTACT_SHADOW_KEY)) {
+      this.contactShadowSource = this.scene.textures
+        .get(CONTACT_SHADOW_KEY)
+        .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+      return;
+    }
 
     const width = 128;
     const height = 64;
@@ -358,6 +364,7 @@ export class DayNightSystem {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     canvas.refresh();
+    this.contactShadowSource = canvas.getSourceImage() as HTMLImageElement | HTMLCanvasElement;
     this.generatedTextureKeys.push(CONTACT_SHADOW_KEY);
   }
 
@@ -596,6 +603,16 @@ export class DayNightSystem {
     state: Readonly<DayNightState>,
   ): void {
     const visuals = this.scene.treeVisuals.getChildren() as Phaser.GameObjects.Image[];
+    const canProjectTrees =
+      state.shadowAlpha > MIN_VISIBLE_SHADOW_ALPHA && state.shadowLength > 0;
+    const projection = canProjectTrees
+      ? calculateShadowProjection({
+          shadowAngleRad: state.shadowAngleRad,
+          shadowLength: state.shadowLength,
+          shadowHeightScale: TREE_SHADOW_HEIGHT_SCALE,
+        })
+      : null;
+
     for (const visual of visuals) {
       this.lastScannedTreeVisuals++;
       if (!visual.active || !visual.visible || visual.alpha <= 0.01) continue;
@@ -614,19 +631,10 @@ export class DayNightSystem {
       );
       this.lastStampedTreeContacts++;
 
-      if (
-        visual.texture.key !== 'tree'
-        || state.shadowAlpha <= MIN_VISIBLE_SHADOW_ALPHA
-        || state.shadowLength <= 0
-      ) {
+      if (!projection || visual.texture.key !== 'tree') {
         continue;
       }
 
-      const projection = calculateShadowProjection({
-        shadowAngleRad: state.shadowAngleRad,
-        shadowLength: state.shadowLength,
-        shadowHeightScale: TREE_SHADOW_HEIGHT_SCALE,
-      });
       this.stampTreeProjection(
         buffer,
         layout,
@@ -656,7 +664,7 @@ export class DayNightSystem {
       y: base.y + projection.directionY * projection.length * 0.68,
     };
 
-    this.fillGradientGroundPolygon(
+    this.fillFlatGroundPolygon(
       buffer,
       layout,
       [
@@ -677,8 +685,6 @@ export class DayNightSystem {
           y: trunkEnd.y - projection.perpendicularY * trunkEndHalfWidth,
         },
       ],
-      base,
-      trunkEnd,
       alpha * 0.78,
     );
 
@@ -827,7 +833,7 @@ export class DayNightSystem {
     const endY = rootY + projection.directionY * projection.length;
     const rootHalfWidth = rootWidth * 0.52;
     const endHalfWidth = rootWidth * 0.34;
-    this.fillGradientGroundPolygon(
+    this.fillFlatGroundPolygon(
       buffer,
       layout,
       [
@@ -848,8 +854,6 @@ export class DayNightSystem {
           y: endY - projection.perpendicularY * endHalfWidth,
         },
       ],
-      { x: rootX, y: rootY },
-      { x: endX, y: endY },
       alpha,
     );
     this.stampProjectedBlob(
@@ -892,7 +896,7 @@ export class DayNightSystem {
       const endOffsetY = projection.perpendicularY * penumbraSpread * side;
       const softEndHalfDx = endHalfDx * 1.16;
       const softEndHalfDy = endHalfDy * 1.16;
-      this.fillGradientGroundPolygon(
+      this.fillFlatGroundPolygon(
         buffer,
         layout,
         [
@@ -907,8 +911,6 @@ export class DayNightSystem {
             y: endCenterY - softEndHalfDy + endOffsetY,
           },
         ],
-        { x: shadowBase.centerX + rootOffsetX, y: shadowBase.centerY + rootOffsetY },
-        { x: endCenterX + endOffsetX, y: endCenterY + endOffsetY },
         alpha * 0.08,
       );
     }
@@ -934,6 +936,31 @@ export class DayNightSystem {
     );
   }
 
+  private fillFlatGroundPolygon(
+    buffer: ShadowBuffer,
+    layout: ShadowBufferLayout,
+    points: readonly ShadowPoint[],
+    alpha: number,
+  ): void {
+    if (alpha <= 0 || points.length < 3) return;
+
+    const ctx = buffer.texture.context;
+    const scale = layout.pixelsPerWorld;
+    const left = layout.left;
+    const top = layout.top;
+    const fillAlpha = Phaser.Math.Clamp(alpha * 0.88, 0, 0.65);
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = `rgba(${SHADOW_RGB}, ${fillAlpha})`;
+    ctx.beginPath();
+    ctx.moveTo((points[0].x - left) * scale, (points[0].y - top) * scale);
+    for (let index = 1; index < points.length; index++) {
+      ctx.lineTo((points[index].x - left) * scale, (points[index].y - top) * scale);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
   private fillGradientGroundPolygon(
     buffer: ShadowBuffer,
     layout: ShadowBufferLayout,
@@ -945,26 +972,24 @@ export class DayNightSystem {
     if (alpha <= 0 || points.length < 3) return;
 
     const ctx = buffer.texture.context;
-    const toBufferX = (worldX: number) => (worldX - layout.left) * layout.pixelsPerWorld;
-    const toBufferY = (worldY: number) => (worldY - layout.top) * layout.pixelsPerWorld;
-    const startX = toBufferX(gradientStart.x);
-    const startY = toBufferY(gradientStart.y);
-    const endX = toBufferX(gradientEnd.x);
-    const endY = toBufferY(gradientEnd.y);
+    const scale = layout.pixelsPerWorld;
+    const left = layout.left;
+    const top = layout.top;
+    const startX = (gradientStart.x - left) * scale;
+    const startY = (gradientStart.y - top) * scale;
+    const endX = (gradientEnd.x - left) * scale;
+    const endY = (gradientEnd.y - top) * scale;
     const rootAlpha = Phaser.Math.Clamp(alpha * 1.45, 0, 0.72);
     const dx = endX - startX;
     const dy = endY - startY;
     const gradientLength2 = dx * dx + dy * dy;
 
-    ctx.save();
     ctx.globalAlpha = 1;
 
     if (gradientLength2 > 0.001) {
       const gradient = ctx.createLinearGradient(startX, startY, endX, endY);
       gradient.addColorStop(0, `rgba(${SHADOW_RGB}, ${rootAlpha})`);
-      gradient.addColorStop(0.22, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.92})`);
-      gradient.addColorStop(0.52, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.68})`);
-      gradient.addColorStop(0.82, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.22})`);
+      gradient.addColorStop(0.55, `rgba(${SHADOW_RGB}, ${rootAlpha * 0.64})`);
       gradient.addColorStop(1, `rgba(${SHADOW_RGB}, 0)`);
       ctx.fillStyle = gradient;
     } else {
@@ -972,13 +997,21 @@ export class DayNightSystem {
     }
 
     ctx.beginPath();
-    ctx.moveTo(toBufferX(points[0].x), toBufferY(points[0].y));
+    ctx.moveTo((points[0].x - left) * scale, (points[0].y - top) * scale);
     for (let index = 1; index < points.length; index++) {
-      ctx.lineTo(toBufferX(points[index].x), toBufferY(points[index].y));
+      ctx.lineTo((points[index].x - left) * scale, (points[index].y - top) * scale);
     }
     ctx.closePath();
     ctx.fill();
-    ctx.restore();
+  }
+
+  private getContactShadowSource(): HTMLImageElement | HTMLCanvasElement | null {
+    if (this.contactShadowSource) return this.contactShadowSource;
+    if (!this.scene.textures.exists(CONTACT_SHADOW_KEY)) return null;
+    this.contactShadowSource = this.scene.textures
+      .get(CONTACT_SHADOW_KEY)
+      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    return this.contactShadowSource;
   }
 
   private stampContact(
@@ -990,25 +1023,19 @@ export class DayNightSystem {
     height: number,
     alpha: number,
   ): void {
-    if (alpha <= 0 || !this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+    if (alpha <= 0) return;
+    const source = this.getContactShadowSource();
+    if (!source) return;
 
-    const source = this.scene.textures
-      .get(CONTACT_SHADOW_KEY)
-      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
     const ctx = buffer.texture.context;
+    const scale = layout.pixelsPerWorld;
+    const drawW = width * scale;
+    const drawH = height * scale;
+    const cx = (worldX - layout.left) * scale;
+    const cy = (worldY - layout.top) * scale;
 
-    ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(
-      (worldX - layout.left) * layout.pixelsPerWorld,
-      (worldY - layout.top) * layout.pixelsPerWorld,
-    );
-    ctx.scale(
-      (width / source.width) * layout.pixelsPerWorld,
-      (height / source.height) * layout.pixelsPerWorld,
-    );
-    ctx.drawImage(source, -source.width * 0.5, -source.height * 0.5);
-    ctx.restore();
+    ctx.drawImage(source, cx - drawW * 0.5, cy - drawH * 0.5, drawW, drawH);
   }
 
   private stampProjectedBlob(
@@ -1021,26 +1048,23 @@ export class DayNightSystem {
     rotation: number,
     alpha: number,
   ): void {
-    if (alpha <= 0 || !this.scene.textures.exists(CONTACT_SHADOW_KEY)) return;
+    if (alpha <= 0) return;
+    const source = this.getContactShadowSource();
+    if (!source) return;
 
-    const source = this.scene.textures
-      .get(CONTACT_SHADOW_KEY)
-      .getSourceImage() as HTMLImageElement | HTMLCanvasElement;
     const ctx = buffer.texture.context;
+    const scale = layout.pixelsPerWorld;
+    const drawW = width * scale;
+    const drawH = height * scale;
+    const cx = (worldX - layout.left) * scale;
+    const cy = (worldY - layout.top) * scale;
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
 
-    ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(
-      (worldX - layout.left) * layout.pixelsPerWorld,
-      (worldY - layout.top) * layout.pixelsPerWorld,
-    );
-    ctx.rotate(rotation);
-    ctx.scale(
-      (width / source.width) * layout.pixelsPerWorld,
-      (height / source.height) * layout.pixelsPerWorld,
-    );
-    ctx.drawImage(source, -source.width * 0.5, -source.height * 0.5);
-    ctx.restore();
+    ctx.setTransform(cos, sin, -sin, cos, cx, cy);
+    ctx.drawImage(source, -drawW * 0.5, -drawH * 0.5, drawW, drawH);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
   }
 
   private contains(layout: ShadowBufferLayout, x: number, y: number): boolean {
@@ -1059,6 +1083,7 @@ export class DayNightSystem {
     this.shadowBuffers[0].image.destroy();
     this.shadowBuffers[1].image.destroy();
     this.ambientOverlay.destroy();
+    this.contactShadowSource = null;
     this.shadowEmitterProfiles.clear();
 
     for (const textureKey of this.generatedTextureKeys) {

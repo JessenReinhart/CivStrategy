@@ -171,6 +171,33 @@ describe('AtmosphericSystem - Tilt-shift effect', () => {
         expect(mockPostFX.addTiltShift).toHaveBeenCalledTimes(2);
     });
 
+    it('removes bloom, vignette, and colorGrade from worldLayer.postFX while removing tiltShift from camera.postFX', () => {
+        const worldPostFX = {
+            addBloom: vi.fn().mockReturnValue({ destroy: vi.fn(), strength: 0.04 }),
+            addVignette: vi.fn().mockReturnValue({ destroy: vi.fn() }),
+            addColorMatrix: vi.fn().mockReturnValue({
+                saturate: vi.fn(),
+                brightness: vi.fn(),
+                multiply: vi.fn(),
+                destroy: vi.fn(),
+            }),
+            remove: vi.fn(),
+        };
+        const cameraPostFX = {
+            addTiltShift: vi.fn().mockReturnValue(mockTiltShift),
+            remove: vi.fn(),
+        };
+        mockScene.worldLayer.postFX = worldPostFX;
+        mockScene.cameras.main.postFX = cameraPostFX;
+
+        const system = new AtmosphericSystem(mockScene);
+        system.setTiltShiftEnabled(true);
+        system.setPostFXEnabled(false);
+
+        expect(worldPostFX.remove).toHaveBeenCalledTimes(3);
+        expect(cameraPostFX.remove).toHaveBeenCalledWith(mockTiltShift);
+    });
+
     it('6. Camera zoom scaling updates blur and radius during update()', () => {
         atmosphericSystem.setTiltShiftEnabled(true);
 

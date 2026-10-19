@@ -205,7 +205,9 @@ export class AtmosphericSystem {
     public setPostFXEnabled(enabled: boolean): void {
         this.postFXEnabled = enabled;
         if (!enabled) {
-            const target = this.scene.cameras.main.postFX;
+            const target = this.scene.worldLayer
+                ? this.scene.worldLayer.postFX
+                : this.scene.cameras.main.postFX;
             if (this.bloomEffect) {
                 target.remove(this.bloomEffect);
                 this.bloomEffect.destroy();
@@ -217,7 +219,7 @@ export class AtmosphericSystem {
                 this.vignetteEffect = null;
             }
             if (this.tiltShiftEffect) {
-                const tiltTarget = this.tiltShiftController ?? target;
+                const tiltTarget = this.tiltShiftController ?? this.scene.cameras?.main?.postFX ?? target;
                 tiltTarget.remove(this.tiltShiftEffect as unknown as Phaser.FX.Controller);
                 this.tiltShiftEffect.destroy();
                 this.tiltShiftEffect = null;
