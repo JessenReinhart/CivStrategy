@@ -360,10 +360,9 @@ if (spatialHash) {
                         const force = (18 - dist) * 0.8 * sepScale;
                         const nx = dx / dist;
                         const ny = dy / dist;
+                        // Apply only to unit's body to prevent double-application when the loop reaches `other`.
                         body.velocity.x += nx * force;
                         body.velocity.y += ny * force;
-                        otherBody.velocity.x -= nx * force;
-                        otherBody.velocity.y -= ny * force;
                     }
                 }
             }
@@ -458,10 +457,11 @@ if (spatialHash) {
         const DEFORMATION_SCALE = 0.15;
         unit.modifiedOffset = { x: forceX * DEFORMATION_SCALE, y: forceY * DEFORMATION_SCALE };
 
-        // 3. Velocity alignment — smooth toward neighbor average (piggybacks on separation interval)
-        // Only apply alignment on frames where separation runs, to avoid extra SpatialHash queries
-        // We check the shared separationFrame counter
-        if (this.separationFrame === 0) {
+        // 3. Velocity alignment — smooth toward neighbor average.
+        // Previously gated on `this.separationFrame === 0`, which starved alignment
+        // to once every 60 frames in large armies (1.6% of frames).
+        // Now runs on a fixed 3-frame throttle independent of army-size separation scaling.
+        if (this.separationFrame % 3 === 0) {
             liquidCombat.applyAlignment(unit);
         }
 
@@ -703,7 +703,15 @@ if (spatialHash) {
         const speed = baseSpeed * multiplier * moveMult;
 
         if (!dir || (dir.x === 0 && dir.y === 0)) {
-            // No flow (on water/blocked or field hole) — stop; never straight-line through water
+            // Destination cell or blocked tile: if close to destination cell but still
+            // a few pixels from the unit's specific formation slot, steer directly to it
+            // if line of sight is clear. Otherwise stop cleanly.
+            if (dist > 8 && !this.scene.pathfinder.isBlocked(unit.flowTarget.x, unit.flowTarget.y)) {
+                const toX = -dx / dist;
+                const toY = -dy / dist;
+                if (body) body.setVelocity(toX * speed * 0.7, toY * speed * 0.7);
+                return;
+            }
             if (body) body.setVelocity(0, 0);
             return;
         }
@@ -988,9 +996,16 @@ if (spatialHash) {
                     fallback = other;
                     fallbackDist = dist;
                 }
-                if (dist < bestDist && (engageCount.get(other) || 0) < MAX_ENGAGE_PER_TARGET) {
+                // Subtract this unit's own targeting from the engagement count so it
+                // never disqualifies its current target, preventing flip-flop oscillation.
+                const selfEngaged = other === unit.target ? 1 : 0;
+                const currentEngagers = (engageCount.get(other) || 0) - selfEngaged;
+                // Hysteresis: prefer the current target by discounting its distance,
+                // so a slightly nearer candidate doesn't steal engagement every scan.
+                const scoredDist = other === unit.target ? dist * 0.78 : dist;
+                if (scoredDist < bestDist && currentEngagers < MAX_ENGAGE_PER_TARGET) {
                     best = other;
-                    bestDist = dist;
+                    bestDist = scoredDist;
                 }
             }
 
@@ -1113,36 +1128,48 @@ if (spatialHash) {
         }
 
         // Attack or chase
+        // Range hysteresis: once ATTACKING, stay engaged up to 125% of nominal range
+        // so separation pushback or tiny target jitter doesn't drop us back to CHASING
+        // every frame (the classic "range dance").
+        const attackRange = unit.state === UnitState.ATTACKING ? range * 1.25 : range;
 
-        if (effectiveDist <= range) {
-            body.setVelocity(0, 0);
+        if (effectiveDist <= attackRange) {
             const wasChasing = unit.state === UnitState.CHASING;
+            const enteringAttack = unit.state !== UnitState.ATTACKING;
             unit.state = UnitState.ATTACKING;
-            unit.path = null;
 
-            // Charge impulse on first contact: give a forward velocity boost
-            if (wasChasing) {
-                const chargeDirX = -dx / rawDist;
-                const chargeDirY = -dy / rawDist;
-                body.velocity.x += chargeDirX * CHARGE_IMPULSE;
-                body.velocity.y += chargeDirY * CHARGE_IMPULSE;
-                // Store charge timer on squad soldiers for visual effect
-                unit.setData('chargeTimer', CHARGE_IMPULSE_DURATION_MS);
-            }
+            // Don't discard the path on entry: keep it so a momentary push outside
+            // range resumes pursuit without a fresh pathfinder round-trip. Clearing it
+            // every frame was forcing fallback moveTo + one-frame re-pathing stalls.
+            if (enteringAttack) {
+                body.setVelocity(0, 0);
 
-            // Track attacker index on target for front-rank lock / flank wrap
-            if (target && target instanceof Phaser.GameObjects.Image) {
-                const attackerCount = (target.getData('attackerCount') as number) || 0;
-                target.setData('attackerCount', attackerCount + 1);
-                unit.setData('attackerIndex', attackerCount); // 0 = first, 1 = second, etc.
-            }
+                // Charge impulse only on the CHASING -> ATTACKING transition, never repeated.
+                if (wasChasing) {
+                    const chargeDirX = -dx / rawDist;
+                    const chargeDirY = -dy / rawDist;
+                    body.velocity.x += chargeDirX * CHARGE_IMPULSE;
+                    body.velocity.y += chargeDirY * CHARGE_IMPULSE;
+                    // Store charge timer on squad soldiers for visual effect
+                    unit.setData('chargeTimer', CHARGE_IMPULSE_DURATION_MS);
+                }
 
-            // Propagate chargeTimer to soldier states for render
-            const soldiers = unit.getData('soldierStates') as SoldierState[];
-            if (soldiers && soldiers.length > 0) {
-                const timer = unit.getData('chargeTimer') as number;
-                for (const s of soldiers) {
-                    s.chargeTimer = timer || 0;
+                // Track attacker index on target for front-rank lock / flank wrap.
+                // Only register once per engagement, not every frame (which leaked
+                // attackerCount to hundreds over a few seconds).
+                if (target && target instanceof Phaser.GameObjects.Image) {
+                    const attackerCount = (target.getData('attackerCount') as number) || 0;
+                    target.setData('attackerCount', attackerCount + 1);
+                    unit.setData('attackerIndex', attackerCount); // 0 = first, 1 = second, etc.
+                }
+
+                // Propagate chargeTimer to soldier states for render
+                const soldiers = unit.getData('soldierStates') as SoldierState[];
+                if (soldiers && soldiers.length > 0) {
+                    const timer = unit.getData('chargeTimer') as number;
+                    for (const s of soldiers) {
+                        s.chargeTimer = timer || 0;
+                    }
                 }
             }
 
@@ -1266,8 +1293,9 @@ if (spatialHash) {
 
         if (unit.pathStep >= unit.path.length) {
             const body = unit.body as Phaser.Physics.Arcade.Body;
-            body.setVelocity(0, 0);
+            if (body) body.setVelocity(0, 0);
             unit.path = null;
+            unit.pathStep = 0;
             if (unit.getData('attackMove') === true) {
                 unit.setData('attackMove', false);
                 unit.state = UnitState.IDLE;
@@ -1275,32 +1303,60 @@ if (spatialHash) {
             return;
         }
 
+        const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
+        const formation = unit.getData('formation') as FormationType || FormationType.BOX;
+        const formationMultiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
+        
+        // Apply terrain-based movement speed modifier
+        const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
+        const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
+        const finalSpeed = baseSpeed * formationMultiplier * terrainModifier * moveMult;
 
-        const nextPoint = unit.path[unit.pathStep];
-        const dx = unit.x - nextPoint.x;
-        const dy = unit.y - nextPoint.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        // Velocity-scaled arrival radius: at high speed a unit covers more than 4px
+        // per frame, so a fixed 4px gate can be overshot every frame and trigger a
+        // 180° turnaround (waypoint ping-pong). Scale by roughly one frame of travel.
+        const arrivalRadius = Math.max(8, finalSpeed * 0.016 * 1.2);
 
-        if (dist < 4) {
+        let nextPoint = unit.path[unit.pathStep];
+        let dx = unit.x - nextPoint.x;
+        let dy = unit.y - nextPoint.y;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Advance past near waypoints, but immediately steer toward the next one
+        // in the same frame so there is no 1-frame stall at every corner.
+        while (dist < arrivalRadius && unit.pathStep < unit.path.length - 1) {
             unit.pathStep++;
-            // Skip duplicate nearby points
-            while (unit.pathStep < unit.path.length) {
-                const p = unit.path[unit.pathStep];
-                const d = Phaser.Math.Distance.Between(unit.x, unit.y, p.x, p.y);
-                if (d > 4) break;
-                unit.pathStep++;
+            nextPoint = unit.path[unit.pathStep];
+            dx = unit.x - nextPoint.x;
+            dy = unit.y - nextPoint.y;
+            dist = Math.sqrt(dx * dx + dy * dy);
+        }
+
+        if (dist < arrivalRadius && unit.pathStep >= unit.path.length - 1) {
+            // Arrived at the final destination.
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            if (body) body.setVelocity(0, 0);
+            unit.path = null;
+            unit.pathStep = 0;
+            if (unit.getData('attackMove') === true) {
+                unit.setData('attackMove', false);
+                unit.state = UnitState.IDLE;
             }
-        } else {
-            const baseSpeed = UNIT_SPEED[unit.unitType as UnitType] || 100;
-            const formation = unit.getData('formation') as FormationType || FormationType.BOX;
-            const formationMultiplier = FORMATION_BONUSES[formation]?.speed || 1.0;
-            
-            // Apply terrain-based movement speed modifier
-            const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
-            const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
-            const finalSpeed = baseSpeed * formationMultiplier * terrainModifier * moveMult;
-            
-            this.scene.physics.moveTo(unit, nextPoint.x, nextPoint.y, finalSpeed);
+            return;
+        }
+
+        if (dist > 0.0001) {
+            // Smooth steering blend toward the next waypoint instead of a hard
+            // `moveTo` velocity overwrite. This preserves separation/pressure forces
+            // and prevents the 3-frame jerk loop where forces fight the path follower.
+            const desiredVx = (-dx / dist) * finalSpeed;
+            const desiredVy = (-dy / dist) * finalSpeed;
+            const body = unit.body as Phaser.Physics.Arcade.Body;
+            if (body) {
+                const agility = 0.3; // blend factor per frame toward desired velocity
+                body.velocity.x = Phaser.Math.Linear(body.velocity.x, desiredVx, agility);
+                body.velocity.y = Phaser.Math.Linear(body.velocity.y, desiredVy, agility);
+            }
         }
 
         // Stale path: mid-chase clear+repath next tick (stay CHASING).
@@ -1490,8 +1546,11 @@ if (spatialHash) {
                     const angle = Phaser.Math.Angle.Between(unit.x, unit.y, target.x, target.y);
                     const ox = visual.x;
                     const oy = visual.y;
-                    const lungeX = ox + Math.cos(angle) * 10;
-                    const lungeY = oy + Math.sin(angle) * 5;
+                    // Project displacement vector to isometric screen space
+                    const cartDx = Math.cos(angle) * 10;
+                    const cartDy = Math.sin(angle) * 10;
+                    const lungeX = ox + (cartDx - cartDy);
+                    const lungeY = oy + (cartDx + cartDy) * 0.5;
 
                     this.scene.tweens.add({
                         targets: visual,
@@ -1753,8 +1812,14 @@ if (spatialHash) {
         const v = visual as unknown as { x: number; y: number };
         const startX = v.x;
         const startY = v.y;
-        const endX = startX + Math.cos(angle) * 10;
-        const endY = startY + Math.sin(angle) * 5;
+        // Lunge in world space, then project onto 2:1 isometric screen space so
+        // soldiers lunge exactly toward the enemy visually (not skewed up to 30° off).
+        const cartDx = Math.cos(angle) * 10;
+        const cartDy = Math.sin(angle) * 10;
+        const isoDx = cartDx - cartDy;
+        const isoDy = (cartDx + cartDy) * 0.5;
+        const endX = startX + isoDx;
+        const endY = startY + isoDy;
 
         this.activeStressLunges.push({
             visual,
@@ -1839,10 +1904,17 @@ if (spatialHash) {
 
         const projectileObj = { t: 0, vec: new Phaser.Math.Vector2() };
 
+        // Dynamic flight duration based on screen-space distance: a nearby target
+        // should be hit in ~200ms, not the same 800ms as a far one. This removes the
+        // jarring "arrow hangs in the air" feel at close range.
+        const flightDist = Phaser.Math.Distance.Between(startIso.x, startIso.y, endIso.x, endIso.y);
+        const ARROW_SPEED_PX_PER_SEC = 420;
+        const flightDuration = Math.max(200, Math.min(900, (flightDist / ARROW_SPEED_PX_PER_SEC) * 1000));
+
         this.scene.tweens.add({
             targets: projectileObj,
             t: 1,
-            duration: 800,
+            duration: flightDuration,
             onUpdate: () => {
                 curve.getPoint(projectileObj.t, projectileObj.vec);
                 arrow.setPosition(projectileObj.vec.x, projectileObj.vec.y);

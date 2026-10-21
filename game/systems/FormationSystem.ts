@@ -6,7 +6,7 @@ export class FormationSystem {
         type: FormationType,
         count: number,
         spacing: number,
-        facingAngleRad?: number,
+        _facingAngleRad?: number,
     ): Phaser.Math.Vector2[] {
         let offsets: Phaser.Math.Vector2[];
 
@@ -29,9 +29,10 @@ export class FormationSystem {
                 break;
         }
 
-        if (facingAngleRad !== undefined && facingAngleRad !== 0) {
-            return this.rotateFormationOffsets(offsets, facingAngleRad);
-        }
+        // FormationSystem offsets are pure canonical local offsets.
+        // We do not apply rotation here even if facingAngleRad is passed, preventing
+        // double-rotation when rendering systems (such as SquadSystem) or movement systems
+        // apply their own rotation. Use rotateFormationOffsets explicitly if a rotated copy is required.
         return offsets;
     }
 

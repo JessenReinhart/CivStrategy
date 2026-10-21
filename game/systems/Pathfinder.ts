@@ -300,12 +300,23 @@ export class Pathfinder {
 
         this.pathsComputed++;
 
-        // Convert grid coords to world coords (center of cell)
+        // Convert grid coords to world coords, preserving exact start/end pixel
+        // positions so formation offsets aren't snapped to cell centers.
+        const waypoints = path.map((p, i) => {
+            if (i === 0) return new Phaser.Math.Vector2(start.x, start.y);
+            if (i === path.length - 1) return new Phaser.Math.Vector2(end.x, end.y);
+            return new Phaser.Math.Vector2(
+                p.gx * CELL + CELL / 2,
+                p.gy * CELL + CELL / 2
+            );
+        });
+
+        // String-pull: remove intermediate waypoints that have a clear line of sight
+        // to eliminate jagged 45°/90° zig-zags across open terrain.
+        const pruned = this.prunePath(waypoints);
+
         const _ms = performance.now() - _pfT0; this.frameStats.pathMs += _ms; this.totals.pathMs += _ms;
-        return path.map(p => new Phaser.Math.Vector2(
-            p.gx * CELL + CELL / 2,
-            p.gy * CELL + CELL / 2
-        ));
+        return pruned;
     }
 
     /**
@@ -511,6 +522,89 @@ export class Pathfinder {
         return path;
     }
 
+    /**
+     * Line of sight check between two world positions using grid DDA (Amanatides-Woo).
+     * Returns true if a straight ray from `from` to `to` does not intersect any blocked cells
+     * and does not cut corners diagonally across blocked cells.
+     */
+    public hasLineOfSight(from: Phaser.Math.Vector2, to: Phaser.Math.Vector2): boolean {
+        let gx = this.gridX(from.x);
+        let gy = this.gridY(from.y);
+        const endGx = this.gridX(to.x);
+        const endGy = this.gridY(to.y);
+
+        if (!this.isValid(gx, gy) || !this.isValid(endGx, endGy)) return false;
+        if (!this.isWalkable(gx, gy) || !this.isWalkable(endGx, endGy)) return false;
+        if (gx === endGx && gy === endGy) return true;
+
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+
+        const stepX = dx > 0 ? 1 : (dx < 0 ? -1 : 0);
+        const stepY = dy > 0 ? 1 : (dy < 0 ? -1 : 0);
+
+        let tMaxX = stepX > 0
+            ? ((gx + 1) * CELL - from.x) / dx
+            : (stepX < 0 ? (gx * CELL - from.x) / dx : Infinity);
+
+        let tMaxY = stepY > 0
+            ? ((gy + 1) * CELL - from.y) / dy
+            : (stepY < 0 ? (gy * CELL - from.y) / dy : Infinity);
+
+        const tDeltaX = stepX !== 0 ? (stepX * CELL) / dx : Infinity;
+        const tDeltaY = stepY !== 0 ? (stepY * CELL) / dy : Infinity;
+
+        while (gx !== endGx || gy !== endGy) {
+            if (Math.abs(tMaxX - tMaxY) < 1e-8) {
+                // Ray crosses corner: ensure both adjacent orthogonal cells are walkable
+                if (!this.isWalkable(gx + stepX, gy) || !this.isWalkable(gx, gy + stepY)) {
+                    return false;
+                }
+                gx += stepX;
+                gy += stepY;
+                tMaxX += tDeltaX;
+                tMaxY += tDeltaY;
+            } else if (tMaxX < tMaxY) {
+                gx += stepX;
+                tMaxX += tDeltaX;
+            } else {
+                gy += stepY;
+                tMaxY += tDeltaY;
+            }
+
+            if (!this.isWalkable(gx, gy)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Greedy string pulling / raycast path pruning:
+     * Shortcuts unnecessary intermediate waypoints when a clear line of sight exists,
+     * smoothing rigid 45°/90° JPS jump turns into direct straight-line corridors.
+     */
+    public prunePath(waypoints: Phaser.Math.Vector2[]): Phaser.Math.Vector2[] {
+        if (waypoints.length <= 2) return waypoints;
+
+        const pruned: Phaser.Math.Vector2[] = [waypoints[0]];
+        let current = 0;
+
+        while (current < waypoints.length - 1) {
+            let furthest = current + 1;
+            for (let test = waypoints.length - 1; test > current; test--) {
+                if (this.hasLineOfSight(waypoints[current], waypoints[test])) {
+                    furthest = test;
+                    break;
+                }
+            }
+            pruned.push(waypoints[furthest]);
+            current = furthest;
+        }
+
+        return pruned;
+    }
+
     // ─── Flow Field Generation ────────────────────────────────────────────
     /**
      * Generate a flow field for mass unit movement.
@@ -616,25 +710,65 @@ export class Pathfinder {
             flowField.targetY = refreshed.targetY;
             flowField.version = refreshed.version;
         }
+
+        // Primary cell check
         const gx = this.gridX(x);
         const gy = this.gridY(y);
         if (!this.isValid(gx, gy)) return null;
-        
-        const idx = this.idx(gx, gy);
-        if (this.isCellBlocked(idx)) return null;
+        const primaryIdx = this.idx(gx, gy);
+        if (this.isCellBlocked(primaryIdx)) return null;
 
-        const dx = flowField.dirX[idx];
-        const dy = flowField.dirY[idx];
+        const primaryDx = flowField.dirX[primaryIdx];
+        const primaryDy = flowField.dirY[primaryIdx];
 
-        // No direction = arrived or unreachable
-        if (dx === 0 && dy === 0) {
+        // Destination cell or unreachable: no interpolation needed
+        if (primaryDx === 0 && primaryDy === 0) {
             return { x: 0, y: 0 };
         }
 
-        // Normalize
-        const len = Math.sqrt(dx * dx + dy * dy);
+        // Bilinear interpolation across the 4 nearest cell centers for smooth
+        // direction transitions instead of 45°/90° snapping at cell boundaries.
+        const fxRaw = x / CELL - 0.5;
+        const fyRaw = y / CELL - 0.5;
+        const gx0 = Math.floor(fxRaw);
+        const gy0 = Math.floor(fyRaw);
+        const fx = fxRaw - gx0;
+        const fy = fyRaw - gy0;
+
+        let bx = 0;
+        let by = 0;
+        let wSum = 0;
+
+        for (let oi = 0; oi <= 1; oi++) {
+            for (let oj = 0; oj <= 1; oj++) {
+                const cx = gx0 + oi;
+                const cy = gy0 + oj;
+                if (!this.isValid(cx, cy)) continue;
+                const ci = this.idx(cx, cy);
+                if (this.isCellBlocked(ci)) continue;
+                const cdx = flowField.dirX[ci];
+                const cdy = flowField.dirY[ci];
+                if (cdx === 0 && cdy === 0) continue; // destination / unreachable
+                const w = (oi === 0 ? 1 - fx : fx) * (oj === 0 ? 1 - fy : fy);
+                bx += cdx * w;
+                by += cdy * w;
+                wSum += w;
+            }
+        }
+
+        // If no valid neighbors contributed, fall back to primary cell direction
+        if (wSum < 0.001) {
+            const len = Math.sqrt(primaryDx * primaryDx + primaryDy * primaryDy);
+            if (len < 0.001) return null;
+            return { x: primaryDx / len, y: primaryDy / len };
+        }
+
+        bx /= wSum;
+        by /= wSum;
+
+        const len = Math.sqrt(bx * bx + by * by);
         if (len < 0.001) return null;
-        return { x: dx / len, y: dy / len };
+        return { x: bx / len, y: by / len };
     }
 
     // ─── Path Request Queue (for async/batched pathfinding) ───────────────

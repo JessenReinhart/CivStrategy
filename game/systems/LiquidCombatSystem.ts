@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { UnitType, GameUnit } from '../../types';
+import { EVENTS } from '../../constants';
 
 /**
  * LiquidCombatSystem — produces the visual illusion of liquid mass melee.
@@ -103,6 +104,12 @@ export class LiquidCombatSystem {
 
     /** Diagnostic: whether liquid combat is active (disabled in peaceful/stress-peaceful). */
     public enabled: boolean = true;
+
+    /** Cooldown duration between CLASH_START event triggers (3.5s). */
+    public static readonly CLASH_COOLDOWN_MS = 3500;
+
+    /** Timestamp of last emitted CLASH_START event. */
+    public lastClashTime = 0;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -272,14 +279,18 @@ export class LiquidCombatSystem {
     private detectContactLines(units: GameUnit[]): void {
         this.contactLines.length = 0;
 
-        // Group military units by (owner, cellKey) → centroid + count + AABB.
+        // Group military units by (owner, cellKey) → centroid + count + velocity + AABB.
         // The AABB (min/max per axis) lets us measure FRONT-TO-FRONT proximity:
         // formation centroids stay 100px+ apart even at full engagement (fronts
         // stop at attack range), so centroid distance never registers contact.
         const formations = new Map<string, {
             owner: number; cx: number; cy: number; count: number; sx: number; sy: number;
+            svx: number; svy: number;
             minX: number; maxX: number; minY: number; maxY: number;
         }>();
+
+        // Overall army centroids per owner for consistent outward lateral flow when momentum is zero.
+        const armyCentroids = new Map<number, { sx: number; sy: number; count: number }>();
 
         for (let i = 0; i < units.length; i++) {
             const unit = units[i];
@@ -297,6 +308,7 @@ export class LiquidCombatSystem {
                 const [cx, cy] = key.split(',').map(Number);
                 f = {
                     owner, cx, cy, count: 0, sx: 0, sy: 0,
+                    svx: 0, svy: 0,
                     minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity,
                 };
                 formations.set(fKey, f);
@@ -304,10 +316,24 @@ export class LiquidCombatSystem {
             f.count++;
             f.sx += unit.x;
             f.sy += unit.y;
+            const body = unit.body as { velocity?: { x: number; y: number } } | null;
+            if (body?.velocity) {
+                f.svx += body.velocity.x;
+                f.svy += body.velocity.y;
+            }
             if (unit.x < f.minX) f.minX = unit.x;
             if (unit.x > f.maxX) f.maxX = unit.x;
             if (unit.y < f.minY) f.minY = unit.y;
             if (unit.y > f.maxY) f.maxY = unit.y;
+
+            let army = armyCentroids.get(owner);
+            if (!army) {
+                army = { sx: 0, sy: 0, count: 0 };
+                armyCentroids.set(owner, army);
+            }
+            army.count++;
+            army.sx += unit.x;
+            army.sy += unit.y;
         }
 
         // For each friendly formation, find nearby enemy formations.
@@ -362,17 +388,66 @@ export class LiquidCombatSystem {
                         }
                     }
 
-                    // Tangent: perpendicular to normal (lateral flow direction).
-                    // Pick the tangent that creates a more natural flow (alternate per cell parity).
-                    const parity = ((friendly.cx + friendly.cy) & 1) === 0 ? 1 : -1;
-                    const tx = -ny * parity;
-                    const ty = nx * parity;
+                    // Continuous tangent direction: perpendicular to normal (lateral flow direction).
+                    // Replace checkerboard cell parity with momentum cross-product or consistent outward flow.
+                    const friendlyVx = friendly.svx / friendly.count;
+                    const friendlyVy = friendly.svy / friendly.count;
+                    const cross = nx * friendlyVy - ny * friendlyVx;
 
-                    // Contact boundary: midpoint of the front gap/overlap where the
-                    // two blobs actually face each other (not the centroid midpoint,
-                    // which sits deep inside each formation at real engagements).
-                    const contactX = (Math.max(friendly.minX, enemy.minX) + Math.min(friendly.maxX, enemy.maxX)) / 2;
-                    const contactY = (Math.max(friendly.minY, enemy.minY) + Math.min(friendly.maxY, enemy.maxY)) / 2;
+                    let tangentSign: number;
+                    if (Math.abs(cross) > 0.01) {
+                        tangentSign = cross >= 0 ? 1 : -1;
+                    } else {
+                        const army = armyCentroids.get(friendly.owner);
+                        if (army && army.count > 0) {
+                            const armyX = army.sx / army.count;
+                            const armyY = army.sy / army.count;
+                            const lateralOffset = -ny * (friendlyX - armyX) + nx * (friendlyY - armyY);
+                            tangentSign = Math.abs(lateralOffset) > 1 ? (lateralOffset >= 0 ? 1 : -1) : 1;
+                        } else {
+                            tangentSign = 1;
+                        }
+                    }
+
+                    const tx = -ny * tangentSign;
+                    const ty = nx * tangentSign;
+
+                    // Contact boundary: midpoint between friendly and enemy bounding boxes.
+                    // Clamped properly between bounding boxes to avoid coordinate inversion on gaps.
+                    let contactX: number;
+                    if (friendly.maxX < enemy.minX) {
+                        contactX = (friendly.maxX + enemy.minX) * 0.5;
+                    } else if (enemy.maxX < friendly.minX) {
+                        contactX = (enemy.maxX + friendly.minX) * 0.5;
+                    } else {
+                        contactX = (Math.max(friendly.minX, enemy.minX) + Math.min(friendly.maxX, enemy.maxX)) * 0.5;
+                    }
+                    contactX = Math.max(Math.min(friendly.minX, enemy.minX), Math.min(Math.max(friendly.maxX, enemy.maxX), contactX));
+
+                    let contactY: number;
+                    if (friendly.maxY < enemy.minY) {
+                        contactY = (friendly.maxY + enemy.minY) * 0.5;
+                    } else if (enemy.maxY < friendly.minY) {
+                        contactY = (enemy.maxY + friendly.minY) * 0.5;
+                    } else {
+                        contactY = (Math.max(friendly.minY, enemy.minY) + Math.min(friendly.maxY, enemy.maxY)) * 0.5;
+                    }
+                    contactY = Math.max(Math.min(friendly.minY, enemy.minY), Math.min(Math.max(friendly.maxY, enemy.maxY), contactY));
+
+                    // Significant engagement triggers MeatGrinder clash event with cooldown
+                    const combinedUnits = friendly.count + enemy.count;
+                    const enemyVx = enemy.svx / enemy.count;
+                    const enemyVy = enemy.svy / enemy.count;
+                    const closingSpeed = (friendlyVx - enemyVx) * nx + (friendlyVy - enemyVy) * ny;
+                    const isSignificant = combinedUnits > 8 || (combinedUnits >= 4 && closingSpeed > 60);
+
+                    if (isSignificant) {
+                        const now = Date.now();
+                        if (now - this.lastClashTime >= LiquidCombatSystem.CLASH_COOLDOWN_MS) {
+                            this.lastClashTime = now;
+                            this.scene.events?.emit(EVENTS.CLASH_START, { x: contactX, y: contactY });
+                        }
+                    }
 
                     this.contactLines.push({
                         x: contactX,
@@ -568,5 +643,6 @@ export class LiquidCombatSystem {
     public destroy(): void {
         this.pressureGrid.clear();
         this.contactLines.length = 0;
+        this.lastClashTime = 0;
     }
 }

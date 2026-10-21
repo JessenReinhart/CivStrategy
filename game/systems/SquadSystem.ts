@@ -40,6 +40,28 @@ const LOD_FACTORS: Record<number, number> = {
     [LOD_DOT]: Infinity,  // Just a dot
 };
 
+// Hysteresis margin (in screen px) applied to LOD thresholds. A squad that just
+// crossed a threshold must move a further 50px before switching back, preventing
+// violent sprite popping when the camera hovers or zooms near a boundary.
+const LOD_HYSTERESIS_PX = 50;
+
+// Per-second exponential-decay rates for frame-rate independent lerping.
+// t = 1 - exp(-lambda * dtSec) reproduces the prior per-frame factors at 60 Hz:
+//   0.15 (moving)      -> lambda 9.7
+//   0.10 (idle/low)    -> lambda 6.3
+//   0.20 (medium/z)    -> lambda 13.3
+// At any refresh rate (30/60/144 Hz) the smoothed approach is identical because
+// the rate is expressed per-second rather than per-frame.
+const SOLDIER_LERP_RATE = 9.7;
+const SOLDIER_LERP_RATE_IDLE = 6.3;
+const SOLDIER_LERP_RATE_MEDIUM = 13.3;
+const SOLDIER_Z_LERP_RATE = 13.3;
+
+// Squad formation-angle turn rate expressed in radians-per-second. The previous
+// hard-coded 0.1-radian step assumed a 60 Hz frame; scaling by dtSec keeps the
+// same effective turn speed at any refresh rate.
+const SQUAD_TURN_RATE = 6.0; // 0.1 rad/frame at 60 Hz => 6.0 rad/s
+
 // UnitType → Phaser texture key (textures loaded in MainScene.load())
 const TEXTURE_KEY_MAP: Record<string, string> = {
     [UnitType.VILLAGER]: 'unit_villager',
@@ -245,7 +267,7 @@ export class SquadSystem {
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) continue;
 
-            const h = this.scene.terrainSystem.getHeightAt(unit.x, unit.y);
+            const h = this.scene.terrainSystem.getHeightInterpolated(unit.x, unit.y);
             const commanderIso = toIsoElev(unit.x, unit.y, h);
             container.setPosition(commanderIso.x, commanderIso.y);
             container.setDepth(commanderIso.y);
@@ -267,7 +289,11 @@ export class SquadSystem {
      * Only handles the expensive work: angle transitions, soldier count,
      * and rendering. Position sync is done in syncPositions() above.
      */
-    public update(_dt: number): void {
+    public update(dt?: number): void {
+        // Frame-rate independent time step: falls back to 60 Hz (16.6ms) when dt
+        // is absent. All lerp factors and turn steps below derive from dtSec so
+        // soldiers move identically at 30, 60, or 144 Hz.
+        const dtSec = (dt || 16.6) / 1000;
         const allUnits = this.scene.units.getChildren();
         const unitCount = allUnits.length;
         if (unitCount === 0) return;
@@ -330,11 +356,40 @@ export class SquadSystem {
             const screenDist = stressMode
                 ? 0
                 : Math.sqrt((unit.x - camCenter.x) ** 2 + (unit.y - camCenter.y) ** 2) / zoom;
-            const lod = stressMode ? LOD_DOT : (
-                screenDist > lodLow ? LOD_DOT :
-                screenDist > lodMed ? LOD_LOW :
-                screenDist > lodFull ? LOD_MEDIUM : LOD_FULL
-            );
+            // LOD with hysteresis: once a squad crosses a threshold it must move
+            // an additional LOD_HYSTERESIS_PX before switching back, preventing
+            // violent sprite-popping when camera hovers near a boundary.
+            const prevLod = stressMode ? undefined : (unit.getData('squadLod') as number | undefined);
+            let lod: number;
+            if (stressMode) {
+                lod = LOD_DOT;
+            } else if (prevLod === undefined) {
+                // First frame: use raw thresholds
+                lod = screenDist > lodLow ? LOD_DOT
+                    : screenDist > lodMed ? LOD_LOW
+                    : screenDist > lodFull ? LOD_MEDIUM : LOD_FULL;
+            } else if (prevLod === LOD_FULL) {
+                lod = screenDist > lodLow + LOD_HYSTERESIS_PX ? LOD_DOT
+                    : screenDist > lodMed + LOD_HYSTERESIS_PX ? LOD_LOW
+                    : screenDist > lodFull + LOD_HYSTERESIS_PX ? LOD_MEDIUM : LOD_FULL;
+            } else if (prevLod === LOD_MEDIUM) {
+                if (screenDist < lodFull - LOD_HYSTERESIS_PX) lod = LOD_FULL;
+                else if (screenDist > lodLow + LOD_HYSTERESIS_PX) lod = LOD_DOT;
+                else if (screenDist > lodMed + LOD_HYSTERESIS_PX) lod = LOD_LOW;
+                else lod = LOD_MEDIUM;
+            } else if (prevLod === LOD_LOW) {
+                if (screenDist < lodFull - LOD_HYSTERESIS_PX) lod = LOD_FULL;
+                else if (screenDist < lodMed - LOD_HYSTERESIS_PX) lod = LOD_MEDIUM;
+                else if (screenDist > lodLow + LOD_HYSTERESIS_PX) lod = LOD_DOT;
+                else lod = LOD_LOW;
+            } else {
+                // LOD_DOT
+                if (screenDist < lodFull - LOD_HYSTERESIS_PX) lod = LOD_FULL;
+                else if (screenDist < lodMed - LOD_HYSTERESIS_PX) lod = LOD_MEDIUM;
+                else if (screenDist < lodLow - LOD_HYSTERESIS_PX) lod = LOD_LOW;
+                else lod = LOD_DOT;
+            }
+            if (!stressMode) unit.setData('squadLod', lod);
 
             const roleIcon = unit.getData('squadRoleIcon') as Phaser.GameObjects.Image | undefined;
             if (roleIcon) {
@@ -351,7 +406,7 @@ export class SquadSystem {
             // Stress terrain is intentionally flat; avoid 5,000 height lookups per frame.
             const commanderIso = stressMode
                 ? { x: unit.x, y: unit.y }
-                : toIsoElev(unit.x, unit.y, this.scene.terrainSystem.getHeightAt(unit.x, unit.y));
+                : toIsoElev(unit.x, unit.y, this.scene.terrainSystem.getHeightInterpolated(unit.x, unit.y));
 
             // LOD_DOT: one bob per squad on dot Blitter (1 draw call for ALL distant squads)
             if (lod === LOD_DOT) {
@@ -384,12 +439,20 @@ export class SquadSystem {
                 let angle = unit.getData('formationAngle') as number || 0;
                 const speed = body ? body.velocity.length() : 0;
                 const isMoving = speed > 10;
+                // Scale rotation step by dtSec to keep turn rate frame-rate independent
+                const rotationStep = SQUAD_TURN_RATE * dtSec;
                 if (isMoving && body) {
-                    angle = Phaser.Math.Angle.RotateTo(angle, body.velocity.angle(), 0.1);
+                    // Isometric screen-space horizontal velocity: screenVx = vx - vy
+                    const screenVx = body.velocity.x - body.velocity.y;
+                    unit.setData('screenVx', screenVx);
+                    angle = Phaser.Math.Angle.RotateTo(angle, body.velocity.angle(), rotationStep);
                     unit.setData('formationAngle', angle);
                 } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
                     const tgt = unit.target as Phaser.GameObjects.Image;
-                    angle = Phaser.Math.Angle.RotateTo(angle, Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y), 0.1);
+                    const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y);
+                    const screenVx = (tgt.x - unit.x) - (tgt.y - unit.y);
+                    unit.setData('screenVx', screenVx);
+                    angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, rotationStep);
                     unit.setData('formationAngle', angle);
                 }
                 const hp = unit.getData('hp') as number;
@@ -402,14 +465,16 @@ export class SquadSystem {
                 const cos = Math.cos(angle);
                 const sin = Math.sin(angle);
                 const step = LOD_FACTORS[LOD_LOW];
+                // Frame-rate independent exponential decay for LOD_LOW soldier positions
+                const tLow = 1.0 - Math.exp(-SOLDIER_LERP_RATE_IDLE * dtSec);
                 for (let j = 0; j < soldiers.length; j += step) {
                     const soldier = soldiers[j];
                     const sdx = soldier.offset.x * cos - soldier.offset.y * sin;
                     const sdy = soldier.offset.x * sin + soldier.offset.y * cos;
-                    soldier.x = Phaser.Math.Linear(soldier.x, unit.x + sdx, 0.1);
-                    soldier.y = Phaser.Math.Linear(soldier.y, unit.y + sdy, 0.1);
+                    soldier.x = Phaser.Math.Linear(soldier.x, unit.x + sdx, tLow);
+                    soldier.y = Phaser.Math.Linear(soldier.y, unit.y + sdy, tLow);
                     soldier.z = 0;
-                    const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
+                    const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightInterpolated(soldier.x, soldier.y));
                     const bob = this.lodRectBlitter.create(isoSoldier.x, isoSoldier.y);
                     if (bob) {
                         bob.tint = color;
@@ -425,14 +490,21 @@ export class SquadSystem {
             let angle = unit.getData('formationAngle') as number || 0;
             const speed = body ? body.velocity.length() : 0;
             const isMoving = speed > 10;
+            // Scale rotation step by dtSec to keep turn rate frame-rate independent
+            const rotationStep = SQUAD_TURN_RATE * dtSec;
             if (isMoving && body) {
+                // Isometric screen-space horizontal velocity: screenVx = vx - vy
+                const screenVx = body.velocity.x - body.velocity.y;
+                unit.setData('screenVx', screenVx);
                 const targetAngle = body.velocity.angle();
-                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, rotationStep);
                 unit.setData('formationAngle', angle);
             } else if ((unit.state === UnitState.ATTACKING || unit.state === UnitState.CHASING) && unit.target) {
                 const tgt = unit.target as Phaser.GameObjects.Image;
                 const targetAngle = Phaser.Math.Angle.Between(unit.x, unit.y, tgt.x, tgt.y);
-                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, 0.1);
+                const screenVx = (tgt.x - unit.x) - (tgt.y - unit.y);
+                unit.setData('screenVx', screenVx);
+                angle = Phaser.Math.Angle.RotateTo(angle, targetAngle, rotationStep);
                 unit.setData('formationAngle', angle);
             }
             const hp = unit.getData('hp') as number;
@@ -444,7 +516,7 @@ export class SquadSystem {
                 else while (soldiers.length < targetCount) soldiers.push({ x: unit.x, y: unit.y, z: 0, offset: { x: (Math.random() - 0.5) * 10, y: (Math.random() - 0.5) * 10 } });
             }
             this.updateSoldierModes(unit);
-            this.renderSquad(unit, soldiers, angle, isMoving, lod, commanderIso);
+            this.renderSquad(unit, soldiers, angle, isMoving, lod, commanderIso, dtSec);
         }
 
         // Blitters render at entity depth layer
@@ -507,7 +579,8 @@ export class SquadSystem {
         angle: number,
         isMoving: boolean,
         lod: number,
-        commanderIso: { x: number; y: number }
+        commanderIso: { x: number; y: number },
+        dtSec: number = 0.0166
     ): void {
         const isStress = !!this.scene.stressTestConfig;
 
@@ -620,23 +693,26 @@ export class SquadSystem {
             const targetX = unit.x + dx;
             const targetY = unit.y + dy;
 
-            // Reduce lerp iterations for distant squads
-            const lerpSpeed = lod === LOD_MEDIUM ? 0.2 : (isMoving ? 0.15 : 0.1);
+            // Frame-rate independent exponential decay: t = 1.0 - Math.exp(-lambda * dtSec)
+            // Ensures smooth soldier motion at 30, 60, or 144 Hz without frame-rate dependency.
+            const lambda = lod === LOD_MEDIUM ? SOLDIER_LERP_RATE_MEDIUM : (isMoving ? SOLDIER_LERP_RATE : SOLDIER_LERP_RATE_IDLE);
+            const t = 1.0 - Math.exp(-lambda * dtSec);
             const distToTarget = Math.hypot(targetX - soldier.x, targetY - soldier.y);
             if (distToTarget < 0.05 && !isMoving) {
                 // Convergence: snap to exact target so idle soldiers stop shimmering
                 soldier.x = targetX;
                 soldier.y = targetY;
             } else {
-                soldier.x = Phaser.Math.Linear(soldier.x, targetX, lerpSpeed);
-                soldier.y = Phaser.Math.Linear(soldier.y, targetY, lerpSpeed);
+                soldier.x = Phaser.Math.Linear(soldier.x, targetX, t);
+                soldier.y = Phaser.Math.Linear(soldier.y, targetY, t);
             }
 
             // Walking animation (skip for low LOD)
             if (lod === LOD_FULL && isMoving) {
                 soldier.z = Math.abs(Math.sin((this.scene.time.now / 150) + i)) * 3;
             } else if (lod === LOD_FULL) {
-                soldier.z = Phaser.Math.Linear(soldier.z, 0, 0.2);
+                const zT = 1.0 - Math.exp(-SOLDIER_Z_LERP_RATE * dtSec);
+                soldier.z = Phaser.Math.Linear(soldier.z, 0, zT);
             } else {
                 soldier.z = 0; // No bounce for distant squads
             }
@@ -652,11 +728,26 @@ export class SquadSystem {
             }
 
             // Position sprite relative to container (container is at commanderIso)
-            const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightAt(soldier.x, soldier.y));
+            // Use getHeightInterpolated to eliminate 8-pixel popping at tile elevation boundaries
+            const isoSoldier = toIsoElev(soldier.x, soldier.y, this.scene.terrainSystem.getHeightInterpolated(soldier.x, soldier.y));
             const relX = isoSoldier.x - commanderIso.x;
             const relY = isoSoldier.y - commanderIso.y - soldier.z;
             sprite.setPosition(relX, relY);
-            sprite.setFlipX(Math.cos(angle) < 0);
+            // Isometric screen-space horizontal velocity: screenVx = vx - vy (or screen dir from angle)
+            // In 2:1 isometric diamond projection, screenX = cartX - cartY. Checking screenVx < 0
+            // rather than Cartesian vx < 0 prevents units moonwalking diagonally backwards.
+            const body = unit.body as Phaser.Physics.Arcade.Body | undefined;
+            let isFlipped: boolean;
+            if (body && isMoving && (body.velocity.x !== 0 || body.velocity.y !== 0)) {
+                isFlipped = (body.velocity.x - body.velocity.y) < 0;
+            } else if (unit.getData('screenVx') !== undefined && (unit.getData('screenVx') as number) !== 0) {
+                isFlipped = (unit.getData('screenVx') as number) < 0;
+            } else {
+                // Direction from Cartesian angle projected into isometric screen space
+                const screenDirX = Math.cos(angle) - Math.sin(angle);
+                isFlipped = screenDirX < 0;
+            }
+            sprite.setFlipX(isFlipped);
             // Depth controlled by container depth (set in syncPositions); no per-child setDepth needed
             // Detailed painted sprites must keep their material colors: tinting the whole
             // texture multiplies skin and shadow pixels into near-black. A small owner-

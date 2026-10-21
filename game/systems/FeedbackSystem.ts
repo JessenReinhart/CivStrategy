@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { toIso } from '../utils/iso';
+import { toIsoElev } from '../utils/iso';
 import { EVENTS } from '../../constants';
 
 export interface Notification {
@@ -155,15 +155,25 @@ export class FeedbackSystem {
     // ── Damage feedback ──────────────────────────────────────────────────
 
     showDamageNumber(x: number, y: number, damage: number, damageType?: string): void {
-        const iso = toIso(x, y); const colorMap: Record<string, string> = { Hack: '#ef4444', Pierce: '#f97316', Crush: '#fbbf24' }; const text = this.acquireText(); if (!text) return;
-        text.setText(`-${damage}`).setColor(damageType ? (colorMap[damageType] || '#ef4444') : '#ef4444'); text.setPosition(iso.x + Phaser.Math.Between(-15, 15), iso.y - 30).setOrigin(0.5).setDepth(Number.MAX_VALUE);
+        const h = this.scene.terrainSystem?.getHeightInterpolated(x, y) ?? 0;
+        const iso = toIsoElev(x, y, h);
+        const colorMap: Record<string, string> = { Hack: '#ef4444', Pierce: '#f97316', Crush: '#fbbf24' };
+        const text = this.acquireText();
+        if (!text) return;
+        text.setText(`-${damage}`).setColor(damageType ? (colorMap[damageType] || '#ef4444') : '#ef4444');
+        text.setPosition(iso.x + Phaser.Math.Between(-15, 15), iso.y - 30).setOrigin(0.5).setDepth(Number.MAX_VALUE);
         this.scene.tweens.add({ targets: text, y: iso.y - 80, alpha: 0, duration: 1200, onComplete: () => this.releaseText(text) });
     }
 
     showHitSpark(x: number, y: number, damageType?: string): void {
-        const iso = toIso(x, y); const colorMap: Record<string, number> = { Hack: 0xff4444, Pierce: 0xff8800, Crush: 0xffcc00 }; const color = damageType ? (colorMap[damageType] ?? 0xff4444) : 0xffffff;
+        const h = this.scene.terrainSystem?.getHeightInterpolated(x, y) ?? 0;
+        const iso = toIsoElev(x, y, h);
+        const colorMap: Record<string, number> = { Hack: 0xff4444, Pierce: 0xff8800, Crush: 0xffcc00 };
+        const color = damageType ? (colorMap[damageType] ?? 0xff4444) : 0xffffff;
         for (let i = 0; i < 3; i++) {
-            const spark = this.acquireSpark(); if (!spark) break; spark.setFillStyle(color, 1).setRadius(Phaser.Math.Between(2, 4));
+            const spark = this.acquireSpark();
+            if (!spark) break;
+            spark.setFillStyle(color, 1).setRadius(Phaser.Math.Between(2, 4));
             spark.setPosition(iso.x + Phaser.Math.Between(-8, 8), iso.y + Phaser.Math.Between(-8, 8)).setDepth(Number.MAX_VALUE - 1);
             this.scene.tweens.add({ targets: spark, x: iso.x + Phaser.Math.Between(-20, 20), y: iso.y + Phaser.Math.Between(-30, -10), alpha: 0, scale: 0.1, duration: Phaser.Math.Between(200, 400), onComplete: () => this.releaseSpark(spark) });
         }
@@ -175,7 +185,8 @@ export class FeedbackSystem {
     showHitFlash(x: number, y: number): void {
         const ring = this.acquireDeathFlash();
         if (!ring) return;
-        const iso = toIso(x, y);
+        const h = this.scene.terrainSystem?.getHeightInterpolated(x, y) ?? 0;
+        const iso = toIsoElev(x, y, h);
         ring.setFillStyle(0xffffff, 0.85).setPosition(iso.x, iso.y - 20).setScale(0.45).setAlpha(0.85).setDepth(Number.MAX_VALUE - 1);
         this.scene.tweens.add({ targets: ring, scaleX: 1.6, scaleY: 1.1, alpha: 0, duration: 120, onComplete: () => this.releaseDeathFlash(ring) });
     }
@@ -184,14 +195,20 @@ export class FeedbackSystem {
     // ── Floating text ────────────────────────────────────────────────────
 
     showFloatingText(x: number, y: number, message: string, color: string = '#ffffff'): void {
-        const iso = toIso(x, y); const text = this.acquireFloatingText(); if (!text) return;
-        text.setText(message).setColor(color); text.setPosition(iso.x, iso.y - 50).setOrigin(0.5).setDepth(Number.MAX_VALUE);
+        const h = this.scene.terrainSystem?.getHeightInterpolated(x, y) ?? 0;
+        const iso = toIsoElev(x, y, h);
+        const text = this.acquireFloatingText();
+        if (!text) return;
+        text.setText(message).setColor(color);
+        text.setPosition(iso.x, iso.y - 50).setOrigin(0.5).setDepth(Number.MAX_VALUE);
         this.scene.tweens.add({ targets: text, y: iso.y - 100, alpha: 0, duration: 1500, onComplete: () => this.releaseFloatingText(text) });
     }
     showFloatingResource(x: number, y: number, amount: number, type: string): void { const colorMap: Record<string, string> = { Wood: '#4ade80', Food: '#facc15', Gold: '#fbbf24' }; this.showFloatingText(x, y, `+${amount} ${type}`, colorMap[type] || '#ffffff'); }
 
     showDeathEffect(x: number, y: number, color: number = 0xff4444): void {
-        const iso = toIso(x, y); const ring = this.acquireDeathRing();
+        const h = this.scene.terrainSystem?.getHeightInterpolated(x, y) ?? 0;
+        const iso = toIsoElev(x, y, h);
+        const ring = this.acquireDeathRing();
         if (ring) {
             ring.setFillStyle(color, 0.6).setPosition(iso.x, iso.y).setScale(1, 1).setDepth(Number.MAX_VALUE - 1);
             this.scene.tweens.add({ targets: ring, scaleX: 2.5, scaleY: 1.5, alpha: 0, duration: 500, onComplete: () => this.releaseDeathRing(ring) });
