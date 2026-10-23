@@ -41,11 +41,13 @@ import villagerNorthImg from '../assets/textures/units/villager-north.png';
 import villagerEastImg from '../assets/textures/units/villager-east.png';
 import villagerWestImg from '../assets/textures/units/villager-west.png';
 import civilianAtlasImg from '../assets/textures/generated/civilian-atlas.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, BUILDINGS, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, BUILDINGS, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
 
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
+import { resolveSeed } from './utils/seed';
 import { SpatialHash } from './utils/SpatialHash';
+import { GameStateService } from './runtime/GameStateService';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
 import { EconomySystem } from './systems/EconomySystem';
@@ -83,58 +85,465 @@ export class MainScene extends Phaser.Scene {
 
 
   // Game State
-  public resources: Resources = { ...INITIAL_RESOURCES };
-  public population = 0;
-  public maxPopulation = 10;
-  public happiness = 100;
-  public faction: FactionType = FactionType.ROMANS;
-  public enemyFaction: FactionType = FactionType.GAULS; // Default Fallback
-  public mapMode: MapMode = MapMode.FIXED;
-  public mapWidth: number = 2048;
-  public mapHeight: number = 2048;
-  public taxRate: number = 0;
-  public bloomIntensity: number = 1.0;
-  public isFowEnabled: boolean = true;
+  public gameState!: GameStateService;
+  // Phase 8 (A1): resources are owned by GameStateService. The accessor keeps
+  // the legacy `scene.resources` read/write API; `_resources` is only the
+  // bootstrap seed used before `create()` builds the service.
+  private _resources: Resources = { ...INITIAL_RESOURCES };
+  public get resources(): Resources {
+    return this.gameState ? this.gameState.getResources() : this._resources;
+  }
+  public set resources(value: Resources) {
+    if (this.gameState) {
+      this.gameState.setResources(value);
+    } else {
+      this._resources = { ...value };
+    }
+  }
+  // Phase 8 (A3): population migrated into GameStateService (lenient clamp to 0
+  // so kill/release/death decrements can never produce a negative count).
+  private _population = 0;
+  public get population(): number {
+    return this._population;
+  }
+  public set population(value: number) {
+    if (this.gameState) {
+      this.gameState.setPopulationClamped(value);
+      this._population = this.gameState.getSnapshot().population;
+    } else {
+      this._population = Math.max(0, Math.floor(value));
+    }
+  }
+  // Phase 8 (A3): maxPopulation migrated into GameStateService guarded mutators,
+  // keeping the `scene.maxPopulation` read/write API unchanged.
+  private _maxPopulation = 10;
+  public get maxPopulation(): number {
+    return this._maxPopulation;
+  }
+  public set maxPopulation(value: number) {
+    if (this.gameState) {
+      this.gameState.setMaxPopulation(value);
+      this._maxPopulation = this.gameState.getSnapshot().maxPopulation;
+    } else {
+      this._maxPopulation = Math.max(0, Math.floor(value));
+    }
+  }
+  // Phase 8 (A3): happiness migrated into GameStateService guarded mutators
+  // (clamp [0,100]) while keeping the `scene.happiness` read/write API.
+  private _happiness = 100;
+  public get happiness(): number {
+    return this._happiness;
+  }
+  public set happiness(value: number) {
+    if (this.gameState) {
+      this.gameState.setHappiness(value);
+      this._happiness = this.gameState.getSnapshot().happiness;
+    } else {
+      this._happiness = Math.max(0, Math.min(100, value));
+    }
+  }
+  // Phase 8 (A3): taxRate is migrated into GameStateService guarded mutators.
+  // The public accessor preserves the existing `scene.taxRate` read/write API
+  // for systems and tests while the authoritative state and clamping live in
+  // the service (a progressive, one-field migration).
+  private _taxRate: number = 0;
+  public get taxRate(): number {
+    return this._taxRate;
+  }
+  public set taxRate(value: number) {
+    if (this.gameState) {
+      this.gameState.setTaxRate(value);
+      this._taxRate = this.gameState.getSnapshot().taxRate;
+    } else {
+      this._taxRate = Math.max(0, Math.min(5, Math.floor(value)));
+    }
+  }
+
+  public get faction(): FactionType {
+    return this._faction;
+  }
+  public set faction(value: FactionType) {
+    if (this.gameState) {
+      this.gameState.setFaction(value);
+      this._faction = this.gameState.getSnapshot().faction;
+    } else {
+      this._faction = value;
+    }
+  }
+  private _faction: FactionType = FactionType.ROMANS;
+
+  public get enemyFaction(): FactionType {
+    return this._enemyFaction;
+  }
+  public set enemyFaction(value: FactionType) {
+    if (this.gameState) {
+      this.gameState.setEnemyFaction(value);
+      this._enemyFaction = this.gameState.getSnapshot().enemyFaction;
+    } else {
+      this._enemyFaction = value;
+    }
+  }
+  private _enemyFaction: FactionType = FactionType.GAULS; // Default Fallback
+
+  public get mapMode(): MapMode {
+    return this._mapMode;
+  }
+  public set mapMode(value: MapMode) {
+    if (this.gameState) {
+      this.gameState.setMapMode(value);
+      this._mapMode = this.gameState.getSnapshot().mapMode;
+    } else {
+      this._mapMode = value;
+    }
+  }
+  private _mapMode: MapMode = MapMode.FIXED;
+
+  public get mapWidth(): number {
+    return this._mapWidth;
+  }
+  public set mapWidth(value: number) {
+    if (this.gameState) {
+      this.gameState.setMapWidth(value);
+      this._mapWidth = this.gameState.getSnapshot().mapWidth;
+    } else {
+      this._mapWidth = value;
+    }
+  }
+  private _mapWidth: number = 2048;
+
+  public get mapHeight(): number {
+    return this._mapHeight;
+  }
+  public set mapHeight(value: number) {
+    if (this.gameState) {
+      this.gameState.setMapHeight(value);
+      this._mapHeight = this.gameState.getSnapshot().mapHeight;
+    } else {
+      this._mapHeight = value;
+    }
+  }
+  private _mapHeight: number = 2048;
+
+  public get bloomIntensity(): number {
+    return this._bloomIntensity;
+  }
+  public set bloomIntensity(value: number) {
+    if (this.gameState) {
+      this.gameState.setBloomIntensity(value);
+      this._bloomIntensity = this.gameState.getSnapshot().bloomIntensity;
+    } else {
+      this._bloomIntensity = value;
+    }
+  }
+  private _bloomIntensity: number = 1.0;
+
+  public get isFowEnabled(): boolean {
+    return this._isFowEnabled;
+  }
+  public set isFowEnabled(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setIsFowEnabled(value);
+      this._isFowEnabled = this.gameState.getSnapshot().isFowEnabled;
+    } else {
+      this._isFowEnabled = value;
+    }
+  }
+  private _isFowEnabled: boolean = true;
 
   // Water animation control (A/B measurement — not a completed FPS fix)
-  public waterAnimationEnabled: boolean = true;
+  public get waterAnimationEnabled(): boolean {
+    return this._waterAnimationEnabled;
+  }
+  public set waterAnimationEnabled(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setWaterAnimationEnabled(value);
+      this._waterAnimationEnabled = this.gameState.getSnapshot().waterAnimationEnabled;
+    } else {
+      this._waterAnimationEnabled = value;
+    }
+  }
+  private _waterAnimationEnabled: boolean = true;
 
   // Age System
-  public currentAge: Age = Age.VILLAGE;
-  public ageProgress: number = 0; // 0–1 during advancement
-  public isAdvancing: boolean = false;
-  public nextAge: Age | null = null;
+  public get currentAge(): Age {
+    return this._currentAge;
+  }
+  public set currentAge(value: Age) {
+    if (this.gameState) {
+      this.gameState.setCurrentAge(value);
+      this._currentAge = this.gameState.getSnapshot().currentAge;
+    } else {
+      this._currentAge = value;
+    }
+  }
+  private _currentAge: Age = Age.VILLAGE;
+
+  public get ageProgress(): number {
+    return this._ageProgress;
+  }
+  public set ageProgress(value: number) {
+    if (this.gameState) {
+      this.gameState.setAgeProgress(value);
+      this._ageProgress = this.gameState.getSnapshot().ageProgress;
+    } else {
+      this._ageProgress = value;
+    }
+  }
+  private _ageProgress: number = 0; // 0–1 during advancement
+
+  public get isAdvancing(): boolean {
+    return this._isAdvancing;
+  }
+  public set isAdvancing(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setIsAdvancing(value);
+      this._isAdvancing = this.gameState.getSnapshot().isAdvancing;
+    } else {
+      this._isAdvancing = value;
+    }
+  }
+  private _isAdvancing: boolean = false;
+
+  public get nextAge(): Age | null {
+    return this._nextAge;
+  }
+  public set nextAge(value: Age | null) {
+    if (this.gameState) {
+      this.gameState.setNextAge(value);
+      this._nextAge = this.gameState.getSnapshot().nextAge;
+    } else {
+      this._nextAge = value;
+    }
+  }
+  private _nextAge: Age | null = null;
 
   // Win/Lose Conditions
-  public gameResult: GameResult = GameResult.PLAYING;
+  public get gameResult(): GameResult {
+    return this._gameResult;
+  }
+  public set gameResult(value: GameResult) {
+    if (this.gameState) {
+      this.gameState.setGameResult(value);
+      this._gameResult = this.gameState.getSnapshot().gameResult;
+    } else {
+      this._gameResult = value;
+    }
+  }
+  private _gameResult: GameResult = GameResult.PLAYING;
+
   private lastWinLoseCheckTime: number = 0;
-  public dominanceProgress: number = 0; // 0 to DOMINANCE_HOLD_TIME_MS, how long player has held ≥60%
-  public playerTerritoryPercent: number = 0; // Current % controlled (0–1)
-  public victoryType: VictoryType = VictoryType.CONQUEST;
+
+  public get dominanceProgress(): number {
+    return this._dominanceProgress;
+  }
+  public set dominanceProgress(value: number) {
+    if (this.gameState) {
+      this.gameState.setDominanceProgress(value);
+      this._dominanceProgress = this.gameState.getSnapshot().dominanceProgress;
+    } else {
+      this._dominanceProgress = value;
+    }
+  }
+  private _dominanceProgress: number = 0; // 0 to DOMINANCE_HOLD_TIME_MS, how long player has held ≥60%
+
+  public get playerTerritoryPercent(): number {
+    return this._playerTerritoryPercent;
+  }
+  public set playerTerritoryPercent(value: number) {
+    if (this.gameState) {
+      this.gameState.setPlayerTerritoryPercent(value);
+      this._playerTerritoryPercent = this.gameState.getSnapshot().playerTerritoryPercent;
+    } else {
+      this._playerTerritoryPercent = value;
+    }
+  }
+  private _playerTerritoryPercent: number = 0; // Current % controlled (0–1)
+
+  public get victoryType(): VictoryType {
+    return this._victoryType;
+  }
+  public set victoryType(value: VictoryType) {
+    if (this.gameState) {
+      this.gameState.setVictoryType(value);
+      this._victoryType = this.gameState.getSnapshot().victoryType;
+    } else {
+      this._victoryType = value;
+    }
+  }
+  private _victoryType: VictoryType = VictoryType.CONQUEST;
 
   // Diplomacy
-  public peacefulMode: boolean = false;
-  public treatyLength: number = 0; // ms
-  public aiDisabled: boolean = false;
+  public get peacefulMode(): boolean {
+    return this._peacefulMode;
+  }
+  public set peacefulMode(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setPeacefulMode(value);
+      this._peacefulMode = this.gameState.getSnapshot().peacefulMode;
+    } else {
+      this._peacefulMode = value;
+    }
+  }
+  private _peacefulMode: boolean = false;
+
+  public get treatyLength(): number {
+    return this._treatyLength;
+  }
+  public set treatyLength(value: number) {
+    if (this.gameState) {
+      this.gameState.setTreatyLength(value);
+      this._treatyLength = this.gameState.getSnapshot().treatyLength;
+    } else {
+      this._treatyLength = value;
+    }
+  }
+  private _treatyLength: number = 0; // ms
+
+  public get aiDisabled(): boolean {
+    return this._aiDisabled;
+  }
+  public set aiDisabled(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setAiDisabled(value);
+      this._aiDisabled = this.gameState.getSnapshot().aiDisabled;
+    } else {
+      this._aiDisabled = value;
+    }
+  }
+  private _aiDisabled: boolean = false;
 
   // Map Seed
-  public mapSeed: number = 0;
+  public get mapSeed(): number {
+    return this._mapSeed;
+  }
+  public set mapSeed(value: number) {
+    if (this.gameState) {
+      this.gameState.setMapSeed(value);
+      this._mapSeed = this.gameState.getSnapshot().mapSeed;
+    } else {
+      this._mapSeed = value;
+    }
+  }
+  private _mapSeed: number = 0;
+
   // Map Preset
-  public mapPreset: MapPreset = MapPreset.STANDARD;
+  public get mapPreset(): MapPreset {
+    return this._mapPreset;
+  }
+  public set mapPreset(value: MapPreset) {
+    if (this.gameState) {
+      this.gameState.setMapPreset(value);
+      this._mapPreset = this.gameState.getSnapshot().mapPreset;
+    } else {
+      this._mapPreset = value;
+    }
+  }
+  private _mapPreset: MapPreset = MapPreset.STANDARD;
 
   // Debug
-  public debugMode: boolean = false;
-  public showUnitIndicators: boolean = true;
+  public get debugMode(): boolean {
+    return this._debugMode;
+  }
+  public set debugMode(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setDebugMode(value);
+      this._debugMode = this.gameState.getSnapshot().debugMode;
+    } else {
+      this._debugMode = value;
+    }
+  }
+  private _debugMode: boolean = false;
+
+  public get showUnitIndicators(): boolean {
+    return this._showUnitIndicators;
+  }
+  public set showUnitIndicators(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setShowUnitIndicators(value);
+      this._showUnitIndicators = this.gameState.getSnapshot().showUnitIndicators;
+    } else {
+      this._showUnitIndicators = value;
+    }
+  }
+  private _showUnitIndicators: boolean = true;
+
   private debugText!: Phaser.GameObjects.Text;
 
   // Game Speed & Time
-  public gameSpeed: number = 1;
-  public gameTime: number = 0;
+  public get gameSpeed(): number {
+    return this._gameSpeed;
+  }
+  public set gameSpeed(value: number) {
+    if (this.gameState) {
+      this.gameState.setGameSpeed(value);
+      this._gameSpeed = this.gameState.getSnapshot().gameSpeed;
+    } else {
+      this._gameSpeed = value;
+    }
+  }
+  private _gameSpeed: number = 1;
+
+  public get isPaused(): boolean {
+    return this._isPaused;
+  }
+  public set isPaused(value: boolean) {
+    if (this.gameState) {
+      this.gameState.setIsPaused(value);
+      this._isPaused = this.gameState.getSnapshot().isPaused;
+    } else {
+      this._isPaused = value;
+    }
+  }
+  private _isPaused: boolean = false;
+
+  public get gameTime(): number {
+    return this._gameTime;
+  }
+  public set gameTime(value: number) {
+    if (this.gameState) {
+      this.gameState.setGameTime(value);
+      this._gameTime = this.gameState.getSnapshot().gameTime;
+    } else {
+      this._gameTime = value;
+    }
+  }
+  private _gameTime: number = 0;
+
   // Seasonal Clock
-  public currentSeason: Season = Season.SUMMER;
-  public seasonTimer: number = 0;
+  public get currentSeason(): Season {
+    return this._currentSeason;
+  }
+  public set currentSeason(value: Season) {
+    if (this.gameState) {
+      this.gameState.setCurrentSeason(value);
+      this._currentSeason = this.gameState.getSnapshot().currentSeason;
+    } else {
+      this._currentSeason = value;
+    }
+  }
+  private _currentSeason: Season = Season.SUMMER;
+
+  public get seasonTimer(): number {
+    return this._seasonTimer;
+  }
+  public set seasonTimer(value: number) {
+    if (this.gameState) {
+      this.gameState.setSeasonTimer(value);
+      this._seasonTimer = this.gameState.getSnapshot().seasonTimer;
+    } else {
+      this._seasonTimer = value;
+    }
+  }
+  private _seasonTimer: number = 0;
   private lastAnimalCallTime: number = 0;
-  private minimapClickHandler: ((e: Event) => void) | null = null;
+  public minimapClickHandler: ((e: Event) => void) | null = null;
+  public _preRenderHandler?: () => void;
+  public _postRenderHandler?: () => void;
+  // Phaser's global emitter types callbacks as `Function`/`any`; keep the
+  // tracking tuple tolerant so arbitrary event payload signatures remain valid.
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  private registeredGameEvents: Array<{ event: string | symbol; fn: Function; context?: unknown }> = [];
+  private _isShuttingDown = false;
 
   // Core Groups
   public units!: Phaser.GameObjects.Group;
@@ -214,6 +623,100 @@ export class MainScene extends Phaser.Scene {
 
   public getAmbientCitizenCount(): number {
     return this.ambientSystem?.getCitizenCount() ?? 0;
+  }
+
+  /**
+   * Single source of truth for game speed / pause application.
+   *
+   * POLICY (T1):
+   * - `gameSpeed` is the ONLY simulation multiplier. `update()` computes
+   *   `dt = delta * gameSpeed`, and every advance (economy, AI, units) already
+   *   consumes that `dt`. It stays a normal positive number (0.5–3).
+   * - Pause is an explicit `isPaused` branch, never `gameSpeed = 0`. No code
+   *   path may compute `1 / gameSpeed` for physics.
+   * - `physics.world.timeScale` is clamped at `1/max(gameSpeed, 0.1)`. Arcade
+   *   physics integrates body velocity on the fixed-step clock, so its
+   *   timeScale must be the reciprocal of the sim multiplier to track the
+   *   scaled `dt`; dividing by zero is impossible because of the clamp.
+   * - `tweens.timeScale` equals the sim scale (direct multiplier) so UI tweens
+   *   share the same perceived speed; it drops to 0 while paused.
+   */
+  public setGameSpeed(speed: number): void {
+    this.gameSpeed = Number.isFinite(speed) && speed > 0 ? speed : 1;
+    if (this.isPaused) {
+      this.setPaused(false);
+    } else {
+      this.applyGameSpeedScales();
+    }
+  }
+
+  public setPaused(paused: boolean): void {
+    if (this.isPaused === paused) return;
+    this.isPaused = paused;
+    if (this.physics?.world) {
+      if (paused) {
+        this.physics.world.pause();
+      } else {
+        this.physics.world.resume();
+      }
+    }
+    this.applyGameSpeedScales();
+  }
+
+  public togglePause(): void {
+    this.setPaused(!this.isPaused);
+  }
+
+  public applyGameSpeedScales(): void {
+    // IMPORTANT: physics timeScale is the reciprocal of the sim multiplier and
+    // is clamped so a paused/0-speed world can never produce Infinity/NaN.
+    if (this.physics?.world) {
+      this.physics.world.timeScale = Math.min(10, 1 / Math.max(this.gameSpeed, 0.1));
+    }
+    if (this.tweens) {
+      this.tweens.timeScale = this.isPaused ? 0 : this.gameSpeed;
+    }
+  }
+
+  /**
+   * Tracks a `game.events` registration so shutdown() can remove it and
+   * scene restarts never accumulate duplicate global handlers (A2).
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+  public registerGameEvent(event: string | symbol, fn: Function, context?: unknown): void {
+    this.game?.events?.on(event, fn, context);
+    this.registeredGameEvents.push({ event, fn, context });
+  }
+
+  private clearGameEvents(): void {
+    const events = this.game?.events;
+    if (!events) { this.registeredGameEvents.length = 0; return; }
+    for (const reg of this.registeredGameEvents) {
+      events.off(reg.event, reg.fn, reg.context);
+    }
+    this.registeredGameEvents.length = 0;
+  }
+
+  public shutdown(): void {
+    if (this._isShuttingDown) return;
+    this._isShuttingDown = true;
+
+    this.clearGameEvents();
+
+    if (this.game?.renderer?.off) {
+      if (this._preRenderHandler) this.game.renderer.off('prerender', this._preRenderHandler);
+      if (this._postRenderHandler) this.game.renderer.off('postrender', this._postRenderHandler);
+    }
+    this._preRenderHandler = undefined;
+    this._postRenderHandler = undefined;
+
+    if (this.minimapClickHandler) {
+      window.removeEventListener('minimap-click-ui', this.minimapClickHandler);
+      this.minimapClickHandler = null;
+    }
+
+    this.proceduralSound?.destroy();
+    this.clashSystem?.destroy();
   }
 
   constructor() {
@@ -328,12 +831,19 @@ export class MainScene extends Phaser.Scene {
       this.mapWidth = 2048;
       this.mapHeight = 2048;
     }
-    this.resources = { ...INITIAL_RESOURCES };
+    if (this.gameState) {
+      this.gameState.setResources({ ...INITIAL_RESOURCES });
+    } else {
+      this._resources = { ...INITIAL_RESOURCES };
+    }
     this.population = 0;
     this.maxPopulation = 8;
     this.happiness = 100;
     this.taxRate = 0;
     this.gameSpeed = 0.75;
+    this.isPaused = false;
+    this._isShuttingDown = false;
+    this.registeredGameEvents = [];
     this.aiDisabled = data.aiDisabled === true;
     this.currentAge = Age.VILLAGE;
     this.ageProgress = 0;
@@ -345,15 +855,25 @@ export class MainScene extends Phaser.Scene {
     this.playerTerritoryPercent = 0;
     this.victoryType = VictoryType.CONQUEST;
 
-    // Map seed: 0 = random, any other value = deterministic
-    this.mapSeed = data.mapSeed ?? DEFAULT_MAP_SEED;
-    if (this.mapSeed === 0) this.mapSeed = Math.floor(Math.random() * 999999) + 1;
+    // Map seed: deterministic seed resolution (explicit 0 yields 388816)
+    this.mapSeed = resolveSeed(data.mapSeed);
     // Map preset: terrain style (Standard, Island, Desert, etc.)
     this.mapPreset = data.mapPreset ?? DEFAULT_MAP_PRESET;
+
+    // Phase 8 (A1/A3): canonical state service initialized in init() so both
+    // MainScene and PlayerMainScene (which overrides create()) have an authoritative
+    // service instance before bootstrap and update() run.
+    this.gameState = new GameStateService(this.snapshotGameState(), !import.meta.env?.PROD);
   }
 
   create() {
     this.game.canvas.oncontextmenu = (e) => e.preventDefault();
+
+    // Phase 8 (A1/A3): ensure canonical state service is present if create() is
+    // called directly without init() (e.g. in standalone harness or tests).
+    if (!this.gameState) {
+      this.gameState = new GameStateService(this.snapshotGameState(), !import.meta.env?.PROD);
+    }
 
     // Programmatic performance API — agents/evaluate() read this
     if (!window.__perf) {
@@ -766,22 +1286,20 @@ export class MainScene extends Phaser.Scene {
       });
     }
 
-    this.game.events.on('request-unit-spawn', this.handleUnitSpawnRequest, this);
-    this.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
-    this.game.events.on(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
-    this.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
-      this.gameSpeed = speed;
-      this.physics.world.timeScale = 1 / speed;
-      this.tweens.timeScale = speed;
+    this.registerGameEvent('request-unit-spawn', this.handleUnitSpawnRequest, this);
+    this.registerGameEvent(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
+    this.registerGameEvent(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
+    this.registerGameEvent(EVENTS.SET_GAME_SPEED, (speed: number) => {
+      this.setGameSpeed(speed);
     }, this);
 
-    this.game.events.on(EVENTS.SET_BLOOM_INTENSITY, (intensity: number) => {
+    this.registerGameEvent(EVENTS.SET_BLOOM_INTENSITY, (intensity: number) => {
       this.bloomIntensity = intensity;
       this.atmosphericSystem.setBloomIntensity(intensity);
       this.economySystem.updateStats(); // Update React state
     });
 
-    this.physics.world.timeScale = 1 / this.gameSpeed;
+    this.applyGameSpeedScales();
     this.economySystem.updateStats();
 
     if (this.isFowEnabled) { this.fogOfWar = new FogOfWarSystem(this); } else { this.fogOfWar = null; }
@@ -793,47 +1311,36 @@ export class MainScene extends Phaser.Scene {
     };
     window.addEventListener('minimap-click-ui', this.minimapClickHandler);
 
-    this.game.events.on('set-bloom-intensity-ui', (intensity: number) => {
-      this.atmosphericSystem.setBloomIntensity(intensity);
-      this.economySystem.updateStats(); // Update React state
-    });
-
-    this.game.events.on(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
+    this.registerGameEvent(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
       this.atmosphericSystem.setTiltShiftEnabled(enabled);
       this.economySystem.updateStats();
     });
-    this.game.events.on(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
-      this.atmosphericSystem.setTiltShiftBlur(blur);
-      this.economySystem.updateStats();
-    });
-    this.game.events.on('set-tilt-shift-enabled-ui', (enabled: boolean) => {
-      this.atmosphericSystem.setTiltShiftEnabled(enabled);
-      this.economySystem.updateStats();
-    });
-    this.game.events.on('set-tilt-shift-blur-ui', (blur: number) => {
+    this.registerGameEvent(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
       this.atmosphericSystem.setTiltShiftBlur(blur);
       this.economySystem.updateStats();
     });
 
     // Render performance tracking
     if (this.game.renderer && this.game.renderer.on) {
-      this.game.renderer.on('prerender', () => {
+      this._preRenderHandler = () => {
         this._renderStart = performance.now();
-      });
-      this.game.renderer.on('postrender', () => {
+      };
+      this._postRenderHandler = () => {
         const elapsed = performance.now() - (this._renderStart || 0);
         this.profileTimings['__render'] = (this.profileTimings['__render'] || 0) + elapsed;
-      });
+      };
+      this.game.renderer.on('prerender', this._preRenderHandler);
+      this.game.renderer.on('postrender', this._postRenderHandler);
     }
 
-    this.game.events.on('request-set-formation', (type: FormationType) => {
+    this.registerGameEvent('request-set-formation', (type: FormationType) => {
       if (this.unitSystem) {
         this.unitSystem.setFormation(type);
         this.economySystem.updateStats();
       }
     }, this);
 
-    this.game.events.on('request-set-stance', (stance: UnitStance) => {
+    this.registerGameEvent('request-set-stance', (stance: UnitStance) => {
       if (this.unitSystem) {
         this.unitSystem.setStance(stance);
         this.economySystem.updateStats();
@@ -895,11 +1402,11 @@ export class MainScene extends Phaser.Scene {
     }
 
     // Listen for age advancement requests from React UI
-    this.game.events.on(EVENTS.ADVANCE_AGE, () => {
+    this.registerGameEvent(EVENTS.ADVANCE_AGE, () => {
       this.startAgeAdvancement();
     });
     // Listen for research requests from React UI
-    this.game.events.on(EVENTS.START_RESEARCH, (techId: TechId) => {
+    this.registerGameEvent(EVENTS.START_RESEARCH, (techId: TechId) => {
       const def = TECH_DEFS[techId];
       if (def && this.researchManager.tryStart(0, techId, this.currentAge, def.hostBuildingTypes[0])) {
         this.economySystem.updateStats();
@@ -928,7 +1435,7 @@ export class MainScene extends Phaser.Scene {
       this.feedbackSystem.addNotification(`⚔️ Enemy entered ${name}!`, 'warning', 6000);
     });
     // Listen for garrison release requests from React UI
-    this.game.events.on('release-garrison', () => {
+    this.registerGameEvent('release-garrison', () => {
       const selBuilding = this.inputManager.selectedBuilding as Phaser.GameObjects.Image | null;
       if (!selBuilding) return;
       const def = selBuilding.getData('def');
@@ -954,10 +1461,10 @@ export class MainScene extends Phaser.Scene {
     });
 
     // ─── Save/Load event listeners ───────────────────────────────────
-    this.game.events.on('save-game', () => {
+    this.registerGameEvent('save-game', () => {
       this.saveGame();
     });
-    this.game.events.on('load-game', () => {
+    this.registerGameEvent('load-game', () => {
       this.loadGame();
     });
 
@@ -1002,15 +1509,11 @@ export class MainScene extends Phaser.Scene {
     // services adapter can delegate to them.
     this.progressionHost = createMainSceneProgressionBridge(this);
 
-    // Lifecycle teardown: close the AudioContext and detach the clash listener
-    // on scene shutdown so neither leaks across scene restarts (P2a / P3b).
+    // Lifecycle teardown: remove every tracked global handler, close the
+    // AudioContext, detach the clash listener, and drop the minimap window
+    // hook so none of them leak across scene restarts (A2 / P2a / P3b).
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-        this.proceduralSound.destroy();
-        this.clashSystem.destroy();
-        if (this.minimapClickHandler) {
-            window.removeEventListener('minimap-click-ui', this.minimapClickHandler);
-            this.minimapClickHandler = null;
-        }
+      this.shutdown();
     });
   }
 
@@ -1019,8 +1522,8 @@ export class MainScene extends Phaser.Scene {
   private lastTcIndex = -1;
 
   public centerCameraOnTownCenter() {
-    const tcs = this.buildings.getChildren().filter((b: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
-      b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
+    const tcs = this.buildings.getChildren().filter((b) =>
+      b.getData('def') && b.getData('def').type === BuildingType.TOWN_CENTER && b.getData('owner') === 0
     ) as Phaser.GameObjects.Rectangle[];
     if (tcs.length === 0) return;
     this.lastTcIndex = (this.lastTcIndex + 1) % tcs.length;
@@ -1045,7 +1548,7 @@ export class MainScene extends Phaser.Scene {
     // Skip conquest win if AI is disabled or in peaceful mode
     if (!this.aiDisabled && !this.peacefulMode) {
       const aiTC = this.buildings.getChildren().find(
-        (b: any) => b.getData('owner') === 1 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
+        (b) => b.getData('owner') === 1 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0
       );
       if (!aiTC) {
         this.victoryType = VictoryType.CONQUEST;
@@ -1059,7 +1562,7 @@ export class MainScene extends Phaser.Scene {
 
     // LOSE: Player Town Center destroyed
     const playerTC = this.buildings.getChildren().find(
-      (b: any) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0 // eslint-disable-line @typescript-eslint/no-explicit-any
+      (b) => b.getData('owner') === 0 && b.getData('def')?.type === BuildingType.TOWN_CENTER && b.getData('hp') > 0
     );
     if (!playerTC) {
       this.dominanceProgress = 0;
@@ -1243,8 +1746,11 @@ export class MainScene extends Phaser.Scene {
     t0 = this.profileStart('pathfinderBeginFrame');
     this.pathfinder.beginFrame();
     this.profileEnd('pathfinderBeginFrame', t0);
-    const dt = delta * this.gameSpeed;
-    this.gameTime += dt;
+    // Explicit pause branch: when paused, sim dt is zero and gameTime does not advance (T1).
+    const dt = this.isPaused ? 0 : delta * this.gameSpeed;
+    if (!this.isPaused) {
+      this.gameTime += dt;
+    }
     this.dayNightSystem.update(time, this.gameTime);
     // Scroll foam texture with scene time (NOT gameTime) — pause/speed immune
     if (this.waterWaveSprite && this.waterAnimationEnabled) {
@@ -1291,24 +1797,27 @@ export class MainScene extends Phaser.Scene {
     // Simulation pipeline — spatial data → world actors → liquid combat →
     // unit simulation → squad synchronization/simulation. Ordering and the
     // stress-test spatial-hash skip live in the runtime adapter.
-    this.simulationHost?.update(this.gameTime, dt);
+    // Explicit pause branch skips simulation advance without zero-multiplication (T1).
+    if (!this.isPaused) {
+      this.simulationHost?.update(this.gameTime, dt);
 
-    // Skip non-critical systems in stress test mode
-    if (!this.stressTestConfig) {
-      t0 = this.profileStart('buildingManager');
-      this.buildingManager.update();
-      this.profileEnd('buildingManager', t0);
+      // Skip non-critical systems in stress test mode
+      if (!this.stressTestConfig) {
+        t0 = this.profileStart('buildingManager');
+        this.buildingManager.update();
+        this.profileEnd('buildingManager', t0);
 
-      if (!this.aiDisabled && this.gameResult === GameResult.PLAYING) {
-        t0 = this.profileStart('enemyAI');
-        this.enemyAI.update(this.gameTime, dt);
-        this.profileEnd('enemyAI', t0);
+        if (!this.aiDisabled && this.gameResult === GameResult.PLAYING) {
+          t0 = this.profileStart('enemyAI');
+          this.enemyAI.update(this.gameTime, dt);
+          this.profileEnd('enemyAI', t0);
+        }
+
+        // Progression pipeline — 1s economy/research/victory/season/world ticks,
+        // 8s population window, garrison fire, auto-save, and age advancement
+        // progress. Cadence decisions and ordering live in the runtime adapter.
+        this.progressionHost?.update(this.gameTime, dt);
       }
-
-      // Progression pipeline — 1s economy/research/victory/season/world ticks,
-      // 8s population window, garrison fire, auto-save, and age advancement
-      // progress. Cadence decisions and ordering live in the runtime adapter.
-      this.progressionHost?.update(this.gameTime, dt);
     }
 
     // World pipeline — infinite-map streaming → minimap → fog-of-war. Ordering
@@ -1366,8 +1875,9 @@ export class MainScene extends Phaser.Scene {
     const frameTime = performance.now() - frameStart;
     this.profileTimings['_totalFrame'] = (this.profileTimings['_totalFrame'] || 0) + frameTime;
 
-      // Publish performance sample immediately for stress tests (no 30-frame window at 2 FPS)
-      if (this.stressTestConfig || this.profileFrameCount % 30 === 0) {
+    // R31: Sample every 10 frames in stress tests instead of every frame to prevent allocation pollution.
+    const sampleInterval = this.stressTestConfig ? 10 : 30;
+    if (this.profileFrameCount % sampleInterval === 0) {
       const intervalFrames = this.profileFrameCount - this.profileSnapshotFrameCount;
       const n = Math.max(1, intervalFrames);
       const delta = (key: string): number => Math.max(0,
@@ -1375,6 +1885,7 @@ export class MainScene extends Phaser.Scene {
       const avgUpdate = delta('_totalFrame') / n;
       const avgRender = delta('__render') / n;
       const avgFrame = avgUpdate + avgRender;
+      // R32: Filter out all `_`-prefixed metadata entries from system hogs breakdown
       const hogs = Object.entries(this.profileTimings)
         .filter(([key]) => !key.startsWith('_'))
         .map(([name]) => {
@@ -1388,13 +1899,11 @@ export class MainScene extends Phaser.Scene {
       this.profileSnapshot = { ...this.profileTimings };
       this.profileSnapshotFrameCount = this.profileFrameCount;
 
-      // Publish to window.__perf for programmatic/agentic measurement
+      // R29: Report true wall-time FPS from performance.now() deltas
       const snapshot: PerfSnapshot = {
         timestamp: performance.now(),
-        // Use frame time-derived FPS (Phaser's actualFps is a 60-frame rolling window,
-        // still poisoned by ~1 FPS startup frames in stress tests)
-        fps: avgFrame > 0 ? 1000 / avgFrame : 0,
-        frameMs: avgFrame,
+        fps: wallMs > 0 ? 1000 / wallMs : (avgFrame > 0 ? 1000 / avgFrame : 0),
+        frameMs: wallMs > 0 ? wallMs : avgFrame,
         updateMs: avgUpdate,
         renderMs: avgRender,
         wallMs,
@@ -1410,9 +1919,9 @@ export class MainScene extends Phaser.Scene {
       // Also publish via HMR for Vite terminal dashboard
       try {
         import.meta.hot?.send('game:fps', {
-          fps: this.game.loop.actualFps,
+          fps: snapshot.fps,
           units: this.units.getLength(),
-          frameMs: avgFrame,
+          frameMs: snapshot.frameMs,
           updateMs: avgUpdate,
           renderMs: avgRender,
           hogs,
@@ -1432,8 +1941,9 @@ export class MainScene extends Phaser.Scene {
         `[PERF] ${unitCount} units (${visCount} visible) @ ${fps} FPS | ${avgFrame.toFixed(1)}ms/frame ` +
         `(upd ${avgUpdate.toFixed(1)} + ren ${avgRender.toFixed(1)}) over ${n} frames:`,
       ];
+      // R32: Exclude `_`-prefixed metadata from console breakdown
       const sorted = Object.entries(this.profileTimings)
-        .filter(([k]) => k !== '_totalFrame')
+        .filter(([k]) => !k.startsWith('_'))
         .sort(([, a], [, b]) => b - a);
       for (const [label, total] of sorted) {
         const avgMs = total / n;
@@ -1450,6 +1960,55 @@ export class MainScene extends Phaser.Scene {
 
       this.resetProfiling();
     }
+
+    // Phase 8 (A3): dev-mode invariant net — throws with a clear stack if any
+    // canonical scalar is broken before systems migrate into GameStateService.
+    this.assertStateInvariants();
+  }
+
+  /** Copy the current MainScene scalars into a plain snapshot for validation. */
+  private snapshotGameState() {
+    return {
+      resources: { ...this.resources },
+      population: this.population,
+      maxPopulation: this.maxPopulation,
+      happiness: this.happiness,
+      taxRate: this.taxRate,
+      peacefulMode: this.peacefulMode,
+      treatyLength: this.treatyLength,
+      dominanceProgress: this.dominanceProgress,
+      playerTerritoryPercent: this.playerTerritoryPercent,
+      faction: this.faction,
+      enemyFaction: this.enemyFaction,
+      mapMode: this.mapMode,
+      mapWidth: this.mapWidth,
+      mapHeight: this.mapHeight,
+      bloomIntensity: this.bloomIntensity,
+      isFowEnabled: this.isFowEnabled,
+      waterAnimationEnabled: this.waterAnimationEnabled,
+      currentAge: this.currentAge,
+      ageProgress: this.ageProgress,
+      isAdvancing: this.isAdvancing,
+      nextAge: this.nextAge,
+      gameResult: this.gameResult,
+      victoryType: this.victoryType,
+      aiDisabled: this.aiDisabled,
+      mapSeed: this.mapSeed,
+      mapPreset: this.mapPreset,
+      debugMode: this.debugMode,
+      showUnitIndicators: this.showUnitIndicators,
+      gameSpeed: this.gameSpeed,
+      isPaused: this.isPaused,
+      gameTime: this.gameTime,
+      currentSeason: this.currentSeason,
+      seasonTimer: this.seasonTimer,
+    };
+  }
+
+  /** Dev-only; throws on a broken canonical-state invariant (A3). */
+  private assertStateInvariants(): void {
+    if (!this.gameState) return;
+    this.gameState.assertValid(this.snapshotGameState());
   }
 
 
@@ -1583,7 +2142,7 @@ export class MainScene extends Phaser.Scene {
     // Pre-allocate stress DOT bobs ONLY for peaceful stress — combat stress uses full rendering.
     if (peacefulStress) {
       const blitter = this.squadSystem.lodDotBlitter;
-      const stressUnits = this.units.getChildren() as GameUnit[];
+      const stressUnits = this.units.getChildren() as unknown as GameUnit[];
       for (let i = 0; i < stressUnits.length; i++) {
         if (i % STRESS_RENDER_INTERVAL !== 0) continue;
         const unit = stressUnits[i];
@@ -1789,8 +2348,7 @@ export class MainScene extends Phaser.Scene {
         }
       }
 
-      this.resources.food -= cost.food;
-      this.resources.gold -= cost.gold;
+      this.gameState.spendResources({ food: cost.food, gold: cost.gold });
       const spawnX = spawnSource.x + 60;
       const spawnY = spawnSource.y + 60;
 
@@ -1802,7 +2360,7 @@ export class MainScene extends Phaser.Scene {
         const waypoint = spawnSource.getData('waypoint');
         if (waypoint) {
           this.time.delayedCall(500, () => {
-            this.unitSystem.commandMove([unit], new Phaser.Math.Vector2(waypoint.x, waypoint.y));
+            this.unitSystem.commandMove([unit as unknown as Phaser.GameObjects.GameObject], new Phaser.Math.Vector2(waypoint.x, waypoint.y));
           });
         }
       }
@@ -1810,17 +2368,22 @@ export class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Update the unit spatial hash for moving units only.
-   * Called each frame to keep the spatial index current.
-   * Stationary units (velocity near zero) skip the update since their cell hasn't changed.
+   * Update the unit spatial hash only when a unit's cell coordinate changed.
+   * Uses previous world position snapshots instead of velocity, so teleported,
+   * pushed, or formation-repositioned units are never stranded in a stale cell.
    */
   updateUnitSpatialHash() {
     const allUnits = this.units.getChildren();
     for (let i = 0; i < allUnits.length; i++) {
       const u = allUnits[i] as Phaser.GameObjects.Image & { body?: Phaser.Physics.Arcade.Body };
-      // Skip stationary units - their spatial cell hasn't changed
-      if (u.body && u.body.velocity.length() < 1) continue;
-      this.unitSpatialHash.update(u);
+      const lastX = u.getData('_shX') as number | undefined;
+      const lastY = u.getData('_shY') as number | undefined;
+      // First sighting or any movement/teleport → refresh the spatial bucket.
+      if (lastX !== u.x || lastY !== u.y) {
+        u.setData('_shX', u.x);
+        u.setData('_shY', u.y);
+        this.unitSpatialHash.update(u);
+      }
     }
   }
 
@@ -1878,8 +2441,7 @@ export class MainScene extends Phaser.Scene {
         return;
       }
     }
-    this.resources.food -= config.cost.food;
-    this.resources.gold -= config.cost.gold;
+    this.gameState.spendResources({ food: config.cost.food, gold: config.cost.gold });
     this.isAdvancing = true;
     this.nextAge = next;
     this.ageProgress = 0;
