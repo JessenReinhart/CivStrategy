@@ -859,14 +859,21 @@ export class MainScene extends Phaser.Scene {
     this.mapSeed = resolveSeed(data.mapSeed);
     // Map preset: terrain style (Standard, Island, Desert, etc.)
     this.mapPreset = data.mapPreset ?? DEFAULT_MAP_PRESET;
+
+    // Phase 8 (A1/A3): canonical state service initialized in init() so both
+    // MainScene and PlayerMainScene (which overrides create()) have an authoritative
+    // service instance before bootstrap and update() run.
+    this.gameState = new GameStateService(this.snapshotGameState(), !import.meta.env?.PROD);
   }
 
   create() {
     this.game.canvas.oncontextmenu = (e) => e.preventDefault();
 
-    // Phase 8 (A1/A3): canonical state service starts as a dev-time validation
-    // net; systems are migrated into its guarded mutators incrementally.
-    this.gameState = new GameStateService(this.snapshotGameState(), !import.meta.env?.PROD);
+    // Phase 8 (A1/A3): ensure canonical state service is present if create() is
+    // called directly without init() (e.g. in standalone harness or tests).
+    if (!this.gameState) {
+      this.gameState = new GameStateService(this.snapshotGameState(), !import.meta.env?.PROD);
+    }
 
     // Programmatic performance API — agents/evaluate() read this
     if (!window.__perf) {
@@ -2000,6 +2007,7 @@ export class MainScene extends Phaser.Scene {
 
   /** Dev-only; throws on a broken canonical-state invariant (A3). */
   private assertStateInvariants(): void {
+    if (!this.gameState) return;
     this.gameState.assertValid(this.snapshotGameState());
   }
 
