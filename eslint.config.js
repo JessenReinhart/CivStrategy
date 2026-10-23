@@ -5,7 +5,10 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', '.cate', '.codex', '.october'], linterOptions: { reportUnusedDisableDirectives: false } },
+  { ignores: ['dist/**', 'coverage/**', 'artifacts/**', '.cate/**', '.codex/**', '.october/**', '*.log'] },
+  {
+    linterOptions: { reportUnusedDisableDirectives: false },
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],
