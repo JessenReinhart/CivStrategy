@@ -717,7 +717,6 @@ export class MainScene extends Phaser.Scene {
 
     this.proceduralSound?.destroy();
     this.clashSystem?.destroy();
-    this.atmosphericSystem?.destroy();
   }
 
   constructor() {
@@ -1327,14 +1326,14 @@ export class MainScene extends Phaser.Scene {
       this.game.renderer.on('postrender', this._postRenderHandler);
     }
 
-    this.registerGameEvent(EVENTS.REQUEST_SET_FORMATION, (type: FormationType) => {
+    this.registerGameEvent('request-set-formation', (type: FormationType) => {
       if (this.unitSystem) {
         this.unitSystem.setFormation(type);
         this.economySystem.updateStats();
       }
     }, this);
 
-    this.registerGameEvent(EVENTS.REQUEST_SET_STANCE, (stance: UnitStance) => {
+    this.registerGameEvent('request-set-stance', (stance: UnitStance) => {
       if (this.unitSystem) {
         this.unitSystem.setStance(stance);
         this.economySystem.updateStats();
