@@ -115,6 +115,8 @@ export class FormationSystem {
     }
 
     private static getWedgeOffsets(count: number, spacing: number): Phaser.Math.Vector2[] {
+        if (count <= 0) return [];
+
         const offsets: Phaser.Math.Vector2[] = [];
         let currentRow = 0;
         let inRow = 0;
@@ -138,12 +140,12 @@ export class FormationSystem {
             }
         }
 
-        // Recenter logic: Compute centroid
+        // Recenter logic: Compute centroid (guarded against zero count)
         let sumX = 0;
         let sumY = 0;
         offsets.forEach(o => { sumX += o.x; sumY += o.y; });
-        const avgX = sumX / count;
-        const avgY = sumY / count;
+        const avgX = count > 0 ? sumX / count : 0;
+        const avgY = count > 0 ? sumY / count : 0;
 
         return offsets.map(o => new Phaser.Math.Vector2(o.x - avgX, o.y - avgY));
     }

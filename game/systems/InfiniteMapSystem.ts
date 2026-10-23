@@ -1,8 +1,10 @@
 
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { CHUNK_SIZE } from '../../constants';
+import { CHUNK_SIZE, TERRAIN_CONFIG } from '../../constants';
 import { toIso, toCartesian } from '../utils/iso';
+import { chunkSeed } from '../utils/seed';
+import { MapGenerationSystem } from './MapGenerationSystem';
 
 export class InfiniteMapSystem {
     private scene: MainScene;
@@ -43,7 +45,7 @@ export class InfiniteMapSystem {
         const startX = cx * CHUNK_SIZE;
         const startY = cy * CHUNK_SIZE;
 
-        const seed = cx * 1000 + cy;
+        const seed = chunkSeed(this.scene.mapSeed, cx, cy);
         const rng = new Phaser.Math.RandomDataGenerator([seed.toString()]);
 
         const treeCount = rng.between(4, 12);
@@ -51,9 +53,17 @@ export class InfiniteMapSystem {
             const tx = startX + rng.between(20, CHUNK_SIZE - 20);
             const ty = startY + rng.between(20, CHUNK_SIZE - 20);
             // Don't spawn on top of initial spawn area
-            if (Phaser.Math.Distance.Between(tx, ty, 400, 400) > 300) {
-                this.scene.entityFactory.spawnTree(tx, ty);
-            }
+            if (Phaser.Math.Distance.Between(tx, ty, 400, 400) <= 300) continue;
+
+            // Gate tree spawning: skip water and invalid biomes (density 0)
+            const height = this.scene.terrainSystem.getHeightAt(tx, ty);
+            if (height < TERRAIN_CONFIG.WATER_LEVEL) continue;
+
+            const biome = this.scene.terrainSystem.getBiomeAt(tx, ty);
+            const density = MapGenerationSystem.TREE_DENSITY[biome] ?? 0;
+            if (density <= 0 || rng.frac() >= density) continue;
+
+            this.scene.entityFactory.spawnTree(tx, ty);
         }
 
         if (rng.frac() < 0.2) {

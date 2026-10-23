@@ -13,6 +13,22 @@ import {
     TreeDeciduous, Scroll, Menu
 } from 'lucide-react';
 
+// F13: hoisted icon elements so memoized buttons don't receive new ReactNode
+// identities on every render.
+const HUD_ICONS = {
+    regrow: <Sprout size={18} />,
+    demolish: <Trash2 size={18} />,
+    release: <LogOut size={18} />,
+    box: <Grid size={16} />,
+    line: <Minus size={16} />,
+    circle: <Circle size={16} />,
+    skirmish: <Activity size={16} />,
+    wedge: <Triangle size={16} />,
+    aggressive: <Sword size={16} />,
+    defensive: <Shield size={16} />,
+    hold: <Hand size={16} />,
+};
+
 interface GameUIProps {
     stats: GameStats;
     onBuild: (type: BuildingType) => void;
@@ -154,7 +170,8 @@ export const GameUI: React.FC<GameUIProps> = ({
 
     // Tax Handler
     const handleTaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = parseInt(e.target.value);
+        const parsed = parseInt(e.target.value, 10);
+        const val = Number.isNaN(parsed) ? 0 : Math.max(0, Math.min(4, parsed));
         const event = new CustomEvent('set-tax-rate-ui', { detail: val });
         window.dispatchEvent(event);
     };
@@ -315,7 +332,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                     {/* Season */}
                     <div className="flex items-center gap-1.5 text-xs" title="Season">
                         <TreeDeciduous size={15} className="text-[#e99e65]" />
-                        <span className="text-[9px] uppercase font-semibold tracking-wider text-[#8d8d8b]">
+                        <span className="text-[10px] uppercase font-semibold tracking-wider text-[#8d8d8b]">
                             {stats.currentSeason}
                         </span>
                     </div>
@@ -546,7 +563,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                     {/* Map Controls Overlay */}
                     <div className="absolute bottom-4 right-0 left-0 flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
-                        <div className="bg-black/80 px-2 py-0.5 rounded-full text-[9px] text-stone-400 font-bold border border-white/10">
+                        <div className="bg-black/80 px-2 py-0.5 rounded-full text-[10px] text-stone-400 font-bold border border-white/10">
                             {stats.mapMode === MapMode.FIXED ? 'FIXED' : 'INFINITE'}
                         </div>
                     </div>
@@ -639,11 +656,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                         <span className="text-xs font-bold text-stone-200 uppercase tracking-wider">{type}</span>
                                                         {(() => {
                                                             const tag = getDamageTag(type as UnitType);
-                                                            return tag ? <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${tag.color}`}>{tag.label}</span> : null;
+                                                            return tag ? <span className={`text-[10px] font-mono px-1 py-0.5 rounded border ${tag.color}`}>{tag.label}</span> : null;
                                                         })()}
                                                         {(() => {
                                                             const hp = UNIT_STATS[type as UnitType]?.maxHp;
-                                                            return hp ? <span className="text-[9px] font-mono text-stone-400">HP:{hp}</span> : null;
+                                                            return hp ? <span className="text-[10px] font-mono text-stone-400">HP:{hp}</span> : null;
                                                         })()}
                                                         <span className="text-xs font-mono text-stone-400 ml-auto bg-black/40 px-1.5 rounded">{count}</span>
                                                     </button>
@@ -660,7 +677,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                             <div className="flex items-center gap-2 px-2 border-l border-white/10">
                                 {/* Building Actions */}
                                 {isPlayerBuildingSelected && selectedBuildingType === BuildingType.LUMBER_CAMP && (
-                                    <ActionButton onClick={onRegrowForest} icon={<Sprout size={18} />} label="Regrow" color="text-emerald-400" />
+                                    <ActionButton onClick={onRegrowForest} icon={HUD_ICONS.regrow} label="Regrow" color="text-emerald-400" />
                                 )}
 
                                 {/* Barracks Actions */}
@@ -707,7 +724,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             cost={{ food: 120, gold: 60 }}
                                             stats={stats}
                                             onClick={() => onSpawnUnit(UnitType.AXEMAN)}
-                                            icon={<Triangle size={16} />}
+                                            icon={HUD_ICONS.wedge}
                                           />
                                         )}
                                         {AGE_CONFIGS[stats.currentAge].unlocksUnits.includes(UnitType.HOPLITE) && (
@@ -756,7 +773,7 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                                 {/* Demolish Action (Only for player buildings) */}
                                 {isPlayerBuildingSelected && selectedBuildingType && (
-                                    <ActionButton onClick={onDemolishSelected} icon={<Trash2 size={18} />} label="Demolish" color="text-red-400" />
+                                    <ActionButton onClick={onDemolishSelected} icon={HUD_ICONS.demolish} label="Demolish" color="text-red-400" />
                                 )}
 
                                 {/* No Actions Placeholder */}
@@ -764,17 +781,17 @@ export const GameUI: React.FC<GameUIProps> = ({
                                     <div className="flex flex-col gap-1 items-end">
                                         {/* FORMATION CONTROLS */}
                                         <div className="flex gap-1 bg-black/40 p-1 rounded-lg">
-                                            <FormationButton type={FormationType.BOX} current={stats.currentFormation} icon={<Grid size={16} />} />
-                                            <FormationButton type={FormationType.LINE} current={stats.currentFormation} icon={<Minus size={16} />} />
-                                            <FormationButton type={FormationType.CIRCLE} current={stats.currentFormation} icon={<Circle size={16} />} />
-                                            <FormationButton type={FormationType.SKIRMISH} current={stats.currentFormation} icon={<Activity size={16} />} />
-                                            <FormationButton type={FormationType.WEDGE} current={stats.currentFormation} icon={<Triangle size={16} />} />
+                                            <FormationButton type={FormationType.BOX} current={stats.currentFormation} icon={HUD_ICONS.box} />
+                                            <FormationButton type={FormationType.LINE} current={stats.currentFormation} icon={HUD_ICONS.line} />
+                                            <FormationButton type={FormationType.CIRCLE} current={stats.currentFormation} icon={HUD_ICONS.circle} />
+                                            <FormationButton type={FormationType.SKIRMISH} current={stats.currentFormation} icon={HUD_ICONS.skirmish} />
+                                            <FormationButton type={FormationType.WEDGE} current={stats.currentFormation} icon={HUD_ICONS.wedge} />
                                         </div>
                                         {/* STANCE CONTROLS */}
                                         <div className="flex gap-1 bg-black/40 p-1 rounded-lg mt-1">
-                                            <StanceButton type={UnitStance.AGGRESSIVE} current={stats.currentStance} icon={<Sword size={16} />} />
-                                            <StanceButton type={UnitStance.DEFENSIVE} current={stats.currentStance} icon={<Shield size={16} />} />
-                                            <StanceButton type={UnitStance.HOLD} current={stats.currentStance} icon={<Hand size={16} />} />
+                                            <StanceButton type={UnitStance.AGGRESSIVE} current={stats.currentStance} icon={HUD_ICONS.aggressive} />
+                                            <StanceButton type={UnitStance.DEFENSIVE} current={stats.currentStance} icon={HUD_ICONS.defensive} />
+                                            <StanceButton type={UnitStance.HOLD} current={stats.currentStance} icon={HUD_ICONS.hold} />
                                         </div>
                                         {/* ABILITY CONTROLS */}
                                         {selectedCounts && Object.keys(selectedCounts).some(type => UNIT_ABILITIES[type as UnitType]) && (
@@ -816,7 +833,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                                             </span>
                                         </div>
                                         {(stats.selectedBuildingInfo?.garrisonCount ?? 0) > 0 && onReleaseGarrison && (
-                                            <ActionButton onClick={onReleaseGarrison} icon={<LogOut size={18} />} label="Release" color="text-emerald-400" />
+                                            <ActionButton onClick={onReleaseGarrison} icon={HUD_ICONS.release} label="Release" color="text-emerald-400" />
                                         )}
                                         <div className="text-[10px] text-stone-500 font-bold px-2 uppercase tracking-wide max-w-[100px] leading-tight">
                                             Right Click with units to garrison
@@ -978,13 +995,24 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                 const { def, status } = t;
                                                                 const isActive = status === 'researching';
                                                                 return (
-                                                                    <div
+                                                                    <button
+                                                                        type="button"
                                                                         key={def.id}
-                                                                        className={`rounded-lg border p-2 transition-all ${borderC(status)} ${bgC(status)} ${cur(status)} ${isActive ? 'ring-1 ring-blue-500/50' : ''}`}
+                                                                        role="button"
+                                                                        tabIndex={0}
+                                                                        aria-label={`${def.name}: ${status}`}
+                                                                        title={status === 'available' ? `${def.name} — click to research` : `Locked — requires ${def.prereqs.map(p => TECH_DEFS[p]?.name).join(', ') || 'prerequisites'}`}
+                                                                        disabled={status !== 'available'}
+                                                                        className={`w-full rounded-lg border p-2 transition-all text-left ${borderC(status)} ${bgC(status)} ${cur(status)} ${isActive ? 'ring-1 ring-blue-500/50' : ''} disabled:opacity-80 disabled:cursor-not-allowed`}
                                                                         style={{ minHeight: BH, maxHeight: BH, overflow: 'hidden' }}
                                                                         onClick={() => {
                                                                             if (status === 'available') {
                                                                                 window.dispatchEvent(new CustomEvent('request-start-research', { detail: def.id }));
+                                                                            }
+                                                                        }}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                                e.preventDefault();
                                                                             }
                                                                         }}
                                                                     >
@@ -992,11 +1020,11 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                             {status === 'complete' ? <Check size={11} className="text-emerald-400 shrink-0" /> : <BookOpen size={11} className={isActive ? 'text-blue-400 shrink-0' : 'text-stone-500 shrink-0'} />}
                                                                             <span className={`text-[11px] font-bold truncate ${nameC(status)}`}>{def.name}</span>
                                                                         </div>
-                                                                        <div className={`text-[9px] mb-1.5 line-clamp-2 ${descC(status)}`}>{def.description}</div>
+                                                                        <div className={`text-[10px] mb-1.5 line-clamp-2 ${descC(status)}`}>{def.description}</div>
                                                                         {status !== 'complete' && !isActive && (
                                                                             <div className="flex items-center gap-1.5 flex-wrap">
-                                                                                {def.cost.food > 0 && <span className="flex items-center gap-0.5 text-[9px] text-stone-400"><Wheat size={8} className="text-yellow-400" />{def.cost.food}</span>}
-                                                                                {def.cost.gold > 0 && <span className="flex items-center gap-0.5 text-[9px] text-stone-400"><Coins size={8} className="text-amber-400" />{def.cost.gold}</span>}
+                                                                                {def.cost.food > 0 && <span className="flex items-center gap-0.5 text-[10px] text-stone-400"><Wheat size={8} className="text-yellow-400" />{def.cost.food}</span>}
+                                                                                {def.cost.gold > 0 && <span className="flex items-center gap-0.5 text-[10px] text-stone-400"><Coins size={8} className="text-amber-400" />{def.cost.gold}</span>}
                                                                             </div>
                                                                         )}
                                                                         {isActive && stats.activeResearch && (
@@ -1004,13 +1032,13 @@ export const GameUI: React.FC<GameUIProps> = ({
                                                                                 <div className="w-full h-1 bg-stone-700 rounded-full overflow-hidden">
                                                                                     <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: (stats.activeResearch.progress * 100) + '%' }} />
                                                                                 </div>
-                                                                                <div className="text-[8px] text-blue-400 font-mono mt-0.5">{Math.round(stats.activeResearch.progress * 100)}%</div>
+                                                                                <div className="text-[10px] text-blue-400 font-mono mt-0.5">{Math.round(stats.activeResearch.progress * 100)}%</div>
                                                                             </div>
                                                                         )}
                                                                         {status === 'locked' && def.prereqs.length > 0 && (
-                                                                            <div className="text-[8px] text-stone-600 mt-0.5 truncate">Requires: {def.prereqs.map(p => TECH_DEFS[p]?.name).join(', ')}</div>
+                                                                            <div className="text-[10px] text-stone-500 mt-0.5 truncate">Requires: {def.prereqs.map(p => TECH_DEFS[p]?.name).join(', ')}</div>
                                                                         )}
-                                                                    </div>
+                                                                    </button>
                                                                 );
                                                             })}
                                                         </div>
@@ -1143,7 +1171,7 @@ export const GameUI: React.FC<GameUIProps> = ({
                     className="hud-notification-stack absolute top-16 xl:top-24 right-5 z-15 flex max-h-[calc(100vh-12rem)] w-[min(29rem,calc(100vw-2.5rem))] flex-col gap-2 overflow-y-auto pointer-events-auto"
                     aria-label="Recent events"
                 >
-                    <div className="px-4 pb-0.5 text-[9px] font-semibold uppercase tracking-[0.24em] text-stone-500">
+                    <div className="px-4 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.24em] text-stone-500">
                         Recent events
                     </div>
                     {stats.notifications.slice(-5).reverse().map((notification, index) => {
@@ -1162,11 +1190,11 @@ export const GameUI: React.FC<GameUIProps> = ({
 
                                 <div className="min-w-0 flex-1">
                                     <div className="mb-1 flex items-center gap-2">
-                                        <span className="truncate text-[9px] font-semibold uppercase tracking-[0.2em] text-stone-500">
+                                        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-500">
                                             {presentation.category}
                                         </span>
                                         {notification.severity === 'danger' && (
-                                            <span className="text-[8px] font-medium uppercase tracking-[0.16em] text-stone-600">Critical</span>
+                                            <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-stone-600">Critical</span>
                                         )}
                                     </div>
                                     <div className={`text-[14px] font-medium leading-snug text-stone-100 ${isTaunt ? 'italic' : ''}`}>
@@ -1264,7 +1292,7 @@ interface DockButtonProps {
     label: string;
 }
 
-const DockButton: React.FC<DockButtonProps> = ({ isActive, onClick, icon, label }) => (
+const DockButton = React.memo<DockButtonProps>(({ isActive, onClick, icon, label }) => (
     <button
         onClick={onClick}
         className={`relative group p-2.5 rounded-md border transition-colors duration-200 flex items-center gap-2
@@ -1277,7 +1305,7 @@ const DockButton: React.FC<DockButtonProps> = ({ isActive, onClick, icon, label 
         </span>
         {isActive && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full"></div>}
     </button>
-);
+));
 
 interface ActionButtonProps {
     onClick: () => void;
@@ -1286,15 +1314,15 @@ interface ActionButtonProps {
     color: string;
 }
 
-const ActionButton: React.FC<ActionButtonProps> = ({ onClick, icon, label, color }) => (
+const ActionButton = React.memo<ActionButtonProps>(({ onClick, icon, label, color }) => (
     <button
         onClick={onClick}
         className={`flex flex-col items-center justify-center p-2 rounded-md border border-transparent hover:border-[var(--hud-line)] hover:bg-white/[.05] transition-colors ${color} gap-1 min-w-[60px]`}
     >
         {icon}
-        <span className="text-[9px] font-bold uppercase tracking-wide">{label}</span>
+        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
     </button>
-);
+));
 
 // Helper to generate build icons based on category
 const getBuildingsByCategory = (cat: string, stats: GameStats, onBuild: (type: BuildingType) => void) => {
@@ -1332,8 +1360,9 @@ interface TrainButtonProps {
     icon: React.ReactNode;
 }
 
-const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats, onClick, icon }) => {
+const TrainButton = React.memo<TrainButtonProps>(({ label, unitType, cost, stats, onClick, icon }) => {
     const canAfford = stats.resources.food >= cost.food && stats.resources.gold >= cost.gold;
+    const popFull = stats.population >= stats.maxPopulation;
     const uStats = unitType ? UNIT_STATS[unitType] : undefined;
     const uDmg = unitType ? UNIT_DAMAGE[unitType] : undefined;
     const uArmor = unitType ? UNIT_ARMOR[unitType] : undefined;
@@ -1341,19 +1370,21 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats,
     return (
         <div className="relative group">
             <button
+                type="button"
                 onClick={onClick}
-                disabled={!canAfford}
+                disabled={!canAfford || popFull}
+                title={!canAfford ? 'Not enough resources' : popFull ? 'Population limit reached — build more houses' : `Train ${label}`}
                 className={`flex flex-col items-center p-1.5 rounded-md border transition-all min-w-[64px] w-full
-                    ${canAfford
+                    ${canAfford && !popFull
                         ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-red-400/70 hover:bg-[#30271f]'
                         : 'bg-black/20 border-white/5 opacity-40 cursor-not-allowed grayscale'}
                 `}
             >
-                <div className={`mb-0.5 ${canAfford ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
-                <span className="text-[9px] font-bold text-stone-300">{label}</span>
+                <div className={`mb-0.5 ${canAfford && !popFull ? 'text-red-400' : 'text-stone-600'}`}>{icon}</div>
+                <span className="text-[10px] font-bold text-stone-300">{label}</span>
                 <div className="flex gap-1 mt-0.5">
-                    <span className="text-[8px] text-yellow-500 font-mono">{cost.food}F</span>
-                    <span className="text-[8px] text-amber-500 font-mono">{cost.gold}G</span>
+                    <span className="text-[10px] text-yellow-500 font-mono">{cost.food}F</span>
+                    <span className="text-[10px] text-amber-500 font-mono">{cost.gold}G</span>
                 </div>
             </button>
 
@@ -1362,10 +1393,10 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats,
                 <div className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-stone-900/95 border border-[var(--hud-line)] rounded-lg shadow-2xl pointer-events-none z-30 text-left backdrop-blur-md">
                     <div className="text-[11px] font-bold text-red-300 pb-1 border-b border-white/10 mb-1.5 flex items-center justify-between">
                         <span>{label}</span>
-                        <span className="text-[9px] text-stone-400 font-mono">Squad: {uStats.squadSize}</span>
+                        <span className="text-[10px] text-stone-400 font-mono">Squad: {uStats.squadSize}</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[9px] font-mono">
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] font-mono">
                         <div className="flex justify-between">
                             <span className="text-stone-400">HP:</span>
                             <span className="text-emerald-400 font-bold">{uStats.maxHp}</span>
@@ -1387,18 +1418,18 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats,
                     {/* Attack by Damage Type */}
                     {uDmg && (
                         <div className="mt-1.5 pt-1 border-t border-white/10">
-                            <div className="text-[8px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Attack</div>
+                            <div className="text-[10px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Attack</div>
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 {Object.entries(uDmg).length > 0 ? (
                                     Object.entries(uDmg).map(([dmgType, val]) => (
                                         val ? (
-                                            <span key={dmgType} className="text-[8px] font-mono px-1 py-0.2 rounded bg-stone-800 text-amber-300 border border-amber-500/20">
+                                            <span key={dmgType} className="text-[10px] font-mono px-1 py-0.2 rounded bg-stone-800 text-amber-300 border border-amber-500/20">
                                                 {dmgType}: {val}
                                             </span>
                                         ) : null
                                     ))
                                 ) : (
-                                    <span className="text-[8px] text-stone-500 font-mono">None (0)</span>
+                                    <span className="text-[10px] text-stone-500 font-mono">None (0)</span>
                                 )}
                             </div>
                         </div>
@@ -1407,8 +1438,8 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats,
                     {/* Armor */}
                     {uArmor && (
                         <div className="mt-1 pt-1 border-t border-white/10">
-                            <div className="text-[8px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Armor</div>
-                            <div className="grid grid-cols-3 gap-1 text-[8px] font-mono text-center">
+                            <div className="text-[10px] text-stone-400 uppercase tracking-wider mb-0.5 font-bold">Armor</div>
+                            <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-center">
                                 <div className="bg-stone-800/80 px-1 py-0.5 rounded border border-white/5">
                                     <span className="text-stone-400 block text-[7px]">Hack</span>
                                     <span className="text-stone-200 font-bold">{uArmor.Hack ?? 0}</span>
@@ -1428,7 +1459,7 @@ const TrainButton: React.FC<TrainButtonProps> = ({ label, unitType, cost, stats,
             )}
         </div>
     );
-};
+});
 
 interface BuildCardProps {
     type: BuildingType;
@@ -1437,7 +1468,7 @@ interface BuildCardProps {
     icon: React.ReactNode;
 }
 
-const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => {
+const BuildCard = React.memo<BuildCardProps>(({ type, stats, onClick, icon }) => {
     const b = BUILDINGS[type];
     const upkeep = BUILDING_UPKEEP[type];
     const canAfford =
@@ -1448,8 +1479,10 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
     return (
         <div className="relative group">
             <button
+                type="button"
                 onClick={onClick}
                 disabled={!canAfford}
+                title={!canAfford ? `Cannot afford ${b.name}: requires ${[b.cost.wood > 0 && `${b.cost.wood} wood`, b.cost.food > 0 && `${b.cost.food} food`, b.cost.gold > 0 && `${b.cost.gold} gold`].filter(Boolean).join(', ')}` : `Build ${b.name}`}
                 className={`flex flex-col items-center p-2 rounded-md border transition-all min-w-[70px] w-full
                     ${canAfford
                         ? 'bg-[#211d18] border-[var(--hud-line)] hover:border-amber-400/70 hover:bg-[#30271f]'
@@ -1461,12 +1494,12 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
 
                 {/* Cost Tooltip */}
                 <div className="flex flex-col items-center mt-1 w-full gap-0.5">
-                    {b.cost.wood > 0 && <span className="text-[9px] text-emerald-400 font-mono">{b.cost.wood}W</span>}
-                    {b.cost.food > 0 && <span className="text-[9px] text-yellow-400 font-mono">{b.cost.food}F</span>}
-                    {b.cost.gold > 0 && <span className="text-[9px] text-amber-400 font-mono">{b.cost.gold}G</span>}
+                    {b.cost.wood > 0 && <span className="text-[10px] text-emerald-400 font-mono">{b.cost.wood}W</span>}
+                    {b.cost.food > 0 && <span className="text-[10px] text-yellow-400 font-mono">{b.cost.food}F</span>}
+                    {b.cost.gold > 0 && <span className="text-[10px] text-amber-400 font-mono">{b.cost.gold}G</span>}
                     {upkeep && upkeep.gold ? (
                         <div
-                            className="flex items-center gap-0.5 text-[8px] font-mono text-amber-500 hover:text-amber-400"
+                            className="flex items-center gap-0.5 text-[10px] font-mono text-amber-500 hover:text-amber-400"
                             title={`Passive upkeep drain: -${upkeep.gold} gold/tick`}
                         >
                             <Coins size={9} className="text-amber-400 shrink-0" />
@@ -1482,9 +1515,9 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
                     <span>{b.name}</span>
                 </div>
                 {b.description && (
-                    <p className="text-[9px] text-stone-400 italic mb-2 leading-tight">{b.description}</p>
+                    <p className="text-[10px] text-stone-400 italic mb-2 leading-tight">{b.description}</p>
                 )}
-                <div className="space-y-1 text-[9px] font-mono">
+                <div className="space-y-1 text-[10px] font-mono">
                     <div className="flex justify-between">
                         <span className="text-stone-400">HP:</span>
                         <span className="text-emerald-400 font-bold">{b.maxHp}</span>
@@ -1515,7 +1548,7 @@ const BuildCard: React.FC<BuildCardProps> = ({ type, stats, onClick, icon }) => 
             </div>
         </div>
     );
-};
+});
 
 const FORMATION_TOOLTIPS: Record<FormationType, { label: string; desc: string }> = {
     [FormationType.LINE]: { label: 'Line', desc: '+20% Attack, -20% Speed' },
@@ -1525,7 +1558,7 @@ const FORMATION_TOOLTIPS: Record<FormationType, { label: string; desc: string }>
     [FormationType.BOX]: { label: 'Box', desc: 'Balanced (no modifiers)' }
 };
 
-const FormationButton: React.FC<{ type: FormationType, current: FormationType, icon: React.ReactNode }> = ({ type, current, icon }) => {
+const FormationButton = React.memo<{ type: FormationType, current: FormationType, icon: React.ReactNode }>(({ type, current, icon }) => {
     const isActive = type === current;
     const tooltip = FORMATION_TOOLTIPS[type];
     return (
@@ -1545,9 +1578,9 @@ const FormationButton: React.FC<{ type: FormationType, current: FormationType, i
             </div>
         </div>
     );
-};
+});
 
-const StanceButton: React.FC<{ type: UnitStance, current: UnitStance, icon: React.ReactNode }> = ({ type, current, icon }) => {
+const StanceButton = React.memo<{ type: UnitStance, current: UnitStance, icon: React.ReactNode }>(({ type, current, icon }) => {
     const isActive = type === current;
     // Helper to map enum number to string or readable name
     const labels = {
@@ -1568,4 +1601,4 @@ const StanceButton: React.FC<{ type: UnitStance, current: UnitStance, icon: Reac
             {icon}
         </button>
     );
-};
+});

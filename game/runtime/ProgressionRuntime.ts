@@ -2,6 +2,7 @@ import type { ProgressionContext } from './ProgressionContext';
 import { CASTLE_GARRISON_FIRE_INTERVAL, SEASON_DURATION_MS } from '../../constants';
 
 const MAX_ONE_SECOND_WINDOWS_PER_UPDATE = 5;
+const MAX_POP_WINDOWS_PER_UPDATE = 3;
 
 /**
  * Coordinates the time-based progression pipeline without depending on
@@ -77,10 +78,13 @@ export class ProgressionRuntime {
     // ── Per-frame progression while playing ─────────────────────────
     if (services.session.isPlaying) {
       this.accumulatedPopTime += dt;
-      if (this.accumulatedPopTime >= 8000) {
+      let processedPop = 0;
+      while (this.accumulatedPopTime >= 8000 && processedPop < MAX_POP_WINDOWS_PER_UPDATE) {
         this.accumulatedPopTime -= 8000;
+        processedPop++;
         services.population.tick();
       }
+      if (this.accumulatedPopTime >= 8000) this.accumulatedPopTime = 0;
 
       // Age advancement progress ticking (player only).
       if (services.age.isAdvancing && services.age.nextAge) {

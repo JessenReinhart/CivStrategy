@@ -247,18 +247,36 @@ export interface UnitStats {
 }
 
 
-export interface GameUnit extends Phaser.GameObjects.Image {
+/** A combat target that may be either a unit (Arc) or a building (Rectangle/Image). */
+export interface DamageableTarget {
+  x: number;
+  y: number;
+  scene?: Phaser.Scene;
+  getData(key: string): unknown;
+  takeDamage?: (amount: number, attackShare?: number) => void;
+}
+
+export interface GameUnit {
+  x: number;
+  y: number;
+  scene: Phaser.Scene;
+  getData(key: string): unknown;
+  setData(key: string, value: unknown): GameUnit;
   unitType: UnitType;
   state: UnitState;
-  target: Phaser.GameObjects.GameObject | null;
+  target: DamageableTarget | null;
   path: Phaser.Math.Vector2[] | null;
   pathStep: number;
   pathCreatedAt: number;
-  visual?: Phaser.GameObjects.Container;
+  body?: unknown;
+  active?: boolean;
+  setPosition?: (x: number, y: number) => unknown;
   lastAttackTime?: number;
   // Projectiles can share one attack's flat armor and minimum damage.
   takeDamage?: (amount: number, attackShare?: number) => void;
   isSelected?: boolean;
+  setSelected?: (selected: boolean) => void;
+  visual?: Phaser.GameObjects.Container;
   flowTarget?: { x: number; y: number };
   /** Per-unit fluid deformation offset applied by LiquidCombatSystem. */
   modifiedOffset?: { x: number; y: number };
@@ -390,7 +408,7 @@ export interface SaveGame {
   mapSize: MapSize;
   fowEnabled: boolean;
   peacefulMode: boolean;
-  treatyLength: number; // minutes
+  treatyLength: number; // seconds (canonical end-to-end; gameTime counts ms internally)
   aiDisabled: boolean;
   mapSeed: number;
   mapPreset: MapPreset;

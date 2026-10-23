@@ -115,17 +115,9 @@ export class InputManager {
 
         });
 
-        // Space — Pause / unpause
+        // Space — Pause / unpause (explicit state, not `gameSpeed = 0`)
         kb.on('keydown-SPACE', () => {
-            if (this.scene.gameSpeed > 0) {
-                this.lastGameSpeed = this.scene.gameSpeed;
-                this.scene.gameSpeed = 0;
-                this.scene.tweens.timeScale = 0;
-            } else {
-                this.scene.gameSpeed = this.lastGameSpeed || 0.5;
-                this.scene.physics.world.timeScale = 1 / this.scene.gameSpeed;
-                this.scene.tweens.timeScale = this.scene.gameSpeed;
-            }
+            this.scene.togglePause();
         });
 
         // F1 — Select all player military units in viewport
@@ -196,7 +188,7 @@ export class InputManager {
         // Q — Activate ability for selected units
         kb.on('keydown-Q', () => {
             for (const unitObj of this.selectedUnits) {
-                const unit = unitObj as GameUnit;
+                const unit = unitObj as unknown as GameUnit;
                 if (unit.unitType && UNIT_ABILITIES[unit.unitType as UnitType]) {
                     this.scene.unitSystem.activateAbility(unit);
                 }
@@ -207,7 +199,7 @@ export class InputManager {
         const removeAbilityListener = addAbilityWindowListener(window, ((e: CustomEvent) => {
             const unitType = e.detail as UnitType;
             for (const unitObj of this.selectedUnits) {
-                const unit = unitObj as GameUnit;
+                const unit = unitObj as unknown as GameUnit;
                 if (unit.unitType === unitType) {
                     this.scene.unitSystem.activateAbility(unit);
                 }
@@ -487,7 +479,7 @@ export class InputManager {
 
         if (!enemyEntity) {
             const candidates = this.scene.units.getChildren()
-                .map((child) => child as GameUnit)
+                .map((child) => child as unknown as GameUnit)
                 .filter((unit) => unit.getData('owner') !== 0 && unit.active);
             const camera = this.scene.cameras.main;
             let nearestEnemy: GameUnit | null = null;
@@ -667,7 +659,7 @@ export class InputManager {
     }
 
     private saveControlGroup(slot: number): void {
-        const activeUnits = this.selectedUnits.filter((u) => u.active) as GameUnit[];
+        const activeUnits = this.selectedUnits.filter((u) => u.active) as unknown as GameUnit[];
         if (activeUnits.length > 0) {
             this.controlGroups.set(slot, [...activeUnits]);
         } else {

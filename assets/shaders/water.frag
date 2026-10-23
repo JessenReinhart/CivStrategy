@@ -38,8 +38,8 @@ void main() {
     sin(uv.y * 9.0  + iTime * 1.2)
   ) * 0.015;
 
-  // Deeper water (further below the level) reads darker.
-  float depth = (waterLevel - h) / waterLevel;
+  // Deeper water (further below the level) reads darker. Guarded against waterLevel <= 0.
+  float depth = (waterLevel - h) / max(waterLevel, 1e-4);
 
   vec3 shallow = vec3(0.20, 0.55, 0.70);
   vec3 deep    = vec3(0.02, 0.18, 0.42);

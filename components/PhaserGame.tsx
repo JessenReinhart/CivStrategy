@@ -13,7 +13,7 @@ interface PhaserGameProps {
   mapSize: MapSize;
   fowEnabled: boolean;
   peacefulMode: boolean;
-  treatyLength: number; // minutes
+  treatyLength: number; // seconds (canonical end-to-end; display layers may render "turns")
   aiDisabled: boolean;
   stressTestConfig: { unitCount?: number; enableEnemies?: boolean; city?: boolean; density?: 'high' | 'medium' | 'low' } | null;
   mapSeed: number;
@@ -22,13 +22,18 @@ interface PhaserGameProps {
 }
 export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, mapSeed, mapPreset, onGameReady }) => {
   const gameRef = useRef<Phaser.Game | null>(null);
+  const reactId = React.useId();
+  const containerId = `game-container-${reactId.replace(/:/g, '')}`;
 
   useEffect(() => {
+    const localContainerId = containerId;
+    const containerElement = document.getElementById(localContainerId);
+    if (containerElement) containerElement.innerHTML = '';
     if (gameRef.current) return;
 
     const config: Phaser.Types.Core.GameConfig = {
       type: Phaser.AUTO,
-      parent: 'game-container',
+      parent: localContainerId,
       width: window.innerWidth,
       height: window.innerHeight,
       backgroundColor: '#000000',
@@ -104,7 +109,7 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
         mapSize,
         fowEnabled,
         peacefulMode,
-        treatyLength, // minutes
+        treatyLength, // seconds
         aiDisabled,
         stressTestConfig,
         mapSeed,
@@ -117,12 +122,16 @@ export const PhaserGame: React.FC<PhaserGameProps> = ({ faction, mapMode, mapSiz
       window.removeEventListener('keydown', handleSpeedKeyDown, true);
       removeReadyHandler();
       removeGameProbe();
-      game.destroy(true);
+      try {
+        game.destroy(true);
+      } catch { /* ignore */ }
       gameRef.current = null;
+      const el = document.getElementById(localContainerId);
+      if (el) el.innerHTML = '';
     };
-  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, mapSeed, mapPreset, onGameReady]);
+  }, [faction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, stressTestConfig, mapSeed, mapPreset, onGameReady, containerId]);
 
   return (
-    <div id="game-container" className="absolute inset-0 z-0" />
+    <div id={containerId} className="absolute inset-0 z-0" />
   );
 };

@@ -23,7 +23,12 @@ export class MinimapSystem {
 
     private frameCount = 0;
     private dirtyStatic = true; // Flag to redraw static layer
-    private updateInterval = 45;
+    private updateInterval = 45; // Actual content-refresh cadence (docs previously claimed 15, R19)
+    private lastChoppedCount = 0;
+    private lastScrollX = 0;
+    private lastScrollY = 0;
+    private scaleX = 0;
+    private scaleY = 0;
     // Layout caching: only recompute when zoom or viewport size changes
     private cachedZoom = -1;
     private cachedWidth = -1;
@@ -122,9 +127,14 @@ export class MinimapSystem {
         this.borderGraphics.clear();
         this.borderGraphics.lineStyle(3 * zoom, 0x44403c, 1.0);
         this.borderGraphics.strokeCircle(this.mapSize / 2, this.mapSize / 2, this.mapSize / 2);
+
+        // R18: Redraw geometry mask to ensure circular mask does not drift across zoom/viewport shifts
+        this.maskGraphics.clear();
+        this.maskGraphics.fillStyle(0xffffff);
+        this.maskGraphics.fillCircle(this.mapSize / 2, this.mapSize / 2, this.mapSize / 2);
     }
 
-    private drawStaticLayer(scalar: number) {
+        private drawStaticLayer(scalar: number) {
         this.staticTexture.clear();
         this.staticTexture.fill(0x064e3b); // Background
 
@@ -135,9 +145,11 @@ export class MinimapSystem {
             const pos = this.worldToMini(zone.x, zone.y, scalar);
             if (this.isInBounds(pos)) {
                 const r = zone.radius * scalar;
-                this.buildingRect.fillCircle(0, 0, r);
-                this.staticTexture.draw(this.buildingRect, pos.x, pos.y);
+                this.buildingRect.fillCircle(pos.x, pos.y, r);
             }
+        }
+        if (this.scene.fertileZones.length > 0) {
+            this.staticTexture.draw(this.buildingRect, 0, 0);
         }
 
         // Draw Trees (The heavy part)
@@ -176,6 +188,27 @@ export class MinimapSystem {
         const scalar = this.getMapScalar();
         this.drawViewport(scalar);
 
+        // R10: Automatically trigger refreshStaticLayer on tree chop or infinite scroll
+        let chopped = 0;
+        const trees = this.scene.trees.getChildren();
+        for (let i = 0; i < trees.length; i++) {
+            const tr = trees[i] as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            if (tr?.getData && tr.getData('isChopped')) chopped++;
+        }
+        if (chopped !== this.lastChoppedCount) {
+            this.lastChoppedCount = chopped;
+            this.dirtyStatic = true;
+        }
+
+        if (this.scene.mapMode === MapMode.INFINITE) {
+            const cam = this.scene.cameras.main;
+            if (Math.abs(cam.scrollX - this.lastScrollX) > 60 || Math.abs(cam.scrollY - this.lastScrollY) > 60) {
+                this.lastScrollX = cam.scrollX;
+                this.lastScrollY = cam.scrollY;
+                this.dirtyStatic = true;
+            }
+        }
+
         this.frameCount++;
         if (this.frameCount < this.updateInterval) return;
         this.frameCount = 0;
@@ -193,8 +226,10 @@ export class MinimapSystem {
         // 2b. Draw Territory Overlay (under buildings/units)
         this.drawTerritory(scalar);
 
-        // 3. Draw Buildings (Dynamic ownership/health, so draw every time)
+        // 3. Draw Buildings (batched into one Graphics draw call, R9)
         const buildings = this.scene.buildings.getChildren();
+        this.buildingRect.clear();
+        let buildingsDrawn = 0;
         for (const b of buildings) {
             const build = b as any; // eslint-disable-line @typescript-eslint/no-explicit-any
             const pos = this.worldToMini(build.x, build.y, scalar);
@@ -203,13 +238,14 @@ export class MinimapSystem {
                 const def = build.getData('def');
                 const owner = build.getData('owner');
                 const color = owner === 0 ? 0x3b82f6 : (owner === 1 ? 0xef4444 : 0xaaaaaa);
-                const size = Math.max(3, def.width * scalar);
-
-                this.buildingRect.clear();
+                const size = Math.max(3, (def?.width ?? 32) * scalar);
                 this.buildingRect.fillStyle(color, 1);
-                this.buildingRect.fillRect(-size / 2, -size / 2, size, size);
-                this.renderTexture.draw(this.buildingRect, pos.x, pos.y);
+                this.buildingRect.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+                buildingsDrawn++;
             }
+        }
+        if (buildingsDrawn > 0) {
+            this.renderTexture.draw(this.buildingRect, 0, 0);
         }
 
         // 4. Draw Units (batched by owner for performance)
@@ -238,36 +274,58 @@ export class MinimapSystem {
     private drawTerritory(scalar: number) {
         const buildings = this.scene.buildings.getChildren();
         const GRID_CELLS = 16;
-        const cellWorld = (this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096) / GRID_CELLS;
+        const cellWorldX = (this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096) / GRID_CELLS;
+        const cellWorldY = (this.scene.mapMode === MapMode.FIXED ? this.scene.mapHeight : 4096) / GRID_CELLS;
 
-        this.territoryGraphics.clear();
-        for (let gy = 0; gy < GRID_CELLS; gy++) {
-            for (let gx = 0; gx < GRID_CELLS; gx++) {
-                const wx = gx * cellWorld + cellWorld / 2;
-                const wy = gy * cellWorld + cellWorld / 2;
-                let playerCount = 0;
-                let aiCount = 0;
-                for (const b of buildings) {
-                    const build = b as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-                    const dx = Math.abs(build.x - wx);
-                    const dy = Math.abs(build.y - wy);
-                    if (dx <= cellWorld && dy <= cellWorld) {
-                        const owner = build.getData('owner');
-                        if (owner === 0) playerCount++;
-                        else if (owner === 1) aiCount++;
-                    }
+        // R8: One-pass 256-cell territory grid assignment O(buildings + 256) instead of O(256 * buildings)
+        const playerCounts = new Int16Array(GRID_CELLS * GRID_CELLS);
+        const aiCounts = new Int16Array(GRID_CELLS * GRID_CELLS);
+
+        for (let i = 0; i < buildings.length; i++) {
+            const build = buildings[i] as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+            const owner = build.getData('owner');
+            if (owner !== 0 && owner !== 1) continue;
+
+            const bgx = Math.floor(build.x / cellWorldX);
+            const bgy = Math.floor(build.y / cellWorldY);
+            const targetGrid = owner === 0 ? playerCounts : aiCounts;
+
+            const minGx = Math.max(0, bgx - 1);
+            const maxGx = Math.min(GRID_CELLS - 1, bgx + 1);
+            const minGy = Math.max(0, bgy - 1);
+            const maxGy = Math.min(GRID_CELLS - 1, bgy + 1);
+
+            for (let gy = minGy; gy <= maxGy; gy++) {
+                const row = gy * GRID_CELLS;
+                for (let gx = minGx; gx <= maxGx; gx++) {
+                    targetGrid[row + gx]++;
                 }
-                if (playerCount === 0 && aiCount === 0) continue;
-                const owner = playerCount > aiCount ? 0 : (aiCount > playerCount ? 1 : -1);
-                if (owner === -1) continue;
-                const color = owner === 0 ? 0x4ade80 : 0xef4444;
-                const pos = this.worldToMini(wx, wy, scalar);
-                const size = cellWorld * scalar;
-                this.territoryGraphics.fillStyle(color, 0.15);
-                this.territoryGraphics.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
             }
         }
-        this.renderTexture.draw(this.territoryGraphics, 0, 0);
+
+        this.territoryGraphics.clear();
+        let drewAny = false;
+        for (let gy = 0; gy < GRID_CELLS; gy++) {
+            const row = gy * GRID_CELLS;
+            for (let gx = 0; gx < GRID_CELLS; gx++) {
+                const pCount = playerCounts[row + gx];
+                const aCount = aiCounts[row + gx];
+                if (pCount === 0 && aCount === 0) continue;
+                if (pCount === aCount) continue;
+
+                const color = pCount > aCount ? 0x4ade80 : 0xef4444;
+                const wx = gx * cellWorldX + cellWorldX / 2;
+                const wy = gy * cellWorldY + cellWorldY / 2;
+                const pos = this.worldToMini(wx, wy, scalar);
+                const size = cellWorldX * scalar;
+                this.territoryGraphics.fillStyle(color, 0.15);
+                this.territoryGraphics.fillRect(pos.x - size / 2, pos.y - size / 2, size, size);
+                drewAny = true;
+            }
+        }
+        if (drewAny) {
+            this.renderTexture.draw(this.territoryGraphics, 0, 0);
+        }
     }
 
     private updateFog(scalar: number) {
@@ -346,32 +404,42 @@ export class MinimapSystem {
     }
 
     public getWorldFromMinimap(miniX: number, miniY: number): { x: number, y: number } {
-        const scalar = this.getMapScalar();
+        this.updateScale();
         if (this.scene.mapMode === MapMode.INFINITE) {
             const cam = this.scene.cameras.main;
             const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
             const dx = miniX - this.mapSize / 2;
             const dy = miniY - this.mapSize / 2;
-            return { x: center.x + dx / scalar, y: center.y + dy / scalar };
+            return { x: center.x + dx / this.scaleX, y: center.y + dy / this.scaleY };
         } else {
-            return { x: miniX / scalar, y: miniY / scalar };
+            return { x: miniX / this.scaleX, y: miniY / this.scaleY };
         }
     }
 
-    private getMapScalar(): number {
-        const worldSize = this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096;
-        return this.mapSize / worldSize;
+    private updateScale(): void {
+        // R11: independent X/Y scaling so non-square maps keep their aspect ratio.
+        const worldW = this.scene.mapMode === MapMode.FIXED ? this.scene.mapWidth : 4096;
+        const worldH = this.scene.mapMode === MapMode.FIXED ? this.scene.mapHeight : 4096;
+        this.scaleX = this.mapSize / Math.max(1, worldW);
+        this.scaleY = this.mapSize / Math.max(1, worldH);
     }
 
-    private worldToMini(x: number, y: number, scalar: number) {
+    private getMapScalar(): number {
+        this.updateScale();
+        return this.scaleX;
+    }
+
+    private worldToMini(x: number, y: number, scalar?: number) {
         if (this.scene.mapMode === MapMode.INFINITE) {
             const cam = this.scene.cameras.main;
             const center = toCartesian(cam.worldView.centerX, cam.worldView.centerY);
             const dx = x - center.x;
             const dy = y - center.y;
-            return { x: dx * scalar + this.mapSize / 2, y: dy * scalar + this.mapSize / 2 };
+            const s = scalar !== undefined ? scalar : this.scaleX;
+            return { x: dx * s + this.mapSize / 2, y: dy * s + this.mapSize / 2 };
         } else {
-            return { x: x * scalar, y: y * scalar };
+            this.updateScale();
+            return { x: x * this.scaleX, y: y * this.scaleY };
         }
     }
 

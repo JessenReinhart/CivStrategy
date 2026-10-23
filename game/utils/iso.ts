@@ -1,3 +1,22 @@
+export interface Point2D {
+  x: number;
+  y: number;
+}
+
+/** In-place variant of toIso to avoid allocation in hot loops. */
+export const toIsoInto = (out: Point2D, x: number, y: number): Point2D => {
+  out.x = x - y;
+  out.y = (x + y) * 0.5;
+  return out;
+};
+
+/** In-place variant of toCartesian to avoid allocation in hot loops. */
+export const toCartesianInto = (out: Point2D, isoX: number, isoY: number): Point2D => {
+  out.x = isoY + isoX * 0.5;
+  out.y = isoY - isoX * 0.5;
+  return out;
+};
+
 export const toIso = (x: number, y: number): { x: number, y: number } => {
   return {
     x: x - y,

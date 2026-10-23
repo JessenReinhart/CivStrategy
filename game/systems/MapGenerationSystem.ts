@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { TILE_SIZE, GOLD_MINE_COUNT, MAP_PRESETS } from '../../constants';
+import { TILE_SIZE, GOLD_MINE_COUNT, MAP_PRESETS, TERRAIN_CONFIG } from '../../constants';
 import { MapMode, AnimalSpecies } from '../../types';
 import { LoadingWorkProgress, runBudgetedWork, yieldToBrowser } from '../../utils/gameLoading';
 import { toIso } from '../utils/iso';
 import { randomBetween } from '../utils/seededRandom';
+import { isTerrainValid } from '../utils/terrain';
 
 export class MapGenerationSystem {
     private scene: MainScene;
@@ -120,9 +121,14 @@ export class MapGenerationSystem {
                 const ay = fy + Math.sin(angle) * (fRadius * 0.8);
                 if (Phaser.Math.Distance.Between(ax, ay, this.scene.mapWidth / 2, this.scene.mapHeight / 2) > 300) {
                     if (ax > 50 && ax < this.scene.mapWidth - 50 && ay > 50 && ay < this.scene.mapHeight - 50) {
-                        // Pick species deterministically for seeded maps
-                        const species = this.pickRandomSpecies();
-                        this.scene.animalSystem.spawnAnimal(ax, ay, species);
+                        // S5: reject water and invalid terrain for animal spawning
+                        const h = this.scene.terrainSystem.getHeightAt(ax, ay);
+                        const biome = this.scene.terrainSystem.getBiomeAt(ax, ay);
+                        if (isTerrainValid(h) && h >= TERRAIN_CONFIG.WATER_LEVEL && biome !== 'deep') {
+                            // Pick species deterministically for seeded maps
+                            const species = this.pickRandomSpecies();
+                            this.scene.animalSystem.spawnAnimal(ax, ay, species);
+                        }
                     }
                 }
                 yield {
@@ -157,8 +163,8 @@ export class MapGenerationSystem {
         return AnimalSpecies.DEER;
     }
 
-    /** Density multiplier per biome for tree spawning. */
-    private static readonly TREE_DENSITY: Record<string, number> = {
+    /** Density multiplier per biome for tree spawning. Shared with InfiniteMapSystem. */
+    public static readonly TREE_DENSITY: Record<string, number> = {
         deep: 0,    // water — no trees
         sand: 0,    // shore — no trees
         swamp: 0.3, // wetlands — some water-loving trees
@@ -222,13 +228,28 @@ export class MapGenerationSystem {
         const mapH = this.scene.mapHeight;
 
         for (let i = 0; i < adjustedCount; i++) {
-            const angle = (i / adjustedCount) * Math.PI * 2 + this.rng() * 0.5;
-            const dist = innerRadius + this.rng() * (outerRadius - innerRadius);
-            const tx = cx + Math.cos(angle) * dist;
-            const ty = cy + Math.sin(angle) * dist;
+            // S5: retry a few jittered samples before skipping this node so gold
+            // never lands on water, steep slopes, or invalid terrain.
+            let placed = false;
+            for (let attempt = 0; attempt < 15 && !placed; attempt++) {
+                const angle = (i / adjustedCount) * Math.PI * 2 + this.rng() * 0.75;
+                const dist = innerRadius + this.rng() * (outerRadius - innerRadius);
+                const tx = cx + Math.cos(angle) * dist;
+                const ty = cy + Math.sin(angle) * dist;
 
-            if (isInfinite || (tx > 50 && tx < mapW - 50 && ty > 50 && ty < mapH - 50)) {
+                if (!(isInfinite || (tx > 50 && tx < mapW - 50 && ty > 50 && ty < mapH - 50))) continue;
+
+                const height = this.scene.terrainSystem.getHeightAt(tx, ty);
+                if (!isTerrainValid(height) || height < TERRAIN_CONFIG.WATER_LEVEL) continue;
+
+                const slopeInfo = this.scene.terrainSystem.getSlopeAt(tx, ty);
+                if (!slopeInfo.isBuildable) continue;
+
+                const biome = this.scene.terrainSystem.getBiomeAt(tx, ty);
+                if (biome === 'deep' || biome === 'stone') continue;
+
                 this.scene.entityFactory.spawnGoldMine(tx, ty);
+                placed = true;
             }
         }
     }

@@ -10,8 +10,29 @@ const CLASH_COOLDOWN_MS = 400;
 const CLASH_MAX_SHAKE_DISTANCE_PX = 500;
 const CLASH_MAX_SHAKE_INTENSITY = 0.0045;
 const CLASH_MIN_SHAKE_INTENSITY = 0.0012;
-let _lastClashAt = 0;
-let _bloomPulseActive = false;
+
+/**
+ * R22: cooldown/bloom state and the two particle emitters are owned per-scene
+ * (WeakMap) instead of leaking through module globals. Emitters are pooled so
+ * repeated clashes reuse them instead of creating/destroying particle systems.
+ */
+interface ClashEffectState {
+    lastClashAt: number;
+    bloomPulseActive: boolean;
+    dust: Phaser.GameObjects.Particles.ParticleEmitter | null;
+    sparks: Phaser.GameObjects.Particles.ParticleEmitter | null;
+}
+
+const sceneStates = new WeakMap<Phaser.Scene, ClashEffectState>();
+
+function getClashState(scene: Phaser.Scene): ClashEffectState {
+    let state = sceneStates.get(scene);
+    if (!state) {
+        state = { lastClashAt: 0, bloomPulseActive: false, dust: null, sparks: null };
+        sceneStates.set(scene, state);
+    }
+    return state;
+}
 
 /**
  * Compute distance-attenuated camera shake intensity for an isometric clash.
@@ -30,16 +51,18 @@ function computeClashShakeIntensity(
 }
 
 export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: number): void {
+    const state = getClashState(scene);
+
     // Cooldown — only one clash per 400ms to prevent effect stacking
     const now = Date.now();
-    if (now - _lastClashAt < CLASH_COOLDOWN_MS) {
+    if (now - state.lastClashAt < CLASH_COOLDOWN_MS) {
         // Still play the audio snippet since it's the primary feedback
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const s = scene as any;
         if (s.proceduralSound) s.proceduralSound.playSwordClash(worldX, worldY);
         return;
     }
-    _lastClashAt = now;
+    state.lastClashAt = now;
 
     const iso = toIso(worldX, worldY);
 
@@ -54,50 +77,48 @@ export function triggerMeatGrinder(scene: Phaser.Scene, worldX: number, worldY: 
 
     // 2. Ground dust plume at clash point (uses 'smoke' texture)
     if (scene.textures.exists('smoke')) {
-        const dust = scene.add.particles(iso.x, iso.y + 10, 'smoke', {
-            speed: { min: 15, max: 40 },
-            angle: { min: 0, max: 360 },
-            scale: { start: 0.08, end: 0.25 },
-            alpha: { start: 0.45, end: 0 },
-            tint: [0x8b7355, 0x9e8c70, 0x7a6a50], // earthy browns
-            lifespan: 800,
-            quantity: 8,
-            emitting: false,
-            gravityY: -30 // drift upward gently
-        });
-        dust.setDepth(iso.y + 500);
-        dust.explode(8, iso.x, iso.y + 10);
-        scene.time.delayedCall(900, () => dust.destroy());
+        if (!state.dust) {
+            state.dust = scene.add.particles(0, 0, 'smoke', {
+                speed: { min: 15, max: 40 },
+                angle: { min: 0, max: 360 },
+                scale: { start: 0.08, end: 0.25 },
+                alpha: { start: 0.45, end: 0 },
+                tint: [0x8b7355, 0x9e8c70, 0x7a6a50], // earthy browns
+                lifespan: 800,
+                emitting: false,
+                gravityY: -30, // drift upward gently
+            });
+        }
+        state.dust.setDepth(iso.y + 500);
+        state.dust.explode(8, iso.x, iso.y + 10);
 
         // Directional metallic clash sparks above the dust plume
-        const sparks = scene.add.particles(iso.x, iso.y - 2, 'smoke', {
-            speed: { min: 35, max: 85 },
-            angle: { min: 200, max: 340 },
-            scale: { start: 0.045, end: 0.01 },
-            alpha: { start: 0.85, end: 0 },
-            tint: [0xffe082, 0xffb74d, 0xffffff],
-            lifespan: 340,
-            quantity: 6,
-            emitting: false,
-            gravityY: 90
-        });
-        sparks.setDepth(iso.y + 505);
-        sparks.explode(6, iso.x, iso.y - 2);
-        scene.time.delayedCall(400, () => sparks.destroy());
+        if (!state.sparks) {
+            state.sparks = scene.add.particles(0, 0, 'smoke', {
+                speed: { min: 35, max: 85 },
+                angle: { min: 200, max: 340 },
+                scale: { start: 0.045, end: 0.01 },
+                alpha: { start: 0.85, end: 0 },
+                tint: [0xffe082, 0xffb74d, 0xffffff],
+                lifespan: 340,
+                emitting: false,
+                gravityY: 90,
+            });
+        }
+        state.sparks.setDepth(iso.y + 505);
+        state.sparks.explode(6, iso.x, iso.y - 2);
     }
 
-    // 3. Subtle bloom pulse — very brief, barely noticeable.
-    // Driven through the atmospheric system (the only path that affects
-    // on-screen bloom). We restore to the LIVE user bloom value at expiry so a
-    // bloom-slider change during the pulse is not clobbered by a stale baseline,
-    // and guard with a single active pulse so overlapping clashes don't stack.
+    // 3. Subtle bloom pulse — driven through the atmospheric system. Per-scene
+    // guard so overlapping clashes in one scene don't stack, and different
+    // scenes don't share a stale flag.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyScene = scene as any;
-    if (anyScene.atmosphericSystem && !_bloomPulseActive) {
-        _bloomPulseActive = true;
+    if (anyScene.atmosphericSystem && !state.bloomPulseActive) {
+        state.bloomPulseActive = true;
         anyScene.atmosphericSystem.setBloomIntensity(Math.min(2.0, anyScene.bloomIntensity + 0.3));
         scene.time.delayedCall(600, () => {
-            _bloomPulseActive = false;
+            state.bloomPulseActive = false;
             anyScene.atmosphericSystem.setBloomIntensity(anyScene.bloomIntensity);
         });
     }

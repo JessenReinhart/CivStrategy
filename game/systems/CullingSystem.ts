@@ -26,14 +26,26 @@ type UnitEntity = Phaser.GameObjects.GameObject & {
 
 const FADE_IN_MS = 280;
 const FADE_OUT_MS = 180;
+const SWAY_TABLE_SIZE = 256;
 
 export class CullingSystem {
   private scene: MainScene;
   private visibleTrees: Set<Phaser.GameObjects.GameObject> = new Set();
   private cullTimer = 0;
+  private lastScrollX = 0;
+  private lastScrollY = 0;
+  private lastZoom = 0;
+  // R14: reusable view frustum / far cull bounds (no per-tick Rectangle allocation).
+  private viewBounds = new Phaser.Geom.Rectangle();
+  private farBounds = new Phaser.Geom.Rectangle();
+  // R21: precomputed sway phase table (single sin per visible tree per frame).
+  private swayPhases = new Float32Array(SWAY_TABLE_SIZE);
 
   constructor(scene: MainScene) {
     this.scene = scene;
+    for (let i = 0; i < SWAY_TABLE_SIZE; i++) {
+      this.swayPhases[i] = Math.sin(i * 0.0245436926) * 0.05;
+    }
   }
 
   update(time: number, delta: number) {
@@ -44,10 +56,20 @@ export class CullingSystem {
       return;
     }
 
+    // R12: cull on camera movement (scroll/zoom) instead of only the 200ms timer.
+    const cam = this.scene.cameras.main;
+    const cameraMoved =
+      Math.abs(cam.scrollX - this.lastScrollX) > 1 ||
+      Math.abs(cam.scrollY - this.lastScrollY) > 1 ||
+      Math.abs(cam.zoom - this.lastZoom) > 0.001;
+
     this.cullTimer += delta;
-    if (this.cullTimer > 200) {
+    if (cameraMoved || this.cullTimer > 200) {
       this.cullObjects();
       this.cullTimer = 0;
+      this.lastScrollX = cam.scrollX;
+      this.lastScrollY = cam.scrollY;
+      this.lastZoom = cam.zoom;
     }
 
     this.animateTrees(time);
@@ -79,23 +101,17 @@ export class CullingSystem {
 
   private fadeOutAndRelease(tree: TreeEntity, visual: TreeVisual) {
     this.stopFade(visual);
-    visual.fadeTween = this.scene.tweens.add({
-      targets: visual,
-      alpha: 0,
-      duration: FADE_OUT_MS,
-      ease: 'Sine.easeIn',
-      onComplete: () => {
-        visual.fadeTween = undefined;
-        // Only release if this visual is still the tree's current one
-        if (tree.visual === visual) {
-          tree.visual = undefined;
-        }
-        visual.setVisible(false);
-        visual.setActive(false);
-        visual.setAlpha(1);
-        this.scene.treeVisuals.killAndHide(visual);
-      },
-    });
+    // R13: release the pooled visual immediately on leave; no fade-hold slot.
+    if (tree.visual === visual) {
+      tree.visual = undefined;
+    }
+    visual.fadeTween = undefined;
+    visual.setVisible(false);
+    visual.setActive(false);
+    visual.setAlpha(1);
+    tree.setData('fadingOut', false);
+    tree.setData('fadingIn', false);
+    this.scene.treeVisuals.killAndHide(visual);
   }
 
   private isFadeable(obj: unknown): obj is Fadeable {
@@ -172,12 +188,13 @@ export class CullingSystem {
     const c3 = toCartesian(isoTopRight.x, isoTopRight.y);
     const c4 = toCartesian(isoBottomLeft.x, isoBottomLeft.y);
 
-    const cullBounds = new Phaser.Geom.Rectangle(
+    this.viewBounds.setTo(
       view.x - padding,
       view.y - padding,
       view.width + padding * 2,
       view.height + padding * 2,
     );
+    const cullBounds = this.viewBounds;
 
     const minX = Math.min(c1.x, c2.x, c3.x, c4.x);
     const maxX = Math.max(c1.x, c2.x, c3.x, c4.x);
@@ -247,10 +264,11 @@ export class CullingSystem {
     // Units / squads: fade instead of hard toggle
     // Optimization: skip units already invisible and far from viewport
     const farPad = 800; // extra padding for "definitely out" check
-    const farBounds = new Phaser.Geom.Rectangle(
+    this.farBounds.setTo(
       view.x - farPad, view.y - farPad,
       view.width + farPad * 2, view.height + farPad * 2
     );
+    const farBounds = this.farBounds;
     this.scene.units.getChildren().forEach(uObj => {
       const unit = uObj as UnitEntity;
       const squad = uObj.getData('squadContainer') as Fadeable | undefined;
@@ -274,13 +292,18 @@ export class CullingSystem {
   }
 
   private animateTrees(time: number) {
+    const windMult = this.scene.atmosphericSystem.getSeasonalWindMultiplier?.() ?? 1;
+    const base = Math.sin(time * 0.0005);
+    const gust = Math.sin(time * 0.002 * windMult) * (0.3 * windMult);
+    const frameSway = (base + gust) * 0.05 * (0.7 + 0.3 * windMult);
+
     this.visibleTrees.forEach(treeObj => {
       if (treeObj.getData('isChopped')) return;
       const tree = treeObj as TreeEntity;
       const visual = tree.visual;
       if (visual && visual.visible) {
-        const sway = this.scene.atmosphericSystem.getWindSway(visual.x, visual.y, time);
-        visual.setRotation(sway);
+        const idx = ((Math.floor(tree.x) + Math.floor(tree.y) * 2654435761) >>> 0) % SWAY_TABLE_SIZE;
+        visual.setRotation(frameSway + this.swayPhases[idx]);
       }
     });
   }

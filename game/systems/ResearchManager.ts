@@ -64,10 +64,17 @@ export class ResearchManager {
     if (!check.ok) return check;
 
     const def = TECH_DEFS[techId];
-    const res = resources ?? this.scene.resources;
-    res.wood -= def.cost.wood;
-    res.food -= def.cost.food;
-    res.gold -= def.cost.gold;
+    if (resources) {
+        resources.wood -= def.cost.wood;
+        resources.food -= def.cost.food;
+        resources.gold -= def.cost.gold;
+    } else if (this.scene.gameState) {
+        this.scene.gameState.spendResources({ wood: def.cost.wood, food: def.cost.food, gold: def.cost.gold });
+    } else {
+        this.scene.resources.wood -= def.cost.wood;
+        this.scene.resources.food -= def.cost.food;
+        this.scene.resources.gold -= def.cost.gold;
+    }
 
     this.active.set(playerId, {
       techId: def.id,
@@ -84,9 +91,13 @@ export class ResearchManager {
     const active = this.active.get(playerId);
     if (!active) return false;
     if (playerId === 0) {
-      this.scene.resources.wood += active.escrow.wood;
-      this.scene.resources.food += active.escrow.food;
-      this.scene.resources.gold += active.escrow.gold;
+      if (this.scene.gameState) {
+        this.scene.gameState.addResources(active.escrow);
+      } else {
+        this.scene.resources.wood += active.escrow.wood;
+        this.scene.resources.food += active.escrow.food;
+        this.scene.resources.gold += active.escrow.gold;
+      }
     }
     this.active.delete(playerId);
     this.rebuildSnapshot(playerId);

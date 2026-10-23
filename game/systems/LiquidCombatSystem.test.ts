@@ -14,8 +14,9 @@ vi.mock('../MainScene', () => ({
 
 import { LiquidCombatSystem } from './LiquidCombatSystem';
 import { MainScene } from '../MainScene';
-import { UnitType, GameUnit } from '../../types';
+import { UnitType, UnitState, GameUnit } from '../../types';
 import { EVENTS } from '../../constants';
+import type Phaser from 'phaser';
 
 // ── Mock infrastructure ──────────────────────────────────────────────────
 // Mock objects are duck-typed stand-ins for Phaser game objects; unchecked
@@ -30,11 +31,34 @@ interface MockUnitInit {
     velocity?: { x: number; y: number };
 }
 
+const STUB_SCENE = {
+    getData: () => undefined,
+    setData: () => {},
+} as unknown as Phaser.Scene;
+
+function makeStubUnit(partial: Partial<GameUnit>): GameUnit {
+    const unit: GameUnit = {
+        scene: STUB_SCENE,
+        target: null,
+        path: null,
+        pathStep: 0,
+        pathCreatedAt: 0,
+        unitType: UnitType.LEGION,
+        state: UnitState.IDLE,
+        getData: () => undefined,
+        setData: () => unit,
+        x: 0,
+        y: 0,
+        ...partial,
+    };
+    return unit;
+}
+
 function makeUnit(init: MockUnitInit): GameUnit {
     const data: Record<string, unknown> = {};
     if (init.owner !== undefined) data.owner = init.owner;
     if (init.spatialKey !== undefined) data.spatialKey = init.spatialKey;
-    return {
+    return makeStubUnit({
         unitType: init.unitType,
         x: init.x,
         y: init.y,
@@ -42,7 +66,7 @@ function makeUnit(init: MockUnitInit): GameUnit {
         body: init.velocity
             ? { velocity: { x: init.velocity.x, y: init.velocity.y }, enable: true }
             : null,
-    } as unknown as GameUnit; // test fixture, structural subset only
+    });
 }
 
 interface MockSceneInit {

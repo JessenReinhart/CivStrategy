@@ -42,6 +42,15 @@ const PERSONALITY_NAMES: Record<AIPersonality, string> = {
 };
 
 /**
+ * S8: documented flat-income handicap for the AI economy.
+ *
+ * Phase 3 decision: the AI does not run the player's full carry/economy loop,
+ * so parity is enforced with a single flat multiplier applied to wood/food/gold
+ * income each economy tick. 1.0 is neutral; lower handicaps, higher boosts.
+ */
+export const AI_DIFFICULTY = 1.0;
+
+/**
  * EnemyAISystem - Optimized for Annihilation-scale games.
  * 
  * Key optimizations:
@@ -307,7 +316,7 @@ export class EnemyAISystem {
      * Refresh cached unit lists using SpatialHash for efficiency.
      */
     private refreshMilitaryCache(): void {
-        const allUnits = this.scene.units.getChildren() as GameUnit[];
+        const allUnits = this.scene.units.getChildren() as unknown as GameUnit[];
         this.myMilitaryCache = [];
         this.enemyUnitCache = [];
 
@@ -316,7 +325,7 @@ export class EnemyAISystem {
             const unitType = (u.getData('unitType') || (u as GameUnit).unitType) as UnitType | undefined;
 
             if (!isMilitaryUnit(unitType)) continue;
-            if (u.getData('hp') <= 0) continue;
+            if ((u.getData('hp') as number) <= 0) continue;
 
             if (owner === 1) {
                 this.myMilitaryCache.push(u);
@@ -346,6 +355,11 @@ export class EnemyAISystem {
         const ageMultiplier = 1 + ageTierIndex * 0.5; // VILLAGE: 1.0x, TOWN: 1.5x, CITY_STATE: 2.0x
         const ageBonus = ageTierIndex; // +1 wood/tick, +1 food/tick per age tier above Village
 
+        // Snapshot income baseline for the flat-income handicap applied after all sources.
+        const incomeWood = this.resources.wood;
+        const incomeFood = this.resources.food;
+        const incomeGold = this.resources.gold;
+
         this.resources.wood += Math.floor(woodGen * ageMultiplier) + ageBonus;
         this.resources.food += Math.floor(foodGen * ageMultiplier) + ageBonus;
         this.resources.gold += Math.floor(goldGen * ageMultiplier);
@@ -374,6 +388,14 @@ export class EnemyAISystem {
             this.resources.gold += TRADE_INCOME * (aiHasCathedral ? CATHEDRAL_TRADE_BONUS_MULTIPLIER : 1);
         }
 
+        // S8: apply the flat-income handicap after all income sources and
+        // before food/upkeep deduction.
+        if (AI_DIFFICULTY !== 1) {
+            this.resources.wood = incomeWood + Math.round((this.resources.wood - incomeWood) * AI_DIFFICULTY);
+            this.resources.food = incomeFood + Math.round((this.resources.food - incomeFood) * AI_DIFFICULTY);
+            this.resources.gold = incomeGold + Math.round((this.resources.gold - incomeGold) * AI_DIFFICULTY);
+        }
+
         // Building upkeep: subtract same costs as player
         let upkeepFood = 0;
         let upkeepGold = 0;
@@ -387,9 +409,15 @@ export class EnemyAISystem {
             }
         }
 
-        // Simplified population food cost (AI doesn't run full carry loop)
-        const aiPopulation = this.buildings.filter(b => b && b.scene && b.getData('hp') > 0).length;
-        const foodCost = Math.floor(aiPopulation * 0.5);
+        // Real owned military population food cost (matching player's 1 food per pop rate)
+        const allUnits = this.scene.units.getChildren() as unknown as GameUnit[];
+        let aiPopulation = 0;
+        for (const u of allUnits) {
+            if (u.getData('owner') === 1 && ((u.getData('hp') as number | undefined) ?? 0) > 0) {
+                aiPopulation++;
+            }
+        }
+        const foodCost = aiPopulation * 1;
 
         this.resources.food -= upkeepFood + foodCost;
         this.resources.gold -= upkeepGold;
@@ -477,8 +505,11 @@ export class EnemyAISystem {
             if (this.scene.terrainSystem) {
                 const biome = this.scene.terrainSystem.getBiomeAt(bx, by);
                 if (biome === 'water' || biome === 'stone') {
-                    // Mark slot as unbuildable and advance buildIndex
+                    // Mark slot as unbuildable and advance buildIndex (S1)
                     this.buildings[index] = null;
+                    if (this.buildIndex === index && this.buildIndex < this.selectedBlueprint.length - 1) {
+                        this.buildIndex++;
+                    }
                     return true;
                 }
 
@@ -501,6 +532,27 @@ export class EnemyAISystem {
                         if (h > BARRACKS_MIN_HEIGHT) break;
                         bx = this.baseX + item.x + Phaser.Math.Between(-60, 60);
                         by = this.baseY + item.y + Phaser.Math.Between(-60, 60);
+                    }
+                }
+            }
+
+            // S10: Shared placement validation (water, slope, buildings, units, trees)
+            if (this.scene.buildingManager) {
+                const check = this.scene.buildingManager.canPlace(item.type, bx, by, 1, { checkResources: false, requireTerritory: false });
+                if (!check.valid) {
+                    let placed = false;
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        const altX = this.baseX + item.x + Phaser.Math.Between(-80, 80);
+                        const altY = this.baseY + item.y + Phaser.Math.Between(-80, 80);
+                        if (this.scene.buildingManager.canPlace(item.type, altX, altY, 1, { checkResources: false, requireTerritory: false }).valid) {
+                            bx = altX;
+                            by = altY;
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (!placed) {
+                        return false;
                     }
                 }
             }
@@ -572,8 +624,11 @@ export class EnemyAISystem {
         const bx = this.baseX + dx;
         const by = this.baseY + dy;
 
-        // Terrain check
-        if (this.scene.terrainSystem) {
+        // S10: Shared placement validation
+        if (this.scene.buildingManager) {
+            const check = this.scene.buildingManager.canPlace(bonusType, bx, by, 1, { checkResources: false, requireTerritory: false });
+            if (!check.valid) return;
+        } else if (this.scene.terrainSystem) {
             const biome = this.scene.terrainSystem.getBiomeAt(bx, by);
             if (biome === 'water' || biome === 'stone') return;
         }
@@ -643,9 +698,8 @@ export class EnemyAISystem {
         // Use cached enemy list + spatial proximity check
         let threats = 0;
         for (const u of this.enemyUnitCache) {
-            const uImg = u as Phaser.GameObjects.Image;
-            const dx = uImg.x - this.baseX;
-            const dy = uImg.y - this.baseY;
+            const dx = u.x - this.baseX;
+            const dy = u.y - this.baseY;
             if (Math.sqrt(dx * dx + dy * dy) < defenseRadius) {
                 threats++;
                 break; // Early exit: at least one threat detected
@@ -680,8 +734,7 @@ export class EnemyAISystem {
 
         // Check AI military near player TC
         for (const u of this.myMilitaryCache) {
-            const uImg = u as Phaser.GameObjects.Image;
-            const dist = Phaser.Math.Distance.Between(uImg.x, uImg.y, tcX, tcY);
+            const dist = Phaser.Math.Distance.Between(u.x, u.y, tcX, tcY);
             if (dist < 600) {
                 this.scene.feedbackSystem.notifyEnemyApproaching();
                 return; // One notification per check
@@ -718,7 +771,7 @@ export class EnemyAISystem {
                     for (const u of idleTroops) {
                         u.setData('stance', UnitStance.AGGRESSIVE);
                     }
-                    this.scene.unitSystem.commandAttack(idleTroops, this.attackTarget);
+                    this.scene.unitSystem.commandAttack(idleTroops as unknown as Phaser.GameObjects.GameObject[], this.attackTarget);
                 }
             }
         } else {
@@ -765,7 +818,7 @@ export class EnemyAISystem {
 
         // Gather idle military
         const idleTroops = this.myMilitaryCache.filter(
-            (u) => u.getData('hp') > 0 && (u.state === UnitState.IDLE || u.state === UnitState.WANDERING)
+            (u) => ((u.getData('hp') as number | undefined) ?? 0) > 0 && (u.state === UnitState.IDLE || u.state === UnitState.WANDERING)
         );
 
         if (idleTroops.length >= 2) {
@@ -776,7 +829,7 @@ export class EnemyAISystem {
             for (const u of idleTroops) {
                 u.setData('stance', UnitStance.AGGRESSIVE);
             }
-            this.scene.unitSystem.commandAttack(idleTroops, target);
+            this.scene.unitSystem.commandAttack(idleTroops as unknown as Phaser.GameObjects.GameObject[], target);
             this.attackTarget = target;
         }
 
@@ -828,7 +881,7 @@ export class EnemyAISystem {
                     closestDist = dist;
                 }
             }
-            return closest;
+            return closest as unknown as Phaser.GameObjects.GameObject;
         }
 
         // Priority 4: Any enemy building

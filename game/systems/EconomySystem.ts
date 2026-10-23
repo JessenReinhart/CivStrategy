@@ -115,7 +115,11 @@ export class EconomySystem {
 
             if (spawnSource) {
                 // Subtract food cost for population growth
-                this.scene.resources.food -= effectiveFoodCost;
+                if (this.scene.gameState) {
+                    this.scene.gameState.spendResources({ food: effectiveFoodCost });
+                } else {
+                    this.scene.resources.food -= effectiveFoodCost;
+                }
 
                 const offsetX = Phaser.Math.Between(-30, 30);
                 const offsetY = Phaser.Math.Between(-30, 30);
@@ -304,7 +308,12 @@ export class EconomySystem {
                 // farm has an immediately visible positive effect before its carry deposit lands.
                 if (def.type === BuildingType.FARM) {
                     const terrainYield = b.getData('terrainYield') as number ?? 1.0;
-                    const farmFood = Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * efficiency);
+                    // Food production is deliberately NOT scaled by happiness
+                    // `efficiency`. Penalizing food during a happiness crisis
+                    // creates a self-reinforcing food spiral (unhappy → less
+                    // food → starvation → more unhappiness). Food needs the
+                    // physical yield only; happiness throttles gold/tax/trade.
+                    const farmFood = Math.floor(terrainYield * FARM_BASE_FOOD_PER_TICK * 1);
                     foodGen += farmFood;
                     this.queueBuildingProduction(b, 'food', farmFood);
                 }
@@ -325,8 +334,9 @@ export class EconomySystem {
                     if (animalsNearby > 0) {
                         // Use species-specific food value from nearest animal
                         const nearest = nearbyAnimals[0];
-                        let gain = nearest.foodValue || 20;
-                        gain = Math.floor(gain * efficiency);
+                        // S6: Food production must NOT be scaled by happiness crisis efficiency
+                        // to prevent a self-reinforcing food spiral.
+                        const gain = nearest.foodValue || 20;
                         foodGen += gain;
                         this.queueBuildingProduction(b, 'food', gain);
                         if (Math.random() < 0.20) {
@@ -400,14 +410,26 @@ export class EconomySystem {
         });
 
         const foodConsumed = this.scene.population * 1;
-        this.scene.resources.food += foodGen;
-        this.scene.resources.wood += woodGen;
-        this.scene.resources.gold += goldGen;
-        this.scene.resources.food -= foodConsumed;
-        this.scene.resources.food -= upkeepFood;
-        this.scene.resources.gold -= upkeepGold;
-        if (this.scene.resources.food < 0) this.scene.resources.food = 0;
-        if (this.scene.resources.gold < 0) this.scene.resources.gold = 0;
+        // S6: Compute starvation from pre-clamp deficit, not food === 0
+        const rawFoodAfterConsumption = this.scene.resources.food + foodGen - foodConsumed - upkeepFood;
+        const woodDelta = woodGen;
+        const foodDelta = Math.max(-this.scene.resources.food, rawFoodAfterConsumption - this.scene.resources.food);
+        const goldDelta = Math.max(-this.scene.resources.gold, goldGen - upkeepGold);
+
+        if (this.scene.gameState) {
+            this.scene.gameState.addResources({
+                wood: woodDelta,
+                food: foodDelta,
+                gold: goldDelta,
+            });
+        } else {
+            this.scene.resources.food += foodGen;
+            this.scene.resources.wood += woodGen;
+            this.scene.resources.gold += goldGen;
+            this.scene.resources.food = Math.max(0, rawFoodAfterConsumption);
+            this.scene.resources.gold -= upkeepGold;
+            if (this.scene.resources.gold < 0) this.scene.resources.gold = 0;
+        }
 
         // Carried resources are deposited outside the 1s economy tick. Keep
         // production and consumption separate so UI can derive the same net
@@ -427,7 +449,7 @@ export class EconomySystem {
 
         // ─── Happiness ───
         let happinessChange = 0;
-        const isStarving = this.scene.resources.food === 0 && foodConsumed > 0;
+        const isStarving = rawFoodAfterConsumption < 0 && (foodConsumed + upkeepFood) > 0;
         if (isStarving) { happinessChange -= 5; } else { happinessChange += 0; }
         if (this.scene.population > this.scene.maxPopulation) { happinessChange -= 2; }
         if (this.scene.population > this.scene.maxPopulation * 0.8) { happinessChange -= 1; }
@@ -448,14 +470,15 @@ export class EconomySystem {
         this.scene.happiness = Phaser.Math.Clamp(this.scene.happiness, 0, 100);
         this.lastHappinessChange = happinessChange;
         // ─── Feedback Wiring ───
-        const now = Date.now();
-        if (this.scene.happiness < 30 && now - this.lastHappinessWarning > 30000) {
+        // Throttle feedback on simulated gameTime (not wall-clock Date.now())
+        // so pause/speed scale deterministic, catch-up, and saves replay.
+        const now = this.scene.gameTime;
+        if (this.scene.happiness < 30 && (this.lastHappinessWarning === 0 || now - this.lastHappinessWarning > 30000)) {
             this.scene.feedbackSystem.notifyHappinessCritical();
-            this.lastHappinessWarning = now;
-        }
-        if (isStarving && now - this.lastHappinessWarning > 10000) {
+            this.lastHappinessWarning = now === 0 ? 0.001 : now;
+        } else if (isStarving && (this.lastHappinessWarning === 0 || now - this.lastHappinessWarning > 10000)) {
             this.scene.feedbackSystem.notifyHappinessCritical();
-            this.lastHappinessWarning = now;
+            this.lastHappinessWarning = now === 0 ? 0.001 : now;
         }
 
         // Enemy approaching detection (throttled to every 5s)

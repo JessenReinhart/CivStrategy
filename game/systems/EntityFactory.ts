@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { BuildingType, UnitType, UnitState, BuildingDef, FormationType, UnitStance, DamageType } from '../../types';
-import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG, FARM_TERRAIN_YIELD, UNIT_NAMES, FACTION_BONUSES } from '../../constants';
+import { BUILDINGS, UNIT_STATS, FORMATION_BONUSES, UNIT_DAMAGE, UNIT_ARMOR, BUILDING_ARMOR, TERRAIN_CONFIG, FARM_TERRAIN_YIELD, UNIT_NAMES, FACTION_BONUSES, MIN_DAMAGE } from '../../constants';
 import { toIso, toIsoElev } from '../utils/iso';
 import { BUILDING_SPRITE_VISUALS } from './BuildingSpriteVisuals';
 
@@ -309,6 +309,16 @@ export class EntityFactory {
             anchor: { x: x, y: y }         // Default anchor
         });
 
+        // E13: Combat-stat layers. This factory writes only the BASE stats to
+        // unit data here. Applied layers, in order, are:
+        //   1. Base stats (UNIT_STATS/UNIT_DAMAGE/UNIT_ARMOR) — set below.
+        //   2. Research multiplier  — damageMult/armorAdd applied in UnitSystem
+        //      (attack) and EntityFactory.handleDamage (flat armor), NOT here.
+        //   3. Faction bonus        — meleeAttackMult stored as data (below);
+        //      rangedArmorMult applied on incoming volleys in UnitSystem.
+        //   4. Formation modifier   — attack in UnitSystem, defense in handleDamage.
+        // No layer is applied twice; formation/faction are each resolved once.
+
         // Set combat bonuses for specific unit types
         if (type === UnitType.AXEMAN) {
             unit.setData('bonusVsBuilding', 2.0); // 2x damage vs buildings
@@ -392,16 +402,24 @@ export class EntityFactory {
     }
 
     private handleDamage(entity: Phaser.GameObjects.GameObject, amount: number, isUnit: boolean, attackShare = 1) {
+        if (entity.active === false || entity.getData('_dead')) return;
         let hp = entity.getData('hp');
         const maxHp = entity.getData('maxHp');
 
-        // Apply Formation Defense Bonus (Damage Reduction)
+        // E13: Defensive layers (applied exactly once, in documented order):
+        //   1. Per-type armor    — computed in UnitSystem.computeDamage before this call.
+        //   2. Formation defense — multiplicative reduction, floored at MIN_DAMAGE·share.
+        //   3. Research armor    — flat additive reduction, floored at MIN_DAMAGE·share.
+
+        // Formation defense is applied exactly once, here in the damage-reduction
+        // stage. UnitSystem deliberately does NOT fold FORMATION_BONUSES[formation]
+        // .defense into attacker profile scaling, which would double-count it.
         if (isUnit) {
             const formation = entity.getData('formation') as FormationType || FormationType.BOX;
             const defBonus = FORMATION_BONUSES[formation]?.defense || 0;
-            // E.g., 0.25 -> amount * 0.75
-            // E.g., 0.25 -> amount * 0.75
-            amount = Math.max(attackShare, amount * (1 - defBonus));
+            // Reduce damage by the formation defense fraction, floored at the
+            // shared minimum damage so armor can never zero an attack out.
+            amount = Math.max(MIN_DAMAGE * attackShare, amount * (1 - defBonus));
 
             // REACTIVE DEFENSE: If holding ground and attacked, switch to Defensive to fight back
             // unless it's an Animal (which flees/wanders) or Villager (which flees)
@@ -416,7 +434,9 @@ export class EntityFactory {
         const entityOwner = entity.getData('owner') as number;
         const armorAdd = this.scene.researchManager?.getSnapshot(entityOwner).armorAdd ?? 0;
         if (armorAdd > 0) {
-            amount = Math.max(attackShare, amount - armorAdd * attackShare);
+            // Flat research armor reduction, floored at the shared minimum
+            // damage (never per-arrow multiplied).
+            amount = Math.max(MIN_DAMAGE * attackShare, amount - armorAdd * attackShare);
         }
 
         hp -= amount;
@@ -441,6 +461,7 @@ export class EntityFactory {
             this.scene.feedbackSystem?.notifyBuildingDamaged(def?.name ?? 'Building', hp / maxHp);
         }
         if (hp <= 0) {
+            entity.setData('_dead', true);
             if (isUnit) {
                 const unitType = entity.getData('unitType') as string;
                 const unitName = UNIT_NAMES[unitType] ?? 'Unit';
@@ -480,6 +501,10 @@ export class EntityFactory {
                 // Trigger explosion effect
                 const iso = toIso((entity as any).x, (entity as any).y); // eslint-disable-line @typescript-eslint/no-explicit-any
                 this.scene.buildingManager.emitExplosionParticles(iso.x, iso.y, def.width);
+
+                // Release any assigned worker so combat destruction does not
+                // strand it on a dead job site (mirrors demolition).
+                this.scene.buildingManager.releaseAssignedWorker(entity);
             }
             if (visual) visual.destroy();
             entity.destroy();
@@ -523,8 +548,7 @@ export class EntityFactory {
         mine.setData('isDepleted', false);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    public updateTreeVisual(tree: any, isChopped: boolean) {
+    public updateTreeVisual(tree: Phaser.GameObjects.Image & { visual?: Phaser.GameObjects.Image }, isChopped: boolean) {
         tree.setData('isChopped', isChopped);
 
         // Update data

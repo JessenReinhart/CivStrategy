@@ -748,7 +748,7 @@ export class DayNightSystem {
     }
 
     for (const unitObject of this.scene.units.getChildren()) {
-      const unit = unitObject as GameUnit;
+      const unit = unitObject as unknown as GameUnit;
       if (!unit.active) continue;
 
       const container = unit.getData('squadContainer') as Phaser.GameObjects.Container | undefined;

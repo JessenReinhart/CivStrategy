@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { AnimalData, AnimalSpecies, UnitState } from '../../types';
+import { AnimalData, AnimalSpecies, UnitState, GameUnit } from '../../types';
 import { toIsoElev } from '../utils/iso';
 import { MAP_WIDTH, MAP_HEIGHT, ANIMAL_SPECIES_STATS, SEASON_CONFIG } from '../../constants';
 
@@ -53,16 +53,19 @@ export class AnimalSystem {
   private herdCounter = 0;
   private updateOffset = 0;
   private respawnTimer = 0;
+  private rng: Phaser.Math.RandomDataGenerator;
 
   constructor(scene: MainScene) {
     this.scene = scene;
+    // Deterministic species rolls: derive a dedicated stream from the map seed.
+    this.rng = new Phaser.Math.RandomDataGenerator([((scene.mapSeed + 999) >>> 0).toString()]);
   }
 
   // ─── Public API ──────────────────────────────────────────────────────
 
   public spawnAnimal(x: number, y: number, species?: AnimalSpecies): AnimalData {
     if (!species) {
-      const roll = Math.random() * 100;
+      const roll = this.rng.frac() * 100;
       let cumulative = 0;
       species = AnimalSpecies.DEER;
       for (const entry of SPECIES_WEIGHTS) {
@@ -277,8 +280,7 @@ export class AnimalSystem {
     if (animal.wanderDest.y <= 0) {
       animal.wanderDest.y = ATTACK_COOLDOWN_MS;
       // Route through combat pipeline (armor, health bar, death cleanup)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const takeDamage = (target as any).takeDamage as ((amount: number) => void) | undefined;
+      const takeDamage = (target as unknown as GameUnit).takeDamage;
       if (typeof takeDamage === 'function') {
         takeDamage(animal.attackDamage);
       }
@@ -479,7 +481,11 @@ export class AnimalSystem {
     this.scene.proceduralSound?.playDeath(animal.x, animal.y, animal.species);
 
     if (animal.foodValue > 0) {
-      this.scene.resources.food += animal.foodValue;
+      if (this.scene.gameState) {
+        this.scene.gameState.addResources({ food: animal.foodValue });
+      } else {
+        this.scene.resources.food += animal.foodValue;
+      }
       this.scene.feedbackSystem?.showFloatingText(
         animal.x, animal.y, `+${animal.foodValue} Food`, '#facc15',
       );

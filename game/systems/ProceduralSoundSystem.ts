@@ -20,6 +20,7 @@ export class ProceduralSoundSystem {
     private scene: MainScene;
     private ctx: AudioContext | null = null;
     private masterGain: GainNode | null = null;
+    private masterCompressor: DynamicsCompressorNode | null = null;
     private ambienceGain: GainNode | null = null;
     private windNode: AudioBufferSourceNode | null = null;
     private windFilter: BiquadFilterNode | null = null;
@@ -58,7 +59,20 @@ export class ProceduralSoundSystem {
                 this.ctx = new AudioCtx();
                 this.masterGain = this.ctx.createGain();
                 this.masterGain.gain.value = this._volume;
-                this.masterGain.connect(this.ctx.destination);
+
+                // R26: master DynamicsCompressorNode to catch summing peaks and prevent center-bump
+                if (typeof this.ctx.createDynamicsCompressor === 'function') {
+                    this.masterCompressor = this.ctx.createDynamicsCompressor();
+                    this.masterCompressor.threshold.value = -12;
+                    this.masterCompressor.knee.value = 8;
+                    this.masterCompressor.ratio.value = 4;
+                    this.masterCompressor.attack.value = 0.003;
+                    this.masterCompressor.release.value = 0.15;
+                    this.masterGain.connect(this.masterCompressor);
+                    this.masterCompressor.connect(this.ctx.destination);
+                } else {
+                    this.masterGain.connect(this.ctx.destination);
+                }
 
                 this.ambienceGain = this.ctx.createGain();
                 this.ambienceGain.gain.value = 0.15;
@@ -78,6 +92,8 @@ export class ProceduralSoundSystem {
     }
 
     private preGenerateNoiseBuffers(): void {
+        // R24: built once at startup and reused; never rebuild on restart.
+        if (this.noiseBufferLong) return;
         const ctx = this.ctx!;
         const sampleRate = ctx.sampleRate;
 
@@ -112,8 +128,17 @@ export class ProceduralSoundSystem {
      */
     private cleanupFinishedSources(): void {
         while (this.activeSources.length > this.MAX_CONCURRENT) {
-            this.activeSources.shift();
+            const oldest = this.activeSources.shift();
+            try { oldest?.stop(); } catch { /* already stopped */ }
+            try { oldest?.disconnect(); } catch { /* already disconnected */ }
         }
+    }
+
+    /** R1: called from `onended` to disconnect a finished voice and drop its chain. */
+    private releaseSource(source: AudioBufferSourceNode): void {
+        const idx = this.activeSources.indexOf(source);
+        if (idx >= 0) this.activeSources.splice(idx, 1);
+        try { source.disconnect(); } catch { /* already disconnected */ }
     }
 
     /**
@@ -132,7 +157,12 @@ export class ProceduralSoundSystem {
         const startTime = this.ctx!.currentTime;
         source.start(startTime);
         source.stop(startTime + duration + 0.1);
+        source.onended = () => this.releaseSource(source as AudioBufferSourceNode);
         this.activeSources.push(source as AudioBufferSourceNode);
+    }
+
+    private safeExpRamp(param: AudioParam, target: number, time: number): void {
+        param.exponentialRampToValueAtTime(Math.max(1e-4, target), time);
     }
 
     /**
@@ -161,7 +191,7 @@ export class ProceduralSoundSystem {
         const gain = ctx.createGain();
         const now = ctx.currentTime;
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(volume, now + attackSec);
+        this.safeExpRamp(gain.gain, volume, now + attackSec);
         gain.gain.exponentialRampToValueAtTime(0.001, now + attackSec + decaySec);
 
         source.connect(filter);
@@ -192,7 +222,7 @@ export class ProceduralSoundSystem {
         const gain = ctx.createGain();
         const now = ctx.currentTime;
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.exponentialRampToValueAtTime(volume, now + attackSec);
+        this.safeExpRamp(gain.gain, volume, now + attackSec);
         gain.gain.exponentialRampToValueAtTime(0.001, now + attackSec + decaySec);
 
         osc.connect(gain);
@@ -267,6 +297,17 @@ export class ProceduralSoundSystem {
      */
     private applyPan(pan: number, gainNode: GainNode): void {
         const ctx = this.ctx!;
+        // R26: prefer StereoPannerNode (equal-power pan law, no +6 dB center bump).
+        // Fall back to the merger-based split when the browser/mock lacks it.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pannerCtx = ctx as any;
+        if (typeof pannerCtx.createStereoPanner === 'function') {
+            const panner = pannerCtx.createStereoPanner() as StereoPannerNode;
+            panner.pan.value = Phaser.Math.Clamp(pan, -1, 1);
+            gainNode.connect(panner);
+            panner.connect(this.masterGain!);
+            return;
+        }
         const merger = ctx.createChannelMerger(2);
         const leftGain = ctx.createGain();
         const rightGain = ctx.createGain();
