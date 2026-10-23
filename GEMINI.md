@@ -36,7 +36,7 @@
 CivStrategy/
 ├── game/                          # Phaser game logic (core engine)
 │   ├── MainScene.ts              # Main Phaser scene (coordinates all systems)
-│   ├── systems/                  # Game systems (ECS-like architecture)
+│   ├── systems/                  # Game systems (24 MainScene-owned classes + auxiliary managers)
 │   │   ├── AtmosphericSystem.ts  # Bloom, particles, atmospheric effects
 │   │   ├── BuildingManager.ts    # Building placement, demolition, territory
 │   │   ├── CullingSystem.ts      # Performance: off-screen entity culling
@@ -82,7 +82,9 @@ CivStrategy/
 
 The game follows a **system-based architecture** where each system manages a specific domain:
 
-- **MainScene.ts**: Orchestrates all systems, holds global state (resources, population, happiness)
+- **MainScene.ts**: Orchestrates runtime loops; delegates 24 systems to `SystemRegistry`, 6 entity groups + 2 spatial hashes to `EntityRegistryService`, and state to `GameStateService`
+- **GameStateService**: Authoritative owner of game state (resources, population, happiness, age, diplomacy, game speed, seasons)
+- **SystemRegistry / EntityRegistryService**: Typed containers decoupling system instances and entity groups from scene state
 - **Systems** (`game/systems/`): Independent modules that handle specific responsibilities
 - **Communication**: Systems communicate via Phaser events (see `EVENTS` in `constants.ts`)
 
@@ -373,7 +375,7 @@ npm run lint:fix   # Auto-fix ESLint errors
 - **Technologies**: Currently uses Phaser 3, React, TypeScript, Vite
 - **Modularity**: Systems are loosely coupled via events
 - **Extensibility**: Easy to add new unit types, buildings, formations
-- **Testing**: Currently no test framework (consider Vitest for future)
+- **Testing**: Vitest 2.1.9 — 69 test files / 510 tests; `npm run coverage` uses v8 coverage with a ~39% lines floor on `game/**`
 
 ---
 

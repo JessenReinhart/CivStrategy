@@ -103,7 +103,7 @@ export class DynamicMusicSystem {
   private readonly updateMusicState = (): void => {
     if (this.destroyed) return;
 
-    const units = this.scene.units.getChildren() as GameUnit[];
+    const units = this.scene.units.getChildren() as unknown as GameUnit[];
     const desiredMode = this.controller.resolve(
       this.scene.time.now,
       hasActiveBattle(units),
@@ -116,7 +116,7 @@ export class DynamicMusicSystem {
 
     const previous = this.currentMode === 'battle' ? this.battleTrack : this.idleTrack;
     const next = mode === 'battle' ? this.battleTrack : this.idleTrack;
-    const units = (this.scene.units?.getChildren?.() ?? []) as GameUnit[];
+    const units = (this.scene.units?.getChildren?.() ?? []) as unknown as GameUnit[];
     let engagedCount = 0;
     if (mode === 'battle') {
       for (const unit of units) {

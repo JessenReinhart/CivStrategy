@@ -422,12 +422,14 @@ export class Pathfinder {
             // Natural: the cardinal neighbors in the direction
             if (this.isWalkable(gx + dx, gy)) neighbors.push([gx + dx, gy]);
             if (this.isWalkable(gx, gy + dy)) neighbors.push([gx, gy + dy]);
-            // Forced neighbors for diagonal
-            if (!this.isWalkable(gx - dx, gy) && this.isWalkable(gx + dx, gy)) {
-                // Force the diagonal if one side is blocked
+            // Forced neighbors for diagonal pruning (E5): when both orthogonal
+            // walk constraints collapse, the two diagonal-facing cardinal cells
+            // are forced onto the open list.
+            if (!this.isWalkable(gx - dx, gy) && this.isWalkable(gx - dx, gy + dy)) {
+                neighbors.push([gx - dx, gy + dy]);
             }
-            if (!this.isWalkable(gx, gy - dy) && this.isWalkable(gx, gy + dy)) {
-                // Force the diagonal if one side is blocked
+            if (!this.isWalkable(gx, gy - dy) && this.isWalkable(gx + dx, gy - dy)) {
+                neighbors.push([gx + dx, gy - dy]);
             }
         } else if (dxx === 1) {
             // Horizontal movement (dy = 0)
@@ -626,15 +628,15 @@ export class Pathfinder {
         const dirY = new Float64Array(total);
         integration.fill(Number.MAX_VALUE);
 
-        // BFS from target outward
-        const queue: number[] = [];
+        // Priority queue (MinHeap) Dijkstra propagation from target outward (E3)
+        const queue = new MinHeap<number>();
         const targetIdx = this.idx(tgx, tgy);
         
         if (!this.isCellBlocked(targetIdx)) {
             integration[targetIdx] = 0;
             dirX[targetIdx] = 0;
             dirY[targetIdx] = 0;
-            queue.push(targetIdx);
+            queue.push(0, targetIdx);
         } else {
             // Target blocked: seed from neighbors
             for (let d = 0; d < 8; d++) {
@@ -645,15 +647,15 @@ export class Pathfinder {
                     integration[nIdx] = 1;
                     dirX[nIdx] = -Pathfinder.DX[d];
                     dirY[nIdx] = -Pathfinder.DY[d];
-                    queue.push(nIdx);
+                    queue.push(1, nIdx);
                 }
             }
         }
 
-        // BFS propagation (Dijkstra-like)
-        let qIdx = 0;
-        while (qIdx < queue.length) {
-            const currentIdx = queue[qIdx++];
+        // Dijkstra propagation: lower integration costs expand first
+        while (queue.size > 0) {
+            const currentIdx = queue.pop();
+            if (currentIdx === null) break;
             const cur = this.coord(currentIdx);
             const baseCost = integration[currentIdx];
 
@@ -671,7 +673,7 @@ export class Pathfinder {
                     integration[nIdx] = newCost;
                     dirX[nIdx] = -Pathfinder.DX[d];
                     dirY[nIdx] = -Pathfinder.DY[d];
-                    queue.push(nIdx);
+                    queue.push(newCost, nIdx);
                 }
             }
         }
@@ -781,6 +783,11 @@ export class Pathfinder {
         end: Phaser.Math.Vector2,
         callback: (path: Phaser.Math.Vector2[] | null) => void
     ): number {
+        if (this.requestQueue.length >= (this.maxQueueDepth ?? 500)) {
+            this.frameStats.queueDropped++;
+            this.totals.queueDropped++;
+            return -1;
+        }
         const id = this.nextRequestId++;
         this.requestQueue.push({ id, start, end, callback });
         return id;

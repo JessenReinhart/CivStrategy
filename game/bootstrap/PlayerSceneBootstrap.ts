@@ -249,24 +249,27 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     });
   }
 
-  scene.game.events.on('request-unit-spawn', scene.handleUnitSpawnRequest, scene);
-  scene.game.events.on(EVENTS.SET_TAX_RATE, (rate: number) => {
+  scene.registerGameEvent('request-unit-spawn', scene.handleUnitSpawnRequest, scene);
+  // Bridge the React build buttons (BUILD_MODE_TOGGLED on game events) to the
+  // BuildingManager's `request-build` listener, which owns preview state.
+  scene.registerGameEvent(EVENTS.BUILD_MODE_TOGGLED, (type: BuildingType) => {
+    scene.game.events.emit('request-build', type);
+  }, scene);
+  scene.registerGameEvent(EVENTS.SET_TAX_RATE, (rate: number) => {
     scene.taxRate = rate;
     scene.economySystem.updateStats();
   }, scene);
-  scene.game.events.on(EVENTS.CENTER_CAMERA, scene.centerCameraOnTownCenter, scene);
-  scene.game.events.on(EVENTS.SET_GAME_SPEED, (speed: number) => {
-    scene.gameSpeed = speed;
-    scene.physics.world.timeScale = 1 / speed;
-    scene.tweens.timeScale = speed;
+  scene.registerGameEvent(EVENTS.CENTER_CAMERA, scene.centerCameraOnTownCenter, scene);
+  scene.registerGameEvent(EVENTS.SET_GAME_SPEED, (speed: number) => {
+    scene.setGameSpeed(speed);
   }, scene);
-  scene.game.events.on(EVENTS.SET_BLOOM_INTENSITY, (intensity: number) => {
+  scene.registerGameEvent(EVENTS.SET_BLOOM_INTENSITY, (intensity: number) => {
     scene.bloomIntensity = intensity;
     scene.atmosphericSystem.setBloomIntensity(intensity);
     scene.economySystem.updateStats();
   });
 
-  scene.physics.world.timeScale = 1 / scene.gameSpeed;
+  scene.applyGameSpeedScales();
   scene.economySystem.updateStats();
 
   report(0.91, 'Preparing visibility', scene.isFowEnabled ? 'Generating fog of war and minimap' : 'Generating minimap');
@@ -274,49 +277,51 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
   scene.fogOfWar = scene.isFowEnabled ? new FogOfWarSystem(scene) : null;
   scene.minimapSystem = new MinimapSystem(scene);
 
-  const minimapClickHandler = (event: Event) => {
+  scene.minimapClickHandler = (event: Event) => {
     const detail = (event as CustomEvent).detail;
     scene.handleMinimapClick(detail.x, detail.y);
   };
-  window.addEventListener('minimap-click-ui', minimapClickHandler);
+  window.addEventListener('minimap-click-ui', scene.minimapClickHandler);
 
-  scene.game.events.on('set-bloom-intensity-ui', (intensity: number) => {
+  scene.registerGameEvent('set-bloom-intensity-ui', (intensity: number) => {
     scene.atmosphericSystem.setBloomIntensity(intensity);
     scene.economySystem.updateStats();
   });
 
-  scene.game.events.on(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
+  scene.registerGameEvent(EVENTS.SET_TILT_SHIFT_ENABLED, (enabled: boolean) => {
     scene.atmosphericSystem.setTiltShiftEnabled(enabled);
     scene.economySystem.updateStats();
   });
-  scene.game.events.on(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
+  scene.registerGameEvent(EVENTS.SET_TILT_SHIFT_BLUR, (blur: number) => {
     scene.atmosphericSystem.setTiltShiftBlur(blur);
     scene.economySystem.updateStats();
   });
-  scene.game.events.on('set-tilt-shift-enabled-ui', (enabled: boolean) => {
+  scene.registerGameEvent('set-tilt-shift-enabled-ui', (enabled: boolean) => {
     scene.atmosphericSystem.setTiltShiftEnabled(enabled);
     scene.economySystem.updateStats();
   });
-  scene.game.events.on('set-tilt-shift-blur-ui', (blur: number) => {
+  scene.registerGameEvent('set-tilt-shift-blur-ui', (blur: number) => {
     scene.atmosphericSystem.setTiltShiftBlur(blur);
     scene.economySystem.updateStats();
   });
 
   if (scene.game.renderer && scene.game.renderer.on) {
-    scene.game.renderer.on('prerender', () => {
+    scene._preRenderHandler = () => {
       internal._renderStart = performance.now();
-    });
-    scene.game.renderer.on('postrender', () => {
+    };
+    scene._postRenderHandler = () => {
       const elapsed = performance.now() - (internal._renderStart || 0);
       internal.profileTimings.__render = (internal.profileTimings.__render || 0) + elapsed;
-    });
+    };
+    scene.game.renderer.on('prerender', scene._preRenderHandler);
+    scene.game.renderer.on('postrender', scene._postRenderHandler);
   }
 
-  scene.game.events.on('request-set-formation', (type: FormationType) => {
+  scene.registerGameEvent('request-set-formation', (type: FormationType) => {
     scene.unitSystem.setFormation(type);
     scene.economySystem.updateStats();
   }, scene);
-  scene.game.events.on('request-set-stance', (stance: UnitStance) => {
+  scene.registerGameEvent('request-set-stance', (stance: UnitStance) => {
     scene.unitSystem.setStance(stance);
     scene.economySystem.updateStats();
   }, scene);
@@ -361,8 +366,8 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     }
   }
 
-  scene.game.events.on(EVENTS.ADVANCE_AGE, () => scene.startAgeAdvancement());
-  scene.game.events.on(EVENTS.START_RESEARCH, (techId: TechId) => {
+  scene.registerGameEvent(EVENTS.ADVANCE_AGE, () => scene.startAgeAdvancement());
+  scene.registerGameEvent(EVENTS.START_RESEARCH, (techId: TechId) => {
     const def = TECH_DEFS[techId];
     if (def && scene.researchManager.tryStart(0, techId, scene.currentAge, def.hostBuildingTypes[0])) {
       scene.economySystem.updateStats();
@@ -385,7 +390,7 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     const name = AGE_CONFIGS[age]?.name ?? age;
     scene.feedbackSystem.addNotification(`⚔️ Enemy entered ${name}!`, 'warning', 6000);
   });
-  scene.game.events.on('release-garrison', () => {
+  scene.registerGameEvent('release-garrison', () => {
     const selectedBuilding = scene.inputManager.selectedBuilding as Phaser.GameObjects.Image | null;
     if (!selectedBuilding) return;
     const def = selectedBuilding.getData('def');
@@ -409,8 +414,8 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
     scene.economySystem.updateStats();
   });
 
-  scene.game.events.on('save-game', () => scene.saveGame());
-  scene.game.events.on('load-game', () => scene.loadGame());
+  scene.registerGameEvent('save-game', () => scene.saveGame());
+  scene.registerGameEvent('load-game', () => scene.loadGame());
 
   let pendingSave: ReturnType<typeof loadFromLocalStorage> = null;
   if (hasPendingLoad) {
@@ -446,9 +451,7 @@ export async function bootstrapPlayerScene(scene: MainScene): Promise<void> {
   }
 
   scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
-    scene.proceduralSound.destroy();
-    scene.clashSystem.destroy();
-    window.removeEventListener('minimap-click-ui', minimapClickHandler);
+    scene.shutdown();
   });
 
   scene.isReady = true;

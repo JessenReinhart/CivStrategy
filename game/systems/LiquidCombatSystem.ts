@@ -64,13 +64,28 @@ const CELL_SIZE = 150;
 // ─── Types ───────────────────────────────────────────────────────────────
 
 interface CellPressure {
-    /** Outward pressure direction + magnitude (normalized × force). */
     dirX: number;
     dirY: number;
-    /** Raw force magnitude for this cell. */
     force: number;
-    /** Unit count. */
     density: number;
+}
+
+/**
+ * Pack a SpatialHash cell coordinate into a 32-bit signed integer key (E9).
+ * The sign-extended low 16 bits preserve negative cell coordinates, and the
+ * high 16 bits carry the x coordinate.
+ */
+function cellKey(cx: number, cy: number): number {
+    return ((((cx & 0xffff) << 16) | (cy & 0xffff)) | 0);
+}
+
+function cellKeyFromKey(key: string): number {
+    const sep = key.indexOf(',');
+    if (sep === -1) return -1;
+    const cx = Number(key.slice(0, sep));
+    const cy = Number(key.slice(sep + 1));
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return -1;
+    return cellKey(cx, cy);
 }
 
 interface ContactLine {
@@ -96,8 +111,8 @@ interface ContactLine {
 export class LiquidCombatSystem {
     private scene: MainScene;
 
-    /** Per-frame pressure grid, keyed by "cx,cy" SpatialHash cell key. */
-    private pressureGrid: Map<string, CellPressure> = new Map();
+    /** Per-frame pressure grid, keyed by packed integer cell key (E9). */
+    private pressureGrid: Map<number, CellPressure> = new Map();
 
     /** Per-frame contact lines, one per opposing formation pair. */
     private contactLines: ContactLine[] = [];
@@ -133,7 +148,7 @@ export class LiquidCombatSystem {
             return;
         }
 
-        const allUnits = this.scene.units.getChildren() as GameUnit[];
+        const allUnits = this.scene.units.getChildren() as unknown as GameUnit[];
 
         // ── 1. Pressure grid ──────────────────────────────────────────
         // Count units per cell, then compute outward pressure from density gradients.
@@ -159,20 +174,26 @@ export class LiquidCombatSystem {
         this.pressureGrid.clear();
 
         // Phase 1: count density + accumulate centroid per cell.
-        const cellData = new Map<string, { count: number; sx: number; sy: number }>();
+        // S17 / E9: packed 32-bit integer cell keys avoid per-unit string concatenation.
+        const cellData = new Map<number, { count: number; sx: number; sy: number; cx: number; cy: number }>();
 
         for (let i = 0; i < units.length; i++) {
             const unit = units[i];
             // Only military units contribute to combat pressure.
             if (this.isCivilian(unit)) continue;
 
-            const key = unit.getData('spatialKey') as string;
-            if (!key) continue;
+            const strKey = unit.getData('spatialKey') as string | undefined;
+            if (!strKey) continue;
+            const k = cellKeyFromKey(strKey);
+            if (k === -1) continue;
 
-            let data = cellData.get(key);
+            let data = cellData.get(k);
             if (!data) {
-                data = { count: 0, sx: 0, sy: 0 };
-                cellData.set(key, data);
+                const sep = strKey.indexOf(',');
+                const cx = Number(strKey.slice(0, sep));
+                const cy = Number(strKey.slice(sep + 1));
+                data = { count: 0, sx: 0, sy: 0, cx, cy };
+                cellData.set(k, data);
             }
             data.count++;
             data.sx += unit.x;
@@ -182,8 +203,9 @@ export class LiquidCombatSystem {
         // Phase 2: compute pressure from density gradient.
         // For each occupied cell, check 8 neighbors. Pressure direction = away
         // from the weighted neighbor centroid. Force = (localDensity - avgNeighborDensity)².
-        for (const [key, data] of cellData) {
-            const [cx, cy] = key.split(',').map(Number);
+        for (const [k, data] of cellData) {
+            const cx = data.cx;
+            const cy = data.cy;
 
             let neighborCount = 0;
             let neighborDensitySum = 0;
@@ -194,7 +216,7 @@ export class LiquidCombatSystem {
             for (let dx = -1; dx <= 1; dx++) {
                 for (let dy = -1; dy <= 1; dy++) {
                     if (dx === 0 && dy === 0) continue;
-                    const nKey = `${cx + dx},${cy + dy}`;
+                    const nKey = cellKey(cx + dx, cy + dy);
                     const nData = cellData.get(nKey);
                     if (nData) {
                         neighborCount++;
@@ -245,7 +267,7 @@ export class LiquidCombatSystem {
                 }
             }
 
-            this.pressureGrid.set(key, {
+            this.pressureGrid.set(k, {
                 dirX,
                 dirY,
                 force,
@@ -256,10 +278,12 @@ export class LiquidCombatSystem {
 
     /**
      * Get the pressure force for a unit at a given cell key.
+     * Accepts packed 32-bit integer keys or legacy "cx,cy" strings.
      * Returns null if no pressure (cell empty or negligible).
      */
-    public getPressure(cellKey: string): CellPressure | null {
-        return this.pressureGrid.get(cellKey) ?? null;
+    public getPressure(cellKeyInput: string | number): CellPressure | null {
+        const k = typeof cellKeyInput === 'number' ? cellKeyInput : cellKeyFromKey(cellKeyInput);
+        return this.pressureGrid.get(k) ?? null;
     }
 
     // ─── Contact Lines ───────────────────────────────────────────────────

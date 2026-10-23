@@ -42,8 +42,16 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ status }) => {
                         </div>
                     </div>
 
-                    {/* Progress Bar Container */}
-                    <div className="h-2 w-full bg-stone-800 rounded-full overflow-hidden border border-white/5 shadow-inner">
+                    {/* Progress Bar Container (F10 a11y: progressbar role + live updates) */}
+                    <div
+                        role="progressbar"
+                        aria-valuenow={percentage}
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-label={failed ? 'Realm generation failed' : `Loading realm: ${status.phase}`}
+                        aria-live="polite"
+                        className="h-2 w-full bg-stone-800 rounded-full overflow-hidden border border-white/5 shadow-inner"
+                    >
                         <div 
                             className={`h-full transition-all duration-150 ease-out relative ${failed ? 'bg-red-500/70' : 'bg-gradient-to-r from-amber-600 via-amber-400 to-amber-600'}`}
                             style={{ width: `${status.progress * 100}%` }}

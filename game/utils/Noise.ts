@@ -1,6 +1,6 @@
 
 /**
- * Simple Perlin Noise generator for cloud shadows.
+ * Perlin Noise generator with mulberry32 PRNG and positive floor wrapping (R23, R34).
  */
 export class Noise {
     private p: number[] = new Array(512);
@@ -8,15 +8,22 @@ export class Noise {
     constructor(seed: number = Math.random()) {
         const permutation = new Array(256).fill(0).map((_, i) => i);
 
-        // Shuffle based on seed
+        // R34: mulberry32 32-bit PRNG replaces low-period LCG (mod 233280)
+        let s = (Math.floor(Math.abs(seed) * 1000000) ^ 0xa5a5a5a5) >>> 0;
+        if (s === 0) s = 1;
         const random = () => {
-            seed = (seed * 9301 + 49297) % 233280;
-            return seed / 233280;
+            s = (s + 0x6d2b79f5) >>> 0;
+            let t = Math.imul(s ^ (s >>> 15), 1 | s);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
         };
 
+        // Fisher-Yates shuffle with unbiased uniform integer selection
         for (let i = 255; i > 0; i--) {
             const j = Math.floor(random() * (i + 1));
-            [permutation[i], permutation[j]] = [permutation[j], permutation[i]];
+            const tmp = permutation[i];
+            permutation[i] = permutation[j];
+            permutation[j] = tmp;
         }
 
         for (let i = 0; i < 512; i++) {
@@ -40,11 +47,14 @@ export class Noise {
     }
 
     public perlin2(x: number, y: number): number {
-        const X = Math.floor(x) & 255;
-        const Y = Math.floor(y) & 255;
+        // R23: mathematically sound floor that correctly handles negative coordinates
+        const fx = Math.floor(x);
+        const fy = Math.floor(y);
+        const X = ((fx % 256) + 256) & 255;
+        const Y = ((fy % 256) + 256) & 255;
 
-        x -= Math.floor(x);
-        y -= Math.floor(y);
+        x -= fx;
+        y -= fy;
 
         const u = this.fade(x);
         const v = this.fade(y);

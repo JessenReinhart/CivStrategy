@@ -47,7 +47,7 @@ function makeHarness(options: {
         enemyAI: { sendTauntOnBuildingDestroyed: vi.fn() },
         proceduralSound: { playDemolition: vi.fn() },
         pathfinder: { markGrid: vi.fn() },
-        buildingManager: { emitExplosionParticles: vi.fn() },
+        buildingManager: { emitExplosionParticles: vi.fn(), releaseAssignedWorker: vi.fn() },
     } as unknown as MainScene;
     const factory = new EntityFactory(scene);
     const destroyByDamage = () => (factory as unknown as {
@@ -85,5 +85,14 @@ describe('EntityFactory building benefit teardown', () => {
 
         expect(scene.maxPopulation).toBe(20);
         expect(scene.happiness).toBe(10);
+    });
+
+    it('releases the assigned worker when a building is destroyed in combat', () => {
+        const { entity, scene, destroyByDamage } = makeHarness({ constructionComplete: true });
+
+        destroyByDamage();
+
+        expect(scene.buildingManager.releaseAssignedWorker).toHaveBeenCalledTimes(1);
+        expect(scene.buildingManager.releaseAssignedWorker).toHaveBeenCalledWith(entity);
     });
 });

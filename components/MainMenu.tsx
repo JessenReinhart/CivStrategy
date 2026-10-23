@@ -106,6 +106,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
 
   // Save game detection
   const [saveMeta, setSaveMeta] = useState<ReturnType<typeof getSaveMeta>>(null);
+  // F17: single hover key drives conditional inline styles (no direct DOM mutation).
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
   useEffect(() => {
     setSaveMeta(getSaveMeta());
   }, []);
@@ -117,7 +119,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   const timelineRef = useRef<gsap.core.Timeline | null>(null);
   const spaceHeldRef = useRef(false);
   const menuScreenRef = useRef<MenuScreen>('landing');
-  menuScreenRef.current = menuScreen;
+  // F12: keep the ref in sync via effect, not by mutating it during render.
+  useEffect(() => {
+    menuScreenRef.current = menuScreen;
+  }, [menuScreen]);
 
   // Tip carousel
   useEffect(() => {
@@ -161,7 +166,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
     tl.seek('landing');
 
     return () => {
+      // F16: kill timeline and clear any tweens animating the screen nodes on unmount
       tl.kill();
+      gsap.killTweensOf([landing, lobby, stress]);
       timelineRef.current = null;
     };
   }, []);
@@ -259,7 +266,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
   }, []);
   const handleStart = () => {
     uiClick();
-    onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, mapSeed, mapPreset);
+    // Convert the "random map" sentinel (0) to a concrete nonzero seed before
+    // the scene boots so MainScene sees an explicit deterministic-ish seed.
+    const seed = mapSeed === 0 ? Math.floor(Math.random() * 999999) + 1 : mapSeed;
+    onStart(selectedFaction, mapMode, mapSize, fowEnabled, peacefulMode, treatyLength, aiDisabled, seed, mapPreset);
   };
 
   const handleStressTestStart = () => {
@@ -279,17 +289,31 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
     if (!raw) return;
     try {
       const save = JSON.parse(raw);
+      // Validate persisted enums/fields against the current schema (F9).
+      // Corrupt or obsolete values fall back to safe defaults instead of
+      // resolving FACTION_INFO[undefined] and white-screening the app.
+      const faction = Object.values(FactionType).includes(save.faction)
+        ? save.faction : FactionType.ROMANS;
+      const mapMode = Object.values(MapMode).includes(save.mapMode)
+        ? save.mapMode : MapMode.FIXED;
+      const mapSize = Object.values(MapSize).includes(save.mapSize)
+        ? save.mapSize : MapSize.MEDIUM;
+      const mapPreset = Object.values(MapPreset).includes(save.mapPreset)
+        ? save.mapPreset : MapPreset.STANDARD;
+      const treatyLength = Number.isFinite(save.treatyLength)
+        ? Math.max(0, save.treatyLength) : 10;
+      const mapSeed = Number.isFinite(save.mapSeed) ? save.mapSeed : 0;
       setPendingLoad();
       onStart(
-        save.faction,
-        save.mapMode ?? MapMode.FIXED,
-        save.mapSize ?? MapSize.MEDIUM,
-        save.fowEnabled ?? true,
-        save.peacefulMode ?? false,
-        save.treatyLength ?? 10,
-        save.aiDisabled ?? false,
-        save.mapSeed,
-        save.mapPreset ?? MapPreset.STANDARD
+        faction,
+        mapMode,
+        mapSize,
+        save.fowEnabled !== false,
+        save.peacefulMode === true,
+        treatyLength,
+        save.aiDisabled === true,
+        mapSeed,
+        mapPreset
       );
     } catch (e) {
       console.error('[MainMenu] Continue failed:', e);
@@ -396,20 +420,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                 style={{
                   color: '#4ade80',
                   border: '1px solid #4ade80',
-                  backgroundColor: 'rgba(74, 222, 128, 0.08)',
+                  backgroundColor: hoverKey === 'continue' ? 'rgba(74, 222, 128, 0.15)' : 'rgba(74, 222, 128, 0.08)',
+                  boxShadow: hoverKey === 'continue' ? '0 0 30px rgba(74, 222, 128, 0.15)' : 'none',
                   fontFamily: "'Inter', sans-serif",
                   letterSpacing: '0.22em',
                   '--tw-ring-color': '#4ade80',
                   '--tw-ring-offset-color': DARK_EARTH,
                 } as React.CSSProperties}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(74, 222, 128, 0.15)';
-                  e.currentTarget.style.boxShadow = '0 0 30px rgba(74, 222, 128, 0.15)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(74, 222, 128, 0.08)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
+                onMouseEnter={() => setHoverKey('continue')}
+                onMouseLeave={() => setHoverKey(null)}
               >
                 <span className="relative z-10">Continue Game</span>
               </button>
@@ -424,25 +443,18 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
             onClick={() => handleNavigate('lobby')}
             className="group relative px-14 py-4 text-sm font-bold uppercase tracking-[0.22em] transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
             style={{
-              color: GOLD,
               border: '1px solid',
               borderColor: GOLD,
-              backgroundColor: 'transparent',
+              backgroundColor: hoverKey === 'start' ? GOLD : 'transparent',
+              color: hoverKey === 'start' ? DARK_EARTH : GOLD,
+              boxShadow: hoverKey === 'start' ? `0 0 30px ${GOLD_GLOW}, inset 0 0 30px ${GOLD_GLOW}` : 'none',
               fontFamily: "'Inter', sans-serif",
               letterSpacing: '0.22em',
               '--tw-ring-color': GOLD,
               '--tw-ring-offset-color': DARK_EARTH,
             } as React.CSSProperties}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = GOLD;
-              e.currentTarget.style.color = DARK_EARTH;
-              e.currentTarget.style.boxShadow = `0 0 30px ${GOLD_GLOW}, inset 0 0 30px ${GOLD_GLOW}`;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = GOLD;
-              e.currentTarget.style.boxShadow = 'none';
-            }}
+            onMouseEnter={() => setHoverKey('start')}
+            onMouseLeave={() => setHoverKey(null)}
           >
             <span className="relative z-10">Start Game</span>
           </button>
@@ -452,25 +464,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
             onClick={() => handleNavigate('stress')}
             className="group relative px-12 py-3.5 text-xs font-semibold uppercase tracking-[0.2em] transition-all duration-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
             style={{
-              color: TEXT_MUTED,
+              color: hoverKey === 'stress' ? GOLD : TEXT_MUTED,
               border: '1px solid',
-              borderColor: BORDER,
-              backgroundColor: 'transparent',
+              borderColor: hoverKey === 'stress' ? GOLD : BORDER,
+              backgroundColor: hoverKey === 'stress' ? GOLD_GLOW : 'transparent',
               fontFamily: "'Inter', sans-serif",
               letterSpacing: '0.2em',
               '--tw-ring-color': GOLD,
               '--tw-ring-offset-color': DARK_EARTH,
             } as React.CSSProperties}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = GOLD;
-              e.currentTarget.style.color = GOLD;
-              e.currentTarget.style.backgroundColor = GOLD_GLOW;
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = BORDER;
-              e.currentTarget.style.color = TEXT_MUTED;
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
+            onMouseEnter={() => setHoverKey('stress')}
+            onMouseLeave={() => setHoverKey(null)}
           >
             Diagnostics
           </button>
@@ -587,25 +591,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                       aria-pressed={isSelected}
                       className="w-full text-left transition-all duration-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
                       style={{
-                        backgroundColor: isSelected ? SURFACE_LIGHT : 'transparent',
+                        backgroundColor: isSelected ? SURFACE_LIGHT : (hoverKey === `faction-${faction}` ? SURFACE : 'transparent'),
                         border: '1px solid',
-                        borderColor: isSelected ? fPh.accent : BORDER,
+                        borderColor: isSelected ? fPh.accent : (hoverKey === `faction-${faction}` ? fPh.accent : BORDER),
                         '--tw-ring-color': GOLD,
                         '--tw-ring-offset-color': DARK_EARTH,
                         boxShadow: isSelected ? `0 0 20px ${fPh.glow}` : 'none',
                       } as React.CSSProperties}
-                      onMouseEnter={(e) => {
-                        if (!isSelected) {
-                          e.currentTarget.style.backgroundColor = SURFACE;
-                          e.currentTarget.style.borderColor = fPh.accent;
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isSelected) {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                          e.currentTarget.style.borderColor = BORDER;
-                        }
-                      }}
+                      onMouseEnter={() => { if (!isSelected) setHoverKey(`faction-${faction}`); }}
+                      onMouseLeave={() => setHoverKey(null)}
                     >
                       <div className="p-4">
                         <div className="flex items-start gap-3 mb-2">
@@ -761,18 +755,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     className="px-4 py-3 text-lg transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
                     style={{
                       border: '1px solid',
-                      borderColor: BORDER,
-                      backgroundColor: 'transparent',
+                      borderColor: hoverKey === 'dice' ? BORDER_GOLD : BORDER,
+                      backgroundColor: hoverKey === 'dice' ? SURFACE : 'transparent',
                       '--tw-ring-color': GOLD,
                     } as React.CSSProperties}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = BORDER_GOLD;
-                      e.currentTarget.style.backgroundColor = SURFACE;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = BORDER;
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
+                    onMouseEnter={() => setHoverKey('dice')}
+                    onMouseLeave={() => setHoverKey(null)}
                     aria-label="Randomize map seed"
                     title="Randomize seed"
                   >
@@ -836,22 +824,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     style={{
                       fontFamily: "'Inter', sans-serif",
                       border: '1px solid',
-                      borderColor: toggle.value ? GOLD : BORDER,
-                      backgroundColor: toggle.value ? `${GOLD}10` : 'transparent',
+                      borderColor: toggle.value ? GOLD : (hoverKey === `toggle-${toggle.label}` ? BORDER_GOLD : BORDER),
+                      backgroundColor: toggle.value ? `${GOLD}10` : (hoverKey === `toggle-${toggle.label}` ? SURFACE : 'transparent'),
                       '--tw-ring-color': GOLD,
                     } as React.CSSProperties}
-                    onMouseEnter={(e) => {
-                      if (!toggle.value) {
-                        e.currentTarget.style.borderColor = BORDER_GOLD;
-                        e.currentTarget.style.backgroundColor = SURFACE;
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!toggle.value) {
-                        e.currentTarget.style.borderColor = BORDER;
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                      }
-                    }}
+                    onMouseEnter={() => { if (!toggle.value) setHoverKey(`toggle-${toggle.label}`); }}
+                    onMouseLeave={() => setHoverKey(null)}
                   >
                     <span
                       className="text-xs font-semibold uppercase tracking-[0.15em]"
@@ -886,7 +864,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     className="text-xs font-bold uppercase tracking-[0.25em] mb-3"
                     style={{ color: GOLD, fontFamily: "'Cinzel', serif", letterSpacing: '0.25em' }}
                   >
-                    Peace Duration: {treatyLength} turns
+                    Peace Duration: {treatyLength} min
                   </h4>
                   <input
                     type="range"
@@ -895,7 +873,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                     value={treatyLength}
                     onChange={(e) => setTreatyLength(parseInt(e.target.value, 10))}
                     className="w-full hermes-range"
-                    aria-label="Peace duration in turns"
+                    aria-label="Peace duration in minutes"
                   />
                 </div>
               )}
@@ -911,18 +889,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
               style={{
                 fontFamily: "'Inter', sans-serif",
                 border: '1px solid',
-                borderColor: BORDER,
-                color: TEXT_MUTED,
+                borderColor: hoverKey === 'cancel' ? TEXT_MUTED : BORDER,
+                color: hoverKey === 'cancel' ? TEXT_PRIMARY : TEXT_MUTED,
                 '--tw-ring-color': GOLD,
               } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = TEXT_MUTED;
-                e.currentTarget.style.color = TEXT_PRIMARY;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = BORDER;
-                e.currentTarget.style.color = TEXT_MUTED;
-              }}
+              onMouseEnter={() => setHoverKey('cancel')}
+              onMouseLeave={() => setHoverKey(null)}
             >
               Cancel
             </button>
@@ -934,20 +906,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                 fontFamily: "'Inter', sans-serif",
                 border: '1px solid',
                 borderColor: GOLD,
-                color: GOLD,
-                backgroundColor: 'transparent',
+                color: hoverKey === 'commence' ? DARK_EARTH : GOLD,
+                backgroundColor: hoverKey === 'commence' ? GOLD : 'transparent',
+                boxShadow: hoverKey === 'commence' ? `0 0 30px ${GOLD_GLOW}` : 'none',
                 '--tw-ring-color': GOLD,
               } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = GOLD;
-                e.currentTarget.style.color = DARK_EARTH;
-                e.currentTarget.style.boxShadow = `0 0 30px ${GOLD_GLOW}`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = GOLD;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              onMouseEnter={() => setHoverKey('commence')}
+              onMouseLeave={() => setHoverKey(null)}
             >
               Commence
             </button>
@@ -1019,23 +984,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
               className="w-full p-5 flex items-center justify-between transition-all duration-300 focus-visible:outline-none focus-visible:ring-2"
               style={{
                 fontFamily: "'Inter', sans-serif",
-                backgroundColor: stressEnableEnemies ? SURFACE_LIGHT : 'transparent',
+                backgroundColor: stressEnableEnemies ? SURFACE_LIGHT : (hoverKey === 'stress-enemies' ? SURFACE : 'transparent'),
                 border: '1px solid',
-                borderColor: stressEnableEnemies ? COPPER : BORDER,
+                borderColor: stressEnableEnemies ? COPPER : (hoverKey === 'stress-enemies' ? BORDER_GOLD : BORDER),
                 '--tw-ring-color': GOLD,
               } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                if (!stressEnableEnemies) {
-                  e.currentTarget.style.backgroundColor = SURFACE;
-                  e.currentTarget.style.borderColor = BORDER_GOLD;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!stressEnableEnemies) {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.borderColor = BORDER;
-                }
-              }}
+              onMouseEnter={() => { if (!stressEnableEnemies) setHoverKey('stress-enemies'); }}
+              onMouseLeave={() => setHoverKey(null)}
             >
               <span
                 className="text-xs font-semibold uppercase tracking-[0.15em]"
@@ -1071,18 +1026,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
               style={{
                 fontFamily: "'Inter', sans-serif",
                 border: '1px solid',
-                borderColor: BORDER,
-                color: TEXT_MUTED,
+                borderColor: hoverKey === 'back' ? TEXT_MUTED : BORDER,
+                color: hoverKey === 'back' ? TEXT_PRIMARY : TEXT_MUTED,
                 '--tw-ring-color': GOLD,
               } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = TEXT_MUTED;
-                e.currentTarget.style.color = TEXT_PRIMARY;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = BORDER;
-                e.currentTarget.style.color = TEXT_MUTED;
-              }}
+              onMouseEnter={() => setHoverKey('back')}
+              onMouseLeave={() => setHoverKey(null)}
             >
               Back
             </button>
@@ -1094,20 +1043,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onStart }) => {
                 fontFamily: "'Inter', sans-serif",
                 border: '1px solid',
                 borderColor: GOLD,
-                color: GOLD,
-                backgroundColor: 'transparent',
+                color: hoverKey === 'launch' ? DARK_EARTH : GOLD,
+                backgroundColor: hoverKey === 'launch' ? GOLD : 'transparent',
+                boxShadow: hoverKey === 'launch' ? `0 0 30px ${GOLD_GLOW}` : 'none',
                 '--tw-ring-color': GOLD,
               } as React.CSSProperties}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = GOLD;
-                e.currentTarget.style.color = DARK_EARTH;
-                e.currentTarget.style.boxShadow = `0 0 30px ${GOLD_GLOW}`;
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = GOLD;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              onMouseEnter={() => setHoverKey('launch')}
+              onMouseLeave={() => setHoverKey(null)}
             >
               Launch
             </button>

@@ -4,7 +4,7 @@
 
 CivStrategy: Ancient Realms — a Civilization-style real-time strategy game. Players build settlements, manage resources/population happiness, train military units, and expand territory across procedurally generated isometric maps.
 
-**Tech stack:** React 18 + Phaser 3 + TypeScript 5.2 + Vite 5 + Tailwind CSS (CDN) + GSAP. Originally scaffolded from Google AI Studio (Gemini app export), now a standalone Vite+React project.
+**Tech stack:** React 18 + Phaser 3 + TypeScript 5.2 + Vite 5 + Tailwind CSS (local Vite/PostCSS build) + GSAP. Originally scaffolded from Google AI Studio (Gemini app export), now a standalone Vite+React project.
 
 ---
 
@@ -16,15 +16,14 @@ All game logic uses **cartesian coordinates** internally. `toIso()` / `toCartesi
 
 ### God-Class Orchestrator: MainScene
 
-`game/MainScene.ts` (~1100 lines) is the central hub:
-- Owns **all 21 system instances** as public properties
-- Owns all Phaser groups (units, buildings, trees, worldLayer, uiGroup)
-- Owns spatial hash instances (treeSpatialHash, unitSpatialHash)
-- Runs the main `update()` loop calling systems in fixed order
-- Owns all game state (resources, population, happiness, age, diplomacy, game speed)
+`game/MainScene.ts` (~2100 lines) is the orchestrator and Phaser binding layer:
+- Delegates **all 24 runtime systems** to `SystemRegistry` (`game/runtime/SystemRegistry.ts`)
+- Delegates Phaser groups (`units`, `buildings`, `trees`, `treeVisuals`, `worldVisuals`, `uiGroup`) and spatial hashes to `EntityRegistryService` (`game/runtime/EntityRegistryService.ts`)
+- Delegates authoritative state (resources, population, happiness, age, diplomacy, game speed, seasons) to `GameStateService` (`game/runtime/GameStateService.ts`) via delegating getters/setters
+- Runs the main `update()` loop via `SimulationRuntimeHost`, `ProgressionRuntime`, and `WorldRuntime`
 - Dispatches stats to React via `this.events.emit(EVENTS.UPDATE_STATS, ...)`
 
-### System List (21 systems)
+### System List (MainScene-owned; 24 runtime system fields)
 
 | System | File | Responsibility |
 |---|---|---|
@@ -56,13 +55,16 @@ All systems are class-based, take a `MainScene` reference, and read/write state 
 ### Update Loop Order
 
 ```
-InputManager → CullingSystem → VillagerSystem → AnimalSystem
-→ LiquidCombatSystem.precompute() → UnitSystem
-→ SquadSystem.syncPositions() → SquadSystem.update() → BuildingManager
-→ EnemyAISystem → EconomySystem (1s/5s intervals) → Age advancement
-→ InfiniteMapSystem → MinimapSystem → FogOfWarSystem → AtmosphericSystem
-→ syncVisuals() → emit UPDATE_STATS → ProceduralSoundSystem
+Pathfinder.beginFrame → DayNightSystem.update → InputManager.update
+→ CullingSystem.update → SimulationRuntime (VillagerSystem, AnimalSystem,
+  LiquidCombat.precompute, UnitSystem, SquadSystem.syncPositions, SquadSystem.update)
+→ BuildingManager.update → EnemyAISystem.update
+→ ProgressionRuntime (economy/research/victory/season/age/population)
+→ WorldRuntime (InfiniteMapSystem, MinimapSystem, FogOfWarSystem)
+→ AtmosphericSystem.update → FeedbackSystem.update → syncVisuals
 ```
+Runtime adapters (`simulationHost`, `progressionHost`, `worldHost`) own the internal
+ordering of their sub-systems; the scene still calls them in the above fixed order.
 
 ### React ↔ Phaser Bridge (Dual Channel)
 
@@ -77,7 +79,7 @@ Event constants are defined in `constants.ts` under the `EVENTS` object. Never u
 
 ```
 ~/CivStrategy/
-├── index.html              # Vite SPA entry (Tailwind CDN, fonts, importmap)
+├── index.html              # Vite SPA entry (local Tailwind build, fonts, importmap)
 ├── index.tsx               # React DOM mount point
 ├── App.tsx                 # Top-level React orchestrator
 ├── types.ts                # All enums & interfaces
@@ -90,10 +92,10 @@ Event constants are defined in `constants.ts` under the `EVENTS` object. Never u
 │   └── StressTestOverlay.tsx
 ├── game/                   # Phaser game layer
 │   ├── MainScene.ts        # Central orchestrator (god-class)
-│   ├── systems/            # 21 game systems (class-based)
+│   ├── systems/            # 24 MainScene-owned system classes
 │   └── utils/              # Utilities (iso.ts, SpatialHash.ts, Noise.ts, MeatGrinderEffect.ts)
 ├── assets/textures/        # Sprite/texture PNGs + water.frag shader
-├── src/                    # ⚠️ Only contains vite-env.d.ts — NOT the source root
+├── src/                    # ⚠️ Only vite-env.d.ts + tailwind.css entry — NOT the source root
 └── [*.png at root]         # Large game sprites (townhall, lumber, ground, field)
 ```
 
@@ -146,7 +148,7 @@ Three damage types: Hack, Pierce, Crush. Formula: `effectiveDamage = attack × 1
 
 ### Styling
 
-All styling via **Tailwind utility classes** — no CSS files. Color palette defined as CSS custom properties in `index.html` (dust-white, parchment, gold-leaf, terracotta, etc.). Google Fonts loaded externally (Cinzel for headings, Inter for body, JetBrains Mono for code).
+All styling via **Tailwind utility classes** — no CSS files. Color palette defined as CSS custom properties in `index.html` (dust-white, parchment, gold-leaf, terracotta, etc.). Fonts are self-hosted/system fallback (no blocking external `@import`).
 
 ### Error Handling
 
@@ -160,7 +162,7 @@ All styling via **Tailwind utility classes** — no CSS files. Color palette def
 
 | File | Purpose |
 |---|---|
-| `index.html` | SPA shell, Tailwind CDN, fonts, CSS custom properties, ESM importmap |
+| `index.html` | SPA shell, local Tailwind build, fonts, CSS custom properties, ESM importmap |
 | `index.tsx` | React DOM mount (StrictMode) |
 | `App.tsx` | Top-level React: game lifecycle, state, Phaser bridge |
 | `types.ts` | All TypeScript enums and interfaces |
@@ -192,23 +194,21 @@ All styling via **Tailwind utility classes** — no CSS files. Color palette def
 - **No Prettier** configured
 - **No path aliases** — use relative imports
 - **No `.env` files** — no environment variables used
-- **Styling:** Tailwind via CDN (the `tailwindcss`/`postcss`/`autoprefixer` devDeps appear vestigial)
+- **Styling:** Tailwind via local Vite/PostCSS build (see `tailwind.config.js`, `postcss.config.js`, `src/tailwind.css`)
 
 ---
 
 ## Testing & QA
 
-- **Framework:** Vitest v2.1.8 (runs via `npm run test` → `vitest run`)
+- **Framework:** Vitest v2.1.9 (runs via `npm run test` → `vitest run`; coverage via `npm run coverage`)
 - **Test location:** Co-located with source (`<ModuleName>.test.ts`)
-- **Coverage:** Minimal — **only 1 test file exists** (`game/systems/ProceduralSoundSystem.test.ts`, ~254 lines)
-- **Tested:** ProceduralSoundSystem audio node graph correctness (Web Audio API mock with graph recording)
-- **Untested:** ~29 of ~30 modules (all game systems, all React components, all utilities)
-- **No coverage tooling** configured (`@vitest/coverage-v8` not installed, no coverage scripts)
+- **Current suite:** 69 test files / 510 tests; `game/**` v8 coverage measured at ~39% lines, ~72% branches, ~52% functions
+- **Coverage script:** `vitest run --coverage` with low reachable thresholds (lines 35, statements 35, branches 50, functions 45)
 - **No integration/E2E tests** — no Playwright, Cypress, or Puppeteer
 - **No test helpers/fixtures/mocks directory** — all mocks are inline
 - **No snapshot testing**
 
-The single existing test is high-quality: it validates complex Web Audio API graph topology (no orphaned nodes, single output path, all sources reachable from masterGain). Use it as a reference for writing new tests.
+Use the existing co-located tests as the reference pattern; most mocks are inline `vi.mock('phaser')` stubs.
 
 ### Writing New Tests
 

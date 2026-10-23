@@ -6,9 +6,11 @@ import { BUILDINGS, EVENTS, TILE_SIZE, TERRAIN_CONFIG, SEASON_CONFIG, FARM_TERRA
 import { toIso, toIsoElev, toCartesian } from '../utils/iso';
 import { formatBuildingPlacementFeedback } from './buildingPlacementSnap';
 import { computeRepairTick, REPAIR_DURATION_MS } from '../buildingRepair';
+import { NO_TERRAIN, isTerrainValid } from '../utils/terrain';
 
 export const BUILD_PLACEMENT_GRID_SIZE = TILE_SIZE / 2;
 export const PLAYER_HOUSE_CONSTRUCTION_MS = 5000;
+const DEMOLITION_COMPLETED_REFUND_RATE = 0.75;
 
 
 export class BuildingManager {
@@ -336,9 +338,13 @@ export class BuildingManager {
             this.emitDustParticles(iso.x, iso.y, def.width);
             this.scene.proceduralSound.playConstruction(cx, cy);
 
-            this.scene.resources.wood -= def.cost.wood;
-            this.scene.resources.food -= def.cost.food;
-            this.scene.resources.gold -= def.cost.gold;
+            if (this.scene.gameState) {
+                this.scene.gameState.spendResources({ wood: def.cost.wood, food: def.cost.food, gold: def.cost.gold });
+            } else {
+                this.scene.resources.wood -= def.cost.wood;
+                this.scene.resources.food -= def.cost.food;
+                this.scene.resources.gold -= def.cost.gold;
+            }
             // Actually spawn the building sprite into the world
             const building = this.scene.entityFactory.spawnBuilding(this.previewBuildingType, cx, cy, 0);
             const isPlayerHouse = this.previewBuildingType === BuildingType.HOUSE;
@@ -366,53 +372,102 @@ export class BuildingManager {
             && a.y + a.height > b.y;
     }
 
-    private getBuildValidity(x: number, y: number, type: BuildingType): { valid: boolean; reason?: string } {
+    public canPlace(
+        type: BuildingType,
+        x: number,
+        y: number,
+        owner: number,
+        opts?: { checkResources?: boolean; requireTerritory?: boolean },
+    ): { valid: boolean; reason?: string } {
         const def = BUILDINGS[type];
+        if (!def) return { valid: false, reason: "Unknown building type" };
 
-        if (this.scene.resources.wood < def.cost.wood || this.scene.resources.food < def.cost.food || this.scene.resources.gold < def.cost.gold) {
-            return { valid: false, reason: "Not enough resources" };
+        const checkResources = opts?.checkResources !== undefined ? opts.checkResources : (owner === 0);
+        const requireTerritory = opts?.requireTerritory !== undefined ? opts.requireTerritory : (owner === 0);
+
+        if (checkResources) {
+            if (this.scene.resources.wood < def.cost.wood || this.scene.resources.food < def.cost.food || this.scene.resources.gold < def.cost.gold) {
+                return { valid: false, reason: "Not enough resources" };
+            }
         }
 
-        let inTerritory = false;
-        this.scene.buildings.getChildren().forEach((b) => {
-            if (b.getData('owner') !== 0) return;
-            const bDef = b.getData('def') as BuildingDef;
-            if (bDef.territoryRadius) {
-                const dist = Phaser.Math.Distance.Between(x, y, (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
-                if (dist <= bDef.territoryRadius) inTerritory = true;
-            }
-        });
-        if (!inTerritory && this.scene.buildings.getLength() > 0) return { valid: false, reason: "Outside Territory" };
-
+        if (requireTerritory) {
+            let inTerritory = false;
+            const buildings = this.scene.buildings?.getChildren ? this.scene.buildings.getChildren() : [];
+            buildings.forEach((b) => {
+                if (b.getData('owner') !== owner) return;
+                const bDef = b.getData('def') as BuildingDef;
+                if (bDef && bDef.territoryRadius) {
+                    const dist = Phaser.Math.Distance.Between(x, y, (b as Phaser.GameObjects.Image).x, (b as Phaser.GameObjects.Image).y);
+                    if (dist <= bDef.territoryRadius) inTerritory = true;
+                }
+            });
+            const hasBuildings = this.scene.buildings?.getLength ? this.scene.buildings.getLength() > 0 : buildings.length > 0;
+            if (!inTerritory && hasBuildings) return { valid: false, reason: "Outside Territory" };
+        }
 
         const bounds = new Phaser.Geom.Rectangle(x - def.width / 2, y - def.height / 2, def.width, def.height);
+        const queryRadius = Math.max(def.width, def.height) + 64;
         let overlaps = false;
-        this.scene.buildings.getChildren().forEach((b) => {
-            if (!b || !b.scene) return;
+
+        // Buildings overlap check (S17: spatial hash when available, fallback to scan)
+        const buildingCandidates = (this.scene as any).buildingsSpatialHash // eslint-disable-line @typescript-eslint/no-explicit-any
+            ? (this.scene as any).buildingsSpatialHash.query(x, y, queryRadius) // eslint-disable-line @typescript-eslint/no-explicit-any
+            : (this.scene.buildings?.getChildren ? this.scene.buildings.getChildren() : []);
+
+        for (const b of buildingCandidates) {
+            if (!b || !b.scene) continue;
             if (this.rectanglesHaveAreaOverlap(bounds, (b as Phaser.GameObjects.Image).getBounds())) {
                 overlaps = true;
+                break;
             }
-        });
-        this.scene.units.getChildren().forEach((u) => {
-            if (!u || !u.scene) return;
-            if (bounds.contains((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y)) overlaps = true;
-        });
-        this.scene.villagerSystem?.getAllVillagers().forEach((v) => {
-            if (!v) return;
-            if (bounds.contains(v.x, v.y)) overlaps = true;
-        });
+        }
+
+        // Units overlap check (S17: unitSpatialHash when available)
+        if (!overlaps) {
+            const unitCandidates = this.scene.unitSpatialHash
+                ? this.scene.unitSpatialHash.query(x, y, queryRadius)
+                : (this.scene.units?.getChildren ? this.scene.units.getChildren() : []);
+
+            for (const u of unitCandidates) {
+                if (!u || !u.scene) continue;
+                if (bounds.contains((u as Phaser.GameObjects.Image).x, (u as Phaser.GameObjects.Image).y)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+        }
+
+        // Villager overlap check
+        if (!overlaps && this.scene.villagerSystem?.getAllVillagers) {
+            const villagers = this.scene.villagerSystem.getAllVillagers();
+            for (const v of villagers) {
+                if (!v) continue;
+                if (bounds.contains(v.x, v.y)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+        }
 
         if (overlaps) return { valid: false, reason: "Space Occupied" };
 
-        // Check tree overlap
+        // Trees overlap check (S17: treeSpatialHash when available)
         let treeOverlap = false;
-        this.scene.trees.getChildren().forEach((t) => {
-            if (!t || !t.scene) return;
-            if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) treeOverlap = true;
-        });
+        const treeCandidates = this.scene.treeSpatialHash
+            ? this.scene.treeSpatialHash.query(x, y, queryRadius)
+            : (this.scene.trees?.getChildren ? this.scene.trees.getChildren() : []);
+
+        for (const t of treeCandidates) {
+            if (!t || !t.scene) continue;
+            if (bounds.contains((t as Phaser.GameObjects.Image).x, (t as Phaser.GameObjects.Image).y)) {
+                treeOverlap = true;
+                break;
+            }
+        }
         if (treeOverlap) return { valid: false, reason: "Tree in way" };
 
-         // Check terrain slope
+        // Check terrain slope
         const slopeInfo = this.scene.terrainSystem.getSlopeAt(x, y);
         if (!slopeInfo.isBuildable) {
             return { valid: false, reason: "Terrain too steep" };
@@ -430,12 +485,17 @@ export class BuildingManager {
             [x + hw, y + hh],
         ];
         for (const [sx, sy] of samplePts) {
-            if (this.scene.terrainSystem.getHeightAt(sx, sy) < waterLevel) {
-                return { valid: false, reason: "Cannot build on water" };
+            const height = this.scene.terrainSystem.getHeightAt(sx, sy);
+            if (height === NO_TERRAIN || !isTerrainValid(height) || height < waterLevel) {
+                return { valid: false, reason: "Cannot build outside map or on water" };
             }
         }
 
         return { valid: true };
+    }
+
+    private getBuildValidity(x: number, y: number, type: BuildingType): { valid: boolean; reason?: string } {
+        return this.canPlace(type, x, y, 0, { checkResources: true, requireTerritory: true });
     }
 
     private checkBuildValidity(x: number, y: number, type: BuildingType): boolean {
@@ -456,8 +516,7 @@ export class BuildingManager {
         });
 
         const targets = this.scene.input.hitTestPointer(pointer);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building')) as Phaser.GameObjects.Container | undefined;
+        const buildingVisual = targets.find((obj) => obj.getData('building')) as Phaser.GameObjects.Container | undefined;
 
         if (buildingVisual) {
             const b = buildingVisual.getData('building');
@@ -477,8 +536,7 @@ export class BuildingManager {
 
     public handleDemolishClick(pointer: Phaser.Input.Pointer) {
         const targets = this.scene.input.hitTestPointer(pointer);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const buildingVisual = targets.find((obj: any) => obj.getData && obj.getData('building'));
+        const buildingVisual = targets.find((obj) => obj.getData('building'));
         if (buildingVisual) {
             const b = buildingVisual.getData('building');
             // Fix: Security check before demolition
@@ -498,9 +556,10 @@ export class BuildingManager {
 
         this.demolitionsInProgress.add(b);
         const logic = b as Phaser.GameObjects.Rectangle;
-        const worker = b.getData('assignedWorker');
         const wasSelected = this.scene.inputManager.selectedBuilding === b;
         const hadBuildingBenefits = b.getData('constructionComplete') !== false;
+        const wasUnderConstruction = b.getData('constructionComplete') === false;
+        const constructionCompletesAt = b.getData('constructionCompletesAt') as number | undefined;
 
         if (wasSelected) {
             this.scene.inputManager.deselectBuilding();
@@ -518,19 +577,38 @@ export class BuildingManager {
             return;
         }
 
-        if (worker) {
-            worker.state = UnitState.IDLE;
-            worker.jobBuilding = null;
-            worker.path = null;
-            worker.body.setVelocity(0, 0);
-        }
+        this.releaseAssignedWorker(b);
 
         this.scene.pathfinder.markGrid(logic.x, logic.y, def.width, def.height, false);
 
         const visual = (b as any).visual; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (visual) visual.destroy();
 
-        if (def.cost.wood > 0) this.scene.resources.wood += Math.floor(def.cost.wood * 0.75);
+        // S13: Demolition refund is progress-aware. An unfinished construction
+        // refunds the unspent share of the full paid cost; finished buildings
+        // keep a documented partial refund for demolition/disassembly.
+        let refundRate = DEMOLITION_COMPLETED_REFUND_RATE;
+        if (wasUnderConstruction) {
+            const remaining = typeof constructionCompletesAt === 'number'
+                ? constructionCompletesAt - this.scene.gameTime
+                : PLAYER_HOUSE_CONSTRUCTION_MS;
+            const progress = Math.min(1, Math.max(0, 1 - remaining / PLAYER_HOUSE_CONSTRUCTION_MS));
+            refundRate = 1 - progress;
+        }
+        if (refundRate > 0) {
+            const refund = {
+                wood: Math.floor(def.cost.wood * refundRate),
+                food: Math.floor(def.cost.food * refundRate),
+                gold: Math.floor(def.cost.gold * refundRate),
+            };
+            if (this.scene.gameState) {
+                this.scene.gameState.addResources(refund);
+            } else {
+                this.scene.resources.wood += refund.wood;
+                this.scene.resources.food += refund.food;
+                this.scene.resources.gold += refund.gold;
+            }
+        }
         if (hadBuildingBenefits && def.populationBonus) this.scene.maxPopulation -= def.populationBonus;
         if (hadBuildingBenefits && def.happinessBonus) this.scene.happiness -= def.happinessBonus;
 
@@ -540,6 +618,25 @@ export class BuildingManager {
         const iso = toIso(logic.x, logic.y);
         this.emitExplosionParticles(iso.x, iso.y, def.width);
         this.scene.proceduralSound.playDemolition(logic.x, logic.y);
+    }
+
+    /**
+     * Release the villager assigned to a building. Shared by demolition and
+     * combat-destruction paths so a destroyed building never leaves a worker
+     * stranded pointing at a dead job site.
+     */
+    public releaseAssignedWorker(building: Phaser.GameObjects.GameObject): void {
+        const worker = building.getData('assignedWorker') as {
+            state?: UnitState;
+            jobBuilding?: Phaser.GameObjects.GameObject | null;
+            path?: Phaser.Math.Vector2[] | null;
+            body?: { setVelocity(x: number, y: number): void };
+        } | null;
+        if (!worker) return;
+        worker.state = UnitState.IDLE;
+        worker.jobBuilding = null;
+        worker.path = null;
+        worker.body?.setVelocity(0, 0);
     }
 
     public emitExplosionParticles(isoX: number, isoY: number, _buildingWidth: number) {
@@ -631,9 +728,17 @@ export class BuildingManager {
             if (result.hpDelta > 0) {
                 const newHp = Math.min(maxHp, hp + result.hpDelta);
                 building.setData('hp', newHp);
-                this.scene.resources.wood = Math.max(0, this.scene.resources.wood - result.resourceDelta.wood);
-                this.scene.resources.food = Math.max(0, this.scene.resources.food - result.resourceDelta.food);
-                this.scene.resources.gold = Math.max(0, this.scene.resources.gold - result.resourceDelta.gold);
+                if (this.scene.gameState) {
+                    this.scene.gameState.spendResources({
+                        wood: Math.min(this.scene.resources.wood, result.resourceDelta.wood),
+                        food: Math.min(this.scene.resources.food, result.resourceDelta.food),
+                        gold: Math.min(this.scene.resources.gold, result.resourceDelta.gold),
+                    });
+                } else {
+                    this.scene.resources.wood = Math.max(0, this.scene.resources.wood - result.resourceDelta.wood);
+                    this.scene.resources.food = Math.max(0, this.scene.resources.food - result.resourceDelta.food);
+                    this.scene.resources.gold = Math.max(0, this.scene.resources.gold - result.resourceDelta.gold);
+                }
 
                 const visual = (building as any).visual as Phaser.GameObjects.Container | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
                 const hpBar = visual?.getData('hpBar') as Phaser.GameObjects.Container | undefined;
@@ -679,7 +784,11 @@ export class BuildingManager {
         }
 
 
-        this.scene.resources.wood -= cost;
+        if (this.scene.gameState) {
+            this.scene.gameState.spendResources({ wood: cost });
+        } else {
+            this.scene.resources.wood -= cost;
+        }
 
         let regrownCount = 0;
         const regrowthChance = Math.min(1, SEASON_CONFIG[this.scene.currentSeason].treeRegrowth);
@@ -700,7 +809,11 @@ export class BuildingManager {
             this.scene.economySystem.updateStats();
         } else {
             this.scene.feedbackSystem.showFloatingText(b.x, b.y, "No stumps nearby.", "#ffffff");
-            this.scene.resources.wood += cost;
+            if (this.scene.gameState) {
+                this.scene.gameState.addResources({ wood: cost });
+            } else {
+                this.scene.resources.wood += cost;
+            }
         }
 
     }

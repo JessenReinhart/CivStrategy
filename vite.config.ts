@@ -1,4 +1,4 @@
-import { defineConfig, Plugin } from 'vite';
+import { defineConfig, Plugin } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 /** Dev-only plugin: relays game FPS + profile hogs browser → terminal via HMR. */
@@ -40,6 +40,22 @@ function fpsTerminalLogger(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), fpsTerminalLogger()],
+  css: {
+    postcss: './postcss.config.js',
+  },
+  test: {
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      include: ['game/**/*.{ts,tsx}'],
+      thresholds: {
+        lines: 35,
+        functions: 45,
+        branches: 50,
+        statements: 35,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',

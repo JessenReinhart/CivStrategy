@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
 import { Season } from '../../types';
@@ -11,10 +10,10 @@ export class AtmosphericSystem {
     private scene: MainScene;
     public clouds: Phaser.GameObjects.Sprite[] = [];
 
-    private bloomEffect: any | null = null;
-    private colorGradeEffect: any | null = null;
-    private tiltShiftEffect: any | null = null;
-    private tiltShiftController: any | null = null;
+    private bloomEffect: Phaser.FX.Bloom | null = null;
+    private colorGradeEffect: Phaser.FX.ColorMatrix | null = null;
+    private tiltShiftEffect: Phaser.FX.Bokeh | null = null;
+    private tiltShiftController: Phaser.FX.Controller | null = null;
     private tiltShiftEnabled: boolean = false;
     private userTiltShiftBlur: number = 1.0;
     // Last zoom/blur values written into the bokeh uniforms — per-frame writes are gated on these.
@@ -45,8 +44,12 @@ export class AtmosphericSystem {
         this.setupBloom();
         this.createSeasonalTint();
     }
-    // Camera rect tracking for seasonal tint redraw
-    private prevViewRect: Phaser.Geom.Rectangle | null = null;
+    // Scalar camera-track values used for seasonal tint redraw comparisons (R33:
+    // avoids allocating/cloning a Phaser.Geom.Rectangle every frame).
+    private prevViewX = Number.NaN;
+    private prevViewY = Number.NaN;
+    private prevViewW = Number.NaN;
+    private prevViewH = Number.NaN;
 
     private createSeasonalTint() {
         this.seasonalTint = this.scene.add.graphics();
@@ -173,7 +176,7 @@ export class AtmosphericSystem {
             } else {
                 if (this.tiltShiftEffect) {
                     const target = this.tiltShiftController ?? this.scene.cameras?.main?.postFX;
-                    (target as any).remove(this.tiltShiftEffect);
+                    (target as unknown as { remove: (controller: Phaser.FX.Controller) => void }).remove(this.tiltShiftEffect as unknown as Phaser.FX.Controller);
                     this.tiltShiftEffect.destroy();
                     this.tiltShiftEffect = null;
                     this.tiltShiftController = null;
@@ -220,7 +223,7 @@ export class AtmosphericSystem {
             }
             if (this.tiltShiftEffect) {
                 const tiltTarget = this.tiltShiftController ?? this.scene.cameras?.main?.postFX ?? target;
-                tiltTarget.remove(this.tiltShiftEffect as unknown as Phaser.FX.Controller);
+                (tiltTarget as unknown as { remove: (controller: Phaser.FX.Controller) => void }).remove(this.tiltShiftEffect as unknown as Phaser.FX.Controller);
                 this.tiltShiftEffect.destroy();
                 this.tiltShiftEffect = null;
                 this.tiltShiftController = null;
@@ -263,6 +266,23 @@ export class AtmosphericSystem {
         }
     }
 
+    /**
+     * R15: Tiered PostFX presets.
+     * LOW drops TiltShift and halves bloom strength to save iGPU fillrate.
+     */
+    public setQualityPreset(preset: 'low' | 'medium' | 'high'): void {
+        if (preset === 'low') {
+            this.setTiltShiftEnabled(false);
+            if (this.bloomEffect) this.bloomEffect.strength = 0.02 * this.userBloomMultiplier;
+        } else if (preset === 'medium') {
+            this.setTiltShiftEnabled(false);
+            if (this.bloomEffect) this.bloomEffect.strength = 0.04 * this.userBloomMultiplier;
+        } else {
+            this.setTiltShiftEnabled(true);
+            if (this.bloomEffect) this.bloomEffect.strength = 0.04 * this.userBloomMultiplier;
+        }
+    }
+
     private updateTiltShift(cam: Phaser.Cameras.Scene2D.Camera, force: boolean = false): void {
         if (!this.tiltShiftEffect) return;
         const zoom = Phaser.Math.Clamp(cam.zoom, 0.3, 2.5);
@@ -288,16 +308,23 @@ export class AtmosphericSystem {
         const cam = this.scene.cameras.main;
         const viewRect = cam.worldView;
 
-        // Track camera position for seasonal tint redraw
-        const cameraMoved = !this.prevViewRect ||
-            this.prevViewRect.x !== viewRect.x ||
-            this.prevViewRect.y !== viewRect.y ||
-            this.prevViewRect.width !== viewRect.width ||
-            this.prevViewRect.height !== viewRect.height;
+        // Track camera position for seasonal tint redraw using scalars (R33)
+        const viewX = viewRect.x;
+        const viewY = viewRect.y;
+        const viewW = viewRect.width;
+        const viewH = viewRect.height;
+        const cameraMoved =
+            this.prevViewX !== viewX ||
+            this.prevViewY !== viewY ||
+            this.prevViewW !== viewW ||
+            this.prevViewH !== viewH;
         if (cameraMoved) {
             this.seasonalTintDirty = true;
         }
-        this.prevViewRect = Phaser.Geom.Rectangle.Clone(viewRect);
+        this.prevViewX = viewX;
+        this.prevViewY = viewY;
+        this.prevViewW = viewW;
+        this.prevViewH = viewH;
 
         // Bloom strength lerp only — clouds and tint run regardless of PostFX
         if (this.postFXEnabled && this.bloomEffect) {
@@ -405,5 +432,23 @@ export class AtmosphericSystem {
         // Combine and scale with seasonal wind envelope (1.0 at default cloudSpeedMult = 1.0)
         // Return a rotation value in radians (small amplitude)
         return (base + gust) * 0.05 * (0.7 + 0.3 * this.cloudSpeedMult); // +/- 0.05 - 0.08 radians (approx 3-5 degrees)
+    }
+
+    /**
+     * R16: Teardown of this system's Phaser camera post-FX pipeline and timers.
+     * Safe to call after scene shutdown; no-ops when already torn down.
+     */
+    public destroy(): void {
+        const target = this.scene?.cameras?.main?.postFX;
+        if (target) {
+            if (this.bloomEffect) target.remove(this.bloomEffect);
+            if (this.vignetteEffect) target.remove(this.vignetteEffect);
+            if (this.tiltShiftEffect) target.remove(this.tiltShiftEffect);
+            if (this.colorGradeEffect) target.remove(this.colorGradeEffect as unknown as Phaser.FX.Controller);
+        }
+        this.bloomEffect = null;
+        this.vignetteEffect = null;
+        this.tiltShiftEffect = null;
+        this.colorGradeEffect = null;
     }
 }

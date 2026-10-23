@@ -263,7 +263,7 @@ export class SquadSystem {
         }
 
         for (let i = 0; i < unitCount; i++) {
-            const unit = allUnits[i] as GameUnit;
+            const unit = allUnits[i] as unknown as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) continue;
 
@@ -315,9 +315,13 @@ export class SquadSystem {
         const cam = this.scene.cameras.main;
         const camCenter = cam.getWorldPoint(cam.width / 2, cam.height / 2);
         const zoom = cam.zoom;
-        // Stress bobs persist for the full run; normal LOD buckets rebuild each frame.
-        if (!stressMode) this.lodDotBlitter.clear();
-        this.lodRectBlitter.clear();
+        // In budgeted mode, only clear blitters at the beginning of a full bucket cycle (start === 0)
+        // or when processing all units in a single frame, preventing bobs from disappearing on partial passes (E2).
+        const isFullPass = bucketSize >= unitCount;
+        if (isFullPass || start === 0) {
+            if (!stressMode) this.lodDotBlitter.clear();
+            this.lodRectBlitter.clear();
+        }
 
         // Dynamic LOD thresholds: tighten with more units
         // Dynamic LOD thresholds: tighten with more units; STRESS MODE forces everything to DOT
@@ -332,7 +336,7 @@ export class SquadSystem {
         // Stress mode: hide all soldier sprites once, unhide on exit
         if (stressMode && !this.stressSpritesHidden) {
             for (let i = 0; i < allUnits.length; i++) {
-                this.hideSoldierSprites(allUnits[i] as GameUnit);
+                this.hideSoldierSprites(allUnits[i]);
             }
             this.stressSpritesHidden = true;
         } else if (!stressMode && this.stressSpritesHidden) {
@@ -341,7 +345,7 @@ export class SquadSystem {
             this.stressSpritesHidden = false;
         }
         for (let i = start; i < end; i += loopStep) {
-            const unit = allUnits[i] as GameUnit;
+            const unit = allUnits[i] as unknown as GameUnit;
             const container = unit.getData('squadContainer') as Phaser.GameObjects.Container;
             if (!container) continue;
             if (!container.visible && !stressMode) continue;
@@ -533,7 +537,7 @@ export class SquadSystem {
     /**
      * Hide all soldier sprites for a unit (when using Blitter LODs).
      */
-    private hideSoldierSprites(unit: Phaser.GameObjects.GameObject): void {
+    private hideSoldierSprites(unit: GameUnit | Phaser.GameObjects.GameObject): void {
         const sprites = unit.getData('soldierSprites') as Phaser.GameObjects.Sprite[] | undefined;
         if (sprites) {
             for (let i = 0; i < sprites.length; i++) {
@@ -889,7 +893,7 @@ export class SquadSystem {
         }
     }
 
-    public applyFormation(unit: Phaser.GameObjects.GameObject, formationType: FormationType): void {
+    public applyFormation(unit: GameUnit | Phaser.GameObjects.GameObject, formationType: FormationType): void {
         const soldiers = unit.getData('soldierStates') as SoldierState[];
         if (!soldiers || soldiers.length === 0) return;
 
@@ -926,8 +930,8 @@ export class SquadSystem {
 
         for (const s of soldiers) {
             // Rotate soldier offset into world space
-            const cos = Math.cos(unit.getData('formationAngle') || 0);
-            const sin = Math.sin(unit.getData('formationAngle') || 0);
+            const cos = Math.cos((unit.getData('formationAngle') as number | undefined) || 0);
+            const sin = Math.sin((unit.getData('formationAngle') as number | undefined) || 0);
             const wx = s.offset.x * cos - s.offset.y * sin;
             const wy = s.offset.x * sin + s.offset.y * cos;
             const dot = wx * normX + wy * normY;

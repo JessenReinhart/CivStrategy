@@ -13,6 +13,9 @@ export class SpatialHash {
     }
 
     private getKey(x: number, y: number): string {
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            return '0,0';
+        }
         const cx = Math.floor(x / this.cellSize);
         const cy = Math.floor(y / this.cellSize);
         return `${cx},${cy}`;
@@ -69,14 +72,16 @@ export class SpatialHash {
     }
 
     public query(x: number, y: number, radius: number): any[] { // eslint-disable-line @typescript-eslint/no-explicit-any
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
+        const r = Number.isFinite(radius) ? Math.max(0, radius) : 0;
         const results: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
         const checkedKeys = new Set<string>();
 
         // Calculate range of cells to check
-        const startX = Math.floor((x - radius) / this.cellSize);
-        const endX = Math.floor((x + radius) / this.cellSize);
-        const startY = Math.floor((y - radius) / this.cellSize);
-        const endY = Math.floor((y + radius) / this.cellSize);
+        const startX = Math.floor((x - r) / this.cellSize);
+        const endX = Math.floor((x + r) / this.cellSize);
+        const startY = Math.floor((y - r) / this.cellSize);
+        const endY = Math.floor((y + r) / this.cellSize);
 
         for (let cx = startX; cx <= endX; cx++) {
             for (let cy = startY; cy <= endY; cy++) {

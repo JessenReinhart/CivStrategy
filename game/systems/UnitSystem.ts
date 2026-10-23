@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { MainScene } from '../MainScene';
-import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
+import { UnitType, UnitState, FormationType, UnitStance, GameUnit, DamageableTarget, AnimalData, DamageType, DamageProfile, ArmorProfile, UnitAbility, BuildingType } from '../../types';
 import { UNIT_SPEED, UNIT_STATS, UNIT_VISION, FORMATION_BONUSES, STANCE_TETHER_RADIUS, computeDamage, scaleDamageProfile, FACTION_BONUSES, TERRAIN_CONFIG, ABILITY_CONFIG, UNIT_ABILITIES, WALL_DEFENSE_BONUS, WALL_MELEE_PENALTY, WALL_PROXIMITY_RADIUS, RAM_VS_WALL_MULTIPLIER, SEP_COMBAT, CHARGE_IMPULSE, CHARGE_IMPULSE_DURATION_MS, ATTACK_MOVE_SCAN_INTERVAL } from '../../constants';
 
 import { toIso, toIsoElev } from '../utils/iso';
@@ -105,6 +105,8 @@ export class UnitSystem {
     private maxUnitsPerFrame: number = 300;
     private updateIndex: number = 0;
     private separationFrame: number = 0;
+    // E4: monotonic token for stale async path-request cancellation.
+    private nextPendingPathId: number = 1;
 
     constructor(scene: MainScene) {
         this.scene = scene;
@@ -137,8 +139,11 @@ export class UnitSystem {
 
     // ─── Main Update ──────────────────────────────────────────────────────
     public update(time: number, _delta: number): void {
-        const allUnits = this.scene.units.getChildren() as GameUnit[];
+        // E7: take a stable snapshot copy so unit deaths/removals during the
+        // bucket loop cannot shift indices or grow `updateIndex` past the array.
+        const allUnits = [...this.scene.units.getChildren()] as unknown as GameUnit[];
         const unitCount = allUnits.length;
+        if (this.updateIndex >= unitCount) this.updateIndex = 0;
         if (unitCount === 0) return;
 
 
@@ -163,7 +168,7 @@ export class UnitSystem {
                 const radius = 260 + (i % 23) * 2;
                 const x = centerX + Math.cos(phaseTime + phase) * radius;
                 const y = centerY + Math.sin(phaseTime + phase) * radius * 0.62;
-                unit.setPosition(x, y);
+                unit.setPosition?.(x, y);
             }
         }
 
@@ -288,7 +293,7 @@ export class UnitSystem {
                     const last = unit.lastAttackTime || 0;
                     if (now - last > attackSpeed) {
                         unit.lastAttackTime = now;
-                        this.performAttack(unit, target as GameUnit);
+                        this.performAttack(unit, target);
                     }
                 } else {
                     unit.target = null;
@@ -324,7 +329,7 @@ export class UnitSystem {
 
     // ─── Separation (O(n) using SpatialHash) ──────────────────────────────
     private applySeparation(): void {
-        const units = this.scene.units.getChildren() as GameUnit[];
+        const units = this.scene.units.getChildren() as unknown as GameUnit[];
         if (units.length < 2) return;
 
         // Use SpatialHash for neighbor queries
@@ -502,7 +507,7 @@ if (spatialHash) {
         }
 
         for (let index = 0; index < units.length; index++) {
-            const unit = units[index] as GameUnit;
+            const unit = units[index] as unknown as GameUnit;
 
             this.scene.squadSystem.applyFormation(unit, this.currentFormation);
             unit.setData('formation', this.currentFormation);
@@ -567,7 +572,7 @@ if (spatialHash) {
         this.commandMove(units, target, queue, true);
 
         for (const unitObj of units) {
-            const unit = unitObj as GameUnit;
+            const unit = unitObj as unknown as GameUnit;
             if (!COMBAT_UNIT_TYPES.includes(unit.unitType) || !unit.path || unit.path.length < 2) continue;
             unit.setData('attackMovePath', unit.path.map((point) => new Phaser.Math.Vector2(point.x, point.y)));
             unit.setData('attackMove', true);
@@ -616,7 +621,7 @@ if (spatialHash) {
         }
 
         for (let index = 0; index < units.length; index++) {
-            const unit = units[index] as GameUnit;
+            const unit = units[index] as unknown as GameUnit;
 
             this.scene.squadSystem.applyFormation(unit, this.currentFormation);
             unit.setData('formation', this.currentFormation);
@@ -740,7 +745,7 @@ if (spatialHash) {
         if (pathPoints.length < 2) return;
 
         for (const unitObj of units) {
-            const unit = unitObj as GameUnit;
+            const unit = unitObj as unknown as GameUnit;
             let fullPath: Phaser.Math.Vector2[] = [];
 
             const startPos = (queue && unit.path && unit.path.length > 0)
@@ -807,7 +812,7 @@ if (spatialHash) {
         const selected = this.scene.inputManager.selectedUnits;
         if (selected && selected.length > 0) {
             for (const obj of selected) {
-                const u = obj as GameUnit;
+                const u = obj as unknown as GameUnit;
                 u.setData('stance', stance);
                 if (stance === UnitStance.HOLD && u.state === UnitState.CHASING) {
                     u.state = UnitState.IDLE;
@@ -822,7 +827,7 @@ if (spatialHash) {
 
     public commandStop(units: Phaser.GameObjects.GameObject[]): void {
         for (const unitObj of units) {
-            const unit = unitObj as GameUnit;
+            const unit = unitObj as unknown as GameUnit;
             unit.path = null;
             unit.pathStep = 0;
             unit.target = null;
@@ -845,7 +850,7 @@ if (spatialHash) {
 
     public commandHoldPosition(units: Phaser.GameObjects.GameObject[]): void {
         for (const unitObj of units) {
-            const unit = unitObj as GameUnit;
+            const unit = unitObj as unknown as GameUnit;
             unit.path = null;
             unit.pathStep = 0;
             unit.target = null;
@@ -875,7 +880,7 @@ if (spatialHash) {
     // ─── Attack Commands ───────────────────────────────────────────────────
     public commandAttack(units: Phaser.GameObjects.GameObject[], target: Phaser.GameObjects.GameObject): void {
         for (const unitObj of units) {
-            const unit = unitObj as GameUnit;
+            const unit = unitObj as unknown as GameUnit;
 
             if (this.scene.peacefulMode && unit.getData('owner') !== 0) {
                 if (this.scene.debugMode) {
@@ -889,7 +894,7 @@ if (spatialHash) {
 
 
             if (COMBAT_UNIT_TYPES.includes(unit.unitType)) {
-                unit.target = target;
+                unit.target = target as Phaser.GameObjects.Image;
                 unit.state = UnitState.CHASING;
                 unit.path = null;
                 unit.flowTarget = undefined;
@@ -903,7 +908,7 @@ if (spatialHash) {
         }
 
         // Visual Feedback
-        const targetVisual = (target as GameUnit).visual;
+        const targetVisual = (target as unknown as GameUnit).visual;
         if (targetVisual) {
             this.scene.tweens.add({
                 targets: targetVisual,
@@ -913,30 +918,43 @@ if (spatialHash) {
     }
 
     // ─── Target Scanning (SpatialHash optimized, spread targeting) ───────
-    /** Per-frame engagement cache: enemy → number of friendly units targeting it. */
-    private _engageCache: Map<Phaser.GameObjects.GameObject, number> = new Map();
-    private _engageCacheFrame = -1;
+    /**
+     * E6: Owner-partitioned per-frame engagement cache:
+     * owner -> (enemy -> number of friendly units targeting it).
+     * Prevents cross-owner pollution when player and AI scan within the same frame.
+     */
+    private _engageCaches: Map<number, Map<Phaser.GameObjects.GameObject, number>> = new Map();
+    private _engageCacheFrames: Map<number, number> = new Map();
 
     /**
      * Build (or reuse) a per-frame map of enemy → how many of `owner`'s units are targeting it.
-     * Cached per frame so it's O(n) per frame, not O(n²) per scan call.
+     * Cached per frame and partitioned per owner so it's O(n) per frame without cross-talk.
      */
     private _buildEngagementMap(owner: number): Map<Phaser.GameObjects.GameObject, number> {
         const frame = this.scene.game.loop.frame;
-        if (this._engageCacheFrame === frame) return this._engageCache;
+        if (this._engageCacheFrames.get(owner) === frame) {
+            return this._engageCaches.get(owner) ?? new Map();
+        }
 
-        this._engageCache.clear();
+        let cache = this._engageCaches.get(owner);
+        if (!cache) {
+            cache = new Map();
+            this._engageCaches.set(owner, cache);
+        } else {
+            cache.clear();
+        }
+
         const children = this.scene.units.getChildren();
         for (let i = 0, len = children.length; i < len; i++) {
-            const u = children[i] as GameUnit;
+            const u = children[i] as unknown as GameUnit;
             if (u.getData('owner') !== owner) continue;
-            if (u.getData('hp') <= 0) continue;
+            if ((u.getData('hp') as number) <= 0) continue;
             const tgt = u.target;
             if (!tgt) continue;
-            this._engageCache.set(tgt, (this._engageCache.get(tgt) || 0) + 1);
+            cache.set(tgt as Phaser.GameObjects.Image, (cache.get(tgt as Phaser.GameObjects.Image) || 0) + 1);
         }
-        this._engageCacheFrame = frame;
-        return this._engageCache;
+        this._engageCacheFrames.set(owner, frame);
+        return cache;
     }
 
     private scanForTargets(unit: GameUnit, _time: number): void {
@@ -978,13 +996,13 @@ if (spatialHash) {
             let fallbackDist = visionRange;
 
             for (const other of candidates) {
-                if (other === unit) continue;
+                if (other === (unit as unknown as Phaser.GameObjects.GameObject)) continue;
                 const otherOwner = other.getData('owner') as number;
                 if (otherOwner === myOwner) continue;
                 const hp = other.getData('hp') as number;
                 if (hp <= 0) continue;
 
-                const otherType = other.getData('unitType') || (other as GameUnit).unitType;
+                const otherType = other.getData('unitType') || (other as unknown as GameUnit).unitType;
                 if (otherType === UnitType.ANIMAL) continue;
 
                 const otherImg = other as Phaser.GameObjects.Image;
@@ -998,11 +1016,11 @@ if (spatialHash) {
                 }
                 // Subtract this unit's own targeting from the engagement count so it
                 // never disqualifies its current target, preventing flip-flop oscillation.
-                const selfEngaged = other === unit.target ? 1 : 0;
+                const selfEngaged = other === (unit.target as unknown as Phaser.GameObjects.GameObject) ? 1 : 0;
                 const currentEngagers = (engageCount.get(other) || 0) - selfEngaged;
                 // Hysteresis: prefer the current target by discounting its distance,
                 // so a slightly nearer candidate doesn't steal engagement every scan.
-                const scoredDist = other === unit.target ? dist * 0.78 : dist;
+                const scoredDist = other === (unit.target as unknown as Phaser.GameObjects.GameObject) ? dist * 0.78 : dist;
                 if (scoredDist < bestDist && currentEngagers < MAX_ENGAGE_PER_TARGET) {
                     best = other;
                     bestDist = scoredDist;
@@ -1039,7 +1057,7 @@ if (spatialHash) {
                 return;
             }
 
-            unit.target = closest;
+            unit.target = closest as Phaser.GameObjects.Image;
             unit.setData('explicitTarget', false);
             unit.setData('attackMoveEngaging', unit.getData('attackMove') === true);
 
@@ -1090,7 +1108,7 @@ if (spatialHash) {
         const range = baseRange;
         const attackSpeed = unit.getData('attackSpeed') as number || 1000;
         const stance = unit.getData('stance') as UnitStance || UnitStance.DEFENSIVE;
-        const anchor = unit.getData('anchor') || { x: unit.x, y: unit.y };
+        const anchor = (unit.getData('anchor') as { x: number; y: number } | undefined) || { x: unit.x, y: unit.y };
         const explicitTarget = unit.getData('explicitTarget') === true;
 
         // Stance constraint checks
@@ -1103,11 +1121,15 @@ if (spatialHash) {
                     unit.target = null;
                     unit.state = UnitState.IDLE;
                     // Spread return-to-anchor paths across frames via async queue
+                    const pathRequestId = this.nextPendingPathId++;
+                    unit.setData('pendingPathId', pathRequestId);
                     this.scene.pathfinder.requestPath(
                         new Phaser.Math.Vector2(unit.x, unit.y),
                         new Phaser.Math.Vector2(anchor.x, anchor.y),
                         (path) => {
                             if (!unit.scene) return;
+                            if (unit.getData('pendingPathId') !== pathRequestId) return;
+                            if (unit.state !== UnitState.IDLE) return;
                             if (path && path.length > 1) {
                                 unit.path = path;
                                 unit.pathStep = 0;
@@ -1177,7 +1199,7 @@ if (spatialHash) {
             const last = unit.lastAttackTime || 0;
             if (now - last > attackSpeed) {
                 unit.lastAttackTime = now;
-                this.performAttack(unit, target as GameUnit);
+                this.performAttack(unit, target);
             }
         } else {
             unit.state = UnitState.CHASING;
@@ -1211,12 +1233,15 @@ if (spatialHash) {
               unit.setData('_lastPathRecalc', nowMs);
               const tx = chaseTargetX, ty = chaseTargetY;
               unit.setData('_chaseTargetPos', { x: tx, y: ty });
+              const chaseRequestId = this.nextPendingPathId++;
+              unit.setData('pendingPathId', chaseRequestId);
               this.scene.pathfinder.requestPath(
                 new Phaser.Math.Vector2(unit.x, unit.y),
                 new Phaser.Math.Vector2(tx, ty),
                 (path) => {
-                  // Validate: unit alive, still chasing same-ish target, hasn't left CHASING
+                  // Validate: unit alive, token matches, still chasing same-ish target, hasn't left CHASING
                   if (!unit.scene) return;
+                  if (unit.getData('pendingPathId') !== chaseRequestId) return;
                   const t = unit.target as Phaser.GameObjects.Image;
                   if (!t || !t.scene || unit.state !== UnitState.CHASING) return;
                   const chased = unit.getData('_chaseTargetPos') as { x: number; y: number } | undefined;
@@ -1245,7 +1270,7 @@ if (spatialHash) {
               const terrainModifier = this.scene.terrainSystem.getMovementModifier(unit.x, unit.y);
               const moveMult = this.scene.researchManager?.getSnapshot(unit.getData('owner') as number).movementSpeedMult ?? 1;
               const speed = finalSpeed * formationMultiplier * terrainModifier * moveMult;
-              this.scene.physics.moveTo(unit, chaseTargetX, chaseTargetY, speed);
+              this.scene.physics.moveTo(unit as unknown as Phaser.GameObjects.GameObject, chaseTargetX, chaseTargetY, speed);
               if (unit.pathStep >= (unit.path?.length ?? 0)) unit.path = null;
             }
         }
@@ -1421,7 +1446,7 @@ if (spatialHash) {
     }
 
     /** Revalidate attack range at the instant a delayed ranged volley actually launches. */
-    private isTargetWithinAttackRange(unit: GameUnit, target: GameUnit): boolean {
+    private isTargetWithinAttackRange(unit: GameUnit, target: DamageableTarget): boolean {
         if (!unit.scene || !target.scene) return false;
 
         const range = (unit.getData('range') as number | undefined) ?? 40;
@@ -1438,7 +1463,10 @@ if (spatialHash) {
         return Math.hypot(unit.x - target.x, unit.y - target.y) <= range;
     }
 
-    private performAttack(unit: GameUnit, target: GameUnit): void {
+    private performAttack(
+        unit: GameUnit,
+        target: DamageableTarget,
+    ): void {
         const isStress = !!this.scene.stressTestConfig;
 
         // Build the attacker's per-type damage profile (fall back to legacy flat attack)
@@ -1471,6 +1499,10 @@ if (spatialHash) {
             profile = scaleDamageProfile(profile, 1 - defensiveBonus);
         }
 
+        // Note (E11 single-point application): formation defense is NOT scaled
+        // into profile here. It is applied exactly once in EntityFactory.handleDamage
+        // to prevent double-application across ranged and melee attacks.
+
         // Formation attack bonus + high-ground attack bonus + faction melee bonus
         const factionMeleeMult = unit.getData('factionMeleeMult') as number ?? 1;
         profile = scaleDamageProfile(profile, attackMult * heightAttackMult * riverAttackMult * factionMeleeMult);
@@ -1486,7 +1518,7 @@ if (spatialHash) {
             const maxHp = unit.getData('maxHp') as number;
             const currentHp = unit.getData('hp') as number;
             const squadSize = UNIT_STATS[unit.unitType]?.squadSize ?? 1;
-            const soldiers = unit.getData('soldierStates') || [];
+            const soldiers = (unit.getData('soldierStates') as SoldierState[] | undefined) || [];
 
             const arrowCount = Math.max(1, Math.ceil((currentHp / maxHp) * squadSize));
             // A volley is one attack split into visual projectiles. Preserve
@@ -1577,7 +1609,7 @@ if (spatialHash) {
                 const siegeMult = (unit.unitType === UnitType.RAM && target.getData('def'))
                     ? (snap?.siegeBuildingDmgMult ?? 1) : 1;
                 // RAM vs Wall: 3x bonus damage — battering rams shred walls
-                const isRamVsWall = unit.unitType === UnitType.RAM && target.getData('def')?.type === BuildingType.WALL;
+                const isRamVsWall = unit.unitType === UnitType.RAM && (target.getData('def') as { type?: BuildingType } | undefined)?.type === BuildingType.WALL;
                 const ramWallMult = isRamVsWall ? RAM_VS_WALL_MULTIPLIER : 1;
                 // Forest defense bonus — trees block projectiles (Design Pillar 5: terrain matters)
                 const forestMult = this.scene.terrainSystem.isForestAt(target.x, target.y) ? 0.7 : 1.0;
@@ -1615,7 +1647,7 @@ if (spatialHash) {
                 // Route to AnimalSystem if target is an animal container
                 const targetType = target.getData('type') as string | undefined;
                 if (targetType === 'animal') {
-                    const animalData = target.getData('data');
+                    const animalData = target.getData('data') as AnimalData | undefined;
                     if (animalData && this.scene.animalSystem) {
                         this.scene.animalSystem.takeDamage(animalData, finalDmg);
                     }
@@ -1629,7 +1661,7 @@ if (spatialHash) {
     // ─── Stress projectile scheduling / pooling ─────────────────────────────────
     private scheduleProjectile(
         origin: { x: number; y: number },
-        target: { x: number; y: number; scene: Phaser.Scene; takeDamage: (amt: number) => void },
+        target: { x: number; y: number; scene?: Phaser.Scene; takeDamage: (amt: number) => void },
         dmg: number,
         delayMs: number
     ): void {
@@ -1804,7 +1836,7 @@ if (spatialHash) {
     }
 
     // ─── Stress melee lunge (manual animation, no tweens) ─────────────────────
-    private startLunge(visual: Phaser.GameObjects.GameObject, unit: GameUnit, target: GameUnit): void {
+    private startLunge(visual: Phaser.GameObjects.GameObject, unit: GameUnit, target: DamageableTarget): void {
         // If this visual already has a lunge, replace it (avoid stacking).
         this.activeStressLunges = this.activeStressLunges.filter(l => l.visual !== visual);
 
@@ -1882,7 +1914,7 @@ if (spatialHash) {
     public showProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene: Phaser.Scene }): void {
         this.fireProjectile(origin, { ...target, takeDamage: () => {} }, 0);
     }
-    private fireProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene: Phaser.Scene; takeDamage: (amt: number) => void }, dmg: number): void {
+    private fireProjectile(origin: { x: number; y: number }, target: { x: number; y: number; scene?: Phaser.Scene; takeDamage: (amt: number) => void }, dmg: number): void {
         const startIso = this.projectToIso(origin.x, origin.y);
         const endIso = this.projectToIso(target.x, target.y);
 
@@ -1959,7 +1991,7 @@ if (spatialHash) {
     // ─── Debug Rendering ───────────────────────────────────────────────────
     private drawDebugLines(): void {
         this.debugGraphics.clear();
-        for (const u of this.scene.units.getChildren() as GameUnit[]) {
+        for (const u of this.scene.units.getChildren() as unknown as GameUnit[]) {
             const startIso = toIsoElev(u.x, u.y, this.scene.terrainSystem.getHeightAt(u.x, u.y));
 
             if (u.target && u.target.scene) {
@@ -1986,7 +2018,7 @@ if (spatialHash) {
 
     private drawUnitPaths(time: number): void {
         this.pathGraphics.clear();
-        for (const u of this.scene.units.getChildren() as GameUnit[]) {
+        for (const u of this.scene.units.getChildren() as unknown as GameUnit[]) {
             const isPlayerUnit = u.getData('owner') === 0;
             const isSelectable = COMBAT_UNIT_TYPES.includes(u.unitType);
 
@@ -2059,18 +2091,19 @@ if (spatialHash) {
             }
             case UnitAbility.RAIN_FIRE: {
                 // Area volley: hit all enemies within 100px of unit's target or position
-                const targetX = unit.target ? (unit.target as GameUnit).x : unit.x;
-                const targetY = unit.target ? (unit.target as GameUnit).y : unit.y;
+                const targetX = unit.target ? unit.target.x : unit.x;
+                const targetY = unit.target ? unit.target.y : unit.y;
                 const owner = unit.getData('owner') as number;
                 const areaRadius = 100;
 
                 // Find enemies in area
                 const enemies = this.scene.units.getChildren().filter((e) => {
-                    if ((e as GameUnit).getData('owner') === owner) return false;
-                    const dx = (e as GameUnit).x - targetX;
-                    const dy = (e as GameUnit).y - targetY;
+                    if (e.getData('owner') === owner) return false;
+                    const img = e as Phaser.GameObjects.Image;
+                    const dx = img.x - targetX;
+                    const dy = img.y - targetY;
                     return Math.sqrt(dx * dx + dy * dy) <= areaRadius;
-                }) as GameUnit[];
+                }) as unknown as GameUnit[];
 
                 if (enemies.length === 0) return false;
 

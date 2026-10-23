@@ -608,6 +608,7 @@ export class VillagerSystem {
     public getIdleVillagers(owner: number): VillagerData[] {
         return this.villagers.filter(v =>
             v.owner === owner &&
+            !v.jobBuilding &&
             (v.state === UnitState.IDLE || v.state === UnitState.MOVING_TO_RALLY),
         );
     }

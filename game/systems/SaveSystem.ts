@@ -420,12 +420,21 @@ function restoreScalarState(scene: MainScene, save: SaveGame): void {
   scene.population = 0; // Will be rebuilt by spawning units
   scene.maxPopulation = 8; // Match MainScene.init(); buildings rebuild derived bonuses.
   scene.happiness = save.happiness;
-  scene.gameSpeed = save.gameSpeed;
-  // `gameSpeed` scales simulation dt, while Phaser physics uses the inverse
-  // timeScale and tweens use the direct multiplier. Restore all clocks together
-  // so Continue cannot resume with a mixed-speed world.
-  if (scene.physics?.world) scene.physics.world.timeScale = 1 / scene.gameSpeed;
-  if (scene.tweens) scene.tweens.timeScale = scene.gameSpeed;
+  // Single source of truth for speed restore (T1): delegate to the scene's
+  // setGameSpeed when present so physics/tween clocks stay in lockstep.
+  // Fall back to the raw shape for lightweight deserialize tests.
+  const restoredSpeed = Number.isFinite(save.gameSpeed) && save.gameSpeed > 0 ? save.gameSpeed : 1;
+  if (typeof (scene as MainScene & { setGameSpeed?: (speed: number) => void }).setGameSpeed === 'function') {
+    (scene as MainScene & { setGameSpeed: (speed: number) => void }).setGameSpeed(restoredSpeed);
+  } else {
+    scene.gameSpeed = restoredSpeed;
+    // `gameSpeed` scales simulation dt. Arcade physics timeScale is the
+    // reciprocal of the sim multiplier (clamped), while tweens use the direct
+    // multiplier. Restore all clocks together so Continue cannot resume with a
+    // mixed-speed world.
+    if (scene.physics?.world) scene.physics.world.timeScale = 1 / Math.max(restoredSpeed, 0.1);
+    if (scene.tweens) scene.tweens.timeScale = restoredSpeed;
+  }
   scene.taxRate = save.taxRate ?? 0;
   scene.bloomIntensity = save.bloomIntensity ?? 1.0;
   scene.enemyFaction = save.enemyFaction;

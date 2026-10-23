@@ -5,6 +5,7 @@ import { TERRAIN_CONFIG, MAP_PRESETS } from '../../constants';
 import { TerrainModifiers, SlopeInfo, MapPreset } from '../../types';
 import { toIso, toIsoElev } from '../utils/iso';
 import { LoadingWorkProgress, runBudgetedWork } from '../../utils/gameLoading';
+import { NO_TERRAIN, isTerrainValid } from '../utils/terrain';
 
 export class TerrainSystem {
   private scene: MainScene;
@@ -113,13 +114,18 @@ export class TerrainSystem {
     const gy = Math.floor(wy / TERRAIN_CONFIG.CELL_SIZE);
 
     if (gx < 0 || gx >= this.gridWidth || gy < 0 || gy >= this.gridHeight) {
-      return 0.5; // Default height outside map
+      return NO_TERRAIN;
     }
 
     return this.heightGrid[gy * this.gridWidth + gx];
   }
 
   getHeightInterpolated(wx: number, wy: number): number {
+    const at = this.getHeightAt(wx, wy);
+    if (!isTerrainValid(at) || at === NO_TERRAIN) {
+      return NO_TERRAIN;
+    }
+
     const gx = wx / TERRAIN_CONFIG.CELL_SIZE;
     const gy = wy / TERRAIN_CONFIG.CELL_SIZE;
     const gxi = Math.floor(gx);
@@ -128,7 +134,7 @@ export class TerrainSystem {
     const fy = gy - gyi;
 
     if (gxi < 0 || gxi >= this.gridWidth - 1 || gyi < 0 || gyi >= this.gridHeight - 1) {
-      return this.getHeightAt(wx, wy);
+      return NO_TERRAIN;
     }
 
     const idx = gyi * this.gridWidth + gxi;
@@ -136,6 +142,10 @@ export class TerrainSystem {
     const h10 = this.heightGrid[idx + 1];
     const h01 = this.heightGrid[idx + this.gridWidth];
     const h11 = this.heightGrid[idx + this.gridWidth + 1];
+
+    if (!isTerrainValid(h00) || !isTerrainValid(h10) || !isTerrainValid(h01) || !isTerrainValid(h11)) {
+      return NO_TERRAIN;
+    }
 
     // Bilinear interpolation
     const top = h00 * (1 - fx) + h10 * fx;
@@ -150,7 +160,7 @@ export class TerrainSystem {
     const gyi = Math.floor(cy);
 
     if (gxi < 1 || gxi >= this.gridWidth - 1 || gyi < 1 || gyi >= this.gridHeight - 1) {
-      return { slope: 0, isBuildable: true };
+      return { slope: 0, isBuildable: false };
     }
 
     const idx = gyi * this.gridWidth + gxi;
@@ -814,6 +824,9 @@ export class TerrainSystem {
    */
   getBiomeAt(wx: number, wy: number): string {
     const h = this.getHeightAt(wx, wy);
+    if (h === NO_TERRAIN || !isTerrainValid(h)) {
+      return 'water';
+    }
     const CS = TERRAIN_CONFIG.CELL_SIZE;
     const gx = Math.floor(wx / CS);
     const gy = Math.floor(wy / CS);

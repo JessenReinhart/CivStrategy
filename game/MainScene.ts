@@ -41,13 +41,14 @@ import villagerNorthImg from '../assets/textures/units/villager-north.png';
 import villagerEastImg from '../assets/textures/units/villager-east.png';
 import villagerWestImg from '../assets/textures/units/villager-west.png';
 import civilianAtlasImg from '../assets/textures/generated/civilian-atlas.png';
-import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, BUILDINGS, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
+import { EVENTS, INITIAL_RESOURCES, MAP_SIZES, BUILDINGS, FACTION_COLORS, AGE_CONFIGS, getNextAge, SEASON_CONFIG, SEASON_ORDER, TECH_DEFS, GOLD_MINE_RESPAWN_MS, DOMINANCE_CONTROL_THRESHOLD, DOMINANCE_HOLD_TIME_MS, DOMINANCE_MIN_BUILDINGS, DEFAULT_MAP_SEED, DEFAULT_MAP_PRESET, CASTLE_GARRISON_RANGE, CASTLE_GARRISON_DAMAGE_PER_UNIT, STRESS_RENDER_INTERVAL } from '../constants';
 
 import { BuildingType, FactionType, Resources, UnitType, MapMode, MapSize, MapPreset, FormationType, UnitStance, Age, Season, TechId, GameResult, VictoryType, GameUnit } from '../types';
 import { toIso, toIsoElev } from './utils/iso';
-import { resolveSeed } from './utils/seed';
 import { SpatialHash } from './utils/SpatialHash';
 import { GameStateService } from './runtime/GameStateService';
+import { EntityRegistryService } from './runtime/EntityRegistryService';
+import { SystemRegistry } from './runtime/SystemRegistry';
 import { Pathfinder } from './systems/Pathfinder';
 import { EntityFactory } from './systems/EntityFactory';
 import { EconomySystem } from './systems/EconomySystem';
@@ -86,6 +87,18 @@ export class MainScene extends Phaser.Scene {
 
   // Game State
   public gameState!: GameStateService;
+  // Phase 8 (A1): group/hash and system ownership lives in dedicated registries,
+  // exposed back through delegating accessors below to keep the legacy API.
+  private _entities: EntityRegistryService | null = null;
+  private _systems: SystemRegistry | null = null;
+
+  private get entities(): EntityRegistryService {
+    return (this._entities ??= new EntityRegistryService());
+  }
+
+  private get systems(): SystemRegistry {
+    return (this._systems ??= new SystemRegistry());
+  }
   // Phase 8 (A1): resources are owned by GameStateService. The accessor keeps
   // the legacy `scene.resources` read/write API; `_resources` is only the
   // bootstrap seed used before `create()` builds the service.
@@ -546,9 +559,12 @@ export class MainScene extends Phaser.Scene {
   private _isShuttingDown = false;
 
   // Core Groups
-  public units!: Phaser.GameObjects.Group;
-  public buildings!: Phaser.GameObjects.Group;
-  public trees!: Phaser.GameObjects.Group;
+  public get units(): Phaser.GameObjects.Group { return this.entities.units!; }
+  public set units(value: Phaser.GameObjects.Group) { this.entities.units = value; }
+  public get buildings(): Phaser.GameObjects.Group { return this.entities.buildings!; }
+  public set buildings(value: Phaser.GameObjects.Group) { this.entities.buildings = value; }
+  public get trees(): Phaser.GameObjects.Group { return this.entities.trees!; }
+  public set trees(value: Phaser.GameObjects.Group) { this.entities.trees = value; }
   public fertileZones: Phaser.Geom.Circle[] = [];
 
   // Rendering Layer (for PostFX)
@@ -559,38 +575,64 @@ export class MainScene extends Phaser.Scene {
   public readonly groundScale = 0.08;
 
   // Systems
-  public pathfinder!: Pathfinder;
-  public treeSpatialHash!: SpatialHash;
-  public unitSpatialHash!: SpatialHash;
-  public entityFactory!: EntityFactory;
-  public economySystem!: EconomySystem;
-  public unitSystem!: UnitSystem;
-  public buildingManager!: BuildingManager;
-  public inputManager!: InputManager;
-  public infiniteMapSystem!: InfiniteMapSystem;
-  public fogOfWar!: FogOfWarSystem | null;
-  public enemyAI!: EnemyAISystem;
-  public minimapSystem!: MinimapSystem;
-  public squadSystem!: SquadSystem;
-  public mapGenerationSystem!: MapGenerationSystem;
-  public cullingSystem!: CullingSystem;
-  public feedbackSystem!: FeedbackSystem;
-  public atmosphericSystem!: AtmosphericSystem;
-  public dayNightSystem!: DayNightSystem;
-  public villagerSystem!: VillagerSystem;
-  public animalSystem!: AnimalSystem;
-  public proceduralSound!: ProceduralSoundSystem;
-  public ambientSystem!: AmbientPopulationSystem;
-  public clashSystem!: ClashSystem;
-  public terrainSystem!: TerrainSystem;
+  public get pathfinder(): Pathfinder { return this.systems.pathfinder; }
+  public set pathfinder(value: Pathfinder) { this.systems.pathfinder = value; }
+  public get treeSpatialHash(): SpatialHash { return this.entities.treeSpatialHash!; }
+  public set treeSpatialHash(value: SpatialHash) { this.entities.treeSpatialHash = value; }
+  public get unitSpatialHash(): SpatialHash { return this.entities.unitSpatialHash!; }
+  public set unitSpatialHash(value: SpatialHash) { this.entities.unitSpatialHash = value; }
+  public get entityFactory(): EntityFactory { return this.systems.entityFactory; }
+  public set entityFactory(value: EntityFactory) { this.systems.entityFactory = value; }
+  public get economySystem(): EconomySystem { return this.systems.economySystem; }
+  public set economySystem(value: EconomySystem) { this.systems.economySystem = value; }
+  public get unitSystem(): UnitSystem { return this.systems.unitSystem; }
+  public set unitSystem(value: UnitSystem) { this.systems.unitSystem = value; }
+  public get buildingManager(): BuildingManager { return this.systems.buildingManager; }
+  public set buildingManager(value: BuildingManager) { this.systems.buildingManager = value; }
+  public get inputManager(): InputManager { return this.systems.inputManager; }
+  public set inputManager(value: InputManager) { this.systems.inputManager = value; }
+  public get infiniteMapSystem(): InfiniteMapSystem { return this.systems.infiniteMapSystem; }
+  public set infiniteMapSystem(value: InfiniteMapSystem) { this.systems.infiniteMapSystem = value; }
+  public get fogOfWar(): FogOfWarSystem | null { return this.systems.fogOfWar; }
+  public set fogOfWar(value: FogOfWarSystem | null) { this.systems.fogOfWar = value; }
+  public get enemyAI(): EnemyAISystem { return this.systems.enemyAI; }
+  public set enemyAI(value: EnemyAISystem) { this.systems.enemyAI = value; }
+  public get minimapSystem(): MinimapSystem { return this.systems.minimapSystem; }
+  public set minimapSystem(value: MinimapSystem) { this.systems.minimapSystem = value; }
+  public get squadSystem(): SquadSystem { return this.systems.squadSystem; }
+  public set squadSystem(value: SquadSystem) { this.systems.squadSystem = value; }
+  public get mapGenerationSystem(): MapGenerationSystem { return this.systems.mapGenerationSystem; }
+  public set mapGenerationSystem(value: MapGenerationSystem) { this.systems.mapGenerationSystem = value; }
+  public get cullingSystem(): CullingSystem { return this.systems.cullingSystem; }
+  public set cullingSystem(value: CullingSystem) { this.systems.cullingSystem = value; }
+  public get feedbackSystem(): FeedbackSystem { return this.systems.feedbackSystem; }
+  public set feedbackSystem(value: FeedbackSystem) { this.systems.feedbackSystem = value; }
+  public get atmosphericSystem(): AtmosphericSystem { return this.systems.atmosphericSystem; }
+  public set atmosphericSystem(value: AtmosphericSystem) { this.systems.atmosphericSystem = value; }
+  public get dayNightSystem(): DayNightSystem { return this.systems.dayNightSystem; }
+  public set dayNightSystem(value: DayNightSystem) { this.systems.dayNightSystem = value; }
+  public get villagerSystem(): VillagerSystem { return this.systems.villagerSystem; }
+  public set villagerSystem(value: VillagerSystem) { this.systems.villagerSystem = value; }
+  public get animalSystem(): AnimalSystem { return this.systems.animalSystem; }
+  public set animalSystem(value: AnimalSystem) { this.systems.animalSystem = value; }
+  public get proceduralSound(): ProceduralSoundSystem { return this.systems.proceduralSound; }
+  public set proceduralSound(value: ProceduralSoundSystem) { this.systems.proceduralSound = value; }
+  public get ambientSystem(): AmbientPopulationSystem { return this.systems.ambientSystem; }
+  public set ambientSystem(value: AmbientPopulationSystem) { this.systems.ambientSystem = value; }
+  public get clashSystem(): ClashSystem { return this.systems.clashSystem; }
+  public set clashSystem(value: ClashSystem) { this.systems.clashSystem = value; }
+  public get terrainSystem(): TerrainSystem { return this.systems.terrainSystem; }
+  public set terrainSystem(value: TerrainSystem) { this.systems.terrainSystem = value; }
   // Simulation runtime adapter — owns the per-frame simulation pipeline
   private simulationHost: SimulationRuntimeHost | null = null;
-  public researchManager!: ResearchManager;
+  public get researchManager(): ResearchManager { return this.systems.researchManager; }
+  public set researchManager(value: ResearchManager) { this.systems.researchManager = value; }
   // World runtime adapter — owns the per-frame world/environment pipeline
   private worldHost: WorldRuntimeHost | null = null;
   // Progression runtime adapter — owns the time-based economy/progression ticks
   private progressionHost: ProgressionRuntimeHost | null = null;
-  public liquidCombat!: LiquidCombatSystem;
+  public get liquidCombat(): LiquidCombatSystem { return this.systems.liquidCombat; }
+  public set liquidCombat(value: LiquidCombatSystem) { this.systems.liquidCombat = value; }
   // Water layer (FIXED map only). Null in INFINITE mode so update() no-ops.
   private waterDepthSprite: Phaser.GameObjects.Sprite | null = null;
   private waterWaveSprite: Phaser.GameObjects.TileSprite | null = null;
@@ -600,11 +642,14 @@ export class MainScene extends Phaser.Scene {
   // Precomputed spatial data for shore chains (normals + phase offsets)
   private waterShoreChainData: { px: number; py: number; nx: number; ny: number; ph1: number; ph2: number }[][] = [];
 
-  public uiGroup!: Phaser.GameObjects.Group;
+  public get uiGroup(): Phaser.GameObjects.Group { return this.entities.uiGroup!; }
+  public set uiGroup(value: Phaser.GameObjects.Group) { this.entities.uiGroup = value; }
   public uiCamera!: Phaser.Cameras.Scene2D.Camera;
 
-  public treeVisuals!: Phaser.GameObjects.Group; // Pool for tree visuals
-  public worldVisuals!: Phaser.GameObjects.Group; // General visuals
+  public get treeVisuals(): Phaser.GameObjects.Group { return this.entities.treeVisuals!; } // Pool for tree visuals
+  public set treeVisuals(value: Phaser.GameObjects.Group) { this.entities.treeVisuals = value; }
+  public get worldVisuals(): Phaser.GameObjects.Group { return this.entities.worldVisuals!; } // General visuals
+  public set worldVisuals(value: Phaser.GameObjects.Group) { this.entities.worldVisuals = value; }
 
   // Input Keys
   public cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -717,6 +762,7 @@ export class MainScene extends Phaser.Scene {
 
     this.proceduralSound?.destroy();
     this.clashSystem?.destroy();
+    (this.atmosphericSystem as { destroy?: () => void } | undefined)?.destroy?.();
   }
 
   constructor() {
@@ -855,8 +901,9 @@ export class MainScene extends Phaser.Scene {
     this.playerTerritoryPercent = 0;
     this.victoryType = VictoryType.CONQUEST;
 
-    // Map seed: deterministic seed resolution (explicit 0 yields 388816)
-    this.mapSeed = resolveSeed(data.mapSeed);
+    // Map seed: 0 = random, any other value = deterministic
+    this.mapSeed = data.mapSeed ?? DEFAULT_MAP_SEED;
+    if (this.mapSeed === 0) this.mapSeed = Math.floor(Math.random() * 999999) + 1;
     // Map preset: terrain style (Standard, Island, Desert, etc.)
     this.mapPreset = data.mapPreset ?? DEFAULT_MAP_PRESET;
 
@@ -1287,6 +1334,11 @@ export class MainScene extends Phaser.Scene {
     }
 
     this.registerGameEvent('request-unit-spawn', this.handleUnitSpawnRequest, this);
+    // Bridge the React build buttons (BUILD_MODE_TOGGLED on game events) to the
+    // BuildingManager's `request-build` listener, which owns preview state.
+    this.registerGameEvent(EVENTS.BUILD_MODE_TOGGLED, (type: BuildingType) => {
+      this.game.events.emit('request-build', type);
+    }, this);
     this.registerGameEvent(EVENTS.SET_TAX_RATE, (rate: number) => { this.taxRate = rate; this.economySystem.updateStats(); }, this);
     this.registerGameEvent(EVENTS.CENTER_CAMERA, this.centerCameraOnTownCenter, this);
     this.registerGameEvent(EVENTS.SET_GAME_SPEED, (speed: number) => {
@@ -1302,8 +1354,8 @@ export class MainScene extends Phaser.Scene {
     this.applyGameSpeedScales();
     this.economySystem.updateStats();
 
-    if (this.isFowEnabled) { this.fogOfWar = new FogOfWarSystem(this); } else { this.fogOfWar = null; }
-    this.minimapSystem = new MinimapSystem(this);
+    if (this.isFowEnabled) { this.systems.fogOfWar = new FogOfWarSystem(this); } else { this.systems.fogOfWar = null; }
+    this.systems.minimapSystem = new MinimapSystem(this);
 
     this.minimapClickHandler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -1333,14 +1385,14 @@ export class MainScene extends Phaser.Scene {
       this.game.renderer.on('postrender', this._postRenderHandler);
     }
 
-    this.registerGameEvent('request-set-formation', (type: FormationType) => {
+    this.registerGameEvent(EVENTS.REQUEST_SET_FORMATION, (type: FormationType) => {
       if (this.unitSystem) {
         this.unitSystem.setFormation(type);
         this.economySystem.updateStats();
       }
     }, this);
 
-    this.registerGameEvent('request-set-stance', (stance: UnitStance) => {
+    this.registerGameEvent(EVENTS.REQUEST_SET_STANCE, (stance: UnitStance) => {
       if (this.unitSystem) {
         this.unitSystem.setStance(stance);
         this.economySystem.updateStats();
@@ -1349,7 +1401,7 @@ export class MainScene extends Phaser.Scene {
 
     // --- UI CAMERA SETUP (Must be done before stress setup so EntityFactory
     // can add UI-only icons to uiGroup for buildings with workerNeeds/effectRadius.)
-    this.uiGroup = this.add.group({ runChildUpdate: true });
+    this.entities.uiGroup = this.add.group({ runChildUpdate: true });
     this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height);
     this.cameras.main.ignore(this.uiGroup);
     if (this.worldLayer) {

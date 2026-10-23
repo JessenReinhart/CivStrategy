@@ -186,6 +186,21 @@ const [selectedCount, setSelectedCount] = useState(0);
   }, []);
 
   useEffect(() => {
+    if (!isGameLoading) return;
+    const watchdog = window.setTimeout(() => {
+      setLoadStatus((previous) => previous.failed
+        ? previous
+        : {
+            ...previous,
+            failed: true,
+            detail: 'World generation timed out after 20 seconds. Return to the main menu and try again.',
+          });
+      setIsGameLoading(false);
+    }, 20000);
+    return () => window.clearTimeout(watchdog);
+  }, [isGameLoading]);
+
+  useEffect(() => {
     if (!gameInstance) return;
 
     const updateHandler = (newStats: GameStats) => {
@@ -219,7 +234,10 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
 
     gameInstance.events.on(EVENTS.UPDATE_STATS, updateHandler);
-    gameInstance.events.on(EVENTS.SELECTION_CHANGED, selectionHandler);
+    // F11: StressTestOverlay owns selection UI in stress-test mode; App owns it otherwise.
+    if (gameState !== 'stress-test') {
+      gameInstance.events.on(EVENTS.SELECTION_CHANGED, selectionHandler);
+    }
     gameInstance.events.on(EVENTS.BUILDING_SELECTED, buildingSelectionHandler);
     gameInstance.events.on(EVENTS.AGE_ADVANCED, ageAdvancedHandler);
 
@@ -251,11 +269,11 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
     const formationHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
-      gameInstance.events.emit('request-set-formation', customEvent.detail);
+      gameInstance.events.emit(EVENTS.REQUEST_SET_FORMATION, customEvent.detail);
     };
     const stanceHandler = (e: Event) => {
       const customEvent = e as CustomEvent;
-      gameInstance.events.emit('request-set-stance', customEvent.detail);
+      gameInstance.events.emit(EVENTS.REQUEST_SET_STANCE, customEvent.detail);
     };
 
     const researchHandler = (e: Event) => {
@@ -264,11 +282,11 @@ const [selectedCount, setSelectedCount] = useState(0);
     };
 
     const clearSelectionHandler = () => {
-      gameInstance.events.emit('clear-selection');
+      gameInstance.events.emit(EVENTS.CLEAR_SELECTION);
     };
 
     const saveGameHandler = () => {
-      gameInstance.events.emit('save-game');
+      gameInstance.events.emit(EVENTS.SAVE_GAME);
     };
     const loadGameHandler = () => {
       const save = loadFromLocalStorage();
@@ -333,17 +351,17 @@ const [selectedCount, setSelectedCount] = useState(0);
       window.removeEventListener('save-game', saveGameHandler);
       window.removeEventListener('load-game', loadGameHandler);
     };
-  }, [gameInstance]);
+  }, [gameInstance, gameState]);
 
   const handleBuild = (type: BuildingType) => {
-    gameInstance?.events.emit('request-build', type);
+    gameInstance?.events.emit(EVENTS.BUILD_MODE_TOGGLED, type);
   };
   const handleSpawnUnit = (type: UnitType) => {
-    gameInstance?.events.emit('request-unit-spawn', type);
+    gameInstance?.events.emit(EVENTS.REQUEST_UNIT_SPAWN, type);
   };
 
   const handleFilterSelection = (type: UnitType) => {
-    gameInstance?.events.emit('filter-selection', type);
+    gameInstance?.events.emit(EVENTS.FILTER_SELECTION, type);
   };
 
   const handleRegrowForest = () => {
@@ -359,7 +377,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   const handleReleaseGarrison = () => {
-    gameInstance?.events.emit('release-garrison');
+    gameInstance?.events.emit(EVENTS.RELEASE_GARRISON);
   };
 
   const handleDismissNotification = (id: number) => {
@@ -374,7 +392,7 @@ const [selectedCount, setSelectedCount] = useState(0);
   };
 
   return (
-    <div className="w-full h-screen overflow-hidden bg-black text-white relative select-none">
+    <div className="w-full h-screen overflow-hidden bg-black text-white relative">
       {gameState === 'menu' && <MainMenu onStart={handleStart} />}
 
       {(gameState === 'playing' || gameState === 'stress-test') && (

@@ -136,6 +136,12 @@ export const UNIT_NAMES: Record<string, string> = {
 //   armor 0  -> 0% reduction,   armor 10 -> 50%,   armor 30 -> 75%,   armor 50 -> 83%
 const ARMOR_REDUCTION_K = 10;
 
+// Guaranteed minimum damage applied after armor and flat reductions. Ranged
+// volleys split one attack across visual arrows, so each arrow's floor is
+// MIN_DAMAGE * attackShare (attackShare = 1/arrowCount): exactly one minimum
+// damage for the whole volley, never per-arrow multiplication.
+export const MIN_DAMAGE = 1;
+
 // Each unit's damage split by type. Values sum to the legacy flat `attack` so
 // overall combat power is preserved, while enabling rock-paper-scissors counters.
 export const UNIT_DAMAGE: Record<UnitType, DamageProfile> = {
@@ -380,6 +386,14 @@ export const EVENTS = {
   REQUEST_REPAIR: 'request-repair',
   SET_TILT_SHIFT_ENABLED: 'set-tilt-shift-enabled',
   SET_TILT_SHIFT_BLUR: 'set-tilt-shift-blur',
+  REQUEST_UNIT_SPAWN: 'request-unit-spawn',
+  RELEASE_GARRISON: 'release-garrison',
+  SAVE_GAME: 'save-game',
+  LOAD_GAME: 'load-game',
+  REQUEST_SET_FORMATION: 'request-set-formation',
+  REQUEST_SET_STANCE: 'request-set-stance',
+  FILTER_SELECTION: 'filter-selection',
+  CLEAR_SELECTION: 'clear-selection',
 };
 
 // ─── Age Configuration ─────────────────────────────────────────────────────
